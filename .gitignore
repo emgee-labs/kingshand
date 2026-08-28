@@ -1,0 +1,38 @@
+# Everything a user's own installation produces stays on their machine.
+#
+# The failure this file exists to prevent is someone committing their own registry - the projects
+# they work on, the tickets they were given, the briefs and reports those produced. Anything
+# written at run time belongs below, and a new run-time directory belongs here before its first
+# write, not after someone notices it in a diff.
+
+# The King's own standing instructions. Stated by hand, read by the Hand, never edited by it,
+# and never shared. instructions.example.md is the tracked template the installer copies.
+/instructions.md
+
+# The durable work state: the project registry, the backlog, per-work briefs and reports, and
+# the two curated memory files.
+/data/
+
+# Live worker records.
+/state/
+
+# Per-installation configuration: the startup-memory budget, the ADO organization and project,
+# and anything else with one right answer per machine.
+/config/
+
+# Third-party binaries dropped in by hand - the review gate lives here.
+/tools/
+
+# Rendered review surfaces, wherever they land.
+*.review.html
+
+# Git worktrees created by dispatch.
+.claude/worktrees/
+
+# Editor and OS noise.
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+*.swp
+*~

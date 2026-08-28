@@ -1,0 +1,29 @@
+{
+  "$note": "Hand session settings. The Hand dispatches workers, reads diffs and merges locally - all of it high-frequency and low-risk, so permission prompts are pure friction here. Workers are separately spawned with --permission-mode bypassPermissions by bin/Dispatch-Worker.ps1, so this affects the Hand only.",
+  "$additionalDirectoriesNote": "Deliberately empty. Add the roots your own repositories live under - install.ps1 offers to fill this in, and nothing is dispatched into a directory the session cannot reach. Absolute paths, JSON-escaped backslashes: \"D:\\\\code\", \"C:\\\\Users\\\\you\\\\projects\".",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"$CLAUDE_PROJECT_DIR/bin/Get-SessionStart.ps1\" -Json",
+            "timeout": 60,
+            "statusMessage": "Reading the session-start digest"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "additionalDirectories": [],
+    "deny": [
+      "Read(//**/.ssh/**)",
+      "Read(//**/.aws/credentials)",
+      "Read(./config/credentials/**)",
+      "Write(./instructions.md)",
+      "Edit(./instructions.md)"
+    ]
+  }
+}
