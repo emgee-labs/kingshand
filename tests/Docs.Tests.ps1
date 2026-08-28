@@ -1550,6 +1550,22 @@ Describe 'the King''s stated instructions are read and never rewritten' {
         $ignore.Contains('/instructions.md') |
             Should -BeTrue -Because 'a user publishing their own standing preferences is the failure this prevents'
     }
+
+    # The two live defaults in the template reach every user who never edits it, so they are the
+    # ones worth pinning. Everything else in that file is commented out and deliberately inert.
+    It 'the template asks for the King form of address, and says how to stop it' {
+        $template = ConvertTo-NormalisedText (Get-Content -Path (Join-Path $script:Root 'instructions.example.md') -Raw)
+        $template.Contains('**Address me as "my King".**') | Should -BeTrue
+        $template.Contains('Once in a reply is enough') |
+            Should -BeTrue -Because 'a form of address repeated every sentence stops being one'
+        $template.Contains('Drop it entirely when the news is bad') |
+            Should -BeTrue -Because 'a flourish on a failure report costs more than it gives'
+    }
+
+    It 'the template keeps a project''s own rules above kingshand''s' {
+        $template = ConvertTo-NormalisedText (Get-Content -Path (Join-Path $script:Root 'instructions.example.md') -Raw)
+        $template.Contains("**A repository's own rules beat these.**") | Should -BeTrue
+    }
 }
 
 Describe 'CLAUDE.md routes durable knowledge to its most specific owner' {
