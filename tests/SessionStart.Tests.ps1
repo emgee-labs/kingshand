@@ -126,6 +126,43 @@ Describe 'a session with nothing recorded still gets a digest' {
 # that install.ps1 creates, so on that first run none of them exists. A digest that says
 # "run /import-project" to someone who has not set up yet sends them after a command that is not
 # there. install.ps1 creates data\, so its absence is the signal.
+# KINGSHAND_HOME wins over a script's own location, which is right for the ordinary case and wrong
+# for exactly one: a second clone, whose install.ps1 finds the variable already claimed by the
+# first and leaves it alone. That copy then runs its own code against the other installation's
+# data, and the digest names directories the reader never chose. The precedence is deliberate; the
+# silence was the defect.
+Describe 'two cross-wired installations are named rather than left to confuse' {
+    AfterEach { Remove-Item Env:\KINGSHAND_HOME -ErrorAction SilentlyContinue }
+
+    It 'says so when KINGSHAND_HOME points somewhere other than this copy' {
+        $env:KINGSHAND_HOME = Join-Path $TestDrive 'some-other-install'
+        $text = Get-Digest (New-Fixture 'cross-wired')
+        $text.Contains('HOME MISMATCH') | Should -BeTrue
+        $text.Contains('Two cross-wired') | Should -BeFalse -Because 'the heading is the marker, not the prose'
+        $text.Contains('so everything below is read from there') | Should -BeTrue
+    }
+
+    It 'names both paths, so the reader can tell which copy is which' {
+        $other = Join-Path $TestDrive 'some-other-install'
+        $env:KINGSHAND_HOME = $other
+        $text = Get-Digest (New-Fixture 'cross-wired-paths')
+        $text.Contains($other) | Should -BeTrue
+        $text.Contains('Run install.ps1 -Force here to claim it') | Should -BeTrue
+    }
+
+    It 'stays silent when the variable agrees with this copy' {
+        $env:KINGSHAND_HOME = Split-Path (Split-Path $script:DigestScript -Parent) -Parent
+        (Get-Digest (New-Fixture 'home-agrees')).Contains('HOME MISMATCH') |
+            Should -BeFalse -Because 'the ordinary case is a variable that matches, and it must not warn'
+    }
+
+    It 'stays silent when the variable is unset' {
+        Remove-Item Env:\KINGSHAND_HOME -ErrorAction SilentlyContinue
+        (Get-Digest (New-Fixture 'home-unset')).Contains('HOME MISMATCH') |
+            Should -BeFalse -Because 'unset is the ordinary state of a fresh clone, never an error'
+    }
+}
+
 Describe 'a fresh clone is told to set up, and is not sent after a skill that is not linked yet' {
     BeforeAll {
         $script:Fresh     = New-Fixture 'fresh-clone' -NoDataDirectory

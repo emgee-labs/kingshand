@@ -249,6 +249,10 @@ if ($currentHome -eq $Root) {
     Write-Ok "KINGSHAND_HOME is already $Root"
 } elseif ($currentHome -and -not $Force) {
     Write-Kept "KINGSHAND_HOME is set to $currentHome, not $Root. Left alone - re-run with -Force to change it."
+    # Naming the variable is not enough. It wins over a script's own location, so this copy runs
+    # its own code against the other installation's registry, workers and queue - which reads as
+    # data appearing from nowhere rather than as a misconfiguration.
+    Write-Host "        Until then this copy reads its projects, workers and queue from $currentHome, not from here."
     $skipped.Add('KINGSHAND_HOME')
 } else {
     [Environment]::SetEnvironmentVariable('KINGSHAND_HOME', $Root, 'User')

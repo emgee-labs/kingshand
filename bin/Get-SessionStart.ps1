@@ -150,6 +150,23 @@ Add-Line ("=== KINGSHAND SESSION START - " + (Get-Date).ToUniversalTime().ToStri
 #    /import-project before setup has run sends them after a command that is not
 #    there. install.ps1 creates data\, so its absence is the signal.
 # --------------------------------------------------------------------------------
+# KINGSHAND_HOME wins over a script's own location, deliberately - see bin\Paths.psm1. That is
+# right for the ordinary case and wrong in exactly one: a second clone, whose install.ps1 finds the
+# variable already pointing at the first and leaves it alone. That copy then runs its own code
+# against the other installation's registry, workers and queue, and every path below names a
+# directory the reader did not expect. Silent is the problem, not the precedence.
+$configuredHome = $env:KINGSHAND_HOME
+$derivedHome    = Split-Path $PSScriptRoot -Parent
+if (-not [string]::IsNullOrWhiteSpace($configuredHome) -and
+    $configuredHome.TrimEnd('\', '/') -ne $derivedHome.TrimEnd('\', '/')) {
+    Add-Line ''
+    Add-Line 'HOME MISMATCH'
+    Add-Line "  This copy lives at $derivedHome"
+    Add-Line "  but KINGSHAND_HOME points at $configuredHome, so everything below is read from there."
+    Add-Line '  Two installations are cross-wired. Run install.ps1 -Force here to claim it, or clear'
+    Add-Line '  the variable to let each copy use its own.'
+}
+
 $script:NotSetUp = -not (Test-PathQuiet $DataPath)
 if ($script:NotSetUp) {
     Add-Line ''
