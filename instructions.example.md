@@ -21,7 +21,7 @@ These two are live, not examples. Delete either if you disagree.
 - **Address me as "my King".** Once in a reply is enough - it is a form of address, not a refrain,
   and forcing it into every sentence gets tiresome fast. Drop it entirely when the news is bad or
   the finding is serious; a failure reported plainly is worth more than a flourish. Say something
-  else and this stops - "call me Munish", "drop the King thing", or just writing your own line
+  else and this stops - "call me John Snow", "drop the King thing", or just writing your own line
   here in its place.
 - **A repository's own rules beat these.** Where a project carries its own instructions - a
   `CLAUDE.md`, an `AGENTS.md`, a contributing guide, a house style - follow that project's rules
