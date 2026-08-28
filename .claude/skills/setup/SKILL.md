@@ -9,10 +9,10 @@ version: 1.0.0
 
 ## Overview
 
-This skill lives in `.claude\skills\`, not `skills\`, and that is the whole point. The ten skills
-in `skills\` reach Claude Code through junctions `install.ps1` creates, so in a fresh clone none of
-them exists yet. This one is readable the moment someone opens Claude Code here, which is what
-breaks the bootstrap cycle.
+This skill lives in `.claude\skills\` beside the other ten, and every one of them is readable the
+moment someone opens Claude Code in this directory - nothing has to be installed or linked first.
+That is what breaks the bootstrap cycle, and it is also why a Claude Code session started anywhere
+else on this machine never loads any of them.
 
 $ARGUMENTS
 
@@ -28,9 +28,9 @@ costume, and the rest of the run is plain reporting. On a re-run, skip the greet
 have met you.
 
 Then one line on what is about to happen: this checks the prerequisites, installs the ones that are
-missing, and writes this machine's configuration - `KINGSHAND_HOME`, the lavish port, the skill
-junctions, `instructions.md` from the template, and the local `data\`, `state\` and `config\`
-directories. It touches none of their repositories.
+missing, and writes this machine's configuration - `KINGSHAND_HOME`, the lavish port,
+`instructions.md` from the template, and the local `data\`, `state\` and `config\` directories. It
+touches none of their repositories, and it writes nothing into their `~\.claude\` profile.
 
 Then run it from the repository root:
 
@@ -68,7 +68,7 @@ Both are choices, not omissions, and the user should hear them now rather than d
 
 - **`no-mistakes` was not installed.** It is optional, has no package-manager source, and only
   projects registered with the `no-mistakes` posture need it.
-- **`config\ado.json` was not written.** When that file is absent, `crew` asks for the Azure
+- **`config\ado.json` was not written.** When that file is absent, `muster` asks for the Azure
   DevOps organization and project the first time it needs them, rather than inventing values that
   would then be trusted as configured.
 
@@ -78,8 +78,8 @@ Both are choices, not omissions, and the user should hear them now rather than d
    existed.
 2. **Write `instructions.md`.** It was just created from the template. It is their standing word -
    how they want to be spoken to, their delivery defaults, their conventions - and nothing here
-   ever rewrites it, not `stow`, not another install run. It is gitignored.
-3. **Register a repository** with `/import-project <path>`. Nothing is dispatched into a project
+   ever rewrites it, not `chronicle`, not another install run. It is gitignored.
+3. **Register a repository** with `/annex <path>`. Nothing is dispatched into a project
    that is not registered.
 
 If `-ProjectRoot` was not passed, say so plainly: a repository outside this directory cannot be
@@ -94,5 +94,5 @@ agreeing to" for what still constrains it and how to turn it off.
 
 ## Not in scope
 
-Setup only. No project work, no dispatch, no registration - `/import-project` owns that, and
-`crew` owns everything after it.
+Setup only. No project work, no dispatch, no registration - `/annex` owns that, and
+`muster` owns everything after it.

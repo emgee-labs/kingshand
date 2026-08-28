@@ -1,13 +1,18 @@
 ---
-name: kingshand-guidelines
-description: Reference for changing kingshand's own tracked material - `CLAUDE.md`, `bin\`, `skills\`, `tests\`, `docs\`. Load it before editing any of that material, whether working as the Hand directly or as a worker briefed on a kingshand-repo task. Covers the knowledge-placement decision tree, the one-owner rule for contracts, the inline-stub pattern for content moved into a skill, size discipline for the always-loaded file, trigger hygiene for new skills, the rule that a prose rule needs a test, and kingshand's style rules.
+name: statute
+description: Reference for changing kingshand's own tracked material - `CLAUDE.md`, `bin\`, `.claude\skills\`, `tests\`, `docs\`. Load it before editing any of that material, whether working as the Hand directly or as a worker briefed on a kingshand-repo task. Covers the knowledge-placement decision tree, the one-owner rule for contracts, the inline-stub pattern for content moved into a skill, size discipline for the always-loaded file, trigger hygiene for new skills, the rule that a prose rule needs a test, and kingshand's style rules.
 version: 1.0.0
 ---
 
-# Kingshand guidelines
+# Statute
 
-Load this before changing kingshand's own tracked material: `$env:KINGSHAND_HOME\CLAUDE.md`, `bin\`,
-`skills\`, `tests\`, and `docs\`.
+Load this before changing kingshand's own tracked material: `$env:KINGSHAND_HOME\CLAUDE.md`,
+`bin\`, `.claude\skills\`, `tests\`, and `docs\`.
+
+Every skill is project-local: it lives in `$env:KINGSHAND_HOME\.claude\skills\<name>\SKILL.md` and
+loads only while Claude Code runs in this directory. Nothing here creates a junction, a symlink or
+any other entry under `~\.claude\`, and a change that reintroduces one is a change that alters how
+Claude Code behaves in every unrelated project on the machine.
 
 `CLAUDE.md` is always loaded. Every line in it is paid for by every session, whether or not that
 session ever reaches the situation the line describes, and conditional detail added inline instead
@@ -22,8 +27,8 @@ Before writing a new fact anywhere in this repo, ask where it belongs, in this o
    If yes: `CLAUDE.md`, inline.
 2. Does the Hand or a worker need it only in a nameable situation - an intake, a gate, a
    dispatch, a landing, a teardown, a specific lifecycle step, a reported bug?
-   If yes: a skill under `skills\`, plus a one-line trigger pointer left inline in `CLAUDE.md`'s
-   Skills section.
+   If yes: a skill under `.claude\skills\`, plus a one-line trigger pointer left inline in
+   `CLAUDE.md`'s Skills section.
 3. Is it design rationale - why kingshand is shaped the way it is, what was considered and
    rejected, what a future change must not undo?
    If yes: `docs\`, as a dated design note.
@@ -41,7 +46,7 @@ this tree gives you.
 ## One-owner rule
 
 Every contract - a data format, a state machine, a decision procedure - is stated in full exactly
-once. Every other mention of it is a one-line cross-reference, never a restatement. `crew` owns the
+once. Every other mention of it is a one-line cross-reference, never a restatement. `muster` owns the
 whole dispatch-to-teardown procedure and `CLAUDE.md` carries one line pointing at it; that is the
 shape.
 
@@ -63,8 +68,8 @@ Everything else - the procedure, the mechanism, the surrounding detail - moves o
 Do not leave a partial restatement behind "just in case". A partial copy is exactly the duplication
 the one-owner rule forbids.
 
-The model to copy is `CLAUDE.md`'s Skills section: it keeps only when to invoke `crew`,
-`import-project`, and `bearings`, plus the standing reminder that reading `CLAUDE.md` is not a
+The model to copy is `CLAUDE.md`'s Skills section: it keeps only when to invoke `muster`,
+`annex`, and `survey`, plus the standing reminder that reading `CLAUDE.md` is not a
 substitute for loading the skill, and points everything else at the skill itself.
 
 ## Size discipline

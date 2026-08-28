@@ -1,12 +1,12 @@
 ---
-name: stow
-description: Sweep the current session for uncaptured durable knowledge, file it to disk, and curate kingshand's tiered, decaying startup memory before a context reset. Use when the user invokes /stow (e.g. "/stow", "stow what you've learned"), before a session reset or context compaction, or periodically to keep operational memory current.
+name: chronicle
+description: Sweep the current session for uncaptured durable knowledge, file it to disk, and curate kingshand's tiered, decaying startup memory before a context reset. Use when the user invokes /chronicle (e.g. "/chronicle", "chronicle", "chronicle what you've learned", "save what you have learned", "write down what you learned"), before a session reset or context compaction, or periodically to keep operational memory current.
 tools: PowerShell, Read, Write, Edit, Glob, Grep
 user-invocable: true
 version: 1.0.0
 ---
 
-# Stow
+# Chronicle
 
 Sweep this session for durable knowledge that exists only in the conversation, then leave the next
 session with a compact current operating map rather than an accumulating journal. Memory entries
@@ -76,20 +76,21 @@ Marking rules:
   entry always carries its dated marker, whose letter names the tier, so a clock-carrying entry is
   never ambiguous with unmarked legacy material.
 - Each memory file's header carries at most a one-line pointer naming this skill as the owner of the
-  scheme, such as `<!-- memory tiers: see the stow skill -->`. **This skill text is the single owner
-  of tier semantics, marker spellings and clocks** - deliberately policy, not configuration - and no
-  memory file header may restate them. Inspect each file's header pointer on every pass and add or
-  correct it.
+  scheme, such as `<!-- memory tiers: see the chronicle skill -->`. **This skill text is the
+  single owner of tier semantics, marker spellings and clocks** - deliberately policy, not
+  configuration - and no memory file header may restate them. Inspect each file's header pointer
+  on every pass and add or correct it.
 - A pre-existing missing or hand-dropped marker is never grounds for destructive treatment. It means
   the file's default tier: an unmarked entry in `king.md` is simply pinned, while an unmarked
   entry in `learnings.md` follows the migration rule below.
 
-Decay advances only when a pass runs, so a kingshand stowed less often than a clock experiences that
-clock at its stow interval.
+Decay advances only when a pass runs, so a kingshand whose memory is chronicled less often than a
+clock experiences that clock at the interval between passes, not at the clock's own.
 
 ## The required startup-memory pass
 
-Every `/stow` invocation performs this complete pass, even when the session produced no new finding.
+Every `/chronicle` invocation performs this complete pass, even when the session produced no new
+finding.
 
 **1. Measure before considering a write.**
 
@@ -184,7 +185,7 @@ Each archived entry keeps its provenance under a dated pass heading: source file
 last-reinforced date, and the reason it left.
 
 ```markdown
-## 2026-08-28 stow
+## 2026-08-28 chronicle
 - (from learnings.md, tier: perishable, reinforced: 2026-07-14) Worker acme-low-med-email is
   mid-flight on the severity split... [archived: unreinforced 45d]
 ```
@@ -225,11 +226,11 @@ routine passes never move entries speculatively. Every test must hold for a cand
 re-derive or duplicate that mapping here. Two consequences bind this pass in particular:
 
 - **Knowledge useful to every contributor to one project** belongs in that project's own memory file,
-  and only a worker may write it, through that project's delivery path under `crew`. The Hand
+  and only a worker may write it, through that project's delivery path under `muster`. The Hand
   never edits a project, so this destination is never live in the same pass that proposes it.
 - **Knowledge general to kingshand itself** belongs in kingshand's tracked material under
-  `kingshand-guidelines`, which is a deliberate scoped change with its own test obligation - never an
-  automatic product of a stow pass.
+  `statute`, which is a deliberate scoped change with its own test obligation - never an
+  automatic product of a chronicle pass.
 
 Forbidden as offload destinations: `CLAUDE.md` itself, which is always loaded for every session and
 so relieves nothing; and any project file written by the Hand rather than by a worker.
@@ -249,8 +250,8 @@ so relieves nothing; and any project file written by the Hand rather than by a w
    state. Explicit approval from the user for that named item is required before anything migrates.
    If they never answer, nothing migrates, the held item persists, and it is never counted as relief.
 3. **Migrate an approved candidate outside this pass**, through the owner that destination requires:
-   a worker dispatched by `crew` for a project's memory file, or a scoped kingshand change under
-   `kingshand-guidelines` for kingshand's own material. The source of truth for the migration is the
+   a worker dispatched by `muster` for a project's memory file, or a scoped kingshand change under
+   `statute` for kingshand's own material. The source of truth for the migration is the
    entry exactly as quoted in the proposal.
 4. **Remove only once live.** The memory entry leaves its file only after the destination actually
    holds it. Until then the entry stays, so knowledge is never in limbo between owners. Leave no
@@ -277,7 +278,7 @@ so relieves nothing; and any project file written by the Hand rather than by a w
    from a memory file are: folding a learning into the preference file, archiving a stale entry to
    `data\memory-archive.md`, offloading an eligible conditional entry to a live on-demand owner
    through the flow above, promoting it into kingshand's tracked material through
-   `kingshand-guidelines`, or deleting an entry that is a duplicate of, or already preserved by, a
+   `statute`, or deleting an entry that is a duplicate of, or already preserved by, a
    stronger existing owner. **A stale unique fact is never deleted, only archived.** Do not invent
    another exit.
 
@@ -300,8 +301,8 @@ rather than a blanket restamp:
 - Only an entry that already carried `<!--g-->` when this invocation began is on the next-pass
   branch: replace that marker with a normal dated marker if independent current-session evidence
   confirms it, and otherwise archive it with the reason `legacy-unvalidated`.
-- The grace period is one full stow cycle, not a time window, and the same transition applies when a
-  hand edit later leaves an entry unmarked in `learnings.md`.
+- The grace period is one full chronicle cycle, not a time window, and the same transition applies
+  when a hand edit later leaves an entry unmarked in `learnings.md`.
 
 ## Completion receipt
 
@@ -323,8 +324,8 @@ not a transcript of the pass. Do not hide an over-budget result behind a reset-s
 
 ## Scope exclusion: the pass never writes a skill
 
-**The stow pass itself must never create or edit a skill as a destination for a finding.** Proposing
-an offload and letting a later approved migration run through its own owner is not the pass writing
-a skill. Changing kingshand's tracked `skills\`, `bin\`, `tests\`, `docs\` or `CLAUDE.md` is a
-deliberately scoped kingshand task under `kingshand-guidelines`, with the test obligation that comes
-with it, and never a by-product of curating memory.
+**The chronicle pass itself must never create or edit a skill as a destination for a finding.**
+Proposing an offload and letting a later approved migration run through its own owner is not the
+pass writing a skill. Changing kingshand's tracked `.claude\skills\`, `bin\`, `tests\`, `docs\` or
+`CLAUDE.md` is a deliberately scoped kingshand task under `statute`, with the test obligation that
+comes with it, and never a by-product of curating memory.

@@ -1,21 +1,21 @@
 ---
-name: crew
-description: Use when the user wants work done on one or more tickets or repos in parallel - e.g. "do T-1001 and T-1002", "start on ticket T-1003", "fix the flaky login test in acme-web", "what is the crew doing", "land T-1001", "dispatch a worker". Writes a brief per unit of work, gates it with the user, dispatches a background worker per brief, reports on completion, and lands only on explicit approval.
+name: muster
+description: Use when the user wants work done on one or more tickets or repos in parallel - e.g. "do T-1001 and T-1002", "start on ticket T-1003", "fix the flaky login test in acme-web", "what is the crew doing", "land T-1001", "dispatch a worker", "muster a worker", "muster". Writes a brief per unit of work, gates it with the user, dispatches a background worker per brief, reports on completion, and lands only on explicit approval.
 tools: Bash, PowerShell, Read, Write, Glob, Grep, ToolSearch, AskUserQuestion
 version: 1.0.0
 ---
 
-# Crew
+# Muster
 
 ## Overview
 
 You dispatch background workers, one per unit of work, each in its own git worktree. How much
 the user is involved depends on the project's posture. With `yolo` off, which is the default,
 they are involved at two moments: approving what gets dispatched, and approving what lands. With
-`+yolo` they are involved at neither - crew proceeds on its own, inside the floors in Step 7 that
-no posture relaxes. And for the push-capable modes, `direct-PR` and `no-mistakes`, crew's
-involvement ends at a pull request the user merges on the forge rather than at anything crew
-lands.
+`+yolo` they are involved at neither - you proceed on your own, inside the floors in Step 7 that
+no posture relaxes. And for the push-capable modes, `direct-PR` and `no-mistakes`, your
+involvement ends at a pull request the user merges on the forge rather than at anything you land
+here.
 
 Everything you are not gating on is yours, and you stay quiet through it.
 
@@ -98,7 +98,7 @@ dispatching shows you nothing.
 
 **An unregistered project stops the dispatch.** `Get-ProjectEntry` throws, and that is correct:
 posture is never inferred, only read. Tell the user the project is not registered and offer to
-import it with `/import-project`. Do not guess a posture, and do not dispatch without one.
+import it with `/annex`. Do not guess a posture, and do not dispatch without one.
 
 **`$proj.rawMode` is what was registered, and it is the field you route on.** For every flat mode
 (`local-only`, `direct-PR`, `no-mistakes`) `$proj.mode` holds exactly the same value and the two
@@ -146,7 +146,7 @@ config, a hook and a local bare repo, which is environment setup and outside any
 A worker that obeys its brief will stop and report the failure, wasting the dispatch.
 
 Reaching this point means the gate was declined at import, or the posture was raised by hand
-afterwards. `/import-project` Step 4 offers initialisation at import time for exactly these two
+afterwards. `/annex` Step 4 offers initialisation at import time for exactly these two
 postures, so this is the exception rather than the normal path.
 
 Tell the user, and let them choose: run `no-mistakes init` in that repo once, or drop the gate
@@ -248,7 +248,7 @@ Do NOT touch: <explicit exclusions>
 hours.** Worker `7372d875` called `AskUserQuestion`, drew a menu that said "Enter to select,
 up/down to navigate", and waited. Nobody was attached, there is no `claude send` to answer a
 running worker with, and the only way out was to kill it - a whole dispatch lost. The worker was
-not misbehaving: it had loaded `diagnostic-reasoning`, which told it to seek decisive evidence,
+not misbehaving: it had loaded `inquest`, which told it to seek decisive evidence,
 and asking looked like the way to get it. Reasonable behaviour, impossible situation. The
 boundary is the same one the Hand lives under in reverse - workers never address the user -
 so do not soften this back into advice, and do not add an exception for "just one quick
@@ -467,7 +467,7 @@ Get-Content "$env:KINGSHAND_HOME\data\<id>\report.md" -Raw
 say so to the user rather than quietly falling back - and treat everything else that worker
 claims with the same suspicion, since the one instruction you can check it against was ignored.
 
-**Before you treat this worker's work as complete, load `decision-hold-lifecycle`.** A `report.md`
+**Before you treat this worker's work as complete, load `decree`.** A `report.md`
 that names a decision the brief did not settle is exactly its trigger, and the Done-means block
 above required the worker to write any such question there rather than ask. That skill owns
 everything that follows: the stable key, the durable backlog item, and the declaration that says
@@ -607,7 +607,7 @@ worker would never reach a terminal stage or a teardown.
 ## Step 8 - Land
 
 Only for a `local-only` project, and only as a local merge. `direct-PR` and `no-mistakes` work
-ends at a pull request that the user merges on the forge; crew never merges there. For those
+ends at a pull request that the user merges on the forge; `muster` never merges there. For those
 modes, do not run this step at all - report the pull request's full https:// URL and go to
 Step 8a.
 
@@ -645,7 +645,7 @@ tasks-axi done "<id>"
 
 Then go to Step 8b and tear the worker down.
 
-**Crew itself never pushes.** Pushing is the user's action or the worker's, never yours. A
+**Muster itself never pushes.** Pushing is the user's action or the worker's, never yours. A
 *worker* pushes only when its project's mode is push-capable - `direct-PR`, `no-mistakes`, or a
 `no-mistakes-prod-only` project resolved to one of those - because registering that mode is the
 consent. Never for `local-only`, whose brief forbids it outright, and never for a project that
@@ -656,7 +656,7 @@ is not registered at all.
 Only for `direct-PR` and `no-mistakes` (including `no-mistakes-prod-only` resolved to either).
 There is nothing to merge here - the pull request is the deliverable, and the user merges it.
 
-**Load `decision-hold-lifecycle` before closing this work out.** Close-out advances a stage and
+**Load `decree` before closing this work out.** Close-out advances a stage and
 records a pull request; it never closes a decision the user has not answered. A hold opened from
 this work's report stays open through `gating`, through `ready`, through `landed`, and through the
 teardown at Step 8b, because none of those events is an answer. That skill owns the only way it
@@ -703,8 +703,8 @@ git -C $w.worktree ls-remote --heads origin "<branch>"
 Empty output means the push never landed. Leave the stage at `gating`, do not advance it to
 `ready`, and do not tear anything down; report it and stop.
 
-With both confirmed, the work is finished as far as crew is concerned, but it is not merged, so
-it moves from `gating` to `ready` rather than to `landed`. `ready` here is the close-out mark:
+With both confirmed, the work is finished as far as this skill is concerned, but it is not merged,
+so it moves from `gating` to `ready` rather than to `landed`. `ready` here is the close-out mark:
 the push is confirmed and the worker is about to be torn down. Record it:
 
 ```powershell

@@ -11,9 +11,9 @@ the conditions at the end of this file.
 
 ## What prompted it
 
-Porting the `stuck-worker-recovery` procedure from the tool kingshand derives from exposed that
-three of its five escalation steps - answer a question in one line, interrupt and redirect a
-confused worker, relaunch carrying a progress note - have no mechanism in kingshand.
+Porting the `rally` procedure from the tool kingshand derives from exposed that three of its five
+escalation steps - answer a question in one line, interrupt and redirect a confused worker,
+relaunch carrying a progress note - have no mechanism in kingshand.
 
 The verified control surface is `claude agents --json`, `logs`, `stop`, `rm` and `attach`. There
 is no `claude send`. `attach` is interactive and belongs to the user, not to the Hand.
@@ -55,8 +55,8 @@ is having no moving parts. That is a poor trade today.
   is stopped and re-dispatched with a better brief, or handed to the user with `claude attach`.
 - `Dispatch-Worker.ps1` always creates a fresh worktree, so a replacement is a second copy by
   construction. This sits in tension with firstmate's "never two worktrees for one task", and
-  `stuck-worker-recovery` names that tension rather than hiding it: the stuck worktree's work
-  must be committed and carried into the replacement's base before the replacement runs.
+  `rally` names that tension rather than hiding it: the stuck worktree's work must be committed
+  and carried into the replacement's base before the replacement runs.
 
 ## What would change the decision
 

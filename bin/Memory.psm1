@@ -7,13 +7,13 @@ Import-Module (Join-Path $PSScriptRoot 'Paths.psm1') -Force
 #
 # `data\king.md` holds how the King works and what the Hand has observed they prefer.
 # `data\learnings.md` holds operational facts and gotchas kingshand has hit. Both are created
-# lazily by the `stow` skill and are ABSENT until there is something to store - absence is a
+# lazily by the `chronicle` skill and are ABSENT until there is something to store - absence is a
 # normal, meaningful result here, never an error, so a report over a fresh kingshand is a report
 # of zero rather than a throw.
 #
 # `instructions.md` at the repo root is deliberately NOT accounted here. These two files are what
-# the Hand learned and `stow` prunes them against this budget; `instructions.md` is what the King
-# stated, nothing may rewrite it, and budgeting a file nobody is allowed to curate would only
+# the Hand learned and `chronicle` prunes them against this budget; `instructions.md` is what the
+# King stated, nothing may rewrite it, and budgeting a file nobody is allowed to curate would only
 # create pressure to break that rule.
 #
 # The token figure is an ESTIMATE: ceil(UTF-8 bytes / 3), ported byte-for-byte from firstmate's
@@ -72,7 +72,7 @@ function Get-MemoryBudget {
 }
 
 # ceil(UTF-8 bytes / 3) for one file. An absent file measures zero and reports itself absent,
-# because that is the ordinary state of a memory file nothing has been stowed into yet.
+# because that is the ordinary state of a memory file nothing has been chronicled into yet.
 function Measure-MemoryFile {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Path)

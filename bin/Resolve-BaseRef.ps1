@@ -11,7 +11,7 @@
   NOTHING to stdout, so the landing gate sees a zero-file diff and an empty attribution scan
   and reads both as clean - against commits it never inspected. The old fallback invented the
   literal string `origin/main` on a repository with no remote at all, which is exactly the
-  posture `/import-project` proposes for a remoteless repo, so that was the common path.
+  posture `/annex` proposes for a remoteless repo, so that was the common path.
 
   Every candidate is therefore confirmed with `git rev-parse --verify`, and an `origin/...`
   name is only ever used when that remote-tracking ref actually exists. When nothing resolves

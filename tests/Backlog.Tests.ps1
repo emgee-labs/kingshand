@@ -2,7 +2,7 @@
 # deliberately refuses to restate its flags - `.tasks.toml` and `tasks-axi --help` own those. So
 # what is worth pinning here is not the syntax but the three facts the contract and both skills
 # actually depend on: an added item comes back from `list`, a held item keeps its reason AND its
-# kind, and the file on disk carries the line shape that `bearings` reads and a human skims.
+# kind, and the file on disk carries the line shape that `survey` reads and a human skims.
 #
 # Every case runs against a THROWAWAY `.tasks.toml` in a temp directory. `tasks-axi` resolves its
 # config from the current directory, so running these from the repo root would add, hold and
@@ -84,7 +84,7 @@ Describe 'tasks-axi backs the durable queue' {
     }
 
     It 'a numeric ticket id is accepted as a slug' -Skip:(-not $HasTasksAxi) {
-        # crew uses the work item id verbatim as the backlog id, and an ADO id is bare digits, so
+        # muster uses the work item id verbatim as the backlog id, and an ADO id is bare digits, so
         # digits alone must work. The id here stays numeric on purpose - a T- prefix would make
         # this pass for the wrong reason and quietly stop covering the shape it exists to cover.
         Invoke-TasksAxi 'add' '4242' 'A ticket-shaped id' | Out-Null
@@ -100,7 +100,7 @@ Describe 'tasks-axi backs the durable queue' {
 
         # And it is durable, not just echoed back by the mutation.
         $review = Invoke-TasksAxi 'ready' '--include-held'
-        $review.Contains('queue-hold-probe')  | Should -BeTrue -Because 'bearings reads held work through this command'
+        $review.Contains('queue-hold-probe')  | Should -BeTrue -Because 'survey reads held work through this command'
         $review.Contains('waiting on the user') | Should -BeTrue
         $review.Contains('captain')             | Should -BeTrue
     }
@@ -129,7 +129,7 @@ Describe 'tasks-axi backs the durable queue' {
 
         $text  = Get-Content -Path $script:BacklogFile -Raw
         $inFlight = ($text -split '(?m)^## ' | Where-Object { $_.StartsWith('In flight') })
-        $inFlight.Contains('queue-add-probe') | Should -BeTrue -Because 'crew Step 4 marks a dispatched item started'
+        $inFlight.Contains('queue-add-probe') | Should -BeTrue -Because 'muster Step 4 marks a dispatched item started'
     }
 
     It 'a closed item leaves In flight for Done' -Skip:(-not $HasTasksAxi) {
@@ -137,13 +137,13 @@ Describe 'tasks-axi backs the durable queue' {
 
         $text = Get-Content -Path $script:BacklogFile -Raw
         $done = ($text -split '(?m)^## ' | Where-Object { $_.StartsWith('Done') })
-        $done.Contains('queue-add-probe') | Should -BeTrue -Because 'crew Step 8 closes a landed item'
+        $done.Contains('queue-add-probe') | Should -BeTrue -Because 'muster Step 8 closes a landed item'
 
         $inFlight = ($text -split '(?m)^## ' | Where-Object { $_.StartsWith('In flight') })
         $inFlight.Contains('queue-add-probe') | Should -BeFalse -Because 'a done item is not still in flight'
     }
 
-    # The cases below are decision-hold-lifecycle's mechanics, not new backlog syntax. That skill
+    # The cases below are decree's mechanics, not new backlog syntax. That skill
     # has no script behind it and no teardown gate enforcing it, so what it can promise is bounded
     # entirely by what tasks-axi actually does: whether a stable key replays cleanly, whether a
     # blocked item names its blocker, and whether closing the hold is what releases the work the
@@ -168,7 +168,7 @@ Describe 'tasks-axi backs the durable queue' {
         Invoke-TasksAxi 'block' 'dhl-followup' '--by' 'dhl-decision' | Out-Null
 
         $held = Invoke-TasksAxi 'ready' '--include-held'
-        $held.Contains('dhl-decision')  | Should -BeTrue -Because 'bearings reads the open decision through this command'
+        $held.Contains('dhl-decision')  | Should -BeTrue -Because 'survey reads the open decision through this command'
         $held.Contains('user decision pending on the retry policy') |
             Should -BeTrue -Because 'the reason is the decision the user has to make'
         $held.Contains('captain')       | Should -BeTrue -Because 'the hold kind is what routes it to King''s Call'
@@ -196,7 +196,7 @@ Describe 'tasks-axi backs the durable queue' {
 
     It 'a hold reason may not carry parentheses' -Skip:(-not $HasTasksAxi) {
         # tasks-axi reserves parentheses for its own markdown hold tags and refuses the command,
-        # so decision-hold-lifecycle states the constraint rather than letting a reason be dropped.
+        # so decree states the constraint rather than letting a reason be dropped.
         Invoke-TasksAxi 'add' 'dhl-paren' 'Parenthesised reason probe' | Out-Null
         $out = Invoke-TasksAxi 'hold' 'dhl-paren' '--reason' 'a (parenthesised) reason' '--kind' 'captain'
 

@@ -27,6 +27,9 @@ one task in its own worktree, and released when it is done.
   non-event.
 - **Your preferences stay yours.** `instructions.md` is read every session and never edited by the
   tool. Your registry, briefs, reports and memory are gitignored and never leave your machine.
+- **Your other projects are untouched.** The skills live in this repository's own
+  `.claude\skills\`, so they load only while Claude Code is running here. Nothing is written into
+  `~\.claude\`, so a session anywhere else on the machine behaves exactly as it did before.
 
 ## Status
 
@@ -35,7 +38,7 @@ Read this before deciding whether to use it.
 - **One real work cycle has been completed end to end.** One. That cycle found four defects - among
   them a landing gate that diffed against the wrong base ref and reported a one-file change as six,
   and a dispatch that promised to report back without arming anything to wake it.
-- **The test suite is 439 cases, and roughly half of them assert that a prose rule exists** in
+- **The test suite is 487 cases, and roughly half of them assert that a prose rule exists** in
   `CLAUDE.md` or a skill, not that an agent followed it. That is a real and deliberate limit: these
   tests catch a rule being deleted or diluted in an edit. They cannot catch a model reading the rule
   and doing something else. The scripts under `bin\` are tested properly; the behaviour of the agent
@@ -43,7 +46,7 @@ Read this before deciding whether to use it.
 - **There is no way to steer a running worker.** Claude Code exposes no scriptable send, so a worker
   that gets stuck is stopped and re-dispatched with a better brief, or handed to you interactively.
   `docs\2026-08-28-worker-control-plane-decision.md` records why that trade was taken.
-- **Windows and PowerShell 7 only.** Paths, junctions and the process model are all Windows-shaped.
+- **Windows and PowerShell 7 only.** Paths, worktrees and the process model are all Windows-shaped.
   Nothing here has been run anywhere else.
 - **It has been used by one person, on one machine.** Expect to hit things.
 
@@ -78,10 +81,10 @@ cd C:\tools\kingshand
 claude
 ```
 
-Then type **`set it up`** - or `setup`, or `/setup`. The `setup` skill ships inside the repository
-at `.claude\skills\setup\`, so it is readable in a fresh clone with nothing installed yet. It runs
-the installer for you and tells you in plain language what installed, what was already there, and
-what still needs you.
+Then type **`set it up`** - or `setup`, or `/setup`. Every skill ships inside the repository at
+`.claude\skills\`, so they are all readable in a fresh clone with nothing installed yet. `setup`
+runs the installer for you and tells you in plain language what installed, what was already there,
+and what still needs you.
 
 The manual equivalent, if you would rather run it yourself:
 
@@ -91,11 +94,16 @@ cd C:\tools\kingshand
 ```
 
 `install.ps1` checks every prerequisite and names the install command for each one it cannot find,
-sets `KINGSHAND_HOME`, junctions the ten skills into `~\.claude\skills\`, copies
-`instructions.example.md` to `instructions.md`, and writes the local directories and the startup
-memory budget. It is idempotent, and it never overwrites an existing `instructions.md` or an
-existing config value without saying which file it left alone. Pass `-Force` where you meant to
-replace something.
+sets `KINGSHAND_HOME`, copies `instructions.example.md` to `instructions.md`, and writes the local
+directories and the startup memory budget. It is idempotent, and it never overwrites an existing
+`instructions.md` or an existing config value without saying which file it left alone. Pass
+`-Force` where you meant to replace something.
+
+**It does not touch `~\.claude\skills\`, and nothing else here does either.** All eleven skills
+live in this repository's own `.claude\skills\`, so they load only while Claude Code is running in
+this directory. A session you start anywhere else on the machine is completely unaffected by
+kingshand - installing it changes nothing about how Claude Code behaves in your other projects,
+and it cannot collide with a skill of the same name you already have.
 
 **`-InstallMissing` is opt-in.** Without it the script installs nothing and only names the command
 for each missing tool. With it, each of those commands is printed and then run, every tool is
@@ -118,26 +126,27 @@ The session-start digest prints on the first turn. With nothing registered it wi
 1. **Write your standing instructions.** Open `instructions.md` and put your own preferences in it -
    how you want to be spoken to, your delivery defaults, your conventions. The Hand reads it every
    session and never edits it. It is gitignored.
-2. **Register a repository.** `/import-project C:\repos\your-repo` - it records the delivery posture
+2. **Register a repository.** `/annex C:\repos\your-repo` - it records the delivery posture
    and never clones anything.
 3. **Give it work.** "fix the flaky login test in your-repo". The Hand writes a brief, shows it to
    you, and dispatches a worker once you approve.
-4. **Check in.** `/bearings` for where everything stands, `/ahoy` for what you missed in this
+4. **Check in.** `/survey` for where everything stands, `/audience` for what you missed in this
    session.
-5. **Keep memory current.** `/stow` before a context reset, which curates what the Hand learned -
-   and never touches `instructions.md`.
+5. **Keep memory current.** `/chronicle` before a context reset, which curates what the Hand
+   learned - and never touches `instructions.md`.
 
 ## Layout
 
 ```
 CLAUDE.md              the Hand's always-loaded instructions - identity, hard rules, contracts
 bin\                   the scripts: dispatch, crew state, registry, snapshot, digest, budget
-skills\                ten skills - crew, import-project, bearings, ahoy, stow, and five references
-.claude\skills\setup\  the one skill that ships in the repo, so "set it up" works in a fresh clone
+.claude\skills\        eleven project-local skills - setup, muster, annex, survey, audience,
+                       chronicle, and five references. They load only in this directory
 tests\                 the Pester suite
 docs\                  one architecture decision worth keeping
 instructions.example.md the template install.ps1 copies to instructions.md
-install.ps1            prerequisites, skill junctions, config
+install.ps1            prerequisites and config - it writes nothing outside this repository
+                       except KINGSHAND_HOME and LAVISH_AXI_PORT
 ```
 
 Everything a run produces - `data\`, `state\`, `config\`, `tools\` and `instructions.md` - is
@@ -164,7 +173,7 @@ but it is a real decision and you should make it knowingly rather than find it l
 What still constrains it:
 
 - Workers only ever run inside their own git worktree, never in your checkout.
-- Nothing is dispatched into a repository you have not registered with `/import-project`, and
+- Nothing is dispatched into a repository you have not registered with `/annex`, and
   posture is read from the registry rather than inferred.
 - Nothing pushes unless that project is registered with a push-capable posture, and nothing is
   merged on the forge at all.

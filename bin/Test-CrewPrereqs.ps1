@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  Verifies every dependency the crew layer needs. Exits 1 when one is missing.
+  Verifies every dependency the dispatch layer needs. Exits 1 when one is missing.
 .DESCRIPTION
   Detect-only. It installs nothing and configures nothing - `install.ps1` does that once, and this
   runs on every session start behind the digest, where a silent pass is the good outcome.
@@ -43,7 +43,7 @@ if ($claudeCmd) {
 }
 
 # Only the `no-mistakes` posture needs the review gate, and a user who registers nothing that way
-# never installs it. So it is a note rather than a failure - `crew` Step 1b already refuses to
+# never installs it. So it is a note rather than a failure - `muster` Step 1b already refuses to
 # dispatch a `no-mistakes` task against a repo where the gate is not initialised.
 $gate = Get-Command 'no-mistakes' -ErrorAction SilentlyContinue
 if ($gate) {

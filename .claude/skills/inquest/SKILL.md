@@ -1,10 +1,10 @@
 ---
-name: diagnostic-reasoning
+name: inquest
 description: Reference procedure for diagnosing a reported bug. The Hand loads it before writing a brief for a reported bug, and again before acting on what a worker's report.md concludes. A worker dispatched to investigate a bug loads it before investigating. Owns end-user-aligned reproduction, causal separation, divergent-path and history inspection, counterfactual testing, and disconfirming evidence.
 version: 1.0.0
 ---
 
-# Diagnostic reasoning
+# Inquest
 
 Use this procedure before scoping a reported bug and before acting on a diagnostic report.
 This skill is the single owner of kingshand's bug-diagnosis reasoning procedure.

@@ -1,16 +1,16 @@
 ---
-name: import-project
-description: Use when the user wants to register a repository with the crew so work can be dispatched into it - e.g. "import C:\repos\acme-api", "register acme-web", "add this repo as direct-PR", "what projects are registered". Records the project's standing delivery posture, and offers to initialise the review gate when the chosen posture needs one. It never clones and never removes.
+name: annex
+description: Use when the user wants to register a repository with the crew so work can be dispatched into it - e.g. "import C:\repos\acme-api", "register acme-web", "annex C:\repos\acme-api", "add this repo as direct-PR", "what projects are registered". Records the project's standing delivery posture, and offers to initialise the review gate when the chosen posture needs one. It never clones and never removes.
 tools: Bash, PowerShell, Read, Write, Glob, Grep, AskUserQuestion
 version: 1.0.0
 ---
 
-# Import project
+# Annex
 
 ## Overview
 
 The registry records the user's **standing posture** for a project: how work ships, and whether
-crew may act without asking. It never decides an individual task's mode - that is resolved at
+`muster` may act without asking. It never decides an individual task's mode - that is resolved at
 intake and passed explicitly to the brief and the dispatch.
 
 Posture is never inferred, only read. A repository that has not been imported cannot be
@@ -59,9 +59,9 @@ The four modes:
   mixed and uncertain work ships `no-mistakes`. Registering it is a one-time choice and never
   requires classifying any change now.
 
-`+yolo` relaxes both crew gates for this project: crew writes the brief and dispatches without
-approval, and lands green work itself. Default it off and enable it only on the user's explicit
-instruction.
+`+yolo` relaxes both of `muster`'s gates for this project: it writes the brief and dispatches
+without approval, and lands green work itself. Default it off and enable it only on the user's
+explicit instruction.
 
 Tell the user what these mean in one line each if they have not seen them before, then confirm
 name, path, mode and yolo together.

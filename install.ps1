@@ -1,8 +1,11 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  Sets up kingshand on this machine: checks prerequisites, links the skills, and writes the
-  configuration that is one answer per machine.
+  Sets up kingshand on this machine: checks prerequisites and writes the configuration that is
+  one answer per machine.
+  It never writes anything outside this repository except the two user environment variables
+  below. The skills live in this repository's own `.claude\skills\`, so nothing is linked into
+  `~\.claude\skills\` and a Claude Code session in any other directory is unaffected.
 .DESCRIPTION
   Idempotent. Running it twice does nothing the second time except say so. It never overwrites an
   existing `instructions.md` or an existing config value without telling you which file it left
@@ -19,8 +22,6 @@
 .PARAMETER Force
   Overwrite an existing instructions.md and existing config values. Off by default, and the only
   way this script replaces something you wrote.
-.PARAMETER SkipSkills
-  Do not create the skill junctions. Useful when you manage ~\.claude\skills\ yourself.
 .PARAMETER InstallMissing
   Run the install command for every missing prerequisite instead of only naming it. Off by
   default. Each command is printed before it runs, every tool is re-checked afterwards rather
@@ -37,7 +38,6 @@
 param(
     [string[]]$ProjectRoot = @(),
     [switch]$Force,
-    [switch]$SkipSkills,
     [switch]$InstallMissing
 )
 
@@ -149,7 +149,7 @@ function Invoke-InstallCommand {
 Write-Step 'Prerequisites'
 $missing = @(Test-Prerequisite)
 
-# Optional: only projects registered `no-mistakes` need the review gate, and crew refuses to
+# Optional: only projects registered `no-mistakes` need the review gate, and muster refuses to
 # dispatch such a task against a repo where it is not initialised. So this is a note, never a stop,
 # and -InstallMissing never installs it - it has no package-manager source in this list.
 if (Get-Command 'no-mistakes' -ErrorAction SilentlyContinue) {
@@ -276,46 +276,7 @@ if ($port -eq '4388') {
 }
 
 # --------------------------------------------------------------------------------
-# 3. Skill junctions. Claude Code reads ~\.claude\skills\; the sources stay in this
-#    repo so a git pull updates every skill without a second copy step.
-# --------------------------------------------------------------------------------
-Write-Step 'Skills'
-
-if ($SkipSkills) {
-    Write-Kept 'Skipped by -SkipSkills.'
-} else {
-    $skillsHome = Join-Path $env:USERPROFILE '.claude\skills'
-    if (-not (Test-Path -LiteralPath $skillsHome)) {
-        New-Item -ItemType Directory -Force -Path $skillsHome | Out-Null
-        Write-Did "created $skillsHome"
-    }
-
-    foreach ($skill in (Get-ChildItem (Join-Path $Root 'skills') -Directory | Sort-Object Name)) {
-        $link = Join-Path $skillsHome $skill.Name
-        $existing = Get-Item -LiteralPath $link -ErrorAction SilentlyContinue
-
-        if ($existing -and $existing.LinkType -and $existing.Target -contains $skill.FullName) {
-            Write-Ok ("{0,-24} already linked" -f $skill.Name)
-            continue
-        }
-        if ($existing -and -not $Force) {
-            # Someone else's skill of the same name, or a real directory. Replacing it silently is
-            # how a user loses work they wrote; naming it is the whole point.
-            $what = if ($existing.LinkType) { "a link to $($existing.Target -join ', ')" } else { 'a real directory' }
-            Write-Kept ("{0,-24} exists as {1}. Left alone - re-run with -Force to replace it." -f $skill.Name, $what)
-            $skipped.Add("skill $($skill.Name)")
-            continue
-        }
-        if ($existing) { Remove-Item -LiteralPath $link -Recurse -Force }
-
-        New-Item -ItemType Junction -Path $link -Target $skill.FullName | Out-Null
-        Write-Did ("{0,-24} linked to {1}" -f $skill.Name, $skill.FullName)
-        $actions.Add("skill $($skill.Name)")
-    }
-}
-
-# --------------------------------------------------------------------------------
-# 4. instructions.md. The King's own standing word. Copied from the tracked template
+# 3. instructions.md. The King's own standing word. Copied from the tracked template
 #    once, then never touched again by anything - including this script.
 # --------------------------------------------------------------------------------
 Write-Step 'Standing instructions'
@@ -339,7 +300,7 @@ if (Test-Path -LiteralPath $instructions) {
 }
 
 # --------------------------------------------------------------------------------
-# 5. Local directories and config. Everything here is gitignored on purpose.
+# 4. Local directories and config. Everything here is gitignored on purpose.
 # --------------------------------------------------------------------------------
 Write-Step 'Local state and config'
 
@@ -359,11 +320,11 @@ if (Test-Path -LiteralPath $budget) {
     $actions.Add('startup-memory-budget')
 }
 
-# Deliberately NOT created. crew asks for the organization and project when this file is absent,
+# Deliberately NOT created. muster asks for the organization and project when this file is absent,
 # and a file full of placeholders would be answered as though it were configured.
 $ado = Join-Path $Root 'config\ado.json'
 if (Test-Path -LiteralPath $ado) { Write-Ok 'config\ado.json exists' }
-else { Write-Host '  NOTE  config\ado.json is deliberately absent. crew will ask for your Azure DevOps organization and project the first time it needs them, and offer to write them here.' }
+else { Write-Host '  NOTE  config\ado.json is deliberately absent. The Hand will ask for your Azure DevOps organization and project the first time it needs them, and offer to write them here.' }
 
 if ($ProjectRoot.Count -gt 0) {
     $settingsPath = Join-Path $Root '.claude\settings.json'
@@ -383,7 +344,7 @@ if ($ProjectRoot.Count -gt 0) {
 }
 
 # --------------------------------------------------------------------------------
-# 6. What happened, and what is left.
+# 5. What happened, and what is left.
 # --------------------------------------------------------------------------------
 Write-Step 'Summary'
 
@@ -405,5 +366,5 @@ if ($missing.Count -gt 0) {
 }
 
 Write-Host ""
-Write-Host "Ready. Open a new shell, start Claude Code in $Root, and run /import-project on a repo."
+Write-Host "Ready. Open a new shell, start Claude Code in $Root, and run /annex on a repo."
 exit 0

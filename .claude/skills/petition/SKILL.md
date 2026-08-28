@@ -1,10 +1,10 @@
 ---
-name: ask-user-authority
+name: petition
 description: Decision procedure for an ask-user finding returned by the no-mistakes review gate. Load it before deciding any ask-user finding, whatever the project's yolo posture, to tell a correction within accepted intent apart from a product or engineering contract expansion that needs the user. Only a project registered `no-mistakes`, or a `no-mistakes-prod-only` project whose task resolved to `no-mistakes`, ever produces one - a `local-only` or `direct-PR` project has no review gate and never does.
 version: 1.0.0
 ---
 
-# Ask-user authority
+# Petition
 
 This skill is the single owner of the decision procedure for ask-user findings. The concise
 standing authority boundary remains always loaded as hard rule 2 in `$env:KINGSHAND_HOME\CLAUDE.md`.

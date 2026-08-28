@@ -106,7 +106,7 @@ Describe 'a session with nothing recorded still gets a digest' {
     }
 
     It 'says an empty registry means nothing can be dispatched yet' {
-        $script:BareText.Contains('nothing can be dispatched until a project is registered with /import-project') |
+        $script:BareText.Contains('nothing can be dispatched until a project is registered with /annex') |
             Should -BeTrue -Because 'an empty registry is a state with a consequence, and the consequence is the useful part'
     }
 
@@ -122,10 +122,10 @@ Describe 'a session with nothing recorded still gets a digest' {
 }
 
 # The SessionStart hook ships inside the repository, so this digest fires on a fresh clone before
-# anything is installed. Every skill it would otherwise name reaches Claude Code through junctions
-# that install.ps1 creates, so on that first run none of them exists. A digest that says
-# "run /import-project" to someone who has not set up yet sends them after a command that is not
-# there. install.ps1 creates data\, so its absence is the signal.
+# anything is installed. The skills load from .claude\skills\ and are readable at once, but the
+# toolchain and local directories every one of them depends on are not there yet. A digest that
+# says "run /annex" to someone who has not set up yet sends them after something that cannot work.
+# install.ps1 creates data\, so its absence is the signal.
 # KINGSHAND_HOME wins over a script's own location, which is right for the ordinary case and wrong
 # for exactly one: a second clone, whose install.ps1 finds the variable already claimed by the
 # first and leaves it alone. That copy then runs its own code against the other installation's
@@ -163,7 +163,7 @@ Describe 'two cross-wired installations are named rather than left to confuse' {
     }
 }
 
-Describe 'a fresh clone is told to set up, and is not sent after a skill that is not linked yet' {
+Describe 'a fresh clone is told to set up, and is not sent after a skill that cannot work yet' {
     BeforeAll {
         $script:Fresh     = New-Fixture 'fresh-clone' -NoDataDirectory
         $script:FreshText = Get-Digest $script:Fresh
@@ -179,9 +179,9 @@ Describe 'a fresh clone is told to set up, and is not sent after a skill that is
         $script:FreshText.Contains('The one useful next step is "set it up".') | Should -BeTrue
     }
 
-    It 'does not name /import-project while it is still unreachable' {
-        $script:FreshText.Contains('/import-project') |
-            Should -BeFalse -Because 'the junctions that make it a skill are created by install.ps1, which has not run'
+    It 'does not name /annex while it is still unreachable' {
+        $script:FreshText.Contains('/annex') |
+            Should -BeFalse -Because 'the registry and toolchain it needs are created by install.ps1, which has not run'
         $script:FreshText.Contains('set it up first') | Should -BeTrue
     }
 
@@ -196,8 +196,8 @@ Describe 'a fresh clone is told to set up, and is not sent after a skill that is
         $installed = New-Fixture 'already-installed'
         $text = Get-Digest $installed
         $text.Contains('NOT SET UP YET') | Should -BeFalse
-        $text.Contains('/import-project') |
-            Should -BeTrue -Because 'once the skills are linked, naming the real next step is correct again'
+        $text.Contains('/annex') |
+            Should -BeTrue -Because 'once the installation exists, naming the real next step is correct again'
     }
 }
 
@@ -296,7 +296,7 @@ Describe 'the King''s stated instructions reach the session verbatim' {
 
     It 'is not counted against the startup-memory budget' {
         # 900 bytes of instructions against a budget of 10 tokens. If instructions.md were
-        # accounted, this would report an overrun - and an overrun tells the Hand to run /stow,
+        # accounted, this would report an overrun - and an overrun tells the Hand to run /chronicle,
         # which is a curation pass over a file nothing is allowed to curate.
         $f = New-Fixture 'instructions-unbudgeted'
         Set-Content -Path $f.Budget -Value '10' -NoNewline -Encoding utf8
@@ -304,7 +304,7 @@ Describe 'the King''s stated instructions reach the session verbatim' {
         $text = Get-Digest $f
 
         $text.Contains('STARTUP_MEMORY_BUDGET:') |
-            Should -BeFalse -Because 'the budget measures what stow may prune, and stow may not prune this file'
+            Should -BeFalse -Because 'the budget measures what chronicle may prune, and chronicle may not prune this file'
         $text.Contains('  Startup memory: 0 of 10 estimated tokens.') |
             Should -BeTrue -Because 'with both memory files absent the accounted total is zero'
     }
@@ -361,8 +361,8 @@ Describe 'the startup-memory budget is reported with its numbers' {
             Should -BeTrue -Because 'a budget diagnostic without its numbers cannot be acted on'
     }
 
-    It 'names /stow as the way to curate it down' {
-        $script:OverText.Contains('/stow') |
+    It 'names /chronicle as the way to curate it down' {
+        $script:OverText.Contains('/chronicle') |
             Should -BeTrue -Because 'the diagnostic must name the one thing that fixes it'
     }
 

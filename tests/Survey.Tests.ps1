@@ -1,4 +1,4 @@
-# Get-BearingsSnapshot.ps1 is the one gather behind /bearings, and the digest it feeds is only as
+# Get-SurveySnapshot.ps1 is the one gather behind /survey, and the digest it feeds is only as
 # honest as it is. Two properties matter more than any single field: it must never throw, because
 # a catch-up that explodes leaves the user with nothing at the exact moment they asked where they
 # left off; and it must never read or write the live fleet, because a status read that mutates
@@ -7,7 +7,7 @@
 # touched by this suite.
 
 BeforeAll {
-    $script:SnapshotScript = Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Get-BearingsSnapshot.ps1'
+    $script:SnapshotScript = Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Get-SurveySnapshot.ps1'
 
     function New-Fixture {
         param([Parameter(Mandatory)][string]$Name)

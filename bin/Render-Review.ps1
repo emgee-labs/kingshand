@@ -4,7 +4,7 @@
   Renders structured review data to a self-contained HTML page for lavish.
 .DESCRIPTION
   Every item carries data-item-id so a lavish annotation anchors to one requirement or file
-  rather than to the whole document. Shared by the crew layer and story coverage.
+  rather than to the whole document. Shared by the dispatch layer and story coverage.
 
   Sections are hashtables of the shape:
     @{ heading = 'Requirements'; items = @(

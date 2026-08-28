@@ -1,10 +1,10 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  The single bounded gather behind /bearings: registry, workers, un-dispatched briefs, reports.
+  The single bounded gather behind /survey: registry, workers, un-dispatched briefs, reports.
 .DESCRIPTION
   Returns structured data. It renders nothing and decides nothing - which bucket a fact belongs
-  in is the `bearings` skill's job, and acting on it is `crew`'s. This script only reads.
+  in is the `survey` skill's job, and acting on it is `muster`'s. This script only reads.
 
   Bounded on purpose: paths, counts and one-line facts, never file contents and never a walk of
   a project repository. A fleet of twenty workers still fits in one object. At most one
@@ -19,7 +19,7 @@
   join ran, and $null when it could not - $null means unknown, never dead.
 
   An empty registry and an absent crew.json are states, not errors: nothing can be dispatched
-  until /import-project runs, and nothing is dispatched until crew dispatches it.
+  until /annex runs, and nothing is dispatched until `muster` dispatches it.
 
 .PARAMETER RegistryPath
   data\projects.md - the project registry.
@@ -28,7 +28,7 @@
 .PARAMETER StatePath
   state\crew.json - worker intent.
 .EXAMPLE
-  $snap = & $env:KINGSHAND_HOME\bin\Get-BearingsSnapshot.ps1
+  $snap = & $env:KINGSHAND_HOME\bin\Get-SurveySnapshot.ps1
 #>
 [CmdletBinding()]
 param(
@@ -259,7 +259,7 @@ if ($dataPresent) {
 # snapshot is still returned whole.
 # --------------------------------------------------------------------------------
 [pscustomobject]@{
-    contract    = 'kingshand-bearings.v1'
+    contract    = 'kingshand-survey.v1'
     generatedAt = (Get-Date).ToUniversalTime().ToString('o')
     registry    = [pscustomobject]@{
         path     = $RegistryPath

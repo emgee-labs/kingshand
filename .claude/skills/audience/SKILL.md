@@ -1,24 +1,24 @@
 ---
-name: ahoy
-description: Use when the user invokes /ahoy or asks what happened while they were away from this session - e.g. "/ahoy", "ahoy", "what did I miss", "recap this session", "what have you been doing". Recaps only the visible session events after the user's last real message, then walks them through every decision still visibly unanswered, one at a time. Falls back to bearings when /ahoy is the session's first real user message.
+name: audience
+description: Use when the user invokes /audience or asks what happened while they were away from this session - e.g. "/audience", "audience", "what did I miss", "recap this session", "what have you been doing". Recaps only the visible session events after the user's last real message, then walks them through every decision still visibly unanswered, one at a time. Falls back to survey when /audience is the session's first real user message.
 user-invocable: true
 version: 1.0.0
 ---
 
-# Ahoy
+# Audience
 
 Give the user a concise session-only recap without gathering fresh state.
 
 1. Inspect only conversation or session history already visible to the current Hand.
 
-2. Find the most recent real user-authored message before the current `/ahoy` invocation. A user
+2. Find the most recent real user-authored message before the current `/audience` invocation. A user
    boundary is an ordinary user-role message. System, tool, and other injected operational
    messages are not user messages. Never infer user authorship merely because a synthetic message
    appears in the user-role transcript.
 
-3. If no prior real user message exists, load `$env:KINGSHAND_HOME\skills\bearings\SKILL.md` and follow
-   it exactly. Bearings alone owns its gathering, artifact, and response contract. Do not restate
-   that contract or combine a session recap with Bearings output.
+3. If no prior real user message exists, load `$env:KINGSHAND_HOME\.claude\skills\survey\SKILL.md`
+   and follow it exactly. Survey alone owns its gathering, artifact, and response contract. Do not
+   restate that contract or combine a session recap with Survey output.
 
 4. If a prior real user message exists, preserve the ordinary recap interval: recap what happened
    after that message and before the current invocation. Include concrete outcomes, landed work,
@@ -35,7 +35,7 @@ Give the user a concise session-only recap without gathering fresh state.
    visibly supported open decision once, and deduplicate by the decision's substance when the
    ordinary interval recap already represents it or its wording differs.
 
-6. The normal recap branch is session-history-only. Do not call Bearings, shell commands, fleet
+6. The normal recap branch is session-history-only. Do not call Survey, shell commands, fleet
    snapshots, status readers, GitHub or browser APIs, tools, or file reads or writes. Create no
    report, persist nothing, and do not guess current live state beyond the last visible event.
 
@@ -54,9 +54,9 @@ Give the user a concise session-only recap without gathering fresh state.
    that existing inventory in the same form. Continue one decision at a time until none remain,
    without starting this flow when the inventory is empty.
 
-The current `/ahoy` message is outside the recap interval. A previous `/ahoy` is a real user
+The current `/audience` message is outside the recap interval. A previous `/audience` is a real user
 message and may be the next interval boundary. If context compaction makes the prior boundary
 unavailable, state that the exact session boundary is unavailable and summarize only visibly
 supported events. Compacted history supports an open decision only when both its request and its
 still-unanswered status are visible; report uncertainty instead of reconstructing hidden requests
-or answers. Do not silently invoke Bearings unless this is genuinely the first real user message.
+or answers. Do not silently invoke Survey unless this is genuinely the first real user message.

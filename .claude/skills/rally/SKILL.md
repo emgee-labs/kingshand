@@ -1,10 +1,10 @@
 ---
-name: stuck-worker-recovery
+name: rally
 description: Reference procedure for a worker that has stopped making progress - a worker whose liveness read comes back dead or has no live process, one looping or repeatedly confused, one asking a question its brief already answers, one that has gone unresponsive, or one still recorded as working after the Hand's session restarted. Reconciles what that worker actually holds before escalating from targeted inspection through handing the session to the user, a safe relaunch, or a reported failure. The Hand loads it when that situation arrives; nobody invokes it by name.
 version: 1.0.0
 ---
 
-# Stuck worker recovery
+# Rally
 
 Use this playbook when a worker's recorded session reads dead or has no live process, or when a
 worker is stale, looping, repeatedly confused, asking a question its brief already answers,
@@ -92,7 +92,7 @@ the task failed or blocked with the conflicting evidence. Set the stage with
    perform.
 
 3. **Relaunch.** If the worker is genuinely wedged, relaunch it - stop the worker, reconcile its
-   worktree per the section above, then dispatch a fresh one through the normal `crew` path with
+   worktree per the section above, then dispatch a fresh one through the normal `muster` path with
    the same brief plus a concise progress note saying what was already done and what remains.
 
    Genuine wedging means looping, unresponsive, repeating the same obstacle, or truly dead. **A

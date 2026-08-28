@@ -5,10 +5,10 @@ standing word. `install.ps1` copies this template to `instructions.md`, which is
 never leaves your machine.
 
 **The Hand reads this file and never edits it.** Nothing curates it, nothing prunes it, and no
-`/stow` pass will quietly drop a line from it. That is the whole difference between this file and
-`data\king.md`: `king.md` is what the Hand inferred about how you work and `stow` prunes it against
-a budget, while this file is what you stated. If you want something to survive untouched, it goes
-here.
+`/chronicle` pass will quietly drop a line from it. That is the whole difference between this file
+and `data\king.md`: `king.md` is what the Hand inferred about how you work and `chronicle` prunes
+it against a budget, while this file is what you stated. If you want something to survive
+untouched, it goes here.
 
 An absent `instructions.md` is a normal state, not an error - it means you have stated no standing
 preferences yet. Delete every line below if none of it applies to you; a file of examples you never

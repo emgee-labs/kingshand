@@ -179,7 +179,7 @@ Describe 'Get-MemoryReport accounts for both memory files' {
         ($script:r.files | Where-Object { $_.name -eq $absent }).present  | Should -BeFalse
     }
 
-    It 'reports zero for a kingshand that has stowed nothing yet' {
+    It 'reports zero for a kingshand that has chronicled nothing yet' {
         $r = $null
         { $script:r = Get-MemoryReport -DataPath $script:DataDir -BudgetPath $script:BudgetPath } |
             Should -Not -Throw -Because 'absence is meaningful, not an error'

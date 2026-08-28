@@ -1,10 +1,10 @@
 ---
-name: decision-hold-lifecycle
+name: decree
 description: Reference policy for finishing an investigation or a review without losing a decision that belongs to the user. The Hand loads it before treating a worker's work as complete, before closing that work out, and when recording or routing the user's answer. Owns the durable backlog lifecycle of an unresolved decision - the stable key, the registration, the inventory declaration, and the only way a hold is allowed to close.
 version: 1.0.0
 ---
 
-# Durable unresolved-decision lifecycle
+# Decree
 
 This skill is the single policy owner for unresolved decisions that belong to the user and were
 discovered by an investigation or a review. The Hand loads it; nobody invokes it by name.
@@ -55,7 +55,7 @@ decision-like do not create holds. A question the worker answered itself, a reco
 user can take or leave with no consequence either way, and a sentence shaped like a question but
 settled in the next paragraph are all noise, and filing them buries the real decisions among them.
 
-`bearings` reads the resulting structured state through `tasks-axi` and must never compensate by
+`survey` reads the resulting structured state through `tasks-axi` and must never compensate by
 scraping reports, chat or terminal output. A decision that is not in the backlog does not appear
 in the digest, and that is the point: the fix is to register it, never to make the digest guess.
 
@@ -90,9 +90,9 @@ Four mechanical facts this depends on, each confirmed against the tool rather th
   first and there is nothing left to route, and the queue never records that the answer authorised
   anything at all.
 - **`--kind captain` is what marks the hold as the King's own.** The other kinds - `external`,
-  `load`, `parked`, `future` - wait on something that is not the King, and `bearings` routes them to
-  a different section. `stow` files its pinned-offload approvals the same way, so stay consistent
-  with it rather than inventing a second spelling.
+  `load`, `parked`, `future` - wait on something that is not the King, and `survey` routes them to
+  a different section. `chronicle` files its pinned-offload approvals the same way, so stay
+  consistent with it rather than inventing a second spelling.
 - **`captain` here is `tasks-axi`'s spelling, not ours, and it is not free text.** The tool
   validates `--kind` against exactly `captain`, `external`, `load`, `parked` and `future`, and
   refuses anything else with a `VALIDATION_ERROR`. It survives the King-and-Hand vocabulary
@@ -136,7 +136,7 @@ repairing that costs the user the same question a second time.
 ## No script enforces this gate
 
 Firstmate blocks its teardown on this gate. **Kingshand has nothing equivalent, and this skill will
-not pretend otherwise.** `crew` Step 8b tears a worker down on landing or push evidence alone and
+not pretend otherwise.** `muster` Step 8b tears a worker down on landing or push evidence alone and
 reads no decision state, `bin\` contains no check that looks for an open hold before cleanup, and
 `tests\Docs.Tests.ps1` pins the rules on this page as text without being able to observe whether a
 decision was ever filed.

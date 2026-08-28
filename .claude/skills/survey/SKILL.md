@@ -1,12 +1,12 @@
 ---
-name: bearings
-description: Use when the user invokes /bearings or asks for a catch-up on the fleet - e.g. "where did I left off", "catch me up", "status report", "morning brief", "what is in the works", "bearings". Renders a complete four-section digest of the current fleet state. Plain /bearings is chat-only and writes nothing, while /bearings file additionally writes the dated data\status-report-<YYYY-MM-DD>.md artifact.
+name: survey
+description: Use when the user invokes /survey or asks for a catch-up on the fleet - e.g. "where did I left off", "catch me up", "status report", "morning brief", "what is in the works", "survey". Renders a complete four-section digest of the current fleet state. Plain /survey is chat-only and writes nothing, while /survey file additionally writes the dated data\status-report-<YYYY-MM-DD>.md artifact.
 tools: PowerShell, Read, Write
 user-invocable: true
 version: 1.0.0
 ---
 
-# Bearings
+# Survey
 
 Generate a complete current snapshot of the fleet, so the user can pick up where they left off in
 one read after a break, a night, or a fresh session.
@@ -15,7 +15,7 @@ This runs only when the user asks for it. There is no session-start hook and non
 catch-up is worth reading when it is asked for, and worth nothing when it is printed at every
 session whether or not anything changed. Do not add one and do not propose one.
 
-Plain `/bearings` returns only the four-section chat digest. Only `/bearings file` writes the
+Plain `/survey` returns only the four-section chat digest. Only `/survey file` writes the
 dated report artifact and then returns the same four-section chat digest with the report path.
 
 This skill is operationally read-only in both modes. It never dispatches, steers, lands, merges,
@@ -24,9 +24,9 @@ in explicit file mode.
 
 ## Invocation modes
 
-- Plain `/bearings` gathers a fresh bounded snapshot and renders the four-section chat digest
+- Plain `/survey` gathers a fresh bounded snapshot and renders the four-section chat digest
   without creating, deleting, reading, or replacing `$env:KINGSHAND_HOME\data\status-report-<YYYY-MM-DD>.md`.
-- `/bearings file` gathers a fresh bounded snapshot, replaces today's
+- `/survey file` gathers a fresh bounded snapshot, replaces today's
   `$env:KINGSHAND_HOME\data\status-report-<YYYY-MM-DD>.md` from scratch, and then renders the same
   four-section chat digest with the path to that report.
 - Treat `file` only as an explicit invocation option in the slash command. Do not treat natural
@@ -40,7 +40,7 @@ in explicit file mode.
 Run it, and read its output:
 
 ```powershell
-$snap = & $env:KINGSHAND_HOME\bin\Get-BearingsSnapshot.ps1
+$snap = & $env:KINGSHAND_HOME\bin\Get-SurveySnapshot.ps1
 ```
 
 That script is the single bounded, deterministic fleet-state source for this skill. It reads the
@@ -53,7 +53,7 @@ bounds.
 - Do not scrape conversation history, a worker's transcript, or an earlier status report to
   supplement current state. What is on disk now is the state; what was said earlier is not.
 - Do not read `brief.md` or `report.md` bodies to pad a section. Name the pointer and let the
-  user or `crew` open it.
+  user or `muster` open it.
 - `$snap.diagnostics` is not decoration. Every entry is a fact the digest is missing, so surface
   each one under Charted Next as an integrity warning rather than rendering a confident section
   built on a section that failed.
@@ -105,8 +105,8 @@ without adding a fifth section.
 
 ## Chat-response contract
 
-This skill owns the `/bearings` response format; `Get-BearingsSnapshot.ps1` owns the data that
-feeds it. Every `/bearings` response renders EXACTLY these four sections, in THIS order, and
+This skill owns the `/survey` response format; `Get-SurveySnapshot.ps1` owns the data that
+feeds it. Every `/survey` response renders EXACTLY these four sections, in THIS order, and
 nothing else structural:
 
 1. **King's Call** - ONLY what needs the user's own action now.
@@ -162,7 +162,7 @@ Map the snapshot onto the four buckets like this, and nowhere else:
   Never give the `claude attach` line for an `idle` worker, and never describe a `waiting` one as
   having finished.
 - A worker at stage `ready` - it is waiting at the landing gate for the user's approval.
-- An open PR waiting on the user's merge. Crew never merges on the forge, so a PR sits here until
+- An open PR waiting on the user's merge. Muster never merges on the forge, so a PR sits here until
   the user merges it. Full `https://...` URL.
 - A brief written but not yet dispatched - `$snap.data.undispatched`. The dispatch gate is the
   user's, so an un-dispatched brief is work waiting on them, not queued work.
@@ -209,7 +209,7 @@ Map the snapshot onto the four buckets like this, and nowhere else:
   queued." rather than dropping the section.
 
 An empty registry is meaningful, not an error. It means nothing can be dispatched until
-`/import-project` runs, and it belongs in King's Call as exactly that one line. The same is
+`/annex` runs, and it belongs in King's Call as exactly that one line. The same is
 true of an absent `crew.json`: nothing has been dispatched yet.
 
 `rawMode` is the registered posture and the one to quote; `mode` is the mechanical resolution and
@@ -223,9 +223,9 @@ PR, tears down a worktree, answers a decision, or writes any file except the sin
 in explicit file mode.
 
 **Reading the backlog is a read.** Never add, start, hold, unhold, update or close a backlog item
-from this skill; `crew` owns every one of those, and `decision-hold-lifecycle` owns the only way a
+from this skill; `muster` owns every one of those, and `decree` owns the only way a
 captain hold may close. A queued item that needs acting on is named in its section and left there.
 
 If what it reads implies an action - a worker at the landing gate, a PR ready to merge, a brief
-waiting on the dispatch gate - name it in its section and leave the action to `crew`. Naming the
+waiting on the dispatch gate - name it in its section and leave the action to `muster`. Naming the
 next step is the digest's job; taking it is not.

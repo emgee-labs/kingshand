@@ -9,10 +9,10 @@
   is to make a restart a non-event: everything a fresh session needs to orient itself is printed
   once, so nothing has to be rediscovered by re-reading the same files a second time.
 
-  Deliberately NOT a second `bearings`. Bearings is an on-demand, curated four-section answer to
+  Deliberately NOT a second `survey`. Survey is an on-demand, curated four-section answer to
   "what needs me", asked for by the user and rendered with judgement. This is a mechanical dump of
   startup facts nobody asked for, read once at session open. Neither calls the other, and nothing
-  runs bearings on the user's behalf.
+  runs survey on the user's behalf.
 
   Bounded on purpose. The fleet and queue sections are counts and one-liners; only `instructions.md`
   and the two memory files are printed in full, and only the two memory files are accounted against
@@ -22,7 +22,7 @@
 
   `instructions.md` is the King's own standing instructions, written by hand and never edited by
   the Hand. It is deliberately NOT one of the memory files: `king.md` and `learnings.md` are what
-  the Hand learned and `stow` prunes them, while `instructions.md` is what the King stated and
+  the Hand learned and `chronicle` prunes them, while `instructions.md` is what the King stated and
   nothing rewrites it. It is not counted against the memory budget for the same reason - a budget
   is pressure to curate, and there is nothing here the Hand is allowed to curate.
 
@@ -34,9 +34,9 @@
   how the King works yet, and an absent `instructions.md` means the King has stated no standing
   preferences. Each prints an explicit ABSENT marker that is never confused with a file that
   exists and holds nothing. An empty registry means nothing can be dispatched until
-  `/import-project` runs. Each of those is a state the digest states plainly.
+  `/annex` runs. Each of those is a state the digest states plainly.
 
-  Reuses `Get-BearingsSnapshot.ps1` for fleet state and `Memory.psm1` for the budget rather than
+  Reuses `Get-SurveySnapshot.ps1` for fleet state and `Memory.psm1` for the budget rather than
   reading either a second way. There is one fleet reader and one estimator, and this is a caller
   of both.
 
@@ -144,11 +144,13 @@ Add-Line ("=== KINGSHAND SESSION START - " + (Get-Date).ToUniversalTime().ToStri
 
 # --------------------------------------------------------------------------------
 # 0. First run. The SessionStart hook ships inside the repository, so this digest
-#    fires on a fresh clone before anything is installed - and every instruction
-#    below it names a skill that does not exist yet, because the junctions are made
-#    by install.ps1. Say so here instead, and stop: pointing a new reader at
-#    /import-project before setup has run sends them after a command that is not
-#    there. install.ps1 creates data\, so its absence is the signal.
+#    fires on a fresh clone before anything is installed. The skills load from
+#    .claude\skills\ and are readable straight away, but the toolchain, the
+#    registry and the local directories they all depend on are not there yet, so
+#    every instruction below it would fail on a missing prerequisite. Say so here
+#    instead, and stop: pointing a new reader at /annex before setup has run sends
+#    them after something that cannot work. install.ps1 creates data\, so its
+#    absence is the signal.
 # --------------------------------------------------------------------------------
 # KINGSHAND_HOME wins over a script's own location, deliberately - see bin\Paths.psm1. That is
 # right for the ordinary case and wrong in exactly one: a second clone, whose install.ps1 finds the
@@ -174,8 +176,8 @@ if ($script:NotSetUp) {
     Add-Line '  This looks like a fresh clone - nothing is installed and no work is registered.'
     Add-Line '  Tell the Hand "set it up". It checks the toolchain, installs what is missing,'
     Add-Line '  and configures this machine. Nothing else here works until it has run.'
-    Add-Line '  Say that before anything else, and do not send the reader to a skill that is'
-    Add-Line '  not linked yet.'
+    Add-Line '  Say that before anything else, and do not send the reader to a skill whose'
+    Add-Line '  prerequisites and configuration are not in place yet.'
 }
 
 # --------------------------------------------------------------------------------
@@ -233,8 +235,8 @@ try {
 Add-Line ''
 Add-Line 'FLEET'
 try {
-    $snapshotScript = Join-Path $PSScriptRoot 'Get-BearingsSnapshot.ps1'
-    if (-not (Test-PathQuiet $snapshotScript)) { throw "Get-BearingsSnapshot.ps1 is not at $snapshotScript." }
+    $snapshotScript = Join-Path $PSScriptRoot 'Get-SurveySnapshot.ps1'
+    if (-not (Test-PathQuiet $snapshotScript)) { throw "Get-SurveySnapshot.ps1 is not at $snapshotScript." }
 
     $snap = & $snapshotScript -RegistryPath $RegistryPath -DataPath $DataPath -StatePath $StatePath
 
@@ -243,10 +245,10 @@ try {
     # digest exists to avoid.
     $entries = @($snap.registry.entries)
     if ($entries.Count -eq 0) {
-        # Before setup has run, /import-project is not a linked skill, so naming it here sends a
+        # Before setup has run, /annex is not a linked skill, so naming it here sends a
         # new reader after a command that does not exist. The first-run banner above already
         # named the one step that works.
-        $next = if ($script:NotSetUp) { 'set it up first' } else { 'a project is registered with /import-project' }
+        $next = if ($script:NotSetUp) { 'set it up first' } else { 'a project is registered with /annex' }
         if ($snap.registry.present) {
             Add-Line "  Projects: none registered - nothing can be dispatched until $next."
         } else {
@@ -391,7 +393,7 @@ try {
     if ($report.overBudget) {
         $over = $report.total - $report.budget
         Add-Line ("STARTUP_MEMORY_BUDGET: $($report.total) estimated tokens against a budget of " +
-                  "$($report.budget), over by $over. Run /stow to curate it back down. Both files " +
+                  "$($report.budget), over by $over. Run /chronicle to curate it back down. Both files " +
                   "are printed above regardless - the budget is a signal, not a gate.")
     } else {
         Add-Line "  Startup memory: $($report.total) of $($report.budget) estimated tokens."
