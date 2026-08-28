@@ -229,11 +229,11 @@ try {
         # Before setup has run, /import-project is not a linked skill, so naming it here sends a
         # new reader after a command that does not exist. The first-run banner above already
         # named the one step that works.
-        $next = if ($script:NotSetUp) { 'set it up first' } else { '/import-project' }
+        $next = if ($script:NotSetUp) { 'set it up first' } else { 'a project is registered with /import-project' }
         if ($snap.registry.present) {
-            Add-Line "  Projects: none registered - nothing can be dispatched until $next runs."
+            Add-Line "  Projects: none registered - nothing can be dispatched until $next."
         } else {
-            Add-Line "  Projects: no registry at $RegistryPath - nothing can be dispatched until $next runs."
+            Add-Line "  Projects: no registry at $RegistryPath - nothing can be dispatched until $next."
         }
     } else {
         Add-Line "  Projects: $($entries.Count) registered"

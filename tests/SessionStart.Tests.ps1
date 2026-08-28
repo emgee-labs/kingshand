@@ -106,7 +106,7 @@ Describe 'a session with nothing recorded still gets a digest' {
     }
 
     It 'says an empty registry means nothing can be dispatched yet' {
-        $script:BareText.Contains('nothing can be dispatched until /import-project runs') |
+        $script:BareText.Contains('nothing can be dispatched until a project is registered with /import-project') |
             Should -BeTrue -Because 'an empty registry is a state with a consequence, and the consequence is the useful part'
     }
 
