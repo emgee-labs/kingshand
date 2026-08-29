@@ -254,13 +254,25 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                   '',
                   ' Enter to confirm - Esc to cancel')
             } else {
-                @('* Claude Code', '', '>', '  bypass permissions on')
+                # Deliberately a realistic terminal width. Dispatch now checks that the guard can
+                # actually read this worker's screen, and a fixture narrower than the guard's
+                # threshold would make every ordinary dispatch warn that it had gone blind.
+                @('* Claude Code v2.1.220 - Opus - E:\repo',
+                  '',
+                  '> ',
+                  '  bypass permissions on (shift+tab to cycle) - left arrow for agents')
             }
             Set-Content -Path (Join-Path $script:ShimDir 'agent-read.json') -Encoding utf8 -Value $screen
         }
 
-        Set-HerdrReply -Verb 'pane-list'  -Result @{ panes = @(@{ pane_id = 'p1' }) }
-        Set-HerdrReply -Verb 'pane-split' -Result @{ pane = @{ pane_id = 'p2' } }
+        # Every worker gets its OWN workspace now, never a split of an existing pane. Splitting
+        # halves the terminal width each time, and two real workers came out 6 and 3 columns wide -
+        # too narrow to render the prompt text the screen guard matches, which left both the guard
+        # and herdr's own detection blind. pane-split is still answered so a test that reaches for
+        # it fails on its assertion rather than on a missing fixture.
+        Set-HerdrReply -Verb 'workspace-create' -Result @{ root_pane = @{ pane_id = 'p2' } }
+        Set-HerdrReply -Verb 'pane-list'        -Result @{ panes = @(@{ pane_id = 'p1' }) }
+        Set-HerdrReply -Verb 'pane-split'       -Result @{ pane = @{ pane_id = 'p2' } }
         Set-AgentStartState
 
         $env:KINGSHAND_TEST_HERDR_DIR = $script:ShimDir
@@ -341,8 +353,18 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $script:FirstResult.id | Should -Be 'T-1001'
         }
 
-        It 'returns the four fields crew.json is built from, and only those' {
-            @($script:FirstResult.Keys | Sort-Object) | Should -Be @('base', 'branch', 'id', 'worktree')
+        # Four crew.json fields plus one dispatch-time observation, and nothing else. `readable`
+        # is deliberately not crew state: it says whether the guard could see this worker's screen
+        # at the moment it started, which the caller has to know because "no prompt found" and
+        # "could not look" are different answers and only one means the worker is healthy.
+        It 'returns the four fields crew.json is built from, plus the readability answer' {
+            @($script:FirstResult.Keys | Sort-Object) |
+                Should -Be @('base', 'branch', 'id', 'readable', 'worktree')
+        }
+
+        It 'reports the worker as readable when its terminal is wide enough for the guard' {
+            $script:FirstResult.readable |
+                Should -BeTrue -Because 'the fixture screen is a realistic width, so the guard can see it'
         }
 
         # herdr cannot pass arguments to claude on Windows at all, so both grants have to be on

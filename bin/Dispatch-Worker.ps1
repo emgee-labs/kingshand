@@ -194,9 +194,28 @@ if ($submitted -and $submitted.PSObject.Properties.Name -contains 'blocked') {
            "Read-HerdrAgent before answering anything.")
 }
 
+# Whether the guard can actually read this worker, checked once and reported rather than assumed.
+#
+# Everything that decides a worker is stuck reads its SCREEN, because herdr's own state is known to
+# be wrong in both directions for a worker sitting on a prompt. A terminal too narrow to render
+# "Enter to select" makes that read impossible - and the failure is silent, because a screen with no
+# match looks exactly like a screen with no prompt. Two real workers were measured at 6 and 3
+# columns, rendering one character per line, with both the guard and herdr's own detection blind.
+#
+# Not a refusal: the worker is running and will do its work, and killing it over terminal geometry
+# would be worse. But the caller must be told, because "no prompt found" and "cannot look" are
+# different answers and only one of them means the worker is fine.
+$readable = Test-HerdrAgentReadable -Name $Name
+if (-not $readable) {
+    Write-Warning ("Worker $Name is in a terminal too narrow to read - the stuck-worker guard " +
+                   "cannot see an interactive prompt in it. Treat its silence as unknown rather " +
+                   "than healthy, and check `data\$Name\report.md` rather than its screen.")
+}
+
 [hashtable]@{
     id       = $Name
     worktree = $worktree
     branch   = $branch
     base     = $base
+    readable = $readable
 }

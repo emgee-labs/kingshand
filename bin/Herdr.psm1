@@ -165,8 +165,23 @@ function Start-HerdrServer {
 
 # A pane at $Cwd, sitting at an interactive shell prompt and ready for `agent start`.
 #
-# The first pane on a fresh server has to come from `workspace create`; every later one is a
-# split. Callers do not need to know which, so this decides.
+# ALWAYS ITS OWN WORKSPACE, never a split of an existing pane. This is not tidiness.
+#
+# Splitting halves the width every time, and the width is load-bearing: kingshand decides whether a
+# worker is stuck by reading its SCREEN for the text of an interactive prompt, because herdr's own
+# state is unreliable for exactly that case. Measured on a real run - two workers dispatched into a
+# workspace that already held other panes came out 6 and 3 columns wide, rendering one character per
+# line. At that width the phrases the guard matches cannot appear at all, so both the guard and
+# herdr's own manifest regexes were blind, and the five-hour hang this whole layer exists to prevent
+# was live again and undetectable.
+#
+# Closing the siblings does not undo it either: the layout rectangles update, the terminals inside
+# them do not reflow, and a worker that started narrow stays narrow for its whole life. So the only
+# fix is not to narrow it in the first place.
+#
+# --env is passed here as well as at server start. The server scrub covers panes it launches, but a
+# user may already have a herdr server running that kingshand did not start, and that one carries
+# whatever environment it inherited.
 function New-HerdrPane {
     [CmdletBinding()]
     param(
@@ -174,26 +189,39 @@ function New-HerdrPane {
         [string]$Label = 'kingshand'
     )
 
-    $panes = @()
-    $list = Invoke-Herdr -Arguments @('pane', 'list') -AllowError
-    if ($list -and $list.PSObject.Properties.Name -contains 'panes') { $panes = @($list.panes) }
-
-    # --env is repeated on the pane as well as the server. The server scrub covers panes it
-    # launches, but a user may already have a herdr server running that kingshand did not start,
-    # and that one carries whatever environment it inherited.
-    if ($panes.Count -eq 0) {
-        $r = Invoke-Herdr -Arguments @(
-            'workspace', 'create', '--cwd', $Cwd, '--label', $Label, '--no-focus',
-            '--env', 'CLAUDE_CODE_CHILD_SESSION='
-        )
-        return $r.root_pane.pane_id
-    }
-
     $r = Invoke-Herdr -Arguments @(
-        'pane', 'split', '--pane', $panes[0].pane_id, '--direction', 'right',
-        '--cwd', $Cwd, '--no-focus', '--env', 'CLAUDE_CODE_CHILD_SESSION='
+        'workspace', 'create', '--cwd', $Cwd, '--label', $Label, '--no-focus',
+        '--env', 'CLAUDE_CODE_CHILD_SESSION='
     )
-    $r.pane.pane_id
+    $r.root_pane.pane_id
+}
+
+# True when a worker's terminal is wide enough for the screen guard to work on it.
+#
+# The guard matches phrases like "Enter to select". A pane too narrow to render one of them cannot
+# be read, and a read that cannot succeed must not be reported as "no prompt found" - that is the
+# difference between "this worker is fine" and "I cannot tell". Callers that treat a false from
+# Test-HerdrAgentAwaitingInput as proof of health need to know which one they have.
+function Test-HerdrAgentReadable {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [int]$MinimumColumns = 40
+    )
+
+    $agentName = ConvertTo-HerdrAgentName -Name $Name
+    $exe = Get-HerdrCommandPath
+    if (-not $exe) { throw (Get-HerdrCommandHint) }
+
+    $screen = (& $exe agent read $agentName --source visible 2>&1 | Out-String)
+    if (-not $screen) { return $false }
+
+    $widest = 0
+    foreach ($line in ($screen -split "`n")) {
+        $len = $line.TrimEnd().Length
+        if ($len -gt $widest) { $widest = $len }
+    }
+    $widest -ge $MinimumColumns
 }
 
 # Launches Claude Code in an existing pane and returns once it is interactive.
@@ -497,4 +525,4 @@ Export-ModuleMember -Function Get-HerdrCommandPath, Get-HerdrCommandHint, Conver
                               Start-HerdrAgent, Get-HerdrAgent, Get-HerdrAgents, Send-HerdrPrompt,
                               Wait-HerdrAgent, Read-HerdrAgent, Send-HerdrKeys, Stop-HerdrAgent,
                               Remove-HerdrPane, Test-HerdrAgentAwaitingInput, Get-HerdrAgentState,
-                              Wait-HerdrAgentSettled
+                              Wait-HerdrAgentSettled, Test-HerdrAgentReadable
