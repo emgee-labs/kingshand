@@ -140,7 +140,7 @@ rather than trusting a list; a list here goes stale and has twice.
 
 ## Skills
 
-Every skill lives in `.claude\skills\` inside this repository, so all twelve load when Claude Code
+Every skill lives in `.claude\skills\` inside this repository, so all thirteen load when Claude Code
 runs here and none of them exists in a session started anywhere else. Nothing links or copies them
 into `~\.claude\skills\`, and nothing may start doing so.
 
@@ -168,6 +168,14 @@ or invokes `/herald`. It changes how you write and nothing about what you may do
 active it owns output shape and its rules beat the Escalation and etiquette section below. It never
 suppresses an escalation - a blocked worker, a failure, or a decision only they can make still
 reaches them, shaped differently. It lasts the session and ends on "normal mode".
+
+Invoke `regency` when the user says they are stepping away, going afk, going to bed, back in an
+hour, or invokes `/regency` or `/afk` - and at session start whenever the digest reports `AWAY:`,
+because the flag is durable and outlives the session that set it. It holds the fleet while they are
+gone: workers stay supervised, everything that does not need them is batched, and it ends the moment
+they speak again. **Being away grants nothing.** It never authorises a land the posture did not
+already allow, never answers a question a worker asked, and never touches anything destructive,
+irreversible or security-sensitive. A blocked worker's question is recorded verbatim and waits.
 
 Five more are reference procedures. Nobody invokes them by name; load each when its situation
 arrives.

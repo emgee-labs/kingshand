@@ -234,6 +234,26 @@ try {
 # --------------------------------------------------------------------------------
 Add-Line ''
 Add-Line 'FLEET'
+
+# The away flag first, because it changes how everything under it should be read.
+#
+# A regency is durable on purpose - it has to survive a restart, since the whole point is that
+# nobody is at the machine to re-enter it. But durable state nothing surfaces is a trap: the flag
+# would sit on disk while a fresh session behaved as though the King were present, narrating at an
+# empty chair and treating a blocked worker as somebody else's problem. So it is the first line of
+# the fleet, not a footnote.
+$afkFlag = Join-Path (Split-Path $StatePath -Parent) '.afk'
+if (Test-PathQuiet $afkFlag) {
+    $since = ''
+    try {
+        $line = @(Get-Content -LiteralPath $afkFlag -ErrorAction Stop | Where-Object { $_ -match '^since:' }) |
+                Select-Object -First 1
+        if ($line) { $since = ' (' + $line.Trim() + ')' }
+    } catch { }
+    Add-Line "  AWAY: a regency is in force$since - load ``regency``. The King is not at the machine."
+    Add-Line '        Batch everything that does not need them, and never answer a worker''s question for them.'
+}
+
 try {
     $snapshotScript = Join-Path $PSScriptRoot 'Get-SurveySnapshot.ps1'
     if (-not (Test-PathQuiet $snapshotScript)) { throw "Get-SurveySnapshot.ps1 is not at $snapshotScript." }
