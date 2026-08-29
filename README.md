@@ -46,7 +46,7 @@ reads.
   non-event.
 - **Your preferences stay yours.** `instructions.md` is read every session and never written by the
   tool - enforced by the permission layer, not just asked for in prose.
-- **Your other projects are untouched.** All eleven skills live in this repository's own
+- **Your other projects are untouched.** All twelve skills live in this repository's own
   `.claude\skills\`. Nothing is written into `~\.claude\`, so a session anywhere else on the machine
   behaves exactly as it did before.
 
@@ -169,7 +169,7 @@ astray - neither of which a detached background session allows.
 
 ## Built-in skills
 
-Eleven, all project-local. Six you invoke; five the Hand loads for itself.
+Twelve, all project-local. Seven you invoke; five the Hand loads for itself.
 
 | Skill | What it is for |
 |---|---|
@@ -177,6 +177,7 @@ Eleven, all project-local. Six you invoke; five the Hand loads for itself.
 | `annex` | Register a repository and its delivery posture. Never clones |
 | `muster` | Dispatch and supervise workers across tickets and repos |
 | `survey` | Where everything stands - the catch-up digest |
+| `herald` | Shape replies for focus: next action first, one thing at a time. Also `adhd mode` |
 | `audience` | What happened while you were away from this session |
 | `chronicle` | Curate durable memory before a context reset |
 | `rally` | A worker that has stopped making progress |
@@ -231,7 +232,7 @@ great many prompts.
 ```
 CLAUDE.md               the Hand's always-loaded instructions - identity, hard rules, contracts
 bin\                    dispatch, worker state, registry, snapshot, digest, herdr, workspace prep
-.claude\skills\         eleven project-local skills. They load only in this directory
+.claude\skills\         twelve project-local skills. They load only in this directory
 tests\                  the Pester suite
 tools\herdr\            herdr, fetched and SHA-256 verified by the installer - gitignored,
                         and deliberately not on PATH
