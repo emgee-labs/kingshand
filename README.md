@@ -2,7 +2,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
-[![Tests](https://img.shields.io/badge/tests-696%20passing-3fb950)](tests)
+[![Tests](https://img.shields.io/badge/tests-704%20passing-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 # You rule. It executes.
@@ -231,9 +231,10 @@ tools\herdr\            herdr, fetched and SHA-256 verified by the installer - g
                         and deliberately not on PATH
 docs\                   the architecture decisions worth keeping
 instructions.example.md the template install.ps1 copies to instructions.md
-install.ps1             prerequisites and config - writes exactly three things outside this
-                        repository: KINGSHAND_HOME, LAVISH_AXI_PORT, and one line in your
-                        global gitignore
+install.ps1             prerequisites and config - writes at most four things outside this
+                        repository: KINGSHAND_HOME, LAVISH_AXI_PORT, one line in your global
+                        gitignore, and claude.exe ahead of npm's wrapper on PATH when your
+                        machine only has the wrapper
 ```
 
 Everything a run produces - `data\`, `state\`, `config\`, `tools\` and `instructions.md` - is

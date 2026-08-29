@@ -52,11 +52,19 @@ Test-Tool -Name 'gh' -Optional `
            '`no-mistakes-prod-only`. Install with: winget install --id GitHub.cli - then run: ' +
            'gh auth login. Work that stops at a finished local branch never needs it.')
 
-# The shim, resolved rather than assumed. Dispatch cannot spawn a worker without it, and the whole
-# reason it is looked up by name is that its location differs per machine.
-$claudeCmd = Get-ClaudeCommandPath
-if ($claudeCmd) {
-    Write-Host ("  OK  {0,-14} {1}" -f 'claude.cmd', $claudeCmd)
+# The executable, resolved rather than assumed - its location differs per machine.
+#
+# Which form it resolves to matters, and the failure it prevents is nasty: npm's claude.cmd wrapper
+# corrupts any argument containing a quote, so a machine that only has the wrapper runs workers
+# fine and then fails every review-gate step with "--json-schema is not valid JSON" - an error that
+# names JSON and gives no hint that the real problem is PATH. That cost a working day to find, so
+# it is reported here rather than left to be rediscovered.
+$claudeExe = Get-ClaudeCommandPath
+if ($claudeExe) {
+    Write-Host ("  OK  {0,-14} {1}" -f 'claude.exe', $claudeExe)
+    if (Test-ClaudeCommandIsWrapper -Path $claudeExe) {
+        $notes += (Get-ClaudeWrapperHint)
+    }
 } else {
     $failures += (Get-ClaudeCommandHint)
 }

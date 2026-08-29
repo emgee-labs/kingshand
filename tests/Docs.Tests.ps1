@@ -2943,26 +2943,33 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     # rather than the write hidden - a header promising less than the script does is worse than no
     # promise at all, because it is the thing a reader checks instead of reading the code. The
     # count is pinned deliberately: adding a fourth write without saying so fails here.
-    It 'install.ps1 names all three things it writes outside this repository, and the README agrees' {
+    It 'install.ps1 names all four things it writes outside this repository, and the README agrees' {
         Assert-Phrase -Text (Get-DocText $script:InstallPs1) -Where 'the install.ps1 header' `
-            -Phrase ('It writes exactly three things outside this repository, and names each one as ' +
+            -Phrase ('It writes at most four things outside this repository, and names each one as ' +
                      'it does it: the two user environment variables KINGSHAND_HOME and ' +
-                     'LAVISH_AXI_PORT, and the line `.claude/worktrees/` in your global gitignore. ' +
-                     'Nothing else on the machine is touched.')
+                     'LAVISH_AXI_PORT, the line `.claude/worktrees/` in your global gitignore, and - ' +
+                     'only on a machine where Claude Code resolves to npm''s claude.cmd wrapper - the ' +
+                     'real claude.exe put first on your user PATH.')
 
         $readme = Get-DocText (Join-Path $script:Root 'README.md')
         Assert-Phrase -Text $readme -Where 'the README Layout block' `
-            -Phrase ('writes exactly three things outside this repository: KINGSHAND_HOME, ' +
-                     'LAVISH_AXI_PORT, and one line in your global gitignore')
+            -Phrase ('writes at most four things outside this repository: KINGSHAND_HOME, ' +
+                     'LAVISH_AXI_PORT, one line in your global gitignore, and claude.exe ahead of ' +
+                     'npm''s wrapper on PATH when your machine only has the wrapper')
         $readme.Contains('writes nothing outside this repository except KINGSHAND_HOME') |
-            Should -BeFalse -Because 'the installer now writes a third thing, and the README must not still deny it'
+            Should -BeFalse -Because 'the installer writes more than that, and the README must not deny it'
+        $readme.Contains('writes exactly three things outside this repository') |
+            Should -BeFalse -Because 'the count moved to four and the README must not still say three'
     }
 
-    It 'the setup skill tells the user about that third write before it happens' {
-        Assert-Phrase -Text (Get-DocText $script:SetupMd) -Where 'the setup skill' `
+    It 'the setup skill tells the user about the writes before they happen' {
+        $setup = Get-DocText $script:SetupMd
+        Assert-Phrase -Text $setup -Where 'the setup skill' `
             -Phrase ('Say too that it adds one line, `.claude/worktrees/`, to their global ' +
-                     'gitignore. That is the only thing it changes outside this repository other ' +
-                     'than the two environment variables')
+                     'gitignore, because workers run inside their own repositories')
+        Assert-Phrase -Text $setup -Where 'the setup skill' `
+            -Phrase ('And say, only when it actually happens, that it put `claude.exe` ahead of ' +
+                     'npm''s `claude.cmd` on their PATH')
     }
 }
 

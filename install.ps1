@@ -3,9 +3,10 @@
 .SYNOPSIS
   Sets up kingshand on this machine: checks prerequisites and writes the configuration that is
   one answer per machine.
-  It writes exactly three things outside this repository, and names each one as it does it: the
-  two user environment variables KINGSHAND_HOME and LAVISH_AXI_PORT, and the line
-  `.claude/worktrees/` in your global gitignore. Nothing else on the machine is touched. The
+  It writes at most four things outside this repository, and names each one as it does it: the two
+  user environment variables KINGSHAND_HOME and LAVISH_AXI_PORT, the line `.claude/worktrees/` in
+  your global gitignore, and - only on a machine where Claude Code resolves to npm's claude.cmd
+  wrapper - the real claude.exe put first on your user PATH. Nothing else on the machine is touched. The
   skills live in this repository's own `.claude\skills\`, so nothing is linked into
   `~\.claude\skills\` and a Claude Code session in any other directory is unaffected.
 .DESCRIPTION
@@ -67,6 +68,10 @@ Import-Module (Join-Path $Root 'bin\Paths.psm1') -Force
 # where it is installed and working perfectly.
 Import-Module (Join-Path $Root 'bin\Herdr.psm1') -Force
 
+# Set by Test-Prerequisite. Initialised here because StrictMode makes an unset variable an error,
+# and this one is only assigned on the machines that have the problem.
+$script:ClaudeIsWrapper = $false
+
 $actions = [System.Collections.Generic.List[string]]::new()
 $skipped = [System.Collections.Generic.List[string]]::new()
 
@@ -127,17 +132,20 @@ function Test-Prerequisite {
         }
     }
 
-    # The shim specifically, not `claude`. Start-Process cannot launch the .ps1 that `claude`
-    # resolves to on Windows, so dispatch spawns claude.cmd - and a `claude` that resolves without
-    # a .cmd beside it is a toolchain that passes every other check and still cannot dispatch a
-    # worker.
-    $claudeCmd = Get-ClaudeCommandPath
-    if ($claudeCmd) { Write-Ok ("{0,-12} {1}" -f 'claude.cmd', $claudeCmd) }
+    # The executable, and specifically WHICH form of it. npm's claude.cmd wrapper forwards with %*,
+    # which lets cmd.exe re-parse the quotes inside an argument, so anything carrying JSON arrives
+    # truncated. The review gate passes a JSON schema on every agent step, so a wrapper-only machine
+    # fails the whole pipeline instantly with an error about JSON and no clue that PATH is the cause.
+    $claudeExe = Get-ClaudeCommandPath
+    if ($claudeExe) {
+        Write-Ok ("{0,-12} {1}" -f 'claude.exe', $claudeExe)
+        if (Test-ClaudeCommandIsWrapper -Path $claudeExe) { $script:ClaudeIsWrapper = $true }
+    }
     else {
         Write-Miss (Get-ClaudeCommandHint)
         $still.Add(@{
-            Name = 'claude.cmd'; Manager = 'npm'
-            Install = 'npm install -g @anthropic-ai/claude-code'; What = 'the shim dispatch spawns'
+            Name = 'claude'; Manager = 'npm'
+            Install = 'npm install -g @anthropic-ai/claude-code'; What = 'Claude Code itself'
         })
     }
 
@@ -575,6 +583,35 @@ if ($port -eq '4388') {
     [Environment]::SetEnvironmentVariable('LAVISH_AXI_PORT', '4388', 'User')
     Write-Did 'LAVISH_AXI_PORT set to 4388 for your user.'
     $actions.Add('LAVISH_AXI_PORT')
+}
+
+# Put the real claude.exe ahead of npm's claude.cmd wrapper.
+#
+# The wrapper forwards with %*, so cmd.exe re-parses the quotes inside an argument and anything
+# carrying JSON arrives cut at the first one. The review gate passes a JSON schema on every agent
+# step, so on a wrapper-only machine every step dies instantly with "--json-schema is not valid
+# JSON: JSON Parse error: Expected '}'" - an error that names JSON and never mentions PATH. That is
+# a genuinely awful thing to debug, and this is one line of PATH.
+#
+# PATHEXT prefers .EXE over .CMD, so a directory holding claude.exe placed first wins outright.
+# Only done when the resolved command really is the wrapper: a machine that already finds the
+# binary is left completely alone.
+if ($script:ClaudeIsWrapper) {
+    $claudeBin = Join-Path $env:APPDATA 'npm\node_modules\@anthropic-ai\claude-code\bin'
+    if (Test-Path -LiteralPath (Join-Path $claudeBin 'claude.exe')) {
+        $userPath = [Environment]::GetEnvironmentVariable('PATH', 'User')
+        $already  = @(($userPath -split ';') | Where-Object { $_.TrimEnd('\') -ieq $claudeBin.TrimEnd('\') })
+        if ($already.Count -gt 0) {
+            Write-Ok 'claude.exe is already ahead of the npm wrapper on your PATH.'
+        } else {
+            [Environment]::SetEnvironmentVariable('PATH', ($claudeBin + ';' + $userPath), 'User')
+            Write-Did "claude.exe put first on your PATH: $claudeBin"
+            Write-Host '        npm''s claude.cmd wrapper corrupts arguments containing quotes, which breaks the review gate.'
+            $actions.Add('PATH (claude.exe first)')
+        }
+    } else {
+        Write-Host ('  NOTE  ' + (Get-ClaudeWrapperHint))
+    }
 }
 
 # --------------------------------------------------------------------------------
