@@ -274,7 +274,7 @@ question". A question written into `report.md` reaches the user; a question draw
 never does.
 
 **Resolve the report path fully before the brief is written.** Substitute both the real root and
-the real id: write `C:\tools\kingshand\data\T-1001\report.md`, never the literal `<id>` and never a
+the real id: write `$env:KINGSHAND_HOME\data\T-1001\report.md`, never the literal `<id>` and never a
 `$env:KINGSHAND_HOME` the worker is left to expand. The worker is a separate process that may not
 carry your environment, and a brief naming a variable it cannot resolve names no file at all. The
 worker can already write there - the dispatcher lists the brief's directory in the worktree's

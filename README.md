@@ -105,9 +105,12 @@ at it when the config is unset, and it never writes the line twice.
 
 ### Install and launch
 
+Clone it wherever you keep things. Any drive, any folder, spaces in the path are fine - it works
+out its own location and nothing here assumes otherwise.
+
 ```powershell
-git clone https://github.com/emgee-labs/kingshand C:\tools\kingshand
-cd C:\tools\kingshand
+git clone https://github.com/emgee-labs/kingshand
+cd kingshand
 claude
 ```
 
@@ -131,7 +134,7 @@ is picked up.
 ### Talk to it
 
 ```powershell
-cd C:\tools\kingshand
+cd kingshand
 claude
 ```
 
