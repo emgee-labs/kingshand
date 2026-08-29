@@ -48,8 +48,8 @@ registry, crew.json joined with live agent state, each worker's `report.md`, and
 `data\<id>\` holding a `brief.md` with no crew.json entry. Its header owns its exact fields and
 bounds.
 
-- Do not create or consult a second fleet-state reader, ad-hoc registry parse, ad-hoc
-  `claude agents --json` call, or hand-rolled scan of `data\` or `state\`.
+- Do not create or consult a second fleet-state reader, ad-hoc registry parse, ad-hoc herdr call,
+  or hand-rolled scan of `data\` or `state\`.
 - Do not scrape conversation history, a worker's transcript, or an earlier status report to
   supplement current state. What is on disk now is the state; what was said earlier is not.
 - Do not read `brief.md` or `report.md` bodies to pad a section. Name the pointer and let the
@@ -147,20 +147,21 @@ Map the snapshot onto the four buckets like this, and nowhere else:
 - A worker whose `agentState` is `blocked`, whatever its stage. It cannot proceed on its own, so
   it is never Underway. Give it its own line naming the worker id.
 
-  **`agentStatus` decides what you tell the user, and the two cases need opposite advice.**
-  Both are `blocked`; only one can be answered.
+  **`blocked` and `idle` are the two stopped states and they need opposite advice.** Read the
+  state, not the stage.
 
-  - `blocked` with `agentStatus` of `waiting` means it is sitting on an interactive prompt that
-    nobody can answer, because a background worker has no one attached. It is hung and will wait
-    indefinitely. Say so, and point at `claude attach <id>` as the only way in. A worker's brief
-    forbids opening such a prompt, so this also means that brief was not followed.
-  - `blocked` with `agentStatus` of `idle` means it stopped by design. It reached a decision its
-    brief did not settle, wrote the question into `data\<id>\report.md`, and stopped as instructed.
-    Point at the report, not at `claude attach` - attaching a worker that finished correctly
-    wastes the user's time and misreads its own report as a failure.
+  - `blocked` means the worker is sitting on an interactive prompt. herdr recognised the menu on
+    its screen, and it refuses to send that worker anything until the prompt is answered, so it is
+    stopped and will stay stopped. Say what it is waiting on and that the decision is the user's;
+    `rally` owns getting their answer into it. A worker's brief forbids opening such a prompt, so
+    this also means that brief was not followed.
+  - `idle` means the worker's turn ended. Usually it finished. It may instead have stopped by
+    design, having reached a decision its brief did not settle, written the question into
+    `data\<id>\report.md` and stopped as instructed. Point at the report - an `idle` worker has
+    already said what it needed to, and describing it as hung sends the user chasing a decision
+    that is written down.
 
-  Never give the `claude attach` line for an `idle` worker, and never describe a `waiting` one as
-  having finished.
+  Never describe an `idle` worker as hung, and never describe a `blocked` one as having finished.
 - A worker at stage `ready` - it is waiting at the landing gate for the user's approval.
 - An open PR waiting on the user's merge. Muster never merges on the forge, so a PR sits here until
   the user merges it. Full `https://...` URL.
@@ -181,8 +182,8 @@ Map the snapshot onto the four buckets like this, and nowhere else:
 **Underway**
 
 - A live worker at stage `dispatched`, `implementing` or `gating` **whose `agentState` is not
-  `blocked`**, one line of current state each from its stage and its `agentState` or
-  `agentStatus`.
+  `blocked`**, one line of current state each from its stage and its `agentState`. `working` is
+  the state that means genuinely progressing.
 - A worker whose `agentState` is `blocked` is never Underway, whatever its stage says. A live
   process at stage `dispatched` looks like progress and is not - it is stopped, waiting on the
   user. It goes to King's Call.

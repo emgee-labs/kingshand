@@ -249,8 +249,10 @@ Describe 'a malformed crew.json degrades rather than exploding' {
 }
 
 Describe 'a worker is joined with its durable report' {
-    # One snapshot for the whole block: workers present means one `claude agents --json` call,
-    # and this is the only case in the suite that has any.
+    # One snapshot for the whole block: workers present means one liveness call through herdr,
+    # and this is the only case in the suite that has any. The join itself, and herdr's state
+    # vocabulary, are covered in CrewStatus.Tests.ps1 - here the point is only that intent and
+    # the durable report survive whatever liveness answers.
     BeforeAll {
         $script:Fleet = New-Fixture 'fleet'
         New-WorkDirectory -Fixture $script:Fleet -Id 'w-reported' -WithBrief -WithReport | Out-Null

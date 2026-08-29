@@ -4,8 +4,13 @@ Set-StrictMode -Version Latest
 # crew.json data model.
 #
 # This module owns intent only: which worker is doing which ticket, in which repo, at which
-# stage. Liveness is never stored here - it comes from `claude agents --json`, which is the
-# only thing that actually knows whether a process exists.
+# stage. Liveness is never stored here - it comes from herdr, which is the only thing that
+# actually knows whether a process exists. Get-CrewStatus.ps1 owns that join.
+#
+# The worker id stored here is kingshand's own, and it is the name dispatch chose rather than one
+# a supervisor minted. herdr never sees it in this form: ConvertTo-HerdrAgentName normalises it to
+# herdr's much narrower `^[a-z][a-z0-9_-]{0,31}$`, and that mapping lives in Herdr.psm1 so this
+# file keeps exactly one id.
 #
 # Add-CrewWorker and Set-CrewStage deliberately return nothing. A hashtable is a reference
 # type, so mutation is visible to the caller without a return value. Returning the state would

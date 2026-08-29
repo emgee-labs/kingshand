@@ -46,6 +46,10 @@ $ErrorActionPreference = 'Stop'
 
 $Root = $PSScriptRoot
 Import-Module (Join-Path $Root 'bin\Paths.psm1') -Force
+# herdr is discovered through the module that owns its command line, never by a second copy of the
+# rule written out here. It is not on PATH, so Get-Command would report it missing on a machine
+# where it is installed and working perfectly.
+Import-Module (Join-Path $Root 'bin\Herdr.psm1') -Force
 
 $actions = [System.Collections.Generic.List[string]]::new()
 $skipped = [System.Collections.Generic.List[string]]::new()
@@ -100,6 +104,26 @@ function Test-Prerequisite {
         })
     }
 
+    # herdr, which every worker is spawned and steered through. It is deliberately NOT put on PATH:
+    # it lives in tools\herdr\ so that installing kingshand cannot change what `herdr` means in any
+    # other shell on this machine, and nothing outside this repository starts depending on it.
+    # A herdr the user already has on PATH is honoured first - Get-HerdrCommandPath owns both halves
+    # of that rule, and this only reports what it found.
+    $herdr = Get-HerdrCommandPath
+
+    if ($herdr) { Write-Ok ("{0,-12} {1}" -f 'herdr', $herdr) }
+    else {
+        Write-Miss ("{0,-12} {1} - install with: .\install.ps1 -InstallMissing" -f 'herdr', 'the worker spawner')
+        # Manager 'herdr' is its own thing on purpose. It has no package manager behind it - the
+        # download and the SHA-256 check below are the install - and giving it a manager name that
+        # the generic loop understood would have that loop run `.\install.ps1 -InstallMissing` from
+        # inside `.\install.ps1 -InstallMissing`.
+        $still.Add(@{
+            Name = 'herdr'; Manager = 'herdr'
+            Install = '.\install.ps1 -InstallMissing'; What = 'the worker spawner'
+        })
+    }
+
     $pester = Get-Module -ListAvailable -Name Pester |
               Where-Object { $_.Version.Major -ge 6 } |
               Sort-Object Version -Descending | Select-Object -First 1
@@ -144,6 +168,118 @@ function Invoke-InstallCommand {
     } finally {
         $ErrorActionPreference = $previous
     }
+}
+
+# Fetches herdr into tools\herdr\ and proves it is the file herdr.dev published before unpacking it.
+#
+# https://herdr.dev/latest.json is the source of truth. It carries `version`, `protocol`, the
+# download under `assets.windows-x86_64` and its digest under `sha256.windows-x86_64`, so a newer
+# herdr installs without editing this script. kingshand's command line was verified against
+# herdr 0.8.2, protocol 20 - a different protocol still installs, and says so, because
+# bin\Herdr.psm1 was proven against that one and nothing else.
+#
+# THE SHA-256 IS COMPARED BEFORE ANYTHING IS EXTRACTED. This is an executable being put onto a
+# user's machine from the network, and a truncated download and a substituted one are
+# indistinguishable until the digest is checked. An archive that has already been unpacked cannot
+# be un-unpacked, so the download lands in a temp file, the digest is compared there, and a
+# mismatch deletes the file and returns without writing a single byte into tools\herdr\.
+function Install-Herdr {
+    param([Parameter(Mandatory)][string]$Destination)
+
+    # StrictMode turns a missing property into an exception, so every field of a file fetched over
+    # the network is read through this rather than dereferenced and hoped for.
+    function Get-ManifestValue {
+        param($Object, [string]$Name)
+        if ($Object -and $Object.PSObject.Properties.Name -contains $Name) { return $Object.$Name }
+        $null
+    }
+
+    $manifestUrl = 'https://herdr.dev/latest.json'
+    Write-Host "  RUN   fetch $manifestUrl"
+
+    $manifest = $null
+    try {
+        $manifest = Invoke-RestMethod -Uri $manifestUrl -TimeoutSec 30 -ErrorAction Stop
+    } catch {
+        # Being offline is an ordinary state for a laptop, not a crash. A raw web exception here
+        # prints a stack of .NET type names over a fact the user can act on in one line, so the
+        # fact is what gets printed and the exception is not rethrown.
+        Write-Miss "herdr was not installed: $manifestUrl could not be reached."
+        Write-Host  "        This machine looks offline, or herdr.dev is down. Nothing was downloaded and nothing was changed."
+        Write-Host  "        Reconnect and run: .\install.ps1 -InstallMissing"
+        return $false
+    }
+
+    $version  = Get-ManifestValue $manifest 'version'
+    $protocol = Get-ManifestValue $manifest 'protocol'
+    $asset    = Get-ManifestValue (Get-ManifestValue $manifest 'assets') 'windows-x86_64'
+    $expected = Get-ManifestValue (Get-ManifestValue $manifest 'sha256') 'windows-x86_64'
+
+    if (-not $asset -or -not $expected) {
+        # No digest means no way to verify, and an unverifiable binary is not installed at all.
+        Write-Miss 'herdr was not installed: latest.json named no windows-x86_64 build, or no SHA-256 for one.'
+        Write-Host  "        Nothing was downloaded. Put herdr.exe in $Destination by hand if you have it, then re-run this."
+        return $false
+    }
+
+    if ($asset -notmatch '^https?://') { $asset = 'https://herdr.dev/' + $asset.TrimStart('/') }
+    $want = ($expected -replace '^sha256:', '').Trim()
+
+    $temp = Join-Path ([IO.Path]::GetTempPath()) (
+        'herdr-' + [guid]::NewGuid().ToString('N') + [IO.Path]::GetExtension(([uri]$asset).AbsolutePath))
+
+    Write-Host "  RUN   download $asset"
+    try {
+        Invoke-WebRequest -Uri $asset -OutFile $temp -TimeoutSec 300 -ErrorAction Stop
+    } catch {
+        Write-Miss "herdr $version was not installed: $asset could not be downloaded."
+        Write-Host  '        This machine looks offline, or herdr.dev is down. Nothing was extracted.'
+        Write-Host  '        Reconnect and run: .\install.ps1 -InstallMissing'
+        Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+        return $false
+    }
+
+    $actual = (Get-FileHash -LiteralPath $temp -Algorithm SHA256).Hash
+    if (-not $actual.Equals($want, [StringComparison]::OrdinalIgnoreCase)) {
+        Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+        Write-Miss "herdr $version FAILED its SHA-256 check and was NOT extracted."
+        Write-Host  "        expected $want"
+        Write-Host  "        got      $actual"
+        Write-Host  "        The download has been deleted and nothing was written to $Destination."
+        Write-Host  '        A mismatch is either a corrupted download or a file that is not the one herdr.dev published. Do not install it by hand until you know which.'
+        return $false
+    }
+    Write-Ok "herdr $version matches the published SHA-256: $want"
+
+    if (-not (Test-Path -LiteralPath $Destination)) {
+        New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+    }
+
+    if ([IO.Path]::GetExtension($temp) -eq '.zip') {
+        Expand-Archive -LiteralPath $temp -DestinationPath $Destination -Force
+    } else {
+        Copy-Item -LiteralPath $temp -Destination (Join-Path $Destination 'herdr.exe') -Force
+    }
+    Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+
+    # bin\Herdr.psm1 looks for tools\herdr\herdr.exe and nothing else, so an archive that nests the
+    # binary one directory down is flattened here rather than left for the discovery rule to guess.
+    $exe = Join-Path $Destination 'herdr.exe'
+    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+        $found = @(Get-ChildItem -Path $Destination -Filter 'herdr.exe' -Recurse -File) | Select-Object -First 1
+        if ($found) { Move-Item -LiteralPath $found.FullName -Destination $exe -Force }
+    }
+    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+        Write-Miss "herdr $version unpacked, but no herdr.exe was found under $Destination."
+        return $false
+    }
+
+    Write-Did "herdr $version installed to $Destination. It is deliberately not added to PATH."
+    if ("$protocol" -ne '20') {
+        Write-Host ("        NOTE  kingshand was verified against herdr 0.8.2, protocol 20; this build reports " +
+                    "protocol $protocol. It is installed anyway - if dispatch misbehaves, suspect this first.")
+    }
+    $true
 }
 
 Write-Step 'Prerequisites'
@@ -199,7 +335,7 @@ if ($InstallMissing -and $missing.Count -gt 0) {
     # and running it twice would report a second success for work that already happened.
     $planned = [ordered]@{}
     foreach ($m in $missing) {
-        if ($m.Manager -eq 'psgallery' -or $blocked.Contains($m.Manager)) { continue }
+        if ($m.Manager -eq 'psgallery' -or $m.Manager -eq 'herdr' -or $blocked.Contains($m.Manager)) { continue }
         if ($planned.Contains($m.Install)) { $planned[$m.Install] = "$($planned[$m.Install]), $($m.Name)" }
         else { $planned[$m.Install] = $m.Name }
     }
@@ -216,6 +352,14 @@ if ($InstallMissing -and $missing.Count -gt 0) {
             Write-Host "        If that failed for want of administrator rights, run this in an elevated PowerShell: $command"
             Write-Host "        This script does not elevate itself."
         }
+    }
+
+    # herdr comes from herdr.dev rather than a package manager, so it runs on its own path the same
+    # way Pester does. It goes into this copy's tools\herdr\, which is gitignored: an 8.4 MB binary
+    # does not belong in a repository people clone.
+    if (@($missing | Where-Object { $_.Manager -eq 'herdr' }).Count -gt 0) {
+        Write-Host '  FOR   herdr'
+        $null = Install-Herdr -Destination (Join-Path $Root 'tools\herdr')
     }
 
     if (@($missing | Where-Object { $_.Manager -eq 'psgallery' }).Count -gt 0) {

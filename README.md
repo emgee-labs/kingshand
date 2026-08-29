@@ -38,14 +38,16 @@ Read this before deciding whether to use it.
 - **One real work cycle has been completed end to end.** One. That cycle found four defects - among
   them a landing gate that diffed against the wrong base ref and reported a one-file change as six,
   and a dispatch that promised to report back without arming anything to wake it.
-- **The test suite is 487 cases, and roughly half of them assert that a prose rule exists** in
+- **The test suite is 607 cases, and roughly half of them assert that a prose rule exists** in
   `CLAUDE.md` or a skill, not that an agent followed it. That is a real and deliberate limit: these
   tests catch a rule being deleted or diluted in an edit. They cannot catch a model reading the rule
   and doing something else. The scripts under `bin\` are tested properly; the behaviour of the agent
   reading the prose is not, and cannot be by this means.
-- **There is no way to steer a running worker.** Claude Code exposes no scriptable send, so a worker
-  that gets stuck is stopped and re-dispatched with a better brief, or handed to you interactively.
-  `docs\2026-08-28-worker-control-plane-decision.md` records why that trade was taken.
+- **Steering a running worker goes through herdr, and it is narrow.** Claude Code itself exposes no
+  scriptable send; herdr owns the pane, so a prompt or a keypress can be delivered into a live
+  worker. Keys go one at a time on purpose - a batched arrow-then-Enter picks the wrong option and
+  reports success. A worker that is genuinely stuck is still stopped and re-dispatched with a better
+  brief. `docs\2026-08-28-worker-control-plane-decision.md` records the trade this replaced.
 - **Windows and PowerShell 7 only.** Paths, worktrees and the process model are all Windows-shaped.
   Nothing here has been run anywhere else.
 - **It has been used by one person, on one machine.** Expect to hit things.
@@ -61,6 +63,14 @@ Read this before deciding whether to use it.
 | Pester 6+ | the test suite | `Install-Module Pester -MinimumVersion 6.0.0 -Force -SkipPublisherCheck -Scope CurrentUser` |
 | `lavish-axi` | the review surface both gates render to | `npm install -g lavish-axi` |
 | `tasks-axi` | the durable backlog | `npm install -g tasks-axi` |
+| `herdr` | the terminal runtime every worker is spawned and steered through | `.\install.ps1 -InstallMissing` fetches and verifies it |
+
+`herdr` is the odd one in that table. It does not come from a package manager and it is deliberately
+never put on PATH: `install.ps1 -InstallMissing` reads `https://herdr.dev/latest.json`, checks the
+download against the SHA-256 published there, and only then extracts it into this repository's own
+gitignored `tools\herdr\`. A hash mismatch refuses to extract and deletes the download - an
+unverified binary is not installed at all. If you already keep your own `herdr` on PATH, that one is
+used and nothing is downloaded. kingshand was verified against herdr 0.8.2, protocol 20.
 
 Optional: `no-mistakes`, needed only by projects you register with the `no-mistakes` posture.
 
@@ -110,7 +120,9 @@ for each missing tool. With it, each of those commands is printed and then run, 
 re-checked afterwards rather than assumed installed, and nothing self-elevates - an install that
 needs administrator rights is reported with the command to run in an elevated shell. `npm` and
 `winget` are the floor: if either is absent, the tools behind it are named as unreachable and not
-attempted. `no-mistakes` is never installed by it.
+attempted. `no-mistakes` is never installed by it. `herdr` is the one thing it downloads directly:
+it is verified against the SHA-256 in `latest.json` before it is extracted, and if the machine is
+offline the script says so in one line and changes nothing rather than throwing a web error at you.
 
 Open a new shell afterwards so `KINGSHAND_HOME` is picked up.
 
@@ -143,6 +155,8 @@ bin\                   the scripts: dispatch, crew state, registry, snapshot, di
 .claude\skills\        eleven project-local skills - setup, muster, annex, survey, audience,
                        chronicle, and five references. They load only in this directory
 tests\                 the Pester suite
+tools\herdr\           herdr, fetched and SHA-256 verified by the installer - gitignored, and
+                       deliberately not on PATH
 docs\                  one architecture decision worth keeping
 instructions.example.md the template install.ps1 copies to instructions.md
 install.ps1            prerequisites and config - it writes nothing outside this repository
@@ -164,8 +178,8 @@ an external dependency, and nothing in it reads or writes your live `data\` or `
 
 ## Permissions, and what you are agreeing to
 
-`.claude\settings.json` ships with `defaultMode: bypassPermissions`, and `bin\Dispatch-Worker.ps1`
-spawns every worker with `--permission-mode bypassPermissions`. **Neither the Hand nor its workers
+`.claude\settings.json` ships with `defaultMode: bypassPermissions`, and every worker gets the same
+grant written into its own worktree at `.claude\settings.local.json` before it starts. **Neither the Hand nor its workers
 will ask you to approve a tool call.** That is deliberate - the Hand reads diffs, runs git and
 merges locally hundreds of times in a session, and a prompt on each one makes the tool unusable -
 but it is a real decision and you should make it knowingly rather than find it later.
@@ -173,6 +187,11 @@ but it is a real decision and you should make it knowingly rather than find it l
 What still constrains it:
 
 - Workers only ever run inside their own git worktree, never in your checkout.
+- Each worktree is recorded as trusted in your own `~\.claude.json` before its worker starts, so an
+  unattended worker does not stop on Claude Code's folder-trust dialog with nobody there to answer
+  it. That entry is exactly the worktree kingshand just created - never its parent repository, and
+  never the machine. If you have no `~\.claude.json` yet, nothing is written and the worker stops at
+  the dialog instead.
 - Nothing is dispatched into a repository you have not registered with `/annex`, and
   posture is read from the registry rather than inferred.
 - Nothing pushes unless that project is registered with a push-capable posture, and nothing is

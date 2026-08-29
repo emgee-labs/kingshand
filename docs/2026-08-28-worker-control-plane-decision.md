@@ -1,7 +1,12 @@
 # Worker control plane: stay on `claude --bg`
 
 Date: 2026-08-28
-Status: decided
+Status: **superseded on 2026-08-29 by `2026-08-29-herdr-worker-control-plane.md`**
+
+**This record's own revisit trigger fired.** It is kept because the reasoning is still the reason
+kingshand refused a heavier control plane for as long as it did, and because the trade table below
+is what the replacement was measured against. Do not follow its instructions - workers are no
+longer spawned this way, and a running worker can now be steered.
 
 ## The decision
 
@@ -66,3 +71,7 @@ is having no moving parts. That is a poor trade today.
   resumed from its brief.
 - Stuck workers become frequent enough that stop-and-re-dispatch is a real cost rather than a rare
   annoyance. Nothing so far suggests this; no worker has hung yet.
+
+**The third one fired the next day.** A worker opened an interactive prompt and sat on it for five
+to six hours with nothing watching, and the control plane above had no way to see that state at
+all. The successor record explains what replaced this and what that cost.

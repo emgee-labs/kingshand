@@ -50,7 +50,7 @@ pass's own bookkeeping is never free.** That is why the spellings below are as s
 ```markdown
 - Windows lavish runs on port 4388; 4387 is WSL's and answers with an opaque 500. <!--a:2026-08-28-->
 - Worker acme-email-sender is mid-flight on the drawer fix (until it lands; backlog: acme-email-sender). <!--p:2026-08-28-->
-- Never run `claude rm` on a worker holding unlanded work. <!--P-->
+- Never remove the worktree of a worker holding unlanded work. <!--P-->
 ```
 
 The tier names say what the pass does with an entry:

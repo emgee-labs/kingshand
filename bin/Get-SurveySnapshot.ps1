@@ -7,16 +7,21 @@
   in is the `survey` skill's job, and acting on it is `muster`'s. This script only reads.
 
   Bounded on purpose: paths, counts and one-line facts, never file contents and never a walk of
-  a project repository. A fleet of twenty workers still fits in one object. At most one
-  `claude agents --json` call is made, and none at all when crew.json holds no workers.
+  a project repository. A fleet of twenty workers still fits in one object. Liveness costs one
+  `herdr agent list` plus a state correction per LIVE worker, all through Get-CrewStatus.ps1, and
+  nothing at all when crew.json holds no workers. The per-worker part is deliberate: herdr's own
+  classification cannot be trusted for the blocked case, so the worker's screen is read.
 
   Never throws. Every section is independently guarded and a failure becomes a string in
   .diagnostics while the remaining sections still populate. A broken snapshot must degrade, not
   explode, because the alternative is a catch-up read that reports nothing at all.
 
-  Liveness is never ours: it comes from `claude agents --json`, joined with crew.json by
-  Get-CrewStatus.ps1, which owns that join. `.crew.workers[].live` is $true or $false when that
-  join ran, and $null when it could not - $null means unknown, never dead.
+  Liveness is never ours: it comes from herdr, joined with crew.json by Get-CrewStatus.ps1, which
+  owns that join. `.crew.workers[].live` is $true or $false when that join ran, and $null when it
+  could not - $null means unknown, never dead. `.agentState` is herdr's word for the worker
+  (idle, working, blocked, done, unknown) corrected by the worker's own screen, and it is not the
+  old supervisor vocabulary: herdr's `idle` means "not mid-turn", which a worker also is in the
+  seconds after it starts, so it never means finished on its own.
 
   An empty registry and an absent crew.json are states, not errors: nothing can be dispatched
   until /annex runs, and nothing is dispatched until `muster` dispatches it.
@@ -167,7 +172,7 @@ if ($registryPresent) {
 
 # --------------------------------------------------------------------------------
 # 2. Workers - crew.json intent joined with live agent state by Get-CrewStatus.ps1,
-#    which owns the join and makes the one `claude agents --json` call.
+#    which owns the join, the one `herdr agent list` call, and the screen-corrected state.
 # --------------------------------------------------------------------------------
 $workers = @()
 if ($crewReadable -and $crewIds.Count -gt 0) {

@@ -246,9 +246,11 @@ Do NOT touch: <explicit exclusions>
 
 **The no-interactive-prompts rule is absolute, and it is there because a worker hung on it for
 hours.** Worker `7372d875` called `AskUserQuestion`, drew a menu that said "Enter to select,
-up/down to navigate", and waited. Nobody was attached, there is no `claude send` to answer a
-running worker with, and the only way out was to kill it - a whole dispatch lost. The worker was
-not misbehaving: it had loaded `inquest`, which told it to seek decisive evidence,
+up/down to navigate", and waited five hours with nobody watching. herdr now recognises that state
+and reports the worker `blocked`, so the hang surfaces in minutes rather than never - but being
+able to see a hang is not permission to cause one. Answering a menu on the worker's behalf is a
+recovery path that `rally` owns, and it spends a decision the user was never asked to make. The
+worker was not misbehaving: it had loaded `inquest`, which told it to seek decisive evidence,
 and asking looked like the way to get it. Reasonable behaviour, impossible situation. The
 boundary is the same one the Hand lives under in reverse - workers never address the user -
 so do not soften this back into advice, and do not add an exception for "just one quick
@@ -258,9 +260,10 @@ never does.
 **Resolve the report path fully before the brief is written.** Substitute both the real root and
 the real id: write `C:\tools\kingshand\data\T-1001\report.md`, never the literal `<id>` and never a
 `$env:KINGSHAND_HOME` the worker is left to expand. The worker is a separate process that may not
-carry your environment, and a brief naming a variable it cannot resolve names no file at all. It is
-the brief's own directory, so the worker can already write there - the dispatcher passes `--add-dir`
-for it. Do not change the dispatcher to arrange this.
+carry your environment, and a brief naming a variable it cannot resolve names no file at all. The
+worker can already write there - the dispatcher lists the brief's directory in the worktree's
+`.claude\settings.local.json` before the worker starts. Do not change the dispatcher to arrange
+this, and do not try to pass it as a command-line argument: no arguments reach a worker at all.
 
 **Say in the brief what the report must contain**, in a few lines each:
 
@@ -272,10 +275,11 @@ for it. Do not change the dispatcher to arrange this.
 Keep it short and tell the worker so. A report that runs to an essay is as much a failure as no
 report - the point is that a fresh session can pick the work up, not that the worker narrates.
 
-The reason the file exists is that a final chat message is a session artefact. `claude logs` and
-the transcript under `~/.claude/projects/` both die with the session, so a finding that lives
-only there cannot be recovered by a later session without a handoff. `report.md` is kingshand
-state and survives teardown.
+The reason the file exists is that a final chat message is a session artefact. A worker's screen
+dies with its pane, and workers inherit `CLAUDE_CODE_CHILD_SESSION` from the Hand's own session,
+so transcript saving is off and there is usually no transcript on disk to fall back to at all. A
+finding that lives only in the worker's output cannot be recovered by a later session.
+`report.md` is kingshand state and survives teardown.
 
 The `--skip push,pr,ci` flags are gone from the `no-mistakes` variant deliberately. They existed
 because nothing could leave the machine; a project registered `no-mistakes` has consented to the
@@ -365,8 +369,9 @@ Set-Location $env:KINGSHAND_HOME
 tasks-axi start "<id>"
 ```
 
-The worker id is assigned by the supervisor and returned by the dispatcher. Never invent one -
-`--session-id` is ignored for background workers.
+**The worker id is now chosen, not discovered.** It is the `-Name` you passed, and `$r.id` gives
+it back so the recording above does not change shape. There is no before-and-after listing to diff
+and nothing to look up: use `$r.id` and never invent a second identifier for the same worker.
 
 Pass `-Base $r.base` every time. Where the repo has a remote the worktree branches from the
 *remote* default branch, and the landing gate needs that ref rather than the local one - see
@@ -374,37 +379,54 @@ step 7. The dispatcher confirms whatever it returns with `git rev-parse --verify
 remoteless repo returns the repo's *local* default branch rather than inventing an `origin/...`
 name that would resolve to nothing at the gate.
 
-The dispatcher passes the brief by path, not by value, and grants the worker read access to the
-brief's directory with `--add-dir`. Do not "simplify" it back to inlining the brief text:
-`Start-Process` flattens its argument list, and a 1,733-character brief reached the worker as
-its 57-character first line with every requirement dropped.
+The dispatcher passes the brief by path, not by value. Keep it that way. Long text does now
+survive the trip intact - a 3,374-character prompt arrived whole - but a path is one line, it does
+not have to survive anything, and the brief on disk stays readable after the worker is gone.
 
-**Then arm a poll for that worker, before you say anything to the user.** Nothing else in this
-skill wakes you when a worker finishes. Step 5 goes quiet and Step 6 tells you what `done` looks
-like, but only this poll's completion brings you back to look:
+**Then arm a wait for that worker, before you say anything to the user.** Nothing else in this
+skill wakes you when a worker finishes. Step 5 goes quiet and Step 6 tells you what a finished
+worker looks like, but only this wait's completion brings you back to look:
 
 ```powershell
-$deadline = (Get-Date).AddMinutes(45)
-while ((Get-Date) -lt $deadline) {
-  Start-Sleep -Seconds 20
-  $w = & claude agents --json 2>$null | ConvertFrom-Json | Where-Object { $_.id -eq '<worker id>' }
-  if (-not $w) { "GONE <worker id>"; break }
-  if ($w.state -in @('done','blocked','failed')) { "WAKE <worker id> state=$($w.state) status=$($w.status)"; break }
-}
+Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
+$w = Wait-HerdrAgentSettled -Name "<worker id>" -TimeoutMs 2700000
+if (-not $w.settled) { "NOT SETTLED <worker id>" }
+else { "WAKE <worker id> state=$($w.state) awaitingInput=$($w.awaitingInput)" }
 ```
+
+**Use the guarded wake, `Wait-HerdrAgentSettled`, and never `Wait-HerdrAgent` directly.** The raw
+wait returns on herdr's own classification, and that classification is wrong in both directions:
+a worker sitting on an unanswered menu was measured reporting `idle`, then `done` minutes later
+while a genuinely finished worker reported `idle`. Since the raw wait matches `idle`, `done` or
+`blocked`, it wakes you claiming completion for a worker that is waiting on a person. The guarded
+wake re-reads that worker's live screen before it answers, so `awaitingInput` is the screen and
+not herdr's word for it.
+
+This is an event, not a poll. `Wait-HerdrAgentSettled` blocks inside herdr until the worker stops,
+and returns the moment it does. Nothing here sleeps in a loop and nothing re-reads state on a
+timer; if you find yourself writing a `while` loop around `Get-HerdrAgent`, you have rebuilt the
+thing this replaced.
 
 - Run it as a **harness-tracked background job**, never with `&` and never as a detached process.
   Its completion is what wakes you; an untracked process wakes nothing and you will not notice it
   finish any more than you noticed the worker.
-- Arm **one poll per dispatched worker**. Three workers means three polls, each with its own id.
-- `blocked` is a wake reason, not a working state. A worker that goes `blocked` needs the user and
-  must surface immediately - that is the interactive-prompt failure caught early rather than
-  discovered hours later.
-- If the poll times out without the worker finishing, re-arm it. A timeout says nothing about the
-  worker; assuming it is fine is how the silence starts again.
+- Arm **one wait per dispatched worker**. Three workers means three waits, each with its own id.
+- `blocked` is a wake reason, not a working state. A worker that goes `blocked` is sitting on an
+  interactive prompt it cannot get past on its own, and it needs the user - surface it immediately
+  and load `rally`. This is the failure that cost five hours of silence, and catching it is the
+  main thing herdr bought. `awaitingInput` being `$true` says the same thing off the worker's own
+  screen, and it wins over whatever `state` says.
+- **Never arm the wait immediately after submitting a prompt without accounting for stale state.**
+  A worker reads `idle` for a moment after its prompt is submitted, so a wait armed on `idle`
+  alone can return instantly and report a completion that never happened. The dispatcher hands
+  back a worker that has already been given its brief; if you submit anything further yourself,
+  wait for `working` first.
+- If the wait times out without the worker finishing, re-arm it. A timeout says nothing about the
+  worker; assuming it is fine is how the silence starts again. That is what `settled` being
+  `$false` means - not settled is the absence of an outcome, never an outcome of its own.
 - **Never promise to report back without arming this first.** Saying "I will report when they are
-  done" with no armed poll is exactly the defect this exists to prevent - three workers reached
-  their reports and nothing came back to read them. If for any reason the poll cannot be armed,
+  done" with no armed wait is exactly the defect this exists to prevent - three workers reached
+  their reports and nothing came back to read them. If for any reason the wait cannot be armed,
   tell the user plainly that they will need to ask.
 
 Tell the user one line per worker that dispatch happened, then stop talking.
@@ -414,7 +436,7 @@ Tell the user one line per worker that dispatch happened, then stop talking.
 Between dispatch and completion, say nothing unless a worker is blocked, something needs a
 decision only the user can make, or the user asks.
 
-**Quiet means no narration, not no monitoring.** The Step 4 poll stays armed the whole time and
+**Quiet means no narration, not no monitoring.** The Step 4 wait stays armed the whole time and
 its wake is not narration - it is the completion you promised to report. Going quiet is never a
 reason to skip arming it, cancel it, or ignore what it returns.
 
@@ -431,10 +453,49 @@ length alone is not the test.
 
 ## Step 6 - Completion
 
-A worker is finished when `Get-CrewStatus.ps1` shows `agentState` of `done`.
+**No state is proof that a worker finished.** herdr's classification was measured on this machine
+calling a worker sitting on an unanswered menu `idle`, and calling that same still-blocked worker
+`done` minutes later while a genuinely finished worker read `idle`. A state read as completion is
+how a worker waiting on a person gets told it is done, torn down, and reported as delivered.
 
-**Set its stage to `gating`** - the implementation is done and the work is waiting on the landing
-gate at Step 7. Say so in chat as an update: what finished, that the landing gate is now theirs,
+**A worker is finished when all three of these hold, and never on fewer:**
+
+1. the guarded wake from Step 4 came back settled - `$w.settled` is `$true`;
+2. it is not awaiting input - `$w.awaitingInput` is `$false`, which is read off the worker's live
+   screen rather than taken from herdr's word for it;
+3. `$env:KINGSHAND_HOME\data\<id>\report.md` exists.
+
+The third is kingshand's own evidence and it is the one that carries the weight. Every brief
+requires the worker to write that file before it finishes, and every brief forbids it from opening
+an interactive question, so a worker that reached the end of its brief left a report behind. The
+first two only say the worker stopped.
+
+Re-read both before declaring anything, because the wake may be minutes old:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
+Get-HerdrAgentState -Name "<worker id>"    # `blocked` when the screen shows a prompt, whatever herdr says
+Test-Path "$env:KINGSHAND_HOME\data\<id>\report.md"
+```
+
+**A settled worker with no report is suspicious, not finished.** Do not advance it, do not tear it
+down, and do not summarise it as complete. Read its screen, say plainly to the user that the one
+instruction you can check the worker against was not followed, and treat the rest of what it
+claims with the same suspicion.
+
+**`blocked` is not finished, and it reaches the user immediately.** It means the worker is sitting
+on an interactive prompt it cannot get past, which its brief forbade it from opening. Do not run
+this step against it, and **never answer that prompt blindly** - the choice on it is the user's,
+so tell them what the worker is asking and what the options are, and get their answer first -
+surface it to the user now and load `rally`.
+
+**`idle` alone is not a completion signal, and neither is `done`.** Claude Code returns to its
+prompt box when a turn ends, so a worker that has said everything it is going to say reads `idle`
+- exactly like a worker that has just started and been given nothing, and exactly like one holding
+a menu open that herdr failed to classify. Read the three facts above, never the word on its own.
+
+With all three confirmed, **set its stage to `gating`** - the implementation is done and the work
+is waiting on the landing gate at Step 7. Say so in chat as an update: what finished, that the landing gate is now theirs,
 and the one next action. Keep it short because there is little to say, not because a line count
 says so:
 
@@ -488,26 +549,24 @@ or could not run the gate, say that plainly. Never translate a failure into a su
 the stage to `failed` rather than `gating`, because that work is not waiting on a gate and Step
 8a must not take it.
 
-`claude agents --json` does **not** carry the final message - its fields are only `cwd, id,
-kind, name, pid, sessionId, startedAt, state, status`. Use the log, which is the fallback when
+herdr's agent record does **not** carry the final message - it holds a state, a pane, a cwd and
+the window title, and nothing else. Read the worker's screen, which is the fallback when
 `report.md` is missing or says less than the worker did:
 
 ```powershell
-claude logs "<worker id>"
+Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
+Read-HerdrAgent -Name "<worker id>" -Lines 60
 ```
 
-That prints the session's recent terminal output and is enough almost every time. When the
-final message is long enough to have scrolled out of it, read the transcript instead:
+That returns the worker's recent rendered output and is enough almost every time.
 
-```powershell
-$w = & claude agents --json | ConvertFrom-Json | Where-Object { $_.id -eq "<worker id>" }
-$p = Get-ChildItem "$env:USERPROFILE\.claude\projects" -Recurse -Filter "$($w.sessionId).jsonl" |
-     Select-Object -First 1
-Get-Content $p.FullName | ForEach-Object { try { $_ | ConvertFrom-Json } catch {} } |
-  Where-Object { $_.type -eq 'assistant' -and $_.message.content } |
-  ForEach-Object { ($_.message.content | Where-Object { $_.type -eq 'text' }).text } |
-  Where-Object { $_ } | Select-Object -Last 1
-```
+**There is no transcript to fall back to when it is not.** Workers inherit
+`CLAUDE_CODE_CHILD_SESSION` from the Hand's own session, so they run with transcript saving off
+and usually write nothing under `~\.claude\projects\` at all. Do not go looking for a `.jsonl`
+that will not be there and do not report an empty search as an empty report. If the final message
+has scrolled out of reach, ask for more lines while the pane is still alive - once the worker is
+torn down at Step 8b, that output is gone for good and `report.md` is all that is left. That is
+the whole reason the brief demands it.
 
 Workers report real problems in that message that no git command will show you. Treat it as
 evidence and verify its claims yourself - it is a report, not a finding.
@@ -563,10 +622,10 @@ git -C $w.worktree --no-pager diff --stat "$base...HEAD"
 git -C $w.worktree --no-pager log --oneline "$base..HEAD"
 ```
 
-**Use `$w.base`, never the local default branch.** Claude Code creates the worktree from the
-*remote* default branch. When the local one is behind - which is normal - diffing against it
-folds every upstream commit in that gap into what looks like the worker's work. In the first
-real run this made a 1-file change appear as 6 files across 3 commits.
+**Use `$w.base`, never the local default branch.** The dispatcher creates the worktree from the
+*remote* default branch where there is one. When the local branch is behind - which is normal -
+diffing against it folds every upstream commit in that gap into what looks like the worker's work.
+In the first real run this made a 1-file change appear as 6 files across 3 commits.
 
 Check the commits for attribution before showing anything:
 
@@ -744,10 +803,10 @@ would leave the worktree and the live worker process sitting around until the us
 
 ## Step 8b - Tear the worker down
 
-**A worker reported `done` is not a dead worker.** The supervisor keeps its process alive so the
-session can be resumed, and that live process holds an open handle on the worktree directory.
-Removing the worktree while the worker lives fails on Windows with "being used by another
-process", leaving a half-deleted directory and a stale git worktree registration.
+**A worker that reads `idle` is not a dead worker.** It is a live Claude Code process sitting at
+its prompt in a live pane, and it holds an open handle on the worktree directory. Removing the
+worktree while the worker lives fails on Windows with "being used by another process", leaving a
+half-deleted directory and a stale git worktree registration.
 
 **When to tear down depends on the mode**, because "the work is safe" means different things:
 
@@ -758,54 +817,47 @@ process", leaving a half-deleted directory and a stale git worktree registration
 
 **Work that is neither landed nor pushed is never torn down.** If the merge did not happen and
 the branch is not on the remote, the worktree is the only copy of the work and removing it
-destroys it. Confirm one or the other first - `claude rm` deletes the worktree with the session.
+destroys it. Confirm one or the other first - teardown removes the worktree, and nothing puts it
+back.
 
 **`report.md` survives teardown, and must never be deleted as part of cleanup.** It lives at
-`$env:KINGSHAND_HOME\data\<id>\report.md`, beside the brief and outside the worktree, so `claude rm`
+`$env:KINGSHAND_HOME\data\<id>\report.md`, beside the brief and outside the worktree, so teardown
 cannot reach it and nothing here should. Outliving the session is the entire reason the worker
-was made to write it: the worktree, the session and its transcript all go, and the findings stay.
-Leave `data\<id>\` alone.
+was made to write it: the worktree, the pane and everything the worker said all go, and the
+findings stay. Leave `data\<id>\` alone.
 
-Stop the worker first, confirm it is no longer live, and only then remove the worktree. "No
-longer live" means what `claude agents --json` actually shows: the worker has no pid, or its
-`state` is `exited`, or the id is absent from the listing altogether. A stopped worker that still
-appears as exited is stopped - `stop` keeps the session resumable on purpose, so waiting for the
-id to vanish before `rm` has run is waiting for something that will not happen.
+Teardown is three things in this order, and the order is the safety: stop the worker, discard its
+pane, remove its worktree.
 
 ```powershell
-claude stop "<worker id>"      # keeps the conversation, resumable with `claude attach`
-claude rm   "<worker id>"      # deletes the session AND its worktree; works on exited ones too
+Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
+$stop = Stop-HerdrAgent -Name "<worker id>"
+if (-not $stop.stopped) { "STOP FAILED <worker id>" }     # do not touch the worktree
+Remove-HerdrPane -PaneId $stop.paneId
 ```
 
-That is the whole teardown. `claude rm` owns the worktree, so do not hand-remove it: `stop`
-deliberately retains the worktree and says so. Only drop to git when `rm` has already run and
-something is still registered:
+**`Stop-HerdrAgent` exits the worker with `/exit`, and that is not a formality.** A worker killed
+with `Stop-Process` never sends its terminal-mode reset, which leaves its pane echoing every later
+keystroke as literal junk and unusable for anything, permanently. The worktree is never harmed by
+either route - it is only a directory - but a killed worker costs you the pane and can leave a
+handle open on the directory you are about to remove. Never reach for the pid.
+
+`$stop.stopped` being false means the worker did not exit. Stop there, report it, and leave the
+worktree alone: the process is still live and still holding the directory.
+
+Then remove the worktree, which is kingshand's own now - the dispatcher created it, so the
+dispatcher's caller cleans it up:
 
 ```powershell
-git -C "<repo path>" worktree unlock "<worktree path>"
-git -C "<repo path>" worktree remove --force "<worktree path>"
+git -C "<repo path>" worktree remove "<worktree path>"
 git -C "<repo path>" worktree prune
 git -C "<repo path>" branch -D "<branch>"      # only when discarding unlanded work
 ```
 
-**The unlock is required.** Claude Code registers the worktree as locked (`lock reason: claude
-session <name> (pid ...)`), and that lock outlives the process - `remove --force` still refuses
-with "cannot remove a locked working tree" against a pid that no longer exists. Stopping the
-worker does not release it.
-
-If removal still fails after unlocking, the worker is not actually stopped. Do not force-delete
-the directory underneath git - that leaves the worktree registered and the next dispatch with
-the same name will fail.
-
-`claude stop <id>` and `claude rm <id>` are both real, verified top-level commands - use them
-rather than the agent view. `stop` keeps the conversation so the session can be resumed with
-`claude attach <id>`. Do not kill the pid instead: `Stop-Process` leaves the supervisor's record
-behind, the supervisor may respawn from its stored `respawnFlags`, and a worker stopped that way
-can reappear in `claude agents --json` with no pid and a reverted cwd.
-
-Confirm in `claude agents --json` that the worker is no longer live before touching the worktree:
-no pid, or `state` of `exited`, or - once `claude rm` has run - absent from the listing. A live
-pid is the one result that means stop did not take.
+If `worktree remove` refuses because the tree is dirty, that is unlanded work you were about to
+destroy - stop and read it rather than reaching for `--force`. If it refuses because the directory
+is in use, the worker is not actually stopped. Do not force-delete the directory underneath git:
+that leaves the worktree registered and the next dispatch with the same name will fail.
 
 ## Step 9 - Report
 

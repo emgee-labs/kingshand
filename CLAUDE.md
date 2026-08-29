@@ -65,9 +65,9 @@ a source the digest reported absent or corrupt, and a targeted piece of work tha
 file before writing to it. Re-reading what the digest already printed turns a startup budget into
 a startup tax, and that is the whole reason it is bounded.
 
-The digest is orientation and durable record, not a live feed. **Liveness still comes from
-`claude agents --json`**, and a worker's current state is read when it matters rather than assumed
-from a line printed at session open.
+The digest is orientation and durable record, not a live feed. **Liveness still comes from herdr**,
+read through `bin\Herdr.psm1`, and a worker's current state is read when it matters rather than
+assumed from a line printed at session open.
 
 Absence in the digest is a state, never an error. `ABSENT` against `king.md` or `learnings.md`
 means nothing has been recorded there yet, which is not the same as a file that exists and holds
@@ -106,8 +106,8 @@ is what the King stated and nothing may rewrite it. Conflating the two would let
 delete a preference the King actually stated. When a session teaches you something that belongs
 there, say so and let the King write it.
 
-Liveness is never yours: read it from `claude agents --json`. Where the two disagree, that
-command wins for liveness and `crew.json` wins for intent.
+Liveness is never yours: read it from herdr, through `bin\Herdr.psm1`. Where the two disagree,
+herdr wins for liveness and `crew.json` wins for intent.
 
 ## Tooling
 
@@ -116,12 +116,14 @@ rather than trusting a list; a list here goes stale and has twice.
 
 | Script | Job |
 |---|---|
-| `bin\Paths.psm1` | the one resolution point for `KINGSHAND_HOME` and for the `claude.cmd` shim the dispatcher spawns |
+| `bin\Paths.psm1` | the one resolution point for `KINGSHAND_HOME` |
+| `bin\Herdr.psm1` | the only place that knows herdr's command line: start the server, make a pane, start a worker, read its state, prompt it, wait on it, read its screen, answer a prompt, stop it |
+| `bin\ClaudeWorkspace.psm1` | writes a worktree's `settings.local.json` and pre-seeds folder trust, because no arguments can be passed to a worker |
 | `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, query, save |
 | `bin\Projects.psm1` | the project registry: read an entry and its posture, add one, test importability |
-| `bin\Dispatch-Worker.ps1` | spawns one worker in its own worktree and returns what Crew.psm1 must record |
+| `bin\Dispatch-Worker.ps1` | creates one worktree and spawns one worker in it, and returns what Crew.psm1 must record |
 | `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the base ref the landing gate diffs against, always confirmed with `git rev-parse --verify` |
-| `bin\Get-CrewStatus.ps1` | joins crew.json with `claude agents --json` |
+| `bin\Get-CrewStatus.ps1` | joins crew.json with herdr's live agent state |
 | `bin\Get-SurveySnapshot.ps1` | the one bounded gather behind `/survey`: registry, workers joined with live state, reports, un-dispatched briefs. Returns structured data, renders nothing, never throws |
 | `bin\Render-Review.ps1` | structured data to reviewable HTML for lavish |
 | `bin\Test-CrewPrereqs.ps1` | verifies the toolchain; run it if anything behaves oddly |
@@ -167,7 +169,7 @@ arrives.
   `.claude\skills\`, `tests\`, `docs\`), and name it in the brief when a task touches it.
 - `rally` - load when a worker reads dead or has no live process, or is looping, repeatedly
   confused, asking what its brief already answers, unresponsive, or still recorded as working
-  after a session restart. Never run `claude rm` on a stuck worker before loading it.
+  after a session restart. Never remove a stuck worker's worktree before loading it.
 
 ## Backlog contract
 
@@ -251,7 +253,7 @@ that would change it.
 ## Recovery
 
 Reconcile durable records against reality before taking new work. `crew.json` records intent and
-`claude agents --json` records what is alive; reconcile the two before dispatching anything new.
+herdr records what is alive; reconcile the two before dispatching anything new.
 Reconcile only the workers this machine recorded - never claim a worker, worktree or branch that
 kingshand did not dispatch.
 
@@ -278,7 +280,7 @@ When evidence uses an internal label, rewrite it before sending:
 | Internal | Plain |
 |---|---|
 | `worktree`, base ref, branch | the isolated copy, or the branch, only if the location matters |
-| `teardown`, `claude rm`, `claude stop` | cleanup |
+| `teardown`, stopping a worker, discarding a pane, removing a worktree | cleanup |
 | `stage`, `dispatched`, `implementing` | still working |
 | `gating`, `ready` | waiting on your approval, or waiting for you to merge |
 | `landed` | merged, on the default branch |
@@ -287,7 +289,7 @@ When evidence uses an internal label, rewrite it before sending:
 | `brief` | instructions |
 | `report.md` | what the worker found |
 | `worker` | name the helper only when which one matters; otherwise name the work |
-| `crew.json`, `claude agents --json`, snapshot, diagnostics | the durable record, or what could not be read; omit unless the user needs the path to act |
+| `crew.json`, herdr, pane, agent state, snapshot, diagnostics | the durable record, or what could not be read; omit unless the user needs the path to act |
 | `posture`, `mode`, `rawMode` | what this project is set up to do: stop on a branch, open a pull request, or run the review gate first |
 | `yolo` | whether I proceed without asking you |
 | registry | the projects set up for work |

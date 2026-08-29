@@ -324,7 +324,7 @@ Describe 'the worker writes findings to a file that outlives the session' {
                      'record of what the worker found')
     }
 
-    It 'Step 6 keeps claude logs only as the fallback, and reports a missing file' {
+    It 'Step 6 keeps the screen read only as the fallback, and reports a missing file' {
         $step = Get-MusterStep 'Step 6 - Completion'
         Assert-Phrase -Text $step -Where 'muster Step 6' `
             -Phrase 'A missing report is itself worth reporting'
@@ -345,7 +345,8 @@ Describe 'the worker writes findings to a file that outlives the session' {
 
 Describe 'a background worker never opens an interactive prompt' {
     # Worker 7372d875 called AskUserQuestion, drew a menu, and waited over an hour for a keypress
-    # nobody could give it. There is no `claude send`, so the only exit was to kill the dispatch.
+    # nobody could give it, and nothing was watching. herdr now reports that state as `blocked`,
+    # but noticing a hang is not permission to cause one, and answering costs the user a decision.
     # The prohibition lives in the brief itself, which is the only text the worker ever reads -
     # a rule anywhere else in this skill would not reach it. Normalised so the sentence stays
     # found when the bullet is re-wrapped.
@@ -396,15 +397,17 @@ Describe 'a background worker never opens an interactive prompt' {
     }
 }
 
-Describe 'the Hand arms a poll so a finished worker actually wakes it' {
+Describe 'the Hand arms a wait so a finished worker actually wakes it' {
     # Three workers reached stage `ready` and wrote their reports after the Hand said it would
     # report when they were done. Nothing in the skill woke it, so nothing did, and the user found
-    # out by asking hours later. The promise needed a mechanism behind it.
+    # out by asking hours later. The promise needed a mechanism behind it. That mechanism is now
+    # an event rather than a loop - herdr blocks until the worker moves - so the assertions pin
+    # both the arming discipline and the fact that it is not a poll.
     BeforeAll { $script:Step4 = Get-MusterStep 'Step 4 - Dispatch' }
 
-    It 'arms the poll at dispatch, before anything is said to the user' {
+    It 'arms the wait at dispatch, before anything is said to the user' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase 'Then arm a poll for that worker, before you say anything to the user.'
+            -Phrase 'Then arm a wait for that worker, before you say anything to the user.'
     }
 
     It 'requires a harness-tracked background job rather than a detached one' {
@@ -414,21 +417,42 @@ Describe 'the Hand arms a poll so a finished worker actually wakes it' {
             -Phrase 'an untracked process wakes nothing'
     }
 
-    It 'arms one poll per dispatched worker' {
+    It 'arms one wait per dispatched worker' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase 'Arm **one poll per dispatched worker**.'
+            -Phrase 'Arm **one wait per dispatched worker**.'
+    }
+
+    It 'is an event and never a loop' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase 'This is an event, not a poll.'
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('if you find yourself writing a `while` loop around `Get-HerdrAgent`, you ' +
+                     'have rebuilt the thing this replaced')
     }
 
     It 'treats blocked as a wake reason rather than a working state' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase '`blocked` is a wake reason, not a working state.'
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase 'A worker that goes `blocked` needs the user and must surface immediately'
+            -Phrase ('A worker that goes `blocked` is sitting on an interactive prompt it cannot ' +
+                     'get past on its own, and it needs the user - surface it immediately and ' +
+                     'load `rally`.')
     }
 
-    It 're-arms a timed-out poll rather than assuming the worker is fine' {
+    # `agent prompt` returns before the state machine moves, so a worker that is about to work
+    # still reads `idle` for a moment. A wait armed on that reports a completion that never
+    # happened, which is the same silence in a different costume.
+    It 'refuses to read a just-submitted worker as finished' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase 'If the poll times out without the worker finishing, re-arm it.'
+            -Phrase ('**Never arm the wait immediately after submitting a prompt without ' +
+                     'accounting for stale state.**')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase 'if you submit anything further yourself, wait for `working` first'
+    }
+
+    It 're-arms a timed-out wait rather than assuming the worker is fine' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase 'If the wait times out without the worker finishing, re-arm it.'
     }
 
     It 'never promises to report back without arming it first' {
@@ -438,16 +462,148 @@ Describe 'the Hand arms a poll so a finished worker actually wakes it' {
             -Phrase 'tell the user plainly that they will need to ask'
     }
 
-    It 'the poll itself wakes on done, blocked and failed' {
+    It 'the wake is stated once, as runnable text, and blocks in herdr' {
         $fences = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('WAKE <worker id>') })
-        $fences.Count | Should -Be 1 -Because 'the poll is stated once, as runnable text'
-        $fences[0].Contains("@('done','blocked','failed')") |
-            Should -BeTrue -Because 'a blocked worker must break the loop, not be waited out'
+        $fences.Count | Should -Be 1 -Because 'the wake is stated once, as runnable text'
+        $fences[0].Contains('Wait-HerdrAgentSettled') |
+            Should -BeTrue -Because 'the raw wait returns on a classification that was measured wrong in both directions'
+        $fences[0].Contains('Start-Sleep') |
+            Should -BeFalse -Because 'a sleep in the wake is the polling loop coming back'
+    }
+
+    # herdr called a worker sitting on an unanswered menu `idle`, and called that same still-blocked
+    # worker `done` minutes later while a genuinely finished one read `idle`. A wait with no -Until
+    # returns on any of idle, done or blocked, so the raw wait wakes the Hand claiming completion
+    # for a worker that is waiting on a person.
+    It 'uses the guarded wake and says why the raw one is unsafe' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('**Use the guarded wake, `Wait-HerdrAgentSettled`, and never ' +
+                     '`Wait-HerdrAgent` directly.**')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('a worker sitting on an unanswered menu was measured reporting `idle`, then ' +
+                     '`done` minutes later while a genuinely finished worker reported `idle`')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('The guarded wake re-reads that worker''s live screen before it answers, so ' +
+                     '`awaitingInput` is the screen and not herdr''s word for it.')
+    }
+
+    It 'lets the screen outrank the state word, and keeps not-settled from becoming one' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('`awaitingInput` being `$true` says the same thing off the worker''s own ' +
+                     'screen, and it wins over whatever `state` says.')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase 'not settled is the absence of an outcome, never an outcome of its own'
     }
 
     It 'Step 5 keeps quiet from meaning unmonitored' {
         Assert-Phrase -Text (Get-MusterStep 'Step 5 - Quiet, and status on request') -Where 'muster Step 5' `
             -Phrase '**Quiet means no narration, not no monitoring.**'
+    }
+}
+
+Describe 'completion is evidence, not a state, and there is no transcript to fall back to' {
+    # herdr's classification was measured calling a worker on an unanswered menu `idle`, then
+    # calling that same still-blocked worker `done` while a genuinely finished worker read `idle`.
+    # So a state read as completion tells the Hand a worker waiting on a person has finished - the
+    # original five-hour hang made worse, because it is now actively reported as done. What makes
+    # the difference is kingshand's own evidence: the report.md every brief requires.
+    BeforeAll { $script:Step6 = Get-MusterStep 'Step 6 - Completion' }
+
+    It 'refuses to read any state alone as completion' {
+        Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
+            -Phrase '**No state is proof that a worker finished.**'
+        Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
+            -Phrase '**`idle` alone is not a completion signal, and neither is `done`.**'
+    }
+
+    It 'requires all three facts, including kingshand''s own positive evidence' {
+        Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
+            -Phrase '**A worker is finished when all three of these hold, and never on fewer:**'
+        Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
+            -Phrase 'the guarded wake from Step 4 came back settled - `$w.settled` is `$true`'
+        Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
+            -Phrase ('it is not awaiting input - `$w.awaitingInput` is `$false`, which is read off ' +
+                     'the worker''s live screen rather than taken from herdr''s word for it')
+        Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
+            -Phrase '`$env:KINGSHAND_HOME\data\<id>\report.md` exists.'
+    }
+
+    It 'treats a settled worker with no report as suspicious rather than finished' {
+        Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
+            -Phrase '**A settled worker with no report is suspicious, not finished.**'
+        Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
+            -Phrase 'Do not advance it, do not tear it down, and do not summarise it as complete.'
+    }
+
+    It 'refuses to run completion against a blocked worker, and never answers it blindly' {
+        Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
+            -Phrase '**`blocked` is not finished, and it reaches the user immediately.**'
+        Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
+            -Phrase '**never answer that prompt blindly**'
+        Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
+            -Phrase 'surface it to the user now and load `rally`'
+    }
+
+    It 'rereads the corrected state rather than trusting a wake that may be minutes old' {
+        $fences = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('Get-HerdrAgentState') })
+        $fences.Count | Should -BeGreaterOrEqual 1 -Because 'the completion check is stated as runnable text'
+        @($fences | Where-Object { $_.Contains('report.md') }).Count |
+            Should -BeGreaterOrEqual 1 -Because 'the state and the report are checked together, or the state gets read alone'
+    }
+
+    It 'reads the worker''s screen as the fallback, through the module' {
+        Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
+            -Phrase 'the fallback when `report.md` is missing'
+        $fences = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('Read-HerdrAgent') })
+        $fences.Count | Should -BeGreaterOrEqual 1 -Because 'the screen read is stated as runnable text'
+    }
+
+    It 'states plainly that the transcript is not a fallback any more' {
+        Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
+            -Phrase '**There is no transcript to fall back to when it is not.**'
+        Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
+            -Phrase ('Workers inherit `CLAUDE_CODE_CHILD_SESSION` from the Hand''s own session, so ' +
+                     'they run with transcript saving off')
+        Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
+            -Phrase ('Do not go looking for a `.jsonl` that will not be there and do not report an ' +
+                     'empty search as an empty report.')
+    }
+}
+
+Describe 'teardown exits the worker cleanly and never kills it' {
+    # A force-killed worker leaves its pane echoing every keystroke as literal junk, permanently,
+    # and can leave a handle open on the directory about to be removed. Both failures are silent
+    # at the moment they are caused, so the prohibition has to be in the step that does it.
+    BeforeAll { $script:Step8b = Get-MusterStep 'Step 8b' }
+
+    It 'says an idle worker is still a live process holding the worktree' {
+        Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
+            -Phrase '**A worker that reads `idle` is not a dead worker.**'
+    }
+
+    It 'stops with /exit and forbids reaching for the pid' {
+        Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
+            -Phrase ('**`Stop-HerdrAgent` exits the worker with `/exit`, and that is not a ' +
+                     'formality.**')
+        Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
+            -Phrase ('A worker killed with `Stop-Process` never sends its terminal-mode reset, ' +
+                     'which leaves its pane echoing every later keystroke as literal junk and ' +
+                     'unusable for anything, permanently.')
+        Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
+            -Phrase 'Never reach for the pid.'
+    }
+
+    It 'leaves the worktree alone when the stop did not take' {
+        Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
+            -Phrase ('`$stop.stopped` being false means the worker did not exit. Stop there, ' +
+                     'report it, and leave the worktree alone')
+    }
+
+    It 'refuses to force a dirty worktree away' {
+        Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
+            -Phrase ('If `worktree remove` refuses because the tree is dirty, that is unlanded ' +
+                     'work you were about to destroy - stop and read it rather than reaching for ' +
+                     '`--force`.')
     }
 }
 
@@ -463,38 +619,46 @@ Describe 'a blocked worker is never reported as healthy' {
                      'proceed on its own, so it is never Underway.')
     }
 
-    # Both shapes report `blocked`, and they need opposite advice. Observed side by side on
-    # 2026-08-28: a worker hung on an interactive menu read `blocked`/`waiting`, while one that
-    # stopped correctly and wrote its question to report.md read `blocked`/`idle`. Telling the
-    # user to attach the second one sends them to a terminal to answer a question that is already
-    # written down, and reads a correct stop as a failure.
-    It 'splits the two blocked shapes on agentStatus' {
+    # There are two stopped states and they need opposite advice. `blocked` is a worker sitting on
+    # a prompt herdr recognised, and it stays there until somebody answers. `idle` is a worker
+    # whose turn ended - usually finished, sometimes stopped by design with its question already
+    # written into report.md. Calling the second one hung sends the user chasing a decision that
+    # is written down; calling the first one finished loses the hang entirely.
+    It 'splits the two stopped states and says they need opposite advice' {
         Assert-Phrase -Text $script:SurveyText -Where 'the survey bucket mapping' `
-            -Phrase '**`agentStatus` decides what you tell the user, and the two cases need opposite advice.**'
+            -Phrase ('**`blocked` and `idle` are the two stopped states and they need opposite ' +
+                     'advice.** Read the state, not the stage.')
     }
 
-    It 'sends a waiting worker to claude attach, naming it as hung' {
-        Assert-Phrase -Text $script:SurveyText -Where 'the survey blocked-waiting case' `
-            -Phrase ('`blocked` with `agentStatus` of `waiting` means it is sitting on an ' +
-                     'interactive prompt that nobody can answer')
-        Assert-Phrase -Text $script:SurveyText -Where 'the survey blocked-waiting case' `
-            -Phrase 'point at `claude attach <id>` as the only way in'
+    It 'names a blocked worker as sitting on a prompt, and routes the answer through rally' {
+        Assert-Phrase -Text $script:SurveyText -Where 'the survey blocked case' `
+            -Phrase '`blocked` means the worker is sitting on an interactive prompt.'
+        Assert-Phrase -Text $script:SurveyText -Where 'the survey blocked case' `
+            -Phrase ('Say what it is waiting on and that the decision is the user''s; `rally` ' +
+                     'owns getting their answer into it.')
+        Assert-Phrase -Text $script:SurveyText -Where 'the survey blocked case' `
+            -Phrase ('A worker''s brief forbids opening such a prompt, so this also means that ' +
+                     'brief was not followed.')
     }
 
-    It 'sends an idle worker to its report, never to claude attach' {
-        Assert-Phrase -Text $script:SurveyText -Where 'the survey blocked-idle case' `
-            -Phrase ('`blocked` with `agentStatus` of `idle` means it stopped by design')
-        Assert-Phrase -Text $script:SurveyText -Where 'the survey blocked-idle case' `
-            -Phrase 'Point at the report, not at `claude attach`'
-        Assert-Phrase -Text $script:SurveyText -Where 'the survey blocked-idle case' `
-            -Phrase ('Never give the `claude attach` line for an `idle` worker, and never ' +
-                     'describe a `waiting` one as having finished.')
+    It 'sends an idle worker to its report rather than calling it hung' {
+        Assert-Phrase -Text $script:SurveyText -Where 'the survey idle case' `
+            -Phrase '`idle` means the worker''s turn ended.'
+        Assert-Phrase -Text $script:SurveyText -Where 'the survey idle case' `
+            -Phrase ('Point at the report - an `idle` worker has already said what it needed to, ' +
+                     'and describing it as hung sends the user chasing a decision that is written ' +
+                     'down.')
+        Assert-Phrase -Text $script:SurveyText -Where 'the survey idle case' `
+            -Phrase ('Never describe an `idle` worker as hung, and never describe a `blocked` one ' +
+                     'as having finished.')
     }
 
     It 'excludes it from Underway at the Underway bucket too' {
         Assert-Phrase -Text $script:SurveyText -Where 'the survey Underway bucket' `
             -Phrase ('A live worker at stage `dispatched`, `implementing` or `gating` **whose ' +
                      '`agentState` is not `blocked`**')
+        Assert-Phrase -Text $script:SurveyText -Where 'the survey Underway bucket' `
+            -Phrase '`working` is the state that means genuinely progressing.'
         Assert-Phrase -Text $script:SurveyText -Where 'the survey Underway bucket' `
             -Phrase ('A worker whose `agentState` is `blocked` is never Underway, whatever its ' +
                      'stage says.')
@@ -723,34 +887,120 @@ Describe 'audience recaps the session and touches nothing else' {
     }
 }
 
-Describe 'rally states the capability gap and protects unlanded work' {
+Describe 'rally states what steering can and cannot do, and protects unlanded work' {
     # Two sentences in this file stand between a stuck worker and a destroyed worktree: the one
-    # saying rm takes the worktree with the session, and the one saying a low context reading is
-    # not a reason to relaunch anything. Deleting either must fail here.
-    It 'says plainly that no scriptable steer exists' {
-        Assert-Phrase -Text (Get-DocText $script:StuckMd) -Where 'rally' `
-            -Phrase 'There is no `claude send`, and no scriptable way to steer a running worker.'
-    }
-
-    It 'hands an attach to the user rather than faking a steer' {
+    # saying removal takes the work with it, and the one saying a low context reading is not a
+    # reason to relaunch anything. Deleting either must fail here.
+    It 'says a running worker can now be steered, through the module' {
         $text = Get-DocText $script:StuckMd
         Assert-Phrase -Text $text -Where 'rally' `
-            -Phrase ('The only way to talk to a running worker is `claude attach`, which is ' +
-                     'interactive and belongs to the user, not the Hand.')
+            -Phrase '**A running worker can now be steered, and that is new.**'
+        Assert-Phrase -Text $text -Where 'rally' `
+            -Phrase ('The control plane is herdr, reached only through `bin\Herdr.psm1`. Nothing ' +
+                     'here composes a herdr command line by hand')
     }
 
-    It 'warns that `claude rm` destroys the worktree, and gives the safe order' {
+    # The state herdr reports is wrong in both directions, and the dangerous direction is the one
+    # that says a worker on a menu has finished. Nothing in this playbook may decide from it.
+    It 'says herdr''s own state is wrong in both directions' {
         $text = Get-DocText $script:StuckMd
-        Assert-Phrase -Text $text -Where 'the rm hazard' `
-            -Phrase '`claude rm` deletes the session and its worktree together.'
-        Assert-Phrase -Text $text -Where 'the rm hazard' `
-            -Phrase ('Running it on a stuck worker that holds uncommitted changes or unpushed ' +
-                     'commits destroys that work')
-        Assert-Phrase -Text $text -Where 'the rm hazard' `
-            -Phrase 'Use `claude stop <worker id>` while anything is unlanded.'
-        Assert-Phrase -Text $text -Where 'the rm hazard' `
-            -Phrase ('Use `claude rm <worker id>` only once the work is committed and either ' +
-                     'landed or pushed, or the user has explicitly authorised discarding it.')
+        Assert-Phrase -Text $text -Where 'rally' `
+            -Phrase '**Do not decide anything here from herdr''s classification.**'
+        Assert-Phrase -Text $text -Where 'rally' `
+            -Phrase ('minutes later that same still-blocked worker reported `done` while a ' +
+                     'genuinely finished worker reported `idle`. The two states inverted.')
+        Assert-Phrase -Text $text -Where 'rally' `
+            -Phrase ('a worker reading `idle` or `done` may be waiting on a person, and one ' +
+                     'reading `blocked` may not be')
+    }
+
+    It 'makes the live-viewport check the authority, and never the scrollback' {
+        $text = Get-DocText $script:StuckMd
+        Assert-Phrase -Text $text -Where 'rally' `
+            -Phrase '`Test-HerdrAgentAwaitingInput` is the authority.'
+        Assert-Phrase -Text $text -Where 'rally' `
+            -Phrase 'Never read `agent_status` yourself.'
+        Assert-Phrase -Text $text -Where 'rally' `
+            -Phrase ('`recent` and `recent-unwrapped` carry scrollback, so a worker that answered ' +
+                     'a menu an hour ago still has that text in its history and would read as ' +
+                     'blocked forever')
+        Assert-Phrase -Text $text -Where 'the rally escalation' `
+            -Phrase ('Confirm it with `Test-HerdrAgentAwaitingInput` rather than herdr''s state ' +
+                     'word, and confirm the same way before concluding a worker is *not* blocked')
+    }
+
+    It 'keeps steering from being mistaken for a conversation' {
+        $text = Get-DocText $script:StuckMd
+        Assert-Phrase -Text $text -Where 'rally' `
+            -Phrase '**Steering is still not a conversation.**'
+        Assert-Phrase -Text $text -Where 'rally' `
+            -Phrase ('do not describe a steer as done without checking `Read-HerdrAgent` ' +
+                     'afterwards to see that it landed')
+    }
+
+    It 'warns that removing the worktree destroys the work, and gives the safe order' {
+        $text = Get-DocText $script:StuckMd
+        Assert-Phrase -Text $text -Where 'the removal hazard' `
+            -Phrase ('Stopping a worker never touches it: `Stop-HerdrAgent` exits the process and ' +
+                     'leaves the directory exactly where it was')
+        Assert-Phrase -Text $text -Where 'the removal hazard' `
+            -Phrase ('Running `git worktree remove` on a stuck worker that holds uncommitted ' +
+                     'changes or unpushed commits destroys that work')
+        Assert-Phrase -Text $text -Where 'the removal hazard' `
+            -Phrase 'Use `Stop-HerdrAgent -Name <worker id>` while anything is unlanded.'
+        Assert-Phrase -Text $text -Where 'the removal hazard' `
+            -Phrase ('Remove the worktree only once the work is committed and either landed or ' +
+                     'pushed, or the user has explicitly authorised discarding it.')
+    }
+
+    # A force-killed worker leaves a pane that echoes every keystroke as literal text and cannot
+    # take a new agent at all. Nothing recovers it, so the only correct response is to throw the
+    # pane away - and the worktree, which is only a directory, is always fine.
+    It 'always exits cleanly and never force-kills' {
+        $text = Get-DocText $script:StuckMd
+        Assert-Phrase -Text $text -Where 'the kill hazard' `
+            -Phrase ('`Stop-HerdrAgent` sends `/exit` and waits for the worker to disappear. Never ' +
+                     'substitute `Stop-Process` or any other force-kill.')
+        Assert-Phrase -Text $text -Where 'the kill hazard' `
+            -Phrase '**A force-killed worker leaves its pane permanently unusable.**'
+        Assert-Phrase -Text $text -Where 'the kill hazard' `
+            -Phrase 'No herdr command recovers it'
+    }
+
+    It 'discards an unusable pane and keeps the worktree' {
+        $text = Get-DocText $script:StuckMd
+        Assert-Phrase -Text $text -Where 'the pane hazard' `
+            -Phrase '**When a pane is not reusable, discard it and keep the worktree.**'
+        Assert-Phrase -Text $text -Where 'the pane hazard' `
+            -Phrase ('`Stop-HerdrAgent` returns `paneReusable`, and it is `$true` only after a ' +
+                     'clean exit.')
+        Assert-Phrase -Text $text -Where 'the pane hazard' `
+            -Phrase 'never assume a relaunch into the old pane will work'
+    }
+
+    # Arrow-then-Enter in one call answers the wrong option and reports success. A wrong answer
+    # with no error is the worst failure shape available, and the thing being answered wrongly is
+    # the user's own decision.
+    It 'never batches an arrow and an Enter at a blocked prompt' {
+        $text = Get-DocText $script:StuckMd
+        Assert-Phrase -Text $text -Where 'the send-keys hazard' `
+            -Phrase ('Sending an arrow and Enter in a single herdr invocation **silently selects ' +
+                     'the wrong option**')
+        Assert-Phrase -Text $text -Where 'the send-keys hazard' `
+            -Phrase ('move the cursor, read the screen back with `Read-HerdrAgent` to see where ' +
+                     'it actually landed, and only then send Enter')
+        Assert-Phrase -Text $text -Where 'the send-keys hazard' `
+            -Phrase ('Never compose the two into one call, and never answer a prompt whose ' +
+                     'options you have not read.')
+    }
+
+    It 'gets the user''s answer before answering a blocked prompt' {
+        $text = Get-DocText $script:StuckMd
+        Assert-Phrase -Text $text -Where 'the rally escalation' `
+            -Phrase '**A blocked worker is the user''s decision, not yours.**'
+        Assert-Phrase -Text $text -Where 'the rally escalation' `
+            -Phrase ('**Never answer a blocked prompt on the user''s behalf**, and never guess at ' +
+                     'an option you have not read.')
     }
 
     It 'keeps the rule that a low context reading is not wedging' {
@@ -807,12 +1057,12 @@ Describe 'CLAUDE.md declares a load trigger for every reference skill' {
         Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Skills section' -Phrase $phrase
     }
 
-    It 'names audience as a command, and keeps rm behind the recovery skill' {
+    It 'names audience as a command, and keeps worktree removal behind the recovery skill' {
         $text = Get-DocText $script:HandMd
         Assert-Phrase -Text $text -Where 'the CLAUDE.md Skills section' `
             -Phrase 'Invoke `audience` when the user invokes `/audience` or asks what they missed'
         Assert-Phrase -Text $text -Where 'the CLAUDE.md Skills section' `
-            -Phrase 'Never run `claude rm` on a stuck worker before loading it.'
+            -Phrase 'Never remove a stuck worker''s worktree before loading it.'
     }
 
     It 'keeps the routing rule and hard rule 1 exactly as they were' {
@@ -950,7 +1200,7 @@ Describe 'escalation talks in outcomes and leads with evidence' {
     It 'translates kingshand''s own internals, including teardown and worktree' {
         $s = Get-HandSection 'Escalation and etiquette'
         Assert-Phrase -Text $s -Where 'the translation table' `
-            -Phrase '| `teardown`, `claude rm`, `claude stop` | cleanup |'
+            -Phrase '| `teardown`, stopping a worker, discarding a pane, removing a worktree | cleanup |'
         Assert-Phrase -Text $s -Where 'the translation table' `
             -Phrase ('| `worktree`, base ref, branch | the isolated copy, or the branch, only if ' +
                      'the location matters |')
@@ -1682,8 +1932,13 @@ Describe 'the session-start digest is read once and not read again' {
     It 'leaves liveness to the live process inventory rather than the digest' {
         Assert-Phrase -Text $script:SessionStart -Where 'CLAUDE.md session start' `
             -Phrase 'The digest is orientation and durable record, not a live feed.'
+        # The source of liveness moved from `claude agents --json` to herdr; the principle that
+        # it is never the Hand's to assume did not.
         Assert-Phrase -Text $script:SessionStart -Where 'CLAUDE.md session start' `
-            -Phrase '**Liveness still comes from `claude agents --json`**'
+            -Phrase '**Liveness still comes from herdr**'
+        Assert-Phrase -Text $script:SessionStart -Where 'CLAUDE.md session start' `
+            -Phrase ('a worker''s current state is read when it matters rather than assumed from ' +
+                     'a line printed at session open')
     }
 
     It 'reads absence as a state rather than an error' {
@@ -1739,10 +1994,118 @@ Describe 'no long dash' {
         @{ file = '.claude\skills\decree\SKILL.md' }
         @{ file = '.claude\skills\setup\SKILL.md' }
         @{ file = 'install.ps1' }
+        @{ file = 'docs\2026-08-28-worker-control-plane-decision.md' }
+        @{ file = 'docs\2026-08-29-herdr-worker-control-plane.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
         $raw.IndexOf($emDash) | Should -Be -1 -Because "$file must use '-', never the long dash"
+    }
+}
+
+Describe 'one file owns herdr''s command line, and the record says why' {
+    # The last spawn layer was spelled out in four scripts and three skills, so replacing it meant
+    # editing all seven. Keeping the command line in one module is what makes the next migration a
+    # single file, and the rule only holds while something asserts it.
+    It 'CLAUDE.md lists the module as the only place that knows herdr' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
+            -Phrase '| `bin\Herdr.psm1` | the only place that knows herdr''s command line'
+    }
+
+    It 'CLAUDE.md lists the workspace module that replaces the missing arguments' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
+            -Phrase ('| `bin\ClaudeWorkspace.psm1` | writes a worktree''s `settings.local.json` ' +
+                     'and pre-seeds folder trust, because no arguments can be passed to a worker |')
+    }
+
+    It 'statute states the one-owner rule for the spawn layer' {
+        $text = Get-DocText $script:GuidelinesMd
+        Assert-Phrase -Text $text -Where 'statute' `
+            -Phrase '**`bin\Herdr.psm1` is the only place that knows herdr''s command line.**'
+        Assert-Phrase -Text $text -Where 'statute' `
+            -Phrase ('none of them composes a herdr argument list')
+    }
+
+    It 'the superseded record says so at the top and is not deleted' {
+        $old = Join-Path $script:Root 'docs\2026-08-28-worker-control-plane-decision.md'
+        Test-Path -LiteralPath $old |
+            Should -BeTrue -Because 'the reasoning that held the line for as long as it did is still worth reading'
+        $text = Get-DocText $old
+        Assert-Phrase -Text $text -Where 'the superseded record' `
+            -Phrase 'Status: **superseded on 2026-08-29 by `2026-08-29-herdr-worker-control-plane.md`**'
+        Assert-Phrase -Text $text -Where 'the superseded record' `
+            -Phrase '**This record''s own revisit trigger fired.**'
+        Assert-Phrase -Text $text -Where 'the superseded record' `
+            -Phrase 'Do not follow its instructions'
+    }
+
+    It 'the new record states the decision, the evidence and the costs' {
+        $text = Get-DocText (Join-Path $script:Root 'docs\2026-08-29-herdr-worker-control-plane.md')
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase 'Supersedes: `2026-08-28-worker-control-plane-decision.md`'
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase '`bin\Herdr.psm1` is the only place that knows herdr''s command line.'
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase '**No arguments can be passed to a worker, at all.**'
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase '**A force-killed worker costs its pane permanently.**'
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase '**Workers run with transcript saving off.**'
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase ('The wait is an event, not a poll. Reintroducing a sleep-and-check loop ' +
+                     'rebuilds the thing this replaced')
+    }
+
+    # The record claimed blocked detection worked, on trial evidence that was real, and listed the
+    # fragility moving as a future risk. It had already materialised. A decision record that keeps
+    # claiming a capability the system does not have is worse than no record, so the correction is
+    # asserted - and so is the trial evidence it corrects, which is not deleted.
+    It 'the record corrects the blocked-detection claim with what was observed' {
+        $text = Get-DocText (Join-Path $script:Root 'docs\2026-08-29-herdr-worker-control-plane.md')
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase 'Correction: blocked detection does not hold'
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase ('`live_blocked_form` at priority 980 - the one that fired in the trial - ' +
+                     'evaluated and did not match. Every blocked rule failed.')
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase ('Minutes later the same still-blocked worker reported `done`, while a ' +
+                     'genuinely finished worker reported `idle`.')
+    }
+
+    It 'says what kingshand relies on instead, and what the guard does' {
+        $text = Get-DocText (Join-Path $script:Root 'docs\2026-08-29-herdr-worker-control-plane.md')
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase ('**Kingshand therefore no longer relies on herdr''s classification for the ' +
+                     'blocked case.**')
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase ('`Test-HerdrAgentAwaitingInput` reads the LIVE VIEWPORT - `agent read ' +
+                     '--source visible`')
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase ('`Wait-HerdrAgentSettled` is the guarded wake.')
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase ('a worker is done when it settled, is not awaiting input, and left the ' +
+                     '`report.md` its brief required')
+    }
+
+    It 'stops listing the moved fragility as a future risk, and keeps the trial evidence' {
+        $text = Get-DocText (Join-Path $script:Root 'docs\2026-08-29-herdr-worker-control-plane.md')
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase '**The fragility moved rather than went away, and it has already cost us.**'
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase ('A worker made to open an `AskUserQuestion` menu read `blocked` twelve ' +
+                     'seconds later')
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase '**This held in the trial and does not hold generally**'
+    }
+
+    It 'puts the screen check among the things that must not be undone' {
+        $text = Get-DocText (Join-Path $script:Root 'docs\2026-08-29-herdr-worker-control-plane.md')
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase ('The screen check stays, and it reads the live viewport. Deleting it, or ' +
+                     'pointing it at `recent` or `recent-unwrapped`, restores a control plane ' +
+                     'that reports a worker waiting on a person as finished.')
+        Assert-Phrase -Text $text -Where 'the herdr record' `
+            -Phrase 'No state is ever proof of completion on its own.'
     }
 }
 
@@ -2166,12 +2529,31 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         }
     }
 
+    # Asserted as an absence of overlap rather than of a literal path: a script that cannot reach
+    # the profile cannot install a skill into it, whatever it says about skills, and a script that
+    # can reach the profile must have no business with skills at all.
     It 'no script writes to the user profile skills directory' {
         foreach ($f in $script:AllSource) {
             $text = Get-Content -Path $f.FullName -Raw
-            $text.Contains('USERPROFILE') |
-                Should -BeFalse -Because "$($f.Name) must leave ~\.claude\ alone entirely"
+            ($text.Contains('USERPROFILE') -and $text -match '(?i)skills') |
+                Should -BeFalse -Because "$($f.Name) must leave ~\.claude\skills\ alone entirely"
         }
+    }
+
+    # The blanket ban on touching the profile at all was the right proxy while nothing needed to.
+    # Folder trust changed that: herdr launches a worker in a worktree Claude Code has never seen,
+    # and the trust registry is a single file in the profile with no per-project alternative. So
+    # the exception is named here, and it is exactly one file in exactly one module - anything
+    # else reaching into the profile is still the failure this guards.
+    It 'the only script that touches the profile is the trust one, and only for .claude.json' {
+        $reaching = @($script:AllSource | Where-Object {
+            (Get-Content -Path $_.FullName -Raw).Contains('USERPROFILE')
+        })
+        (@($reaching | ForEach-Object { $_.Name }) -join ', ') |
+            Should -Be 'ClaudeWorkspace.psm1' -Because 'folder trust is the one thing that has nowhere else to live'
+        $text = Get-Content -Path $reaching[0].FullName -Raw
+        $text.Contains('.claude.json') |
+            Should -BeTrue -Because 'the trust registry is one file, not a directory to write into'
     }
 
     It 'install.ps1 has no Skills step and no -SkipSkills switch' {
