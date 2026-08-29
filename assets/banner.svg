@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" width="1200" height="320" role="img" aria-label="kingshand - you rule, it executes">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#14161c"/>
+      <stop offset="55%" stop-color="#1b1f27"/>
+      <stop offset="100%" stop-color="#0f1116"/>
+    </linearGradient>
+    <linearGradient id="steel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8e97a6"/>
+      <stop offset="60%" stop-color="#5a6270"/>
+      <stop offset="100%" stop-color="#343a45"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e6c67a"/>
+      <stop offset="100%" stop-color="#b48b3c"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#f0d08a" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#f0d08a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="320" fill="url(#bg)"/>
+  <ellipse cx="196" cy="150" rx="210" ry="150" fill="url(#glow)"/>
+
+  <!-- Throne: blades set into a seat. Drawn from primitives, not traced from anything. -->
+  <g transform="translate(96,44)">
+    <g fill="url(#steel)">
+      <polygon points="14,116 20,26 26,116"/>
+      <polygon points="34,116 41,12 48,116"/>
+      <polygon points="56,116 63,30 70,116"/>
+      <polygon points="78,116 86,4  94,116"/>
+      <polygon points="102,116 109,24 116,116"/>
+      <polygon points="124,116 131,38 138,116"/>
+      <polygon points="146,116 154,16 162,116"/>
+      <polygon points="170,116 177,44 184,116"/>
+    </g>
+    <rect x="6" y="112" width="186" height="16" rx="3" fill="#4a515e"/>
+    <rect x="6" y="128" width="186" height="60" rx="4" fill="#3a404b"/>
+    <rect x="6" y="128" width="186" height="8" fill="#565e6c" opacity="0.7"/>
+    <rect x="18" y="188" width="20" height="42" fill="#333944"/>
+    <rect x="160" y="188" width="20" height="42" fill="#333944"/>
+    <g fill="url(#steel)" opacity="0.85">
+      <polygon points="0,188 8,132 16,188"/>
+      <polygon points="182,188 190,132 198,188"/>
+    </g>
+  </g>
+
+  <!-- The Hand's pin: the office, not the man. -->
+  <g transform="translate(322,150)">
+    <circle r="27" fill="none" stroke="url(#gold)" stroke-width="2.5" opacity="0.9"/>
+    <g fill="url(#gold)">
+      <rect x="-9" y="-12" width="18" height="19" rx="4"/>
+      <rect x="-9" y="-19" width="3.6" height="10" rx="1.8"/>
+      <rect x="-4.3" y="-22" width="3.6" height="13" rx="1.8"/>
+      <rect x="0.4" y="-23" width="3.6" height="14" rx="1.8"/>
+      <rect x="5.1" y="-21" width="3.6" height="12" rx="1.8"/>
+      <path d="M-9 -6 q-6 1 -6 6 q0 5 5 6 l4 1 z"/>
+      <rect x="-7" y="6" width="14" height="12" rx="3"/>
+    </g>
+  </g>
+
+  <text x="400" y="150" font-family="Georgia, 'Times New Roman', serif" font-size="84" fill="#f2f4f7" letter-spacing="1">kingshand</text>
+  <text x="404" y="196" font-family="Georgia, 'Times New Roman', serif" font-size="27" fill="#c8a24f" letter-spacing="0.5">You rule. It executes.</text>
+  <rect x="404" y="216" width="86" height="2" fill="#c8a24f" opacity="0.55"/>
+  <text x="404" y="252" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" fill="#98a1b0">One Claude Code session. A worktree and a worker for every task.</text>
+  <text x="404" y="278" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" fill="#6d7684">Windows - PowerShell 7</text>
+</svg>

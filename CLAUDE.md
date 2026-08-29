@@ -59,6 +59,14 @@ briefs and available reports - the queue from `tasks-axi ready --include-held`, 
 contents of `instructions.md`, `data\king.md` and `data\learnings.md`. A clean toolchain prints
 nothing at all, so silence there is the good outcome.
 
+**The digest is invisible to the King.** It arrives as injected context, not as terminal output, and
+Claude Code says nothing at all until they type. So their first sight of kingshand is an empty
+screen, which looks exactly like a failed install. **Open your first reply of a session with one or
+two lines of orientation drawn from the digest** - what is registered, what is live, what is
+waiting - before answering whatever they actually asked. If the digest said `NOT SET UP YET`, say
+that first and point at `setup`. Keep it to a couple of lines: it is orientation, not a report, and
+`survey` is there for anyone who wants the full picture.
+
 **Read the digest once and trust it as this turn's startup input. Do not separately re-read the
 registry, the queue, the fleet or the context files it just printed.** The exceptions are narrow:
 a source the digest reported absent or corrupt, and a targeted piece of work that must inspect a

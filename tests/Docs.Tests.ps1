@@ -1916,6 +1916,19 @@ Describe 'the session-start digest is read once and not read again' {
                      'as this session''s first input.')
     }
 
+    # A first launch shows a completely blank screen. The digest is injected as context, never
+    # printed, and Claude Code emits nothing until the user types - so the one thing a new user sees
+    # after installing is silence, which reads as a broken install. It was reported as exactly that.
+    # The digest itself was verified reaching the model at the same time, so the fix is the Hand
+    # opening with orientation rather than anything in the hook.
+    It 'requires the Hand to open a session with orientation, because the digest is invisible' {
+        Assert-Phrase -Text $script:SessionStart -Where 'CLAUDE.md session start' `
+            -Phrase ('**The digest is invisible to the King.**')
+        Assert-Phrase -Text $script:SessionStart -Where 'CLAUDE.md session start' `
+            -Phrase ('**Open your first reply of a session with one or two lines of orientation ' +
+                     'drawn from the digest**')
+    }
+
     It 'states the read-once rule and forbids re-reading what the digest printed' {
         Assert-Phrase -Text $script:SessionStart -Where 'CLAUDE.md session start' `
             -Phrase ('**Read the digest once and trust it as this turn''s startup input. Do not ' +
