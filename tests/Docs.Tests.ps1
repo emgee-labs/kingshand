@@ -1332,11 +1332,22 @@ Describe 'chat is shaped by the kind of message it is' {
                      'over leading with an action.')
     }
 
-    It 'restates state on a change or a return, never on every turn' {
+    # This one reversed deliberately, and it is the only place the default shape and the old
+    # wording actually conflicted. The old rule was "never restate on every turn, because unchanged
+    # state repeated is noise" - written for a reader who still has the last message on screen. The
+    # shape is now on by default for a reader who does not, so the bias flips: restate unless it is
+    # a fast exchange where nothing moved. Noise costs a skim; a lost reader costs the thread.
+    It 'restates state by default, biasing toward restating rather than assuming' {
         Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
-            -Phrase ('Restate state when it changed, or when the user has been away - never on ' +
-                     'every turn, because unchanged state repeated every message is noise, and ' +
-                     'over a long session it is a lot of noise.')
+            -Phrase ('**Restate where things stand in any message the user might act on**, and ' +
+                     'after any gap.')
+        Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
+            -Phrase 'Assume the last message is no longer on screen, because usually it is not.'
+        Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
+            -Phrase ('When in doubt, restate - a reader who already knew skims one line, a reader ' +
+                     'who did not was otherwise lost.')
+        $script:Shape | Should -Not -Match 'never on\s+every turn' `
+            -Because 'the old rule said the opposite and both cannot stand'
     }
 
     It 'gives every estimate in concrete units' {
@@ -2729,23 +2740,41 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Herald = Get-Content -Path (Join-Path $script:Root '.claude\skills\herald\SKILL.md') -Raw
         }
 
-        It 'claims ownership of output shape explicitly rather than silently' {
-            $script:Herald | Should -Match 'while herald is\s+active it is the owner of output shape'
+        # The shape is on by default, so its rules have to live where they apply unloaded. A rule
+        # that exists only in a skill nobody loaded is not in force, and "it is the default" would
+        # be a claim rather than a fact. These two pin both halves.
+        It 'says the shape is already on without the skill being loaded' {
+            $script:Herald | Should -Match '\*\*This shape is the default\. It is already on'
+            $script:Herald | Should -Match 'a rule that only exists in an unloaded skill is not in force'
+        }
+
+        It 'the rules that must apply unloaded are actually in CLAUDE.md' {
+            $hand = Get-Content -Path (Join-Path $script:Root 'CLAUDE.md') -Raw
+            $hand | Should -Match 'This shape is \*\*the default and always on\*\*'
+            $hand | Should -Match 'Number multi-step work'
+            $hand | Should -Match 'Cap a list at five items'
+            $hand | Should -Match 'Restate where things stand'
         }
 
         It 'states that it never suppresses an escalation' {
-            $script:Herald | Should -Match 'The escalation triggers are untouched'
-            $script:Herald | Should -Match 'they never withhold one'
+            $script:Herald | Should -Match 'It never suppresses an escalation'
+            $script:Herald | Should -Match 'shaped differently'
         }
 
         It 'does not relax the hard rules, attribution, or the metaphor boundary' {
-            $script:Herald | Should -Match 'The hard rules are not output shape'
-            $script:Herald | Should -Match 'Never name an assistant or model'
+            $script:Herald | Should -Match 'It relaxes no hard rule'
+            $script:Herald | Should -Match 'never puts an assistant or a model'
             $script:Herald | Should -Match 'metaphor words stay out of anything posted outward'
         }
 
-        It 'says plainly that turning it on grants no autonomy' {
-            $script:Herald | Should -Match 'not a grant of autonomy'
+        It 'says plainly that shaping is not permission to omit' {
+            $script:Herald | Should -Match 'Shaping output is not permission to omit'
+            $script:Herald | Should -Match 'never shortens a report by leaving out what failed'
+        }
+
+        It 'turning it off changes shape only, and does not survive the session' {
+            $script:Herald | Should -Match 'only the shape changes'
+            $script:Herald | Should -Match 'Every new session starts shaped, because that is the default'
         }
 
         It 'credits the MIT-licensed source the rules came from' {
