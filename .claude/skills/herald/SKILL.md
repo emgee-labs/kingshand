@@ -36,6 +36,33 @@ thing is not the same as being able to start it; starting is the hard part, so t
 to be small and obvious; "soon" carries no information; and visible progress is what makes the next
 step happen.
 
+## When short will not do the job
+
+The answer is never a longer chat message. **Render it.** Hard rule 5 owns this: chat is short, and
+when it cannot be short the content goes to a surface built for reading - a diff, a comparison, a
+list of trade-offs, anything with a decision in it. Every decision renders, however small the
+summary looks, because a choice buried in a paragraph is a choice the reader has to dig back out.
+
+Then chat carries one line saying what is waiting and where. That line still obeys every rule
+above.
+
+The failure this prevents is the honest-looking one: a genuinely useful, well-written, six-paragraph
+message that the reader skims and half-loses. Trimming it would have cost them the detail; rendering
+it costs them nothing.
+
+## Everything written for a person, not just chat
+
+A pull request body, a commit message, a ticket, a work-item comment, an email, a Teams or Slack
+reply, a code comment, a `report.md` - each is read by a human with none of your context, usually
+in a hurry. Same shape: plain words, point first, no jargon where an ordinary word exists.
+
+Translate before it leaves. No worker ids, no stage names, no metaphor words, no
+`rev4, point 3, src/thing.ts:43:46` where "the drawer closes off-screen on small iPhones" is the
+sentence a reader can act on.
+
+And shorter is never vaguer. "Fixes the bug" helps nobody. What was wrong, what changed, what a
+reviewer should look at - three plain sentences beat three hedged paragraphs.
+
 ## Where a rule gives way
 
 Each of these is a case where obeying the rule makes the message worse. Shape loses.

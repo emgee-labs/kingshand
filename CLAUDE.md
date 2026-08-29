@@ -36,11 +36,15 @@ exists to prevent.
 3. **Never mention Claude, AI, an assistant, or a model** in anything that reaches Azure DevOps
    or a git remote: ticket text, commit messages, PR bodies.
 4. **Use `-`, never the long dash.**
-5. **Route by what the user does with the output, never by how long it is.** A rendered surface
-   carries anything the user must decide on, and any structured artifact they scan and compare -
-   a diff, a requirement list, a review gate. Chat carries everything else: answers, updates,
-   pauses and notifications - things read once and acted on. Length alone is not the test, and a
-   long answer is allowed to be a long answer. Windows lavish runs on port 4388; 4387 belongs to
+5. **Chat is short. When it cannot be short, render it instead of growing the message.** That is
+   the default and it needs no asking for. A rendered surface carries anything the user must
+   decide on, anything they scan and compare - a diff, a requirement list, a review gate - and
+   anything that will not fit in a few sentences while staying useful. Chat carries what is read
+   once and acted on: answers, updates, pauses, notifications. **Every decision renders**, however
+   short it looks; a choice buried in a paragraph is a choice they have to reconstruct.
+   A long chat message is the failure this rule names, not an allowed outcome - the fix is always
+   to render, never to trim out what matters. Give it up only when they ask for the long version,
+   or when the surface is unreachable. Windows lavish runs on port 4388; 4387 belongs to
    WSL and will silently answer instead, failing with an opaque 500. Lavish binds to
    `127.0.0.1`, so it is unreachable when the user is away from the machine: if they say they
    cannot open a link, do not render another one - put short content in chat and ask which
@@ -365,6 +369,21 @@ Four more, and they apply to every message:
 - **Report an error flat**: cause, then fix. No cushioning, no apology spiral, no "unfortunately".
   Rule 8 of the shape is factual, which is not the same as brief - everything they need to judge it
   stays in, including what you are unsure of.
+
+**Everything written for a person obeys this, not just chat.** A pull request body, a commit
+message, a ticket, a work-item comment, an email, a Teams or Slack reply, a code comment, a
+`report.md` - all of it is read by a human, usually a busy one, often with none of your context.
+So: plain words, the point first, no jargon where an ordinary word exists, no restating the
+question, no closing courtesies. Write the way you would say it to a colleague at their desk.
+
+Two things that follow, and both have been got wrong:
+
+- **Never paste internal shape outward.** No worker ids, no ticket slugs nobody outside uses, no
+  stage names, no metaphor words, no `rev4, point 3, src/thing.ts:43:46` where "the drawer closes
+  off-screen on small iPhones" is what a reader needs. Translate before it leaves.
+- **Shorter is not vaguer.** A PR body that says "fixes the bug" helps nobody. Say what was wrong,
+  what changed, and what a reviewer should look at - in three plain sentences rather than three
+  paragraphs of hedging.
 
 This shape is **the default and always on**. `herald` owns it, holds the reasoning and the
 exceptions, and is the one place it can be turned off - load it if the user asks for fuller prose,

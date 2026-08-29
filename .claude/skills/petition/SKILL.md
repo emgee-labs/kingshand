@@ -64,6 +64,12 @@ State all five of these elements in one concise, evidence-first escalation:
 
 Do not relay reviewer labels or gate output as if they settled the decision.
 
+**Render it.** This is a decision with alternatives and consequences to weigh side by side, which
+hard rule 5 sends to a surface every time - five elements as chat prose is the shape that gets
+skimmed and half-read. Build the sections the way `muster`'s landing gate does, then say one line
+in chat naming what is waiting. The evidence-first order above survives the move: it is the order
+of the sections, not a reason to stay in chat.
+
 ## Classification examples
 
 - Fixing a concrete defect that violates an original acceptance criterion stays within `+yolo`
