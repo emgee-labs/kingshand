@@ -1551,7 +1551,7 @@ Describe 'muster keeps the backlog current across the whole lifecycle' {
 
     It 'Step 4 marks the item started after the dispatch is recorded' {
         Assert-Phrase -Text (Get-MusterStep 'Step 4 - Dispatch') -Where 'muster Step 4' `
-            -Phrase 'Then mark the backlog item started, so the queue and the crew agree on what is under way'
+            -Phrase 'Then mark the backlog item started, so the queue and the workers agree on what is under way'
     }
 
     It 'Step 6 records the outcome and refuses to close the item there' {
@@ -2963,5 +2963,46 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             -Phrase ('Say too that it adds one line, `.claude/worktrees/`, to their global ' +
                      'gitignore. That is the only thing it changes outside this repository other ' +
                      'than the two environment variables')
+    }
+}
+
+
+# ---------------------------------------------------------------------------------------------
+# Leftover vocabulary from the tool this was rebuilt from.
+#
+# "crew" reached a user through a rendered review surface - "nothing can be dispatched into a
+# project the crew does not know about". Kingshand's words are King, Hand and the King's men; crew
+# belongs to the predecessor and to nothing here. Prose drifts, and the only thing that catches it
+# is a test that reads the prose.
+#
+# The identifiers are exempt on purpose: crew.json, Crew.psm1 and Get-CrewStatus.ps1 are code, and
+# CLAUDE.md's translation table already forbids naming a script at the user. Renaming them is a
+# separate decision with a large blast radius, and it is not what leaked.
+# ---------------------------------------------------------------------------------------------
+Describe 'no predecessor vocabulary survives in prose the user can see' {
+
+    It 'no skill, CLAUDE.md or README says crew outside a code identifier' -ForEach @(
+        @{ Area = 'CLAUDE.md' }
+        @{ Area = 'README.md' }
+        @{ Area = '.claude\skills' }
+    ) {
+        $root = Split-Path $PSScriptRoot -Parent
+        $files = if ($Area -like '*skills*') {
+            @(Get-ChildItem (Join-Path $root $Area) -Recurse -Filter 'SKILL.md' -File)
+        } else {
+            @(Get-Item (Join-Path $root $Area))
+        }
+
+        $offences = foreach ($file in $files) {
+            $n = 0
+            foreach ($line in (Get-Content -LiteralPath $file.FullName)) {
+                $n++
+                # Strip the identifiers first, then look for the bare word.
+                $stripped = $line -replace 'crew\.json|Crew\.psm1|Get-CrewStatus(\.ps1)?|Test-CrewPrereqs(\.ps1)?|(New|Add|Set|Get|Save|Import)-Crew\w*', ''
+                if ($stripped -match '(?i)\bcrew\b') { "$($file.Name):${n}: $($line.Trim())" }
+            }
+        }
+
+        @($offences) | Should -BeNullOrEmpty -Because 'the words are King, Hand and the King''s men - crew is the predecessor''s'
     }
 }
