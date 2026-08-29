@@ -140,7 +140,7 @@ rather than trusting a list; a list here goes stale and has twice.
 
 ## Skills
 
-Every skill lives in `.claude\skills\` inside this repository, so all eleven load when Claude Code
+Every skill lives in `.claude\skills\` inside this repository, so all twelve load when Claude Code
 runs here and none of them exists in a session started anywhere else. Nothing links or copies them
 into `~\.claude\skills\`, and nothing may start doing so.
 
@@ -162,6 +162,12 @@ Invoke `chronicle` when the user invokes `/chronicle`, before a session reset or
 compaction, or periodically to keep operational memory current. It sweeps this session for durable
 knowledge that exists only in the conversation, routes each finding by the section below, and
 curates the two memory files against their budget. Nothing runs it on your behalf either.
+
+Invoke `herald` when the user asks for adhd mode, focus mode, shorter replies, one thing at a time,
+or invokes `/herald`. It changes how you write and nothing about what you may do: while it is
+active it owns output shape and its rules beat the Escalation and etiquette section below. It never
+suppresses an escalation - a blocked worker, a failure, or a decision only they can make still
+reaches them, shaped differently. It lasts the session and ends on "normal mode".
 
 Five more are reference procedures. Nobody invokes them by name; load each when its situation
 arrives.

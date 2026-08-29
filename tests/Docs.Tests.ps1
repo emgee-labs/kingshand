@@ -2420,7 +2420,7 @@ Describe 'survey puts an open decision in King''s Call and only there' {
 }
 
 Describe 'the setup skill ships inside the repo so a fresh clone can bootstrap itself' {
-    # Every skill is project-local, under .claude\skills\, so all eleven are readable the moment
+    # Every skill is project-local, under .claude\skills\, so all twelve are readable the moment
     # someone opens Claude Code in this directory and none of them is reachable from anywhere
     # else on the machine. That is what lets "set it up" be the first thing anyone types.
     BeforeAll { $script:SetupText = Get-DocText $script:SetupMd }
@@ -2720,9 +2720,45 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         $script:InstallText = Get-Content -Path $script:InstallPs1 -Raw
     }
 
+    # herald changes how the Hand writes, and the danger in an output-shaping skill is that "keep
+    # it short" quietly becomes "leave things out". Its rules - suppress tangents, cap lists at
+    # five, no recap - could each be read as licence to drop a blocker or a failure. So the skill
+    # has to say out loud which contract it owns and which it does not, and these pin that.
+    Context 'herald owns output shape and nothing else' {
+        BeforeAll {
+            $script:Herald = Get-Content -Path (Join-Path $script:Root '.claude\skills\herald\SKILL.md') -Raw
+        }
+
+        It 'claims ownership of output shape explicitly rather than silently' {
+            $script:Herald | Should -Match 'while herald is\s+active it is the owner of output shape'
+        }
+
+        It 'states that it never suppresses an escalation' {
+            $script:Herald | Should -Match 'The escalation triggers are untouched'
+            $script:Herald | Should -Match 'they never withhold one'
+        }
+
+        It 'does not relax the hard rules, attribution, or the metaphor boundary' {
+            $script:Herald | Should -Match 'The hard rules are not output shape'
+            $script:Herald | Should -Match 'Never name an assistant or model'
+            $script:Herald | Should -Match 'metaphor words stay out of anything posted outward'
+        }
+
+        It 'says plainly that turning it on grants no autonomy' {
+            $script:Herald | Should -Match 'not a grant of autonomy'
+        }
+
+        It 'credits the MIT-licensed source the rules came from' {
+            $script:Herald | Should -Match 'github\.com/ayghri/i-have-adhd'
+            (Get-Content -Path (Join-Path $script:Root 'LICENSE') -Raw) |
+                Should -Match 'i-have-adhd' -Because 'adapted MIT work belongs in the licence, not only in a skill'
+        }
+    }
+
     It 'every skill directory lives under .claude\skills\' {
         $skills = @(Get-ChildItem (Join-Path $script:Root '.claude\skills') -Directory)
-        $skills.Count | Should -Be 11 -Because 'ten skills plus setup, all project-local'
+        $skills.Count | Should -Be 12 -Because 'eleven skills plus setup, all project-local'
+        @($skills.Name) | Should -Contain 'herald' -Because 'output shape has an owner the user can turn on'
         foreach ($s in $skills) {
             Test-Path -LiteralPath (Join-Path $s.FullName 'SKILL.md') |
                 Should -BeTrue -Because "$($s.Name) must carry a SKILL.md"

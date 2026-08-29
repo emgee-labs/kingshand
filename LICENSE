@@ -8,6 +8,11 @@ this project's skills, of the delivery-posture and knowledge-routing contracts, 
 line format, and of the startup-memory budget estimate. Its licence terms are reproduced below
 and apply to those portions.
 
+The `herald` skill adapts the ten output-shaping rules of i-have-adhd
+(https://github.com/ayghri/i-have-adhd), Copyright (c) ayghri, used under the MIT License. The
+wording is rewritten for this project and the precedence rules are this project's own, but the
+rules themselves originate there. The same licence terms below apply to those portions.
+
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
