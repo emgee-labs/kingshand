@@ -1,0 +1,123 @@
+---
+name: regency
+description: Hold the fleet while the King is away from the machine. Use when the user says they are going afk, stepping out, going to bed, back in an hour, "watch this while I'm gone", invokes /regency or /afk, or when state\.afk already exists at session start. Keeps workers supervised, batches everything that does not need them, records every question they must answer rather than answering it, and ends the moment they speak again.
+---
+
+# Regency
+
+A regent governs while the monarch is away and holds no new powers by doing so. That is the whole
+contract. Read the limits before the procedure.
+
+## What a regency never grants
+
+Being away is not consent. Every one of these still waits for the King, however long that takes:
+
+- **A landing that is not already authorised.** `+yolo` already permits landing green work inside
+  the brief's accepted criteria; that stands and is unchanged. Regency adds nothing to it. A
+  project without `+yolo` lands nothing while they are away.
+- **Answering a question a worker asked.** A worker that stops to ask has hit something its brief
+  did not settle. Answering it on the King's behalf is exactly the judgement they stepped away
+  from. Record it, never answer it - see the blocked-worker rule below.
+- **Anything destructive or irreversible.** Force-push, history rewrite, deleting a branch or a
+  worktree holding unlanded work, dropping data. None of it, whatever the posture.
+- **Anything security-sensitive.** Credentials, tokens, permissions, published artifacts, anything
+  that leaves the machine.
+- **A red merge.** Never, and being away does not make it more tempting, it makes it worse.
+- **New work they did not ask for.** An empty queue while they are out is a healthy state. Do not
+  invent work, tidy, refactor, or improve anything on your own initiative.
+
+If a choice is close enough that you find yourself building a case for it, that is the signal to
+batch it and stop.
+
+## What regency actually does
+
+1. Write the durable flag, so the mode survives a restart and a fresh session picks it up:
+
+   ```powershell
+   $afk = Join-Path $env:KINGSHAND_HOME 'state\.afk'
+   Set-Content -LiteralPath $afk -Encoding utf8 -Value (@(
+     "since: $((Get-Date).ToUniversalTime().ToString('o'))"
+     "note: <whatever they said - 'back in an hour', 'overnight'>"
+   ) -join "`n")
+   ```
+
+2. **Confirm what you can actually see, and say so if the answer is "not everything".** Regency
+   rests entirely on noticing a worker has stopped, and that comes from reading its screen:
+
+   ```powershell
+   Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
+   foreach ($a in (Get-HerdrAgents)) {
+     [pscustomobject]@{ worker = $a.name; readable = (Test-HerdrAgentReadable -Name $a.name) }
+   }
+   ```
+
+   **Any worker reporting `readable = False` cannot be watched.** Its terminal is too narrow to
+   render the text that identifies a prompt, so a stuck worker and a working one look identical.
+   Say that plainly before they leave, naming the worker, and let them decide whether to go. Do not
+   enter a regency silently over a worker you cannot see.
+
+3. Arm a wait for every live worker, exactly as `muster` Step 4 describes. Nothing else wakes you.
+   One per worker, and re-arm on timeout.
+
+4. Say one line and stop talking. No plan, no reassurance, no list of what you will be doing.
+
+## While they are away
+
+Handle each wake and then go quiet again. Nothing routine reaches them.
+
+**A worker finished, green, inside its brief, on a `+yolo` project.** Land it per the project's
+posture, exactly as you would with them present. Record it for the return digest. Do not message.
+
+**A worker finished and anything is unclear** - a decision in its `report.md`, scope drift, a
+result you cannot verify, a `no-mistakes` ask-user finding. Set its stage, write the outcome down,
+and batch it. `decree` still owns any unresolved decision and still applies.
+
+**A worker is blocked on a prompt.** This is the case regency exists for and the one to get right.
+
+- Do **not** send it keys. Not Enter, not an arrow, not "the obvious answer".
+- Read its screen and record the question verbatim, so they answer the real thing on return.
+- Then choose, and prefer the first: leave it blocked if it costs nothing, so the worker can be
+  answered and resumed when they get back. Stop it with `Stop-HerdrAgent` only if leaving it holds
+  something else up - and never force-kill, because that costs the pane permanently.
+- Its worktree stays. Always.
+
+**A worker failed.** Record the failure and the evidence. Do not re-dispatch it with a guessed fix -
+a failure they have not seen is not a failure you understand yet.
+
+**Everything else** - progress, output, a wait timing out, a worker taking longer than expected -
+is not an event. Re-arm and stay quiet.
+
+## The one thing that does reach them
+
+Only this: something is on fire and waiting costs more than interrupting them. A credential expired
+and everything is stalled. A worker is touching something it should not. A destructive action has
+already happened. Anything where the honest sentence is "this could not wait".
+
+Everything else, including every blocked worker, waits for the digest. A regency that interrupts is
+not a regency.
+
+## When they come back
+
+Any ordinary message from them ends it. Bias every ambiguous case toward ending - a present King
+outranks a durable flag, and wrongly staying in regency is worse than wrongly leaving it.
+
+1. Remove `state\.afk`.
+2. Give the digest **before** answering whatever they just said, unless what they said is urgent.
+   Short, and in this order: what landed, what is waiting on them, what broke, what is still
+   running. Every blocked worker's question, quoted.
+3. Then answer them.
+
+If nothing happened, say exactly that in one line. "Nothing needed you" is a complete and useful
+report, and padding it is how the digest stops being read.
+
+A message that starts with `/regency` or `/afk` refreshes the mode rather than ending it.
+
+## What this cannot do, stated plainly
+
+**Nothing supervises the fleet if this Claude Code session ends.** The waits are background jobs
+inside the session that armed them; closing the terminal, a crash, or a reboot takes them with it.
+The workers keep running and their reports still land on disk, but nothing is watching and nothing
+will wake. The next session picks the flag up and re-arms - that is recovery, not continuity.
+
+Say this once, in one line, to anyone entering a regency for longer than they will keep the window
+open. It is the difference between an away mode and a promise you cannot keep.

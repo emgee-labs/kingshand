@@ -2478,7 +2478,7 @@ Describe 'survey puts an open decision in King''s Call and only there' {
 }
 
 Describe 'the setup skill ships inside the repo so a fresh clone can bootstrap itself' {
-    # Every skill is project-local, under .claude\skills\, so all twelve are readable the moment
+    # Every skill is project-local, under .claude\skills\, so all thirteen are readable the moment
     # someone opens Claude Code in this directory and none of them is reachable from anywhere
     # else on the machine. That is what lets "set it up" be the first thing anyone types.
     BeforeAll { $script:SetupText = Get-DocText $script:SetupMd }
@@ -2782,6 +2782,52 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     # it short" quietly becomes "leave things out". Its rules - suppress tangents, cap lists at
     # five, no recap - could each be read as licence to drop a blocker or a failure. So the skill
     # has to say out loud which contract it owns and which it does not, and these pin that.
+    # regency runs the fleet while nobody is watching, which makes it the worst place in this
+    # repository for a rule to be implied rather than written. Every case below is something that
+    # would be tempting at 2am with a worker sitting on a menu and nobody to ask.
+    Context 'regency grants no authority the King has not already given' {
+        BeforeAll {
+            $script:Regency = Get-Content -Path (Join-Path $script:Root '.claude\skills\regency\SKILL.md') -Raw
+        }
+
+        It 'states up front that being away is not consent' {
+            $script:Regency | Should -Match 'Being away is not consent'
+            $script:Regency | Should -Match 'holds no new powers'
+        }
+
+        It 'never answers a question a worker asked' {
+            $script:Regency | Should -Match 'Record it, never answer it'
+            $script:Regency | Should -Match 'Do \*\*not\*\* send it keys'
+            $script:Regency | Should -Match 'record the question verbatim'
+        }
+
+        It 'adds nothing to the landing authority the posture already carries' {
+            $script:Regency | Should -Match 'Regency adds nothing to it'
+            $script:Regency | Should -Match 'A\s+project without `\+yolo` lands nothing while they are away'
+        }
+
+        It 'keeps destructive, irreversible and security-sensitive actions out of reach' {
+            $script:Regency | Should -Match 'Anything destructive or irreversible'
+            $script:Regency | Should -Match 'Anything security-sensitive'
+            $script:Regency | Should -Match 'A red merge'
+        }
+
+        It 'refuses to start a regency over a worker it cannot see' {
+            $script:Regency | Should -Match 'cannot be watched'
+            $script:Regency | Should -Match 'Do not\s+enter a regency silently over a worker you cannot see'
+        }
+
+        It 'admits it stops supervising if the session ends' {
+            $script:Regency | Should -Match 'Nothing supervises the fleet if this Claude Code session ends'
+            $script:Regency | Should -Match 'a promise you cannot keep'
+        }
+
+        It 'ends on any ordinary message, and biases ambiguity toward ending' {
+            $script:Regency | Should -Match 'Bias every ambiguous case toward ending'
+            $script:Regency | Should -Match 'a present King\s+outranks a durable flag'
+        }
+    }
+
     Context 'herald owns output shape and nothing else' {
         BeforeAll {
             $script:Herald = Get-Content -Path (Join-Path $script:Root '.claude\skills\herald\SKILL.md') -Raw
@@ -2833,7 +2879,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
 
     It 'every skill directory lives under .claude\skills\' {
         $skills = @(Get-ChildItem (Join-Path $script:Root '.claude\skills') -Directory)
-        $skills.Count | Should -Be 12 -Because 'eleven skills plus setup, all project-local'
+        $skills.Count | Should -Be 13 -Because 'twelve skills plus setup, all project-local'
         @($skills.Name) | Should -Contain 'herald' -Because 'output shape has an owner the user can turn on'
         foreach ($s in $skills) {
             Test-Path -LiteralPath (Join-Path $s.FullName 'SKILL.md') |
