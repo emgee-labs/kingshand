@@ -32,10 +32,13 @@ missing, and writes this machine's configuration - `KINGSHAND_HOME`, the lavish 
 `instructions.md` from the template, and the local `data\`, `state\` and `config\` directories. It
 touches none of their repositories, and it writes nothing into their `~\.claude\` profile.
 
-Say too that it adds one line, `.claude/worktrees/`, to their global gitignore. That is the only
-thing it changes outside this repository other than the two environment variables, and it is there
-because workers run inside their own repositories and would otherwise appear as untracked changes.
-One line, said once - not a paragraph of reassurance.
+Say too that it adds one line, `.claude/worktrees/`, to their global gitignore, because workers run
+inside their own repositories and would otherwise appear as untracked changes.
+
+And say, only when it actually happens, that it put `claude.exe` ahead of npm's `claude.cmd` on
+their PATH - the wrapper corrupts arguments containing quotes, which silently breaks the review
+gate. Those two plus the two environment variables are everything it changes outside this
+repository. Said once each - not a paragraph of reassurance.
 
 **Then ask them two questions, and only on a first run.**
 

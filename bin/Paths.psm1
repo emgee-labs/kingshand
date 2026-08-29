@@ -23,11 +23,23 @@ function Get-KingshandHome {
     Split-Path $PSScriptRoot -Parent
 }
 
-# The absolute path of the `claude.cmd` shim, or $null when it cannot be found.
+# The absolute path of the real `claude.exe`, or the npm `.cmd` wrapper as a last resort, or $null.
 #
-# It has to be the `.cmd`, not `claude` and not the `.ps1`. On Windows `claude` resolves to a
-# PowerShell script, and `Start-Process` cannot launch one - it fails with "%1 is not a valid Win32
-# application". The shim is the only form the dispatcher can spawn.
+# THE ORDER MATTERS AND THE WRAPPER IS THE WRONG ANSWER. npm's `claude.cmd` forwards with `%*`:
+#
+#     "%dp0%\node_modules\@anthropic-ai\claude-code\bin\claude.exe"   %*
+#
+# `%*` re-expands the raw command line, so cmd.exe parses any double quote inside an argument as a
+# delimiter and the value is cut at the first one. Measured: passing a JSON schema through the
+# wrapper delivered `{` and nothing else, and Claude Code answered "--json-schema is not valid
+# JSON: JSON Parse error: Expected '}'" - not malformed JSON, one character of it. The same call to
+# the real binary on the same machine returned correct output.
+#
+# So anything that shells out to Claude Code by name on Windows gets a wrapper that silently
+# corrupts quoted arguments. This function exists to hand back the binary instead.
+#
+# `.ps1` is never returned. It works when a human types it, because PowerShell passes argv straight
+# through, but it cannot be launched by a native caller.
 #
 # Resolved at run time through `Get-Command`. This used to be one machine's npm prefix written out
 # in full, which is a path nobody else has.
@@ -35,16 +47,28 @@ function Get-ClaudeCommandPath {
     [CmdletBinding()]
     param()
 
-    $direct = @(Get-Command 'claude.cmd' -CommandType Application -ErrorAction SilentlyContinue)
-    if ($direct.Count -gt 0 -and $direct[0].Source) { return $direct[0].Source }
+    $exe = @(Get-Command 'claude.exe' -CommandType Application -ErrorAction SilentlyContinue)
+    if ($exe.Count -gt 0 -and $exe[0].Source) { return $exe[0].Source }
 
-    # `claude` on PATH tells us where the install lives even when the shim itself is not resolvable
-    # as a command name - the two sit side by side in the same npm bin directory.
+    # Not on PATH by default: npm's bin directory holds `claude`, `claude.cmd` and `claude.ps1`,
+    # and the binary lives one package directory down. Look there before settling for the wrapper.
+    foreach ($candidate in @(Get-Command 'claude' -ErrorAction SilentlyContinue)) {
+        $source = $candidate.Source
+        if (-not $source) { continue }
+        $dir = Split-Path $source -Parent
+        $nested = Join-Path $dir 'node_modules\@anthropic-ai\claude-code\bin\claude.exe'
+        if (Test-Path -LiteralPath $nested -PathType Leaf) { return $nested }
+    }
+
+    # Last resort. It will corrupt any argument containing a quote, so callers that pass one should
+    # treat this as a degraded result rather than a working install.
+    $cmd = @(Get-Command 'claude.cmd' -CommandType Application -ErrorAction SilentlyContinue)
+    if ($cmd.Count -gt 0 -and $cmd[0].Source) { return $cmd[0].Source }
+
     foreach ($candidate in @(Get-Command 'claude' -ErrorAction SilentlyContinue)) {
         $source = $candidate.Source
         if (-not $source) { continue }
         if ($source.EndsWith('.cmd', [System.StringComparison]::OrdinalIgnoreCase)) { return $source }
-
         $sibling = Join-Path (Split-Path $source -Parent) 'claude.cmd'
         if (Test-Path -LiteralPath $sibling -PathType Leaf) { return $sibling }
     }
@@ -52,16 +76,41 @@ function Get-ClaudeCommandPath {
     $null
 }
 
-# One message, so the dispatcher and the prerequisite check tell the user the same actionable
-# thing. It names the tool, the install command, and the reason the shim specifically is required.
+# True when the resolved Claude Code is the npm wrapper rather than the binary.
+#
+# Not fatal - kingshand itself passes no quoted arguments today, so a wrapper still dispatches
+# workers fine. It matters for anything that does, which on this toolchain means the review gate:
+# every one of its agent steps passes a JSON schema, so on a wrapper-only machine the whole
+# pipeline fails instantly and the error names JSON rather than PATH.
+function Test-ClaudeCommandIsWrapper {
+    [CmdletBinding()]
+    param([string]$Path)
+
+    if (-not $Path) { $Path = Get-ClaudeCommandPath }
+    if (-not $Path) { return $false }
+    $Path.EndsWith('.cmd', [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+# One message, so every caller tells the user the same actionable thing.
 function Get-ClaudeCommandHint {
     [CmdletBinding()]
     param()
 
-    'claude.cmd was not found on PATH. Install Claude Code with: npm install -g ' +
-    '@anthropic-ai/claude-code - then open a new shell so PATH is picked up. Dispatch spawns the ' +
-    '.cmd shim rather than `claude` itself, because Start-Process cannot launch the .ps1 that ' +
-    '`claude` resolves to on Windows.'
+    'Claude Code was not found on PATH. Install it with: npm install -g @anthropic-ai/claude-code ' +
+    '- then open a new shell so PATH is picked up.'
+}
+
+# The fix for a machine that only has the wrapper, said the same way everywhere.
+function Get-ClaudeWrapperHint {
+    [CmdletBinding()]
+    param()
+
+    'Claude Code resolves to npm''s claude.cmd wrapper, which corrupts any argument containing a ' +
+    'quote - it forwards with %* and cmd.exe re-parses the quotes. Tools that pass JSON, including ' +
+    'the no-mistakes review gate, fail with "--json-schema is not valid JSON" and never reach the ' +
+    'model. Fix it by putting the real binary first on PATH: ' +
+    '%APPDATA%\npm\node_modules\@anthropic-ai\claude-code\bin - PATHEXT prefers .EXE over .CMD, so ' +
+    'it wins. install.ps1 does this for you.'
 }
 
 # The review gate, or $null. Optional by design: only projects registered `no-mistakes` or
@@ -100,4 +149,5 @@ function Get-NoMistakesHint {
 }
 
 Export-ModuleMember -Function Get-KingshandHome, Get-ClaudeCommandPath, Get-ClaudeCommandHint,
+                              Test-ClaudeCommandIsWrapper, Get-ClaudeWrapperHint,
                               Get-NoMistakesCommandPath, Get-NoMistakesHint
