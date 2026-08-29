@@ -2,7 +2,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
-[![Tests](https://img.shields.io/badge/tests-693%20passing-3fb950)](tests)
+[![Tests](https://img.shields.io/badge/tests-696%20passing-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 # You rule. It executes.
@@ -194,23 +194,6 @@ Thirteen, all project-local. Eight you invoke; five the Hand loads for itself.
 | `inquest` | Diagnosing a reported bug before writing its brief |
 | `petition` | Deciding an ask-user finding from the review gate |
 | `statute` | Changing kingshand's own tracked material |
-
-## Status - read this before you rely on it
-
-- **It has been used by one person, on one machine.** Expect to hit things.
-- **Windows and PowerShell 7 only.** Paths, worktrees and the process model are all Windows-shaped.
-- **The test suite is 693 cases, and roughly half assert that a prose rule exists** in `CLAUDE.md` or
-  a skill - not that an agent obeyed it. Those catch a rule being deleted or diluted in an edit.
-  They cannot catch a model reading the rule and doing something else. The scripts under `bin\` are
-  tested properly; the behaviour of the agent reading the prose is not, and cannot be by this means.
-- **Worker state is not taken on trust.** Every way of telling a stuck worker from a busy one -
-  herdr's own rules and kingshand's guard alike - matches patterns against the *rendered* terminal,
-  so neither works on a terminal too narrow to render. That was measured the hard way: workers 6 and
-  3 columns wide, one character per line, both detectors blind. Each worker now gets its own
-  workspace, dispatch checks it can actually be read, and completion needs a written report rather
-  than a state word.
-- **Answering a worker's prompt is deliberately careful.** Keys go one at a time, because a batched
-  arrow-then-Enter picks the wrong option and reports success.
 
 ## Permissions, and what you are agreeing to
 
