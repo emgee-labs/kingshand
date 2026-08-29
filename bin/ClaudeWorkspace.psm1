@@ -68,7 +68,7 @@ function Set-WorkerWorkspaceSettings {
 # deliberately narrow: exactly the worktree kingshand just created, never its parent repo.
 #
 # THE FILE IS EDITED THROUGH JsonNode, NOT ConvertFrom-Json -AsHashtable. A real ~\.claude.json
-# on this machine contains both 'D:/code' and 'd:/code'. PowerShell hashtables
+# seen in the wild contained the same directory twice under 'D:/code' and 'd:/code'. PowerShell hashtables
 # are case-insensitive, so an -AsHashtable round trip merges those two keys and writes back a
 # file with one of them silently gone - it would destroy a user's project history to save four
 # lines. Plain ConvertFrom-Json refuses outright with "keys with different casing", which is the
