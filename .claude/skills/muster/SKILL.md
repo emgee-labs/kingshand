@@ -659,11 +659,47 @@ Scope this to `$base..HEAD` for the same reason. Run against a stale local branc
 none of the crew's business. A hit outside the worker's own commits is a bad diff base, not a
 violation.
 
-Everything above runs in every case. What the posture changes is only what happens next. When
-`$proj.yolo -eq 'off'`, render the diff and log into sections, poll lavish, and wait for explicit
-approval. When `$proj.yolo -eq 'on'`, the waiting is skipped and nothing else is: the evidence is
+Everything above runs in every case. What the posture changes is only what happens next.
+
+When `$proj.yolo -eq 'off'`, **render the evidence and wait**. Render it - do not summarise a diff
+into chat and ask for a yes. This is a decision, and hard rule 5 says every decision renders,
+however short the summary looks:
+
+```powershell
+$sections = @(
+  @{ heading = 'What changed'; items = @(
+      @{ id='F-001'; text='<file> - <what changed and why it matters>'; detail='<+n/-n>'; badges=@(); flag=$false }
+  )}
+  @{ heading = 'Checks'; items = @(
+      @{ id='C-001'; text='<check> - <result>'; detail='<evidence>'; badges=@(); flag=$false }
+  )}
+  @{ heading = 'Open questions'; items = @(
+      @{ id='Q-001'; text='<anything report.md left unresolved>'; detail=''; badges=@(); flag=$true }
+  )}
+)
+& $env:KINGSHAND_HOME\bin\Render-Review.ps1 -Title "Land: <id>" -Subtitle "<repo> - <mode>" `
+    -Sections $sections -OutputPath $env:KINGSHAND_HOME\data\<id>\review.html
+
+$env:LAVISH_AXI_PORT = '4388'
+lavish-axi $env:KINGSHAND_HOME\data\<id>\review.html
+lavish-axi poll $env:KINGSHAND_HOME\data\<id>\review.html
+```
+
+The parameter is `-OutputPath`. An earlier draft of this block abbreviated it, which would have
+thrown the first time anyone reached the landing gate - a documented command nothing exercises. A
+test pins the spelling for that reason.
+
+Sections carry what they need to judge it: the changed files, the diff, the check results, the base
+ref the diff was taken against, and anything the worker's `report.md` left unresolved. Then say one
+line in chat naming what is waiting and stop - the surface holds the detail, chat holds the pointer.
+
+`lavish-axi poll` long-polls and stays silent until they answer. Keep it in the foreground, or run
+it as a harness-tracked background job whose completion wakes you. Never leave it detached with
+nothing to wake on - that is the same silence this whole layer exists to prevent.
+
+When `$proj.yolo -eq 'on'`, the waiting is skipped and nothing else is: the evidence is
 still gathered and still checked, and a red check, an attribution hit, a scope expansion or
-anything destructive still goes to the user.
+anything destructive still goes to the user - rendered, because each of those is a decision.
 
 **Then route on the resolved mode.** This routing is the same whether the gate was answered or
 skipped by `+yolo`:

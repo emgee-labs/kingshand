@@ -140,9 +140,26 @@ Describe 'yolo is tested as a string, never for truthiness' {
         Assert-Phrase -Text $step -Where 'the landing gate' `
             -Phrase "The test is ```$proj.yolo -eq 'on'``, and nothing else"
         Assert-Phrase -Text $step -Where 'the landing gate' `
-            -Phrase "When ```$proj.yolo -eq 'off'``, render the diff"
+            -Phrase "When ```$proj.yolo -eq 'off'``, **render the evidence and wait**"
         Assert-Phrase -Text $step -Where 'the landing gate' `
             -Phrase "When ```$proj.yolo -eq 'on'``, the waiting is skipped"
+    }
+
+    # The gate said "render the diff and poll lavish" and nothing ran it. Gate one carried a
+    # concrete Render-Review command; gate two carried a sentence, and a sentence is not a step.
+    # Measured: lavish was invoked zero times across a full working session, with the landing
+    # decision delivered as chat prose instead.
+    It 'the landing gate carries a runnable render, not a description of one' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        $step | Should -Match 'Render-Review\.ps1' -Because 'gate one has the command and gate two needs it too'
+        $step | Should -Match 'lavish-axi poll' -Because 'rendering without polling waits on nothing'
+        # The first draft of this block said -OutPath. Render-Review takes -OutputPath, so it would
+        # have thrown the first time anyone ran the landing gate. Documented commands are not
+        # exercised by anything, which is exactly why the parameter name is pinned here.
+        $step | Should -Match '-OutputPath' -Because 'the real parameter name, verified by running it'
+        $step | Should -Not -Match '-OutPath\b' -Because 'that name does not exist and fails at the gate'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase 'do not summarise a diff into chat and ask for a yes'
     }
 
     It 'no bare truthiness test appears in a runnable code block in <file>' -ForEach @(
@@ -1233,29 +1250,59 @@ Describe 'rule 5 routes by what the user does with the output, not by its length
 
     It 'is still rule 5, with no hard rule renumbered around it' {
         Assert-Phrase -Text $script:Rule5 -Where 'CLAUDE.md rule 5' `
-            -Phrase '5. **Route by what the user does with the output, never by how long it is.**'
+            -Phrase '5. **Chat is short. When it cannot be short, render it instead of growing the message.**'
         Assert-Phrase -Text $script:Rule5 -Where 'CLAUDE.md rule 6' `
             -Phrase '6. **Escalate real decisions only.**'
     }
 
-    It 'no longer decides by line count' {
+    # This rule has swung twice, and the middle version is why the current one is worded as it is.
+    # Version one had a line-count threshold and was ignored: "more than 5-6 lines" is unfollowable,
+    # and rendering a ten-line dispatch note would have been worse than leaving it. Version two
+    # over-corrected into "length is never the test, a long answer is allowed to be a long answer",
+    # which read as a permission slip - measured result: lavish was invoked zero times across an
+    # entire working session while decisions piled up in chat.
+    #
+    # Version three is short-by-default with NO number in it. The bright line is that every decision
+    # renders; the judgement is whether it still helps at a few sentences. Anyone tempted to put a
+    # threshold back should read version one first.
+    It 'is short by default without reintroducing a line count' {
         $script:Rule5.Contains('More than 5-6 lines') |
-            Should -BeFalse -Because 'the line-count threshold is the half of rule 5 that was ignored'
+            Should -BeFalse -Because 'a mechanical threshold was tried, was unfollowable, and was ignored'
+        $script:Rule5.Contains('a long answer is allowed to be a long answer') |
+            Should -BeFalse -Because 'that sentence read as permission, and nothing ever rendered'
         Assert-Phrase -Text $script:Rule5 -Where 'CLAUDE.md rule 5' `
-            -Phrase 'Length alone is not the test, and a long answer is allowed to be a long answer.'
+            -Phrase 'That is the default and it needs no asking for.'
     }
 
-    It 'sends deciding and scanning to a rendered surface' {
+    It 'renders every decision, however short it looks' {
         Assert-Phrase -Text $script:Rule5 -Where 'CLAUDE.md rule 5' `
-            -Phrase ('A rendered surface carries anything the user must decide on, and any ' +
-                     'structured artifact they scan and compare - a diff, a requirement list, a ' +
-                     'review gate.')
+            -Phrase ('**Every decision renders**, however short it looks; a choice buried in a ' +
+                     'paragraph is a choice they have to reconstruct.')
+    }
+
+    It 'names a long chat message as the failure and rendering as the fix' {
+        Assert-Phrase -Text $script:Rule5 -Where 'CLAUDE.md rule 5' `
+            -Phrase ('A long chat message is the failure this rule names, not an allowed outcome - ' +
+                     'the fix is always to render, never to trim out what matters.')
     }
 
     It 'leaves everything read once and acted on in chat' {
         Assert-Phrase -Text $script:Rule5 -Where 'CLAUDE.md rule 5' `
-            -Phrase ('Chat carries everything else: answers, updates, pauses and notifications - ' +
-                     'things read once and acted on.')
+            -Phrase ('Chat carries what is read once and acted on: answers, updates, pauses, ' +
+                     'notifications.')
+    }
+
+    # The shape used to stop at the edge of chat, and outward text is where it matters most: a PR
+    # body or a ticket comment is read by somebody with none of the Hand's context.
+    It 'applies the same shape to everything written for a person' {
+        $s = Get-HandSection 'Escalation and etiquette'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md escalation' `
+            -Phrase '**Everything written for a person obeys this, not just chat.**'
+        $s | Should -Match 'a Teams or Slack\s+reply'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md escalation' `
+            -Phrase '**Never paste internal shape outward.**'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md escalation' `
+            -Phrase '**Shorter is not vaguer.**'
     }
 
     It 'keeps the port trap that 4387 answers silently' {
@@ -1332,11 +1379,22 @@ Describe 'chat is shaped by the kind of message it is' {
                      'over leading with an action.')
     }
 
-    It 'restates state on a change or a return, never on every turn' {
+    # This one reversed deliberately, and it is the only place the default shape and the old
+    # wording actually conflicted. The old rule was "never restate on every turn, because unchanged
+    # state repeated is noise" - written for a reader who still has the last message on screen. The
+    # shape is now on by default for a reader who does not, so the bias flips: restate unless it is
+    # a fast exchange where nothing moved. Noise costs a skim; a lost reader costs the thread.
+    It 'restates state by default, biasing toward restating rather than assuming' {
         Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
-            -Phrase ('Restate state when it changed, or when the user has been away - never on ' +
-                     'every turn, because unchanged state repeated every message is noise, and ' +
-                     'over a long session it is a lot of noise.')
+            -Phrase ('**Restate where things stand in any message the user might act on**, and ' +
+                     'after any gap.')
+        Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
+            -Phrase 'Assume the last message is no longer on screen, because usually it is not.'
+        Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
+            -Phrase ('When in doubt, restate - a reader who already knew skims one line, a reader ' +
+                     'who did not was otherwise lost.')
+        $script:Shape | Should -Not -Match 'never on\s+every turn' `
+            -Because 'the old rule said the opposite and both cannot stand'
     }
 
     It 'gives every estimate in concrete units' {
@@ -2775,23 +2833,41 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Herald = Get-Content -Path (Join-Path $script:Root '.claude\skills\herald\SKILL.md') -Raw
         }
 
-        It 'claims ownership of output shape explicitly rather than silently' {
-            $script:Herald | Should -Match 'while herald is\s+active it is the owner of output shape'
+        # The shape is on by default, so its rules have to live where they apply unloaded. A rule
+        # that exists only in a skill nobody loaded is not in force, and "it is the default" would
+        # be a claim rather than a fact. These two pin both halves.
+        It 'says the shape is already on without the skill being loaded' {
+            $script:Herald | Should -Match '\*\*This shape is the default\. It is already on'
+            $script:Herald | Should -Match 'a rule that only exists in an unloaded skill is not in force'
+        }
+
+        It 'the rules that must apply unloaded are actually in CLAUDE.md' {
+            $hand = Get-Content -Path (Join-Path $script:Root 'CLAUDE.md') -Raw
+            $hand | Should -Match 'This shape is \*\*the default and always on\*\*'
+            $hand | Should -Match 'Number multi-step work'
+            $hand | Should -Match 'Cap a list at five items'
+            $hand | Should -Match 'Restate where things stand'
         }
 
         It 'states that it never suppresses an escalation' {
-            $script:Herald | Should -Match 'The escalation triggers are untouched'
-            $script:Herald | Should -Match 'they never withhold one'
+            $script:Herald | Should -Match 'It never suppresses an escalation'
+            $script:Herald | Should -Match 'shaped differently'
         }
 
         It 'does not relax the hard rules, attribution, or the metaphor boundary' {
-            $script:Herald | Should -Match 'The hard rules are not output shape'
-            $script:Herald | Should -Match 'Never name an assistant or model'
+            $script:Herald | Should -Match 'It relaxes no hard rule'
+            $script:Herald | Should -Match 'never puts an assistant or a model'
             $script:Herald | Should -Match 'metaphor words stay out of anything posted outward'
         }
 
-        It 'says plainly that turning it on grants no autonomy' {
-            $script:Herald | Should -Match 'not a grant of autonomy'
+        It 'says plainly that shaping is not permission to omit' {
+            $script:Herald | Should -Match 'Shaping output is not permission to omit'
+            $script:Herald | Should -Match 'never shortens a report by leaving out what failed'
+        }
+
+        It 'turning it off changes shape only, and does not survive the session' {
+            $script:Herald | Should -Match 'only the shape changes'
+            $script:Herald | Should -Match 'Every new session starts shaped, because that is the default'
         }
 
         It 'credits the MIT-licensed source the rules came from' {

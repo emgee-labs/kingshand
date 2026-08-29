@@ -207,9 +207,14 @@ if ($submitted -and $submitted.PSObject.Properties.Name -contains 'blocked') {
 # different answers and only one of them means the worker is fine.
 $readable = Test-HerdrAgentReadable -Name $Name
 if (-not $readable) {
-    Write-Warning ("Worker $Name is in a terminal too narrow to read - the stuck-worker guard " +
-                   "cannot see an interactive prompt in it. Treat its silence as unknown rather " +
-                   "than healthy, and check `data\$Name\report.md` rather than its screen.")
+    Write-Warning ("Worker $Name is in a terminal too narrow to read. Nothing can tell a stuck " +
+                   "worker from a busy one in it - not this guard and not herdr's own detection, " +
+                   "because both match patterns against the rendered screen. Treat its silence as " +
+                   "unknown rather than healthy and read data\$Name\report.md instead of its screen." +
+                   " A fresh workspace is 93 columns, so this means the herdr server's layout is " +
+                   "already wrecked - almost always by an older kingshand that split panes. " +
+                   "Recover it by letting every worker finish, then: herdr server stop. The next " +
+                   "dispatch starts a clean one.")
 }
 
 [hashtable]@{

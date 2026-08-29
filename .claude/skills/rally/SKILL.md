@@ -51,7 +51,13 @@ steer as done without checking `Read-HerdrAgent` afterwards to see that it lande
 herdr 0.8.2 with agent-detection manifest 2026.08.21.1, a worker sitting on an unanswered
 `AskUserQuestion` menu reported `idle` - `agent explain` showed it matched by `live_prompt_box`
 while every blocked rule evaluated and failed - and minutes later that same still-blocked worker
-reported `done` while a genuinely finished worker reported `idle`. The two states inverted. So a
+reported `done` while a genuinely finished worker reported `idle`. The two states inverted.
+
+That was traced to terminal width, not to herdr. The panes were 3 to 6 columns wide and neither
+herdr's rules nor the guard can match a UI that never renders; at 94 columns both classified the
+same blocked worker correctly. **So the first question about a worker behaving oddly is whether you
+can read it at all** - `Test-HerdrAgentReadable`. A false there means you do not know its state
+rather than that it is fine, and the cure is a herdr server restart once workers have finished. So a
 worker reading `idle` or `done` may be waiting on a person, and one reading `blocked` may not be.
 
 `Test-HerdrAgentAwaitingInput` is the authority. It reads the LIVE VIEWPORT and answers whether
