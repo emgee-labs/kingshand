@@ -359,7 +359,12 @@ if ($InstallMissing -and $missing.Count -gt 0) {
     # does not belong in a repository people clone.
     if (@($missing | Where-Object { $_.Manager -eq 'herdr' }).Count -gt 0) {
         Write-Host '  FOR   herdr'
-        $null = Install-Herdr -Destination (Join-Path $Root 'tools\herdr')
+        # Recorded in $actions, not discarded. A run that downloads and extracts a binary and then
+        # signs off with "changed: nothing - this installation was already set up" is telling the
+        # reader something false about their own machine, and the summary is the part people keep.
+        if (Install-Herdr -Destination (Join-Path $Root 'tools\herdr')) {
+            $actions.Add('tools\herdr\')
+        }
     }
 
     if (@($missing | Where-Object { $_.Manager -eq 'psgallery' }).Count -gt 0) {
