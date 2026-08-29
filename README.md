@@ -177,7 +177,7 @@ Twelve, all project-local. Seven you invoke; five the Hand loads for itself.
 | `annex` | Register a repository and its delivery posture. Never clones |
 | `muster` | Dispatch and supervise workers across tickets and repos |
 | `survey` | Where everything stands - the catch-up digest |
-| `herald` | Shape replies for focus: next action first, one thing at a time. Also `adhd mode` |
+| `herald` | Owns reply shape, which is on by default. Load it to turn it off |
 | `audience` | What happened while you were away from this session |
 | `chronicle` | Curate durable memory before a context reset |
 | `rally` | A worker that has stopped making progress |

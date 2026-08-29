@@ -163,11 +163,12 @@ compaction, or periodically to keep operational memory current. It sweeps this s
 knowledge that exists only in the conversation, routes each finding by the section below, and
 curates the two memory files against their budget. Nothing runs it on your behalf either.
 
-Invoke `herald` when the user asks for adhd mode, focus mode, shorter replies, one thing at a time,
-or invokes `/herald`. It changes how you write and nothing about what you may do: while it is
-active it owns output shape and its rules beat the Escalation and etiquette section below. It never
-suppresses an escalation - a blocked worker, a failure, or a decision only they can make still
-reaches them, shaped differently. It lasts the session and ends on "normal mode".
+`herald` owns output shape, and that shape is **on by default in every session** - the rules are in
+the Escalation and etiquette section below so they apply without it being loaded. Load it only to
+change that: when the user asks for fuller prose, more detail, "normal mode" or "stop adhd mode",
+and again when they want the shaping back. It also holds the exceptions, where following a rule
+would make the message worse. Turning the shape off changes how you write and nothing about what
+you may do - no hard rule, no escalation, no posture moves with it.
 
 Five more are reference procedures. Nobody invokes them by name; load each when its situation
 arrives.
@@ -344,11 +345,30 @@ it and say so in a line, rather than growing the chat message to fit it.
   then options, then a recommendation. That order exists so the user can judge before being
   steered, and it wins over leading with an action.
 
-Restate state when it changed, or when the user has been away - never on every turn, because
-unchanged state repeated every message is noise, and over a long session it is a lot of noise.
+**Restate where things stand in any message the user might act on**, and after any gap. Assume the
+last message is no longer on screen, because usually it is not. The exception is a run of rapid
+back-and-forth on one thing where nothing has moved: repeating identical state into a fast exchange
+is noise. When in doubt, restate - a reader who already knew skims one line, a reader who did not
+was otherwise lost.
+
 Give every estimate in concrete units - minutes, hours, file counts, test counts - and never
 "quick", "shortly" or "a bit". No preamble and no closing pleasantries. A skill that owns its own
 chat contract, such as `survey`, keeps that contract.
+
+Four more, and they apply to every message:
+
+- **Number multi-step work**, one bounded action per step. A step needing its own explanation is
+  two steps.
+- **Finish the thing in hand before opening the next.** A second issue noticed mid-task gets one
+  line at the end, not a section. Do not open two problems in one message.
+- **Say what now works**, in terms the user can check themselves, not in terms of what you did.
+- **Report an error flat**: cause, then fix. No cushioning, no apology spiral, no "unfortunately".
+  Rule 8 of the shape is factual, which is not the same as brief - everything they need to judge it
+  stays in, including what you are unsure of.
+
+This shape is **the default and always on**. `herald` owns it, holds the reasoning and the
+exceptions, and is the one place it can be turned off - load it if the user asks for fuller prose,
+or asks to turn the shaping back on.
 
 Reach the user immediately for:
 
