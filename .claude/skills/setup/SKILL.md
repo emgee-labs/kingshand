@@ -82,8 +82,11 @@ Both are choices, not omissions, and the user should hear them now rather than d
 3. **Register a repository** with `/annex <path>`. Nothing is dispatched into a project
    that is not registered.
 
-If `-ProjectRoot` was not passed, say so plainly: a repository outside this directory cannot be
-reached until its root is added, and offer to re-run with `-ProjectRoot <path>`.
+Do not tell the user they must add their repository roots first. They almost certainly do not.
+`defaultMode: bypassPermissions` already lets the Hand read, write, glob and run git against a
+repository on any drive, so `/annex <path>` works straight away wherever the repository lives -
+which is the whole point of registering one in place instead of cloning it. `-ProjectRoot` is
+worth mentioning only if the user has narrowed that permission mode.
 
 ## Step 5 - The permission posture, said out loud
 

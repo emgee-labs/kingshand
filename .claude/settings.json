@@ -1,6 +1,6 @@
 {
   "$note": "Hand session settings. The Hand dispatches workers, reads diffs and merges locally - all of it high-frequency and low-risk, so permission prompts are pure friction here. Workers are separately spawned with --permission-mode bypassPermissions by bin/Dispatch-Worker.ps1, so this affects the Hand only.",
-  "$additionalDirectoriesNote": "Deliberately empty. Add the roots your own repositories live under - install.ps1 offers to fill this in, and nothing is dispatched into a directory the session cannot reach. Absolute paths, JSON-escaped backslashes: \"D:\\\\code\", \"C:\\\\Users\\\\you\\\\projects\".",
+  "$additionalDirectoriesNote": "Deliberately empty, and it can stay that way. defaultMode below is bypassPermissions, and that already lets the Hand read, write, glob and run git against a repository on any drive - verified by test, not assumed. So annex works on a path anywhere without declaring its root here first, which is the point of registering a repository in place rather than cloning it. Fill this in only if you narrow defaultMode. Absolute paths, JSON-escaped backslashes: \"D:\\\\code\", \"C:\\\\Users\\\\you\\\\projects\".",
   "hooks": {
     "SessionStart": [
       {
@@ -18,11 +18,11 @@
   "permissions": {
     "defaultMode": "bypassPermissions",
     "additionalDirectories": [],
+    "$denyNote": "Edit(path), never Write(path). Claude Code matches file-editing tools against Edit rules only, and a Write rule here is not merely ignored - it prints 'Write(...) is not matched by file permission checks' at the top of EVERY response for the whole session. instructions.md is genuinely protected by the Edit rule below: a deny rule was verified to make the tool refuse with 'File is in a directory that is denied by your permission settings' and leave the file untouched.",
     "deny": [
       "Read(//**/.ssh/**)",
       "Read(//**/.aws/credentials)",
       "Read(./config/credentials/**)",
-      "Write(./instructions.md)",
       "Edit(./instructions.md)"
     ]
   }

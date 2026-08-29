@@ -489,7 +489,7 @@ if ($ProjectRoot.Count -gt 0) {
         $actions.Add('additionalDirectories')
     }
 } else {
-    Write-Host '  NOTE  no -ProjectRoot given. Add the roots your repositories live under to .claude\settings.json, or re-run with -ProjectRoot <path>.'
+    Write-Host '  NOTE  no -ProjectRoot given, and you probably do not need one. The Hand runs with bypassPermissions, which already reaches repositories on any drive - annex a path and it works. Pass -ProjectRoot <path> only if you narrow that permission mode.'
 }
 
 # --------------------------------------------------------------------------------

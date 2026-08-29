@@ -2388,11 +2388,17 @@ Describe 'the setup skill ships inside the repo so a fresh clone can bootstrap i
             -Phrase '**Register a repository** with `/annex <path>`'
     }
 
-    It 'offers to re-run with -ProjectRoot when none was given' {
+    # The claim this used to pin was false, and false in the direction that costs a new user their
+    # first ten minutes: it told them to declare their repository roots before annex would work.
+    # Measured directly - a Hand session with additionalDirectories empty read a file, WROTE a file,
+    # globbed and ran git against another drive, because bypassPermissions already covers it.
+    # Registering a repository in place is pointless if its root has to be declared first.
+    It 'does not claim a repository root must be added before annex works' {
         Assert-Phrase -Text $script:SetupText -Where 'the setup skill' `
-            -Phrase ('If `-ProjectRoot` was not passed, say so plainly: a repository outside this ' +
-                     'directory cannot be reached until its root is added, and offer to re-run ' +
-                     'with `-ProjectRoot <path>`.')
+            -Phrase ('Do not tell the user they must add their repository roots first. They ' +
+                     'almost certainly do not.')
+        $script:SetupText.Contains('cannot be reached until its root is added') |
+            Should -BeFalse -Because 'that was measured to be untrue'
     }
 
     It 'does no project work of its own' {
