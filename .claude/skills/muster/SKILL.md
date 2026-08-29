@@ -1,6 +1,6 @@
 ---
 name: muster
-description: Use when the user wants work done on one or more tickets or repos in parallel - e.g. "do T-1001 and T-1002", "start on ticket T-1003", "fix the flaky login test in acme-web", "what is the crew doing", "land T-1001", "dispatch a worker", "muster a worker", "muster". Writes a brief per unit of work, gates it with the user, dispatches a background worker per brief, reports on completion, and lands only on explicit approval.
+description: Use when the user wants work done on one or more tickets or repos in parallel - e.g. "do T-1001 and T-1002", "start on ticket T-1003", "fix the flaky login test in acme-web", "what are the workers doing", "land T-1001", "dispatch a worker", "muster a worker", "muster". Writes a brief per unit of work, gates it with the user, dispatches a background worker per brief, reports on completion, and lands only on explicit approval.
 tools: Bash, PowerShell, Read, Write, Glob, Grep, ToolSearch, AskUserQuestion
 version: 1.0.0
 ---
@@ -26,7 +26,7 @@ $ARGUMENTS
 | The user says | Go to |
 |---|---|
 | names tickets, or describes work to do | Step 1 |
-| asks what the crew is doing | Step 5 |
+| asks what the workers are doing | Step 5 |
 | says land / merge / ship a worker | Step 7 |
 
 ## Step 1 - Intake
@@ -308,7 +308,7 @@ Two rules about writing briefs, both learned the hard way:
 do the obvious thing, which is exactly why they get implemented backwards.
 
 **Be literal about artefacts.** A worker told to "create a marker file" produced `MARKER.md`
-when the brief asked for `CREW_PROBE.md`. If an exact filename, route, or identifier matters,
+when the brief asked for `WORKER_PROBE.md`. If an exact filename, route, or identifier matters,
 state it exactly and say it is exact. Workers paraphrase anything left loose.
 
 ## Step 3 - Gate one: approve the dispatch
@@ -378,7 +378,7 @@ Add-CrewWorker -State $s -WorkerId $r.id -Ticket "<id>" -Kind "<ticket|adhoc>" `
 Save-CrewState -State $s -Path $env:KINGSHAND_HOME\state\crew.json
 ```
 
-Then mark the backlog item started, so the queue and the crew agree on what is under way:
+Then mark the backlog item started, so the queue and the workers agree on what is under way:
 
 ```powershell
 Set-Location $env:KINGSHAND_HOME
@@ -656,7 +656,7 @@ same empty output on a commit that plainly violates the rule.
 
 Scope this to `$base..HEAD` for the same reason. Run against a stale local branch it reports
 **colleagues' commits**, whose own co-author trailers are legitimate upstream history and are
-none of the crew's business. A hit outside the worker's own commits is a bad diff base, not a
+none of the workers' business. A hit outside the worker's own commits is a bad diff base, not a
 violation.
 
 Everything above runs in every case. What the posture changes is only what happens next.

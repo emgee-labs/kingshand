@@ -1,6 +1,6 @@
 ---
 name: annex
-description: Use when the user wants to register a repository with the crew so work can be dispatched into it - e.g. "import C:\repos\acme-api", "register acme-web", "annex C:\repos\acme-api", "add this repo as direct-PR", "what projects are registered". Records the project's standing delivery posture, and offers to initialise the review gate when the chosen posture needs one. It never clones and never removes.
+description: Use when the user wants to register a repository so work can be dispatched into it - e.g. "import C:\repos\acme-api", "register acme-web", "annex C:\repos\acme-api", "add this repo as direct-PR", "what projects are registered". Records the project's standing delivery posture, and offers to initialise the review gate when the chosen posture needs one. It never clones and never removes.
 tools: Bash, PowerShell, Read, Write, Glob, Grep, AskUserQuestion
 version: 1.0.0
 ---
