@@ -582,3 +582,54 @@ Describe 'Wait-HerdrAgentSettled reports not settled rather than inventing an ou
         $r.state         | Should -Be 'idle'
     }
 }
+
+
+# ---------------------------------------------------------------------------------------------
+# Pane creation. This is the one that cost the most to learn.
+#
+# Width is load-bearing and nothing about it is obvious. Every way of telling a stuck worker from a
+# busy one - kingshand's screen guard and herdr's own manifest rules alike - is a pattern match over
+# the RENDERED terminal, and neither can match a UI that never renders. Dispatch used to split an
+# existing pane per worker; each split halves the survivors, so two real workers came out 6 and 3
+# columns wide, one character per line, and both detection paths went blind at once. The five-hour
+# hang the whole layer exists to prevent was live again and undetectable.
+#
+# Measured after the fix: four workspaces created in a row were 93-94 columns each with no
+# degradation, and a real dispatch into one produced a worker that both herdr and the guard
+# classified correctly when it blocked.
+#
+# Closing siblings does not heal a wrecked layout - the rectangles update, the terminals do not
+# reflow - so there is no recovery except a fresh server. That makes this a rule about what is
+# never done, which is what the test asserts.
+# ---------------------------------------------------------------------------------------------
+Describe 'New-HerdrPane never splits, because a split pane is an unreadable pane' {
+
+    It 'creates its own workspace' {
+        Mock -ModuleName Herdr Invoke-Herdr { @{ root_pane = @{ pane_id = 'w7:p1' } } }
+        InModuleScope Herdr { New-HerdrPane -Cwd 'C:\repo' } | Should -Be 'w7:p1'
+    }
+
+    It 'never calls pane split, whatever panes already exist' {
+        $script:seen = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName Herdr Invoke-Herdr {
+            $script:seen.Add(($Arguments -join ' '))
+            @{ root_pane = @{ pane_id = 'w7:p1' } }
+        }
+        InModuleScope Herdr { $null = New-HerdrPane -Cwd 'C:\repo' }
+
+        @($script:seen | Where-Object { $_ -like 'pane split*' }).Count |
+            Should -Be 0 -Because 'each split halves the terminal, and a narrow terminal cannot be read at all'
+        @($script:seen | Where-Object { $_ -like 'workspace create*' }).Count |
+            Should -Be 1 -Because 'one workspace per worker is what keeps every worker readable'
+    }
+
+    It 'scrubs the inherited child-session marker on the pane it creates' {
+        $script:seen2 = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName Herdr Invoke-Herdr {
+            $script:seen2.Add(($Arguments -join ' '))
+            @{ root_pane = @{ pane_id = 'w7:p1' } }
+        }
+        InModuleScope Herdr { $null = New-HerdrPane -Cwd 'C:\repo' }
+        ($script:seen2 -join ' ') | Should -Match 'CLAUDE_CODE_CHILD_SESSION='
+    }
+}

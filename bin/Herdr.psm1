@@ -165,19 +165,25 @@ function Start-HerdrServer {
 
 # A pane at $Cwd, sitting at an interactive shell prompt and ready for `agent start`.
 #
-# ALWAYS ITS OWN WORKSPACE, never a split of an existing pane. This is not tidiness.
+# ALWAYS ITS OWN WORKSPACE, never a split of an existing pane. This is not tidiness - it is the
+# whole fix for the worst defect this layer has had.
 #
-# Splitting halves the width every time, and the width is load-bearing: kingshand decides whether a
-# worker is stuck by reading its SCREEN for the text of an interactive prompt, because herdr's own
-# state is unreliable for exactly that case. Measured on a real run - two workers dispatched into a
-# workspace that already held other panes came out 6 and 3 columns wide, rendering one character per
-# line. At that width the phrases the guard matches cannot appear at all, so both the guard and
-# herdr's own manifest regexes were blind, and the five-hour hang this whole layer exists to prevent
-# was live again and undetectable.
+# Width is load-bearing. Every way of telling a stuck worker from a busy one - kingshand's screen
+# guard and herdr's own manifest rules alike - is a pattern match over the RENDERED terminal, and
+# neither can match a UI that never renders. Measured on a real run: two workers dispatched into a
+# workspace that already held other panes came out 6 and 3 columns wide, one character per line,
+# and both detection paths went blind. The five-hour hang this layer exists to prevent was live
+# again and undetectable.
 #
-# Closing the siblings does not undo it either: the layout rectangles update, the terminals inside
-# them do not reflow, and a worker that started narrow stays narrow for its whole life. So the only
-# fix is not to narrow it in the first place.
+# Splitting is what caused it. Each split halves the survivors, so the third worker of a session
+# gets a quarter of a screen. Verified both ways afterwards: four workspaces created in a row were
+# 93-94 columns each with no degradation, and a real dispatch into one produced a readable worker
+# that both herdr and the guard classified correctly when it blocked.
+#
+# Closing the siblings does not heal it: the layout rectangles update, the terminals inside them do
+# not reflow, and a worker that started narrow stays narrow for its whole life. Neither does
+# creating a workspace on a server whose layout is already wrecked. The only fix is not to narrow it
+# in the first place - and a herdr server that has been splitting needs restarting to recover.
 #
 # --env is passed here as well as at server start. The server scrub covers panes it launches, but a
 # user may already have a herdr server running that kingshand did not start, and that one carries
@@ -355,19 +361,28 @@ function Read-HerdrAgent {
 
 # True when the worker's LIVE screen is showing an interactive prompt waiting on a human.
 #
-# This exists because herdr's own classification cannot be trusted for this, and the failure is
-# the dangerous direction. Observed on this machine, herdr 0.8.2 with manifest 2026.08.21.1
-# against a worker sitting on an unanswered AskUserQuestion menu:
+# This exists because herdr's classification failed in the dangerous direction, and the cause turned
+# out to be the terminal it was reading. Observed on this machine, herdr 0.8.2 with manifest
+# 2026.08.21.1, against a worker sitting on an unanswered AskUserQuestion menu:
 #
 #   agent explain -> state: idle, rule: live_prompt_box (priority 950)
 #                    live_blocked_form (priority 980) evaluated and did NOT match.
 #                    EVERY blocked rule failed.
 #
-# and moments later the same blocked worker read `done`, while a genuinely finished worker read
-# `idle`. So the states are not merely unreliable, they invert. Since `Wait-HerdrAgent` with no
-# -Until matches idle, done or blocked, a worker waiting on a question wakes the Hand claiming
-# completion - which is the original five-hour hang made worse, because it is now reported as
-# finished rather than merely left silent.
+# and moments later that same blocked worker read `done` while a genuinely finished worker read
+# `idle`. Since `Wait-HerdrAgent` with no -Until matches idle, done or blocked, a worker waiting on
+# a question would wake the Hand claiming completion - the original five-hour hang made worse,
+# because it is reported as finished rather than merely left silent.
+#
+# The cause was width, not the manifest. Those panes were 3 to 6 columns wide, rendering one
+# character per line, and herdr's rules are regexes over the rendered screen - they cannot match a
+# UI that never renders. Re-tested at 94 columns, herdr classified the same blocked worker
+# correctly. So this is not "herdr's detection is broken"; it is "detection of any kind needs a
+# readable terminal", which is what Test-HerdrAgentReadable below exists to establish.
+#
+# The screen check stays regardless. One correct classification is not proof across a Claude Code
+# UI change, herdr's rules are a network-fetched artifact that can lag one, and a screen read costs
+# almost nothing next to a worker silently reported as finished.
 #
 # The screen is the authority instead, and it is read from the LIVE VIEWPORT only. `recent` and
 # `recent-unwrapped` include scrollback, so a worker that answered a menu ten minutes ago still
