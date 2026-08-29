@@ -1144,6 +1144,21 @@ Describe 'recovery reconciles records against reality before taking new work' {
                      'are authoritative')
     }
 
+    # Observed on a real restart. Everything durable survived - the server, both workers, crew.json,
+    # the report on disk - and the digest reported all of it correctly. What did not survive was the
+    # armed wait, because it is a background job owned by the session that armed it. The worker
+    # carried on with nothing watching it, and no amount of digest accuracy shows that, because a
+    # live worker looks the same whether or not something is waiting on it.
+    It 'requires every live worker to have its wait re-armed after a restart' {
+        $s = Get-HandSection 'Recovery'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase ('**Every live worker needs its wait re-armed at session start, before you do ' +
+                     'anything else.**')
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase 'a restart kills it silently'
+        $s | Should -Match 'Wait-HerdrAgentSettled' -Because 'the guarded wait is the one to re-arm, not the raw one'
+    }
+
     It 'routes a dead worker to the recovery skill and a catch-up to survey' {
         $s = Get-HandSection 'Recovery'
         Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `

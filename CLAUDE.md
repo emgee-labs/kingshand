@@ -269,8 +269,16 @@ For a worker that reads dead, has no live process, or is still recorded as worki
 restart, load `rally` and preserve its worktree and unlanded work while you reconcile ownership.
 `survey` is the on-demand way to see where everything stands.
 
+**Every live worker needs its wait re-armed at session start, before you do anything else.** The
+wait is a background job belonging to the session that armed it, so a restart kills it silently
+while the worker carries on. The worker is then running with nothing watching it, and the first you
+would know is the user asking - which is the exact failure this whole layer exists to prevent, and
+the digest cannot spot it because a live worker looks identical either way. So: for every worker the
+digest reports live, arm a fresh `Wait-HerdrAgentSettled` background job as `muster` Step 4
+describes, then say in one line which workers you picked back up.
+
 **A restart must be a non-event**, because durable state and the live process inventory - not
-conversation memory - are authoritative.
+conversation memory - are authoritative. Re-arming is what makes that true rather than aspirational.
 
 ## Escalation and etiquette
 
