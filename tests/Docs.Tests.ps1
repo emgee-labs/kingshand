@@ -1875,9 +1875,17 @@ Describe 'the King''s stated instructions are read and never rewritten' {
 
     # The two live defaults in the template reach every user who never edits it, so they are the
     # ones worth pinning. Everything else in that file is commented out and deliberately inert.
-    It 'the template asks for the King form of address, and says how to stop it' {
+    # The default is deliberately neutral. It used to be "my King", which assumed something about
+    # every person who installed this - and the tool has no way to know, so the only honest default
+    # is one that does not guess. `setup` asks, and install.ps1 substitutes the answer, because the
+    # permission layer denies the Hand any edit to instructions.md.
+    It 'the template default form of address assumes nothing, and says how to change it' {
         $template = ConvertTo-NormalisedText (Get-Content -Path (Join-Path $script:Root 'instructions.example.md') -Raw)
-        $template.Contains('**Address me as "my King".**') | Should -BeTrue
+        $template.Contains('**Address me as "your Highness".**') | Should -BeTrue
+        $template.Contains('assumes nothing about you') |
+            Should -BeTrue -Because 'the reason for the neutral default belongs beside it'
+        $template.Contains('my Queen') |
+            Should -BeTrue -Because 'the alternatives are offered rather than left to be discovered'
         $template.Contains('Once in a reply is enough') |
             Should -BeTrue -Because 'a form of address repeated every sentence stops being one'
         $template.Contains('Drop it entirely when the news is bad') |

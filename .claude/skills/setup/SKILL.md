@@ -37,8 +37,23 @@ thing it changes outside this repository other than the two environment variable
 because workers run inside their own repositories and would otherwise appear as untracked changes.
 One line, said once - not a paragraph of reassurance.
 
-**Then ask them one question, and only on a first run.** How far do they want work taken before it
-reaches them? Two answers, in plain words - no posture names, they do not know them yet:
+**Then ask them two questions, and only on a first run.**
+
+**First, what to call them.** The template default is "your Highness", chosen because it assumes
+nothing about them. Ask what they would rather have:
+
+> One thing first - what should I call you? The default is "your Highness". "my Queen" or "my King"
+> if you prefer one, or your own name, or nothing at all.
+
+Take whatever they say at face value. **Never infer a title from their name, their writing, or
+anything else about them** - guessing wrong here is a worse failure than asking, and the neutral
+default exists precisely so guessing is never necessary. Do not talk anyone out of "nothing". Pass
+the answer as `-AddressAs "<their answer>"`; leave the flag off to keep the default, and if they
+want no title at all, say so plainly and tell them the one line to delete. The Hand cannot write this itself - the permission layer denies it edits
+to `instructions.md`, which is exactly why that file is trustworthy - so the installer writes it.
+
+**Second, how far work should go before it reaches them.** Two answers, in plain words - no posture
+names, they do not know them yet:
 
 > Two ways to run this. Either work stops at a finished branch on your machine and you decide what
 > happens next, or it goes through a full review pipeline and arrives as a pull request. The second
@@ -50,17 +65,19 @@ review pipeline, and someone who wants pull requests should not have to discover
 tool was missing. If they are unsure, take the local answer: it is the reversible one, and
 `.\install.ps1 -WithReviewGate` adds the gate any time later.
 
-Then run it from the repository root. Without the review gate:
+Then run it from the repository root, carrying both answers. Without the review gate:
 
 ```powershell
-.\install.ps1 -InstallMissing
+.\install.ps1 -InstallMissing -AddressAs "my Queen"
 ```
 
 With it:
 
 ```powershell
-.\install.ps1 -InstallMissing -WithReviewGate
+.\install.ps1 -InstallMissing -WithReviewGate -AddressAs "my Queen"
 ```
+
+`-AddressAs` takes their exact words. Drop the flag entirely if they wanted no title.
 
 If the user named a directory their repositories live under, or `$ARGUMENTS` carries one, add
 `-ProjectRoot <path>`. They rarely need to - see Step 4.

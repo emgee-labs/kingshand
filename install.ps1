@@ -29,6 +29,11 @@
   default. Each command is printed before it runs, every tool is re-checked afterwards rather
   than assumed installed, and nothing self-elevates: an install that needs administrator rights
   is reported with the command to run in an elevated shell.
+.PARAMETER AddressAs
+  How the Hand should address you, written into instructions.md as it is created - "my Queen",
+  "my King", "boss", your own name, anything. Only ever applied when instructions.md is being
+  created; a file you already wrote is never touched. The Hand cannot write this itself: the
+  permission layer denies it edits to instructions.md, which is the point of that file.
 .PARAMETER WithReviewGate
   Also install `no-mistakes`, the review gate the `no-mistakes` and `no-mistakes-prod-only`
   postures run their pull requests through. Off by default and deliberately a separate switch
@@ -46,6 +51,7 @@
 [CmdletBinding()]
 param(
     [string[]]$ProjectRoot = @(),
+    [string]$AddressAs,
     [switch]$Force,
     [switch]$InstallMissing,
     [switch]$WithReviewGate
@@ -662,8 +668,23 @@ if (Test-Path -LiteralPath $instructions) {
 } elseif (-not (Test-Path -LiteralPath $template)) {
     Write-Miss "instructions.example.md is missing from $Root, so nothing was copied."
 } else {
-    Copy-Item -LiteralPath $template -Destination $instructions
-    Write-Did "instructions.md created from the template. Edit it - the Hand reads it and never writes it."
+    # The address is substituted HERE, by this script, and never by the Hand. `.claude\settings.json`
+    # denies Edit on instructions.md - that rule is what keeps the King's own stated words out of the
+    # Hand's reach - so the Hand physically cannot write down the answer it just asked for. It passes
+    # -AddressAs and the installer does it, which keeps the deny rule intact rather than carving an
+    # exception into it.
+    $body = Get-Content -LiteralPath $template -Raw
+    if ($AddressAs) {
+        # Replace the quoted title only, so the surrounding paragraph - which explains that this is a
+        # form of address and how to turn it off - survives whatever they chose.
+        $body = $body -replace '(?<=\*\*Address me as ")your Highness(?="\.\*\*)', $AddressAs.Replace('$', '$$')
+    }
+    Set-Content -LiteralPath $instructions -Value $body -Encoding utf8 -NoNewline
+    if ($AddressAs) {
+        Write-Did "instructions.md created, addressing you as `"$AddressAs`". Change it whenever you like - the Hand reads this file and never writes it."
+    } else {
+        Write-Did "instructions.md created from the template. Edit it - the Hand reads it and never writes it."
+    }
     $actions.Add('instructions.md')
 }
 
