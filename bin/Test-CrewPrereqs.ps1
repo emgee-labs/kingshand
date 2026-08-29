@@ -63,13 +63,11 @@ if ($herdr) {
 # Only the `no-mistakes` posture needs the review gate, and a user who registers nothing that way
 # never installs it. So it is a note rather than a failure - `muster` Step 1b already refuses to
 # dispatch a `no-mistakes` task against a repo where the gate is not initialised.
-$gate = Get-Command 'no-mistakes' -ErrorAction SilentlyContinue
+$gate = Get-NoMistakesCommandPath
 if ($gate) {
-    Write-Host ("  OK  {0,-14} {1}" -f 'no-mistakes', $gate.Source)
+    Write-Host ("  OK  {0,-14} {1}" -f 'no-mistakes', $gate)
 } else {
-    $notes += ('no-mistakes is not on PATH. It is needed only by projects registered ' +
-               '`no-mistakes`; drop it in ' + (Join-Path (Get-KingshandHome) 'tools\no-mistakes') +
-               ' or leave it out and register projects as local-only or direct-PR.')
+    $notes += (Get-NoMistakesHint)
 }
 
 $pester = Get-Module -ListAvailable -Name Pester |

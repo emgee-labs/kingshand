@@ -27,10 +27,17 @@
   default. Each command is printed before it runs, every tool is re-checked afterwards rather
   than assumed installed, and nothing self-elevates: an install that needs administrator rights
   is reported with the command to run in an elevated shell.
+.PARAMETER WithReviewGate
+  Also install `no-mistakes`, the review gate the `no-mistakes` and `no-mistakes-prod-only`
+  postures run their pull requests through. Off by default and deliberately a separate switch
+  from -InstallMissing: it is a whole delivery flow, not a missing dependency, and someone who
+  only ever wants work to stop at a clean local branch should never be made to install it.
 .EXAMPLE
   .\install.ps1
 .EXAMPLE
   .\install.ps1 -InstallMissing -ProjectRoot C:\repos
+.EXAMPLE
+  .\install.ps1 -InstallMissing -WithReviewGate
 .EXAMPLE
   .\install.ps1 -ProjectRoot C:\repos -ProjectRoot 'D:\work projects'
 #>
@@ -38,7 +45,8 @@
 param(
     [string[]]$ProjectRoot = @(),
     [switch]$Force,
-    [switch]$InstallMissing
+    [switch]$InstallMissing,
+    [switch]$WithReviewGate
 )
 
 Set-StrictMode -Version Latest
@@ -282,18 +290,121 @@ function Install-Herdr {
     $true
 }
 
+# The review gate, fetched from its GitHub release rather than a package manager.
+#
+# Its own published installer is a POSIX `sh` script that branches on `uname`, so it does not run
+# here - but the release does carry a Windows build, which is what this uses. Verified against
+# v1.57.0, whose assets are no-mistakes-v<tag>-windows-<arch>.zip alongside a checksums.txt of
+# "<sha256>  <filename>" lines.
+#
+# Same contract as herdr: verify before extracting, and refuse rather than install something that
+# does not match. This one downloads roughly 14 MB.
+function Install-NoMistakes {
+    param([Parameter(Mandatory)][string]$Destination)
+
+    $arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
+        'Arm64' { 'arm64' }
+        default { 'amd64' }
+    }
+
+    Write-Host '  RUN   fetch https://api.github.com/repos/kunchenguid/no-mistakes/releases/latest'
+    $release = $null
+    try {
+        $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/kunchenguid/no-mistakes/releases/latest' `
+                                     -Headers @{ 'User-Agent' = 'kingshand-installer' } -TimeoutSec 30 -ErrorAction Stop
+    } catch {
+        Write-Miss 'the review gate was not installed: its release feed could not be reached.'
+        Write-Host  '        This machine looks offline, or GitHub is unreachable. Nothing was downloaded.'
+        Write-Host  '        Reconnect and run: .\install.ps1 -WithReviewGate'
+        return $false
+    }
+
+    $asset = @($release.assets | Where-Object { $_.name -like "*windows-$arch.zip" }) | Select-Object -First 1
+    $sums  = @($release.assets | Where-Object { $_.name -eq 'checksums.txt' })        | Select-Object -First 1
+    if (-not $asset -or -not $sums) {
+        # No digest means no way to verify, and an unverifiable binary is not installed at all.
+        Write-Miss "the review gate was not installed: $($release.tag_name) publishes no windows-$arch build, or no checksums.txt for one."
+        return $false
+    }
+
+    $temp = Join-Path ([IO.Path]::GetTempPath()) ('nm-' + [guid]::NewGuid().ToString('N') + '.zip')
+    Write-Host "  RUN   download $($asset.name)"
+    try {
+        $sumText = Invoke-RestMethod -Uri $sums.browser_download_url -Headers @{ 'User-Agent' = 'kingshand-installer' } -TimeoutSec 60 -ErrorAction Stop
+        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $temp -TimeoutSec 600 -ErrorAction Stop
+    } catch {
+        Write-Miss "the review gate $($release.tag_name) was not installed: the download failed."
+        Write-Host  '        This machine looks offline, or GitHub is unreachable. Nothing was extracted.'
+        Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+        return $false
+    }
+
+    $want = $null
+    foreach ($line in ($sumText -split "`n")) {
+        $parts = ($line.Trim() -split '\s+')
+        if ($parts.Count -ge 2 -and $parts[-1] -eq $asset.name) { $want = $parts[0]; break }
+    }
+    if (-not $want) {
+        Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+        Write-Miss "the review gate was not installed: checksums.txt names no digest for $($asset.name)."
+        return $false
+    }
+
+    $actual = (Get-FileHash -LiteralPath $temp -Algorithm SHA256).Hash
+    if (-not $actual.Equals($want, [StringComparison]::OrdinalIgnoreCase)) {
+        Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+        Write-Miss "the review gate $($release.tag_name) FAILED its SHA-256 check and was NOT extracted."
+        Write-Host  "        expected $want"
+        Write-Host  "        got      $actual"
+        Write-Host  "        The download has been deleted and nothing was written to $Destination."
+        return $false
+    }
+    Write-Ok "the review gate $($release.tag_name) matches its published SHA-256."
+
+    if (-not (Test-Path -LiteralPath $Destination)) {
+        New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+    }
+    Expand-Archive -LiteralPath $temp -DestinationPath $Destination -Force
+    Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+
+    # Flattened for the same reason herdr's is: Get-NoMistakesCommandPath looks for exactly
+    # tools\no-mistakes\no-mistakes.exe and should not have to guess at an archive's shape.
+    $exe = Join-Path $Destination 'no-mistakes.exe'
+    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+        $found = @(Get-ChildItem -Path $Destination -Filter 'no-mistakes.exe' -Recurse -File) | Select-Object -First 1
+        if ($found) { Move-Item -LiteralPath $found.FullName -Destination $exe -Force }
+    }
+    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+        Write-Miss "the review gate unpacked, but no no-mistakes.exe was found under $Destination."
+        return $false
+    }
+
+    Write-Did "the review gate $($release.tag_name) installed to $Destination. It is deliberately not added to PATH."
+    Write-Host '        Initialise it per repository before dispatching `no-mistakes` work there.'
+    $true
+}
+
 Write-Step 'Prerequisites'
 $missing = @(Test-Prerequisite)
 
-# Optional: only projects registered `no-mistakes` need the review gate, and muster refuses to
-# dispatch such a task against a repo where it is not initialised. So this is a note, never a stop,
-# and -InstallMissing never installs it - it has no package-manager source in this list.
-if (Get-Command 'no-mistakes' -ErrorAction SilentlyContinue) {
-    Write-Ok ("{0,-12} {1}" -f 'no-mistakes', (Get-Command 'no-mistakes').Source)
+# The review gate is optional and stays optional. It is gated on its own switch rather than on
+# -InstallMissing, because wanting every prerequisite installed is not the same as wanting a review
+# pipeline: someone whose projects all stop at a clean local branch never needs this, and a 14 MB
+# download they did not ask for is not a favour. `setup` asks which flow they want and passes the
+# switch accordingly, so the choice is made in words rather than in flags.
+$reviewGate = Get-NoMistakesCommandPath
+if ($reviewGate) {
+    Write-Ok ("{0,-12} {1}" -f 'no-mistakes', $reviewGate)
+} elseif ($WithReviewGate) {
+    Write-Step 'Installing the review gate'
+    if (Install-NoMistakes -Destination (Join-Path $Root 'tools\no-mistakes')) {
+        $actions.Add('tools\no-mistakes\')
+    }
 } else {
-    Write-Host ("  NOTE  no-mistakes is not on PATH and is never installed by -InstallMissing. Only " +
-                "projects registered ``no-mistakes`` need it; put it in $(Join-Path $Root 'tools\no-mistakes') " +
-                "if you want that posture.")
+    Write-Host ("  NOTE  no-mistakes is not installed, and nothing needs it unless you register a " +
+                "project ``no-mistakes`` or ``no-mistakes-prod-only``. To add it: .\install.ps1 " +
+                "-WithReviewGate - it is a GitHub release, checked against its published SHA-256. " +
+                "Do NOT ``npm install -g no-mistakes``: that name belongs to a different, unrelated tool.")
 }
 
 if ($InstallMissing -and $missing.Count -gt 0) {

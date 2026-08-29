@@ -32,20 +32,40 @@ missing, and writes this machine's configuration - `KINGSHAND_HOME`, the lavish 
 `instructions.md` from the template, and the local `data\`, `state\` and `config\` directories. It
 touches none of their repositories, and it writes nothing into their `~\.claude\` profile.
 
-Then run it from the repository root:
+**Then ask them one question, and only on a first run.** How far do they want work taken before it
+reaches them? Two answers, in plain words - no posture names, they do not know them yet:
+
+> Two ways to run this. Either work stops at a finished branch on your machine and you decide what
+> happens next, or it goes through a full review pipeline and arrives as a pull request. The second
+> needs a review tool I would download - about 14 MB. Which suits you? You can add it later either
+> way.
+
+Do not recommend one. Someone who only wants work to land locally should not be talked into a
+review pipeline, and someone who wants pull requests should not have to discover afterwards that a
+tool was missing. If they are unsure, take the local answer: it is the reversible one, and
+`.\install.ps1 -WithReviewGate` adds the gate any time later.
+
+Then run it from the repository root. Without the review gate:
 
 ```powershell
 .\install.ps1 -InstallMissing
 ```
 
-If the user named a directory their repositories live under, or `$ARGUMENTS` carries one, pass it:
+With it:
 
 ```powershell
-.\install.ps1 -InstallMissing -ProjectRoot <path>
+.\install.ps1 -InstallMissing -WithReviewGate
 ```
+
+If the user named a directory their repositories live under, or `$ARGUMENTS` carries one, add
+`-ProjectRoot <path>`. They rarely need to - see Step 4.
 
 The script prints every install command before it runs it. It is idempotent, and it never
 overwrites an existing `instructions.md` or an existing config value.
+
+**Never tell them to `npm install -g no-mistakes`.** That name on npm is a different, unrelated
+tool that installs cleanly and then does not work, which is the worst shape a wrong answer can
+take. The gate is a GitHub release, and `-WithReviewGate` is the only route to it here.
 
 ## Step 2 - Report what happened, in their words
 

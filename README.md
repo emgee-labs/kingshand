@@ -65,7 +65,14 @@ reads.
 | `tasks-axi` | the durable backlog | `npm install -g tasks-axi` |
 | `herdr` | the terminal every worker is spawned and watched through | fetched by the installer |
 
-Optional: `no-mistakes`, needed only by projects you register with that posture.
+**Optional: the review gate.** `no-mistakes` is needed only by projects you register `no-mistakes`
+or `no-mistakes-prod-only`. `setup` asks whether you want it, and `.\install.ps1 -WithReviewGate`
+adds it at any time - it fetches the Windows build from
+[kunchenguid/no-mistakes](https://github.com/kunchenguid/no-mistakes) and checks it against the
+published SHA-256 before extracting. Work that stops at a finished local branch never needs it.
+
+> Do not run `npm install -g no-mistakes`. That name on npm belongs to a **different, unrelated
+> tool**. It installs cleanly and then does not work, which is a slow way to find out.
 
 Add `.claude/worktrees/` to your global gitignore, or every worker shows up as untracked changes in
 your repositories:

@@ -64,4 +64,40 @@ function Get-ClaudeCommandHint {
     '`claude` resolves to on Windows.'
 }
 
-Export-ModuleMember -Function Get-KingshandHome, Get-ClaudeCommandPath, Get-ClaudeCommandHint
+# The review gate, or $null. Optional by design: only projects registered `no-mistakes` or
+# `no-mistakes-prod-only` need it, and a user who registers nothing that way never installs it.
+#
+# Two places, in this order: a copy the user manages themselves on PATH wins, then the one the
+# installer drops in `tools\no-mistakes\`. Same rule as herdr, and for the same reason - nobody
+# should end up with two copies because kingshand refused to see theirs.
+function Get-NoMistakesCommandPath {
+    [CmdletBinding()]
+    param()
+
+    $onPath = Get-Command 'no-mistakes' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($onPath -and $onPath.Source) { return $onPath.Source }
+
+    $bundled = Join-Path (Get-KingshandHome) 'tools\no-mistakes\no-mistakes.exe'
+    if (Test-Path -LiteralPath $bundled -PathType Leaf) { return $bundled }
+
+    $null
+}
+
+# One message, so every caller says the same actionable thing - and names the right tool.
+#
+# `npm install -g no-mistakes` is the obvious guess and it is WRONG: that npm package is an
+# unrelated static-analysis tool by a different author, and it installs cleanly, so the mistake is
+# not discovered until the gate does not work. The review gate is a GitHub release, and it is worth
+# saying so rather than leaving someone to guess.
+function Get-NoMistakesHint {
+    [CmdletBinding()]
+    param()
+
+    'no-mistakes was not found. Run: .\install.ps1 -WithReviewGate - which fetches the Windows ' +
+    'build from github.com/kunchenguid/no-mistakes and checks it against the published SHA-256. ' +
+    'Do NOT run `npm install -g no-mistakes`: that name on npm belongs to a different, unrelated ' +
+    'tool. It is needed only by projects registered `no-mistakes` or `no-mistakes-prod-only`.'
+}
+
+Export-ModuleMember -Function Get-KingshandHome, Get-ClaudeCommandPath, Get-ClaudeCommandHint,
+                              Get-NoMistakesCommandPath, Get-NoMistakesHint

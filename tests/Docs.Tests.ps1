@@ -2487,9 +2487,26 @@ Describe 'install.ps1 reports rather than installs unless it is told to' {
             -Phrase '-Scope CurrentUser needs no elevation'
     }
 
-    It 'never installs no-mistakes, whatever the switch says' {
-        Assert-Phrase -Text (Get-DocText $script:InstallPs1) -Where 'install.ps1' `
-            -Phrase 'no-mistakes is not on PATH and is never installed by -InstallMissing'
+    # The rule this guards has not changed: -InstallMissing must never drag in the review gate.
+    # Wanting every prerequisite present is not the same as wanting a review pipeline, and it is a
+    # 14 MB download for someone whose work may only ever stop at a local branch. What changed is
+    # that the gate is now installable at all - previously kingshand told people to "put it in
+    # tools\no-mistakes" and never said where to get it, while the obvious guess installs an
+    # unrelated npm package of the same name.
+    It 'gates the review gate on its own switch, never on -InstallMissing' {
+        $text = Get-DocText $script:InstallPs1
+        Assert-Phrase -Text $text -Where 'install.ps1' `
+            -Phrase 'It is gated on its own switch rather than on'
+        $script:InstallSource | Should -Match '\$WithReviewGate' -Because 'the switch is what installs it'
+        $script:InstallSource | Should -Not -Match 'InstallMissing[^\r\n]*Install-NoMistakes' `
+            -Because '-InstallMissing alone must never pull down a review pipeline'
+    }
+
+    It 'names the real source and warns off the npm package of the same name' {
+        $text = Get-DocText $script:InstallPs1
+        Assert-Phrase -Text $text -Where 'install.ps1' -Phrase 'kunchenguid/no-mistakes'
+        $script:InstallSource | Should -Match 'Do NOT ``npm install -g no-mistakes``' `
+            -Because 'that name on npm is a different tool that installs cleanly and then does not work'
     }
 
     It 're-checks afterwards rather than assuming the install worked' {
