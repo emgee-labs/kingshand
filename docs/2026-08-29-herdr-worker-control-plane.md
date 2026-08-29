@@ -75,6 +75,20 @@ Code worker sitting on an unanswered `AskUserQuestion` menu. With the menu visib
 - Minutes later the same still-blocked worker reported `done`, while a genuinely finished worker
   reported `idle`. The two states effectively inverted.
 
+**Correction, established later the same day: the cause was terminal width, not the manifest.**
+Those panes were 3 to 6 columns wide, rendering one character per line, because dispatch split an
+existing pane for each new worker and every split halved the survivors. herdr's rules are regexes
+over the rendered screen, so they cannot match a UI that never renders - and neither can
+kingshand's own guard. Re-tested at 94 columns, herdr classified the same blocked worker correctly,
+and so did the guard. Dispatch now gives every worker its own workspace; four created in a row
+measured 93-94 columns with no degradation.
+
+So the accurate statement is not "herdr's blocked detection does not hold". It is that **detection
+of any kind needs a readable terminal**, and kingshand was destroying the terminal it depended on.
+The guard stays anyway: one correct classification is not proof across a Claude Code interface
+change, herdr's rules are a network-fetched artifact that can lag one, and a screen read costs
+almost nothing against a worker silently reported as finished.
+
 The consequence is worse than the hang this port was built for. `Wait-HerdrAgent` with no `-Until`
 matches `idle`, `done` or `blocked`, so a worker waiting on a human wakes the Hand claiming
 completion: previously the worker went silent, now it is actively reported as finished, and
