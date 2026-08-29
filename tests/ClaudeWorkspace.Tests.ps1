@@ -225,8 +225,9 @@ Describe 'Grant-ClaudeFolderTrust records one worktree as trusted' {
 }
 
 Describe 'Grant-ClaudeFolderTrust preserves two keys that differ only in case' {
-    # THE CASE THIS MODULE'S JsonNode CODE EXISTS FOR. A real ~\.claude.json on this machine
-    # contains both 'D:/code' and 'd:/code'. A PowerShell hashtable round trip
+    # THE CASE THIS MODULE'S JsonNode CODE EXISTS FOR. A real ~\.claude.json can hold the same
+    # directory twice under keys differing only in drive-letter case - 'D:/code' and 'd:/code' -
+    # because Windows treats the paths as one and JSON does not. A PowerShell hashtable round trip
     # would silently merge them and destroy user data; this test is what stops someone
     # "simplifying" the JsonNode code back to `ConvertFrom-Json -AsHashtable`.
     #
