@@ -76,11 +76,27 @@ $check = Test-ProjectImportable -Path "<absolute path>" -Mode "<mode>"
 if (-not $check.ok) { $check.reason }
 ```
 
-`Test-ProjectImportable` owns three of the four refusals: the path existing, it being a git
+`Test-ProjectImportable` owns three of the five refusals: the path existing, it being a git
 repository, and a push-capable mode requiring an `origin` remote. Report `$check.reason`
 verbatim and stop; do not paraphrase it into something softer.
 
-The fourth is uniqueness. The name must be unique, and the path must not already be registered
+The fourth is `gh`. A push-capable mode - `direct-PR`, `no-mistakes`, `no-mistakes-prod-only` -
+ends at a pull request, and nothing here opens one without the GitHub CLI:
+
+```powershell
+Get-Command gh -ErrorAction SilentlyContinue
+```
+
+**Nothing back is a refusal, on exactly the terms above: report the condition and stop.** Say the
+chosen mode needs `gh` and this machine does not have it, name the command that fixes it -
+`winget install --id GitHub.cli`, then `gh auth login` - and offer `local-only` instead, which
+needs no forge at all and can be raised later. `gh` is deliberately not a kingshand prerequisite
+and its absence is not a broken install: work that stops at a finished local branch never calls
+it. This is the one place that absence matters, so this is where it is caught - registering a
+push-capable posture on a machine with no `gh` produces a project that looks importable and fails
+at its first dispatch, which is the same defect the gate check below exists to prevent.
+
+The fifth is uniqueness. The name must be unique, and the path must not already be registered
 under another name. `Add-ProjectEntry` enforces both in Step 4; let it throw rather than
 pre-checking.
 

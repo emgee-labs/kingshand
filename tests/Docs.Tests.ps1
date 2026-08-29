@@ -1739,6 +1739,78 @@ Describe 'the ADO organization and project are configuration, and absence asks' 
     }
 }
 
+Describe 'Azure DevOps is optional and muster degrades to adhoc without it' {
+    # The `ado-local-mcp` tools were reached for unconditionally, and nothing anywhere said they
+    # were optional or installed them. That server needs an Azure DevOps organization and a token,
+    # which most users do not have, so the very first "work ticket 1234" hit an undeclared
+    # dependency with no stated fallback - the shape that either fails or hangs.
+    BeforeAll { $script:MusterIntake = Get-MusterStep 'Step 1 - Intake' }
+
+    It 'says plainly that the MCP server is not a prerequisite and nothing installs it' {
+        Assert-Phrase -Text $script:MusterIntake -Where 'muster Step 1' `
+            -Phrase ('Azure DevOps is an optional integration: the `ado-local-mcp` server is not a ' +
+                     'kingshand prerequisite, `install.ps1` does not install it')
+    }
+
+    It 'falls back to adhoc rather than failing or retrying when the tools are absent' {
+        Assert-Phrase -Text $script:MusterIntake -Where 'muster Step 1' `
+            -Phrase ('**If those tools do not come back, say so plainly and carry on as adhoc. Never ' +
+                     'fail here, and never retry in a loop.**')
+        Assert-Phrase -Text $script:MusterIntake -Where 'muster Step 1' `
+            -Phrase ('ask them to paste the ticket text or describe the work in their own words, ' +
+                     'and treat what they give you as adhoc')
+        Assert-Phrase -Text $script:MusterIntake -Where 'muster Step 1' `
+            -Phrase 'Do not stop the dispatch, do not tell them to install anything'
+    }
+
+    It 'the setup skill tells the user Azure DevOps needs nothing unless they use it' {
+        Assert-Phrase -Text (Get-DocText $script:SetupMd) -Where 'the setup skill' `
+            -Phrase ('**Azure DevOps integration is optional and needs nothing unless they work ADO ' +
+                     'tickets**')
+    }
+
+    It 'the README says the same, and names adhoc as the ordinary path' {
+        $readme = Get-DocText (Join-Path $script:Root 'README.md')
+        Assert-Phrase -Text $readme -Where 'the README requirements' `
+            -Phrase '**Azure DevOps, only if you work ADO tickets.**'
+        Assert-Phrase -Text $readme -Where 'the README requirements' `
+            -Phrase 'handles it as adhoc - which is the ordinary path and works exactly as well'
+    }
+}
+
+Describe 'annex refuses a push-capable posture on a machine with no gh' {
+    # `gh` was demoted from a prerequisite failure to a note, because a user whose work always
+    # stops at a finished local branch never calls it - the same reasoning that already makes the
+    # review gate optional. That demotion opens a gap: a `direct-PR` project registered on a
+    # machine with no gh looks importable and dies at its first dispatch. This is where it closes,
+    # and it is the assertion that stops the refusal being quietly softened back into a warning.
+    BeforeAll { $script:ImportPreflight = Get-DocText $script:ImportMd }
+
+    It 'names the check and treats an empty result as a refusal' {
+        Assert-Phrase -Text $script:ImportPreflight -Where 'annex Step 3' `
+            -Phrase ('The fourth is `gh`. A push-capable mode - `direct-PR`, `no-mistakes`, ' +
+                     '`no-mistakes-prod-only` - ends at a pull request, and nothing here opens one ' +
+                     'without the GitHub CLI')
+        Assert-Phrase -Text $script:ImportPreflight -Where 'annex Step 3' `
+            -Phrase ('**Nothing back is a refusal, on exactly the terms above: report the condition ' +
+                     'and stop.**')
+    }
+
+    It 'names the exact install command and offers local-only instead' {
+        Assert-Phrase -Text $script:ImportPreflight -Where 'annex Step 3' `
+            -Phrase 'winget install --id GitHub.cli`, then `gh auth login`'
+        Assert-Phrase -Text $script:ImportPreflight -Where 'annex Step 3' `
+            -Phrase 'offer `local-only` instead, which needs no forge at all'
+    }
+
+    It 'the refusal is still counted among the preflight refusals rather than left loose' {
+        Assert-Phrase -Text $script:ImportPreflight -Where 'annex Step 3' `
+            -Phrase '`Test-ProjectImportable` owns three of the five refusals'
+        Assert-Phrase -Text $script:ImportPreflight -Where 'annex Step 3' `
+            -Phrase 'The fifth is uniqueness.'
+    }
+}
+
 Describe 'the King''s stated instructions are read and never rewritten' {
     # Two files that both hold preferences, one curated and one not, is a distinction that erodes
     # the moment nobody restates it. If `instructions.md` is ever treated as a memory file, a chronicle
@@ -2387,6 +2459,17 @@ Describe 'the setup skill ships inside the repo so a fresh clone can bootstrap i
                      'project the first time it needs them, rather than inventing values')
     }
 
+    # The installer now separates "dispatch cannot work without this" from "you may never need
+    # this". That distinction is worthless if the skill reading the output reports every NOTE as
+    # something the user has to go and fix, which is the first-run experience this replaced.
+    It 'reads a NOTE as a choice rather than as a problem' {
+        Assert-Phrase -Text $script:SetupText -Where 'the setup skill' `
+            -Phrase '**A `NOTE` line is not a problem and must never be reported as one.**'
+        Assert-Phrase -Text $script:SetupText -Where 'the setup skill' `
+            -Phrase ('Read the exit code and the `MISS` lines for what is wrong; everything else is ' +
+                     'a choice they can make later.')
+    }
+
     It 'says permission prompts are off and names the README section that explains it' {
         Assert-Phrase -Text $script:SetupText -Where 'the setup skill' `
             -Phrase 'neither the Hand nor its workers will ask them to approve a tool call'
@@ -2442,9 +2525,77 @@ Describe 'install.ps1 reports rather than installs unless it is told to' {
                      'script nobody should run')
     }
 
+    # This pinned `$missing.Count -gt 0` until optional prerequisites got their own list. The rule
+    # being guarded never changed - nothing installs without the switch - but the condition it is
+    # spelled with now has to see the optional list too, or -InstallMissing would silently stop
+    # installing gh and Pester the moment they stopped counting as blockers.
     It 'guards the whole install pass behind the switch' {
         Assert-Phrase -Text $script:InstallSource -Where 'install.ps1' `
-            -Phrase 'if ($InstallMissing -and $missing.Count -gt 0) {'
+            -Phrase 'if ($InstallMissing -and ($missing.Count + $optional.Count) -gt 0) {'
+    }
+
+    # A brand-new user with nothing installed got a MISS line and a non-zero exit for Pester, a
+    # test framework nothing at runtime uses, and for gh, which only a push-capable posture needs.
+    # A report that calls a working install broken is a report the reader stops trusting, which
+    # costs the failures that are real.
+    # Phrases here stay inside a single comment line on purpose. Get-DocText normalises whitespace
+    # but leaves the `#` markers where they are, so a sentence spanning two comment lines comes
+    # back with a stray `#` in the middle of it and is never found.
+    It 'reports an optional dependency as a note, never as a miss' {
+        $text = Get-DocText $script:InstallPs1
+        Assert-Phrase -Text $text -Where 'install.ps1' `
+            -Phrase 'A tool marked Optional is one a working installation may never need.'
+        Assert-Phrase -Text $text -Where 'install.ps1' `
+            -Phrase 'It is reported NOTE rather than MISS, and never sets this script''s exit code.'
+        Assert-Phrase -Text $script:InstallSource -Where 'install.ps1' `
+            -Phrase 'elseif ($t.Contains(''Optional'') -and $t.Optional) {'
+    }
+
+    It 'keeps Pester out of the blocking list and says why' {
+        $text = Get-DocText $script:InstallPs1
+        Assert-Phrase -Text $text -Where 'install.ps1' `
+            -Phrase 'Pester is a contributor dependency, not a runtime one.'
+        Assert-Phrase -Text $text -Where 'install.ps1' `
+            -Phrase 'no skill imports it, so an'
+        Assert-Phrase -Text $script:InstallSource -Where 'install.ps1' `
+            -Phrase '$alsoLater.Add(@{ Name = ''Pester''; Manager = ''psgallery'''
+        $script:InstallSource | Should -Not -Match '\$still\.Add\(@\{ Name = ''Pester''' `
+            -Because 'a missing test framework must never set the exit code of a working install'
+    }
+
+    It 'keeps gh out of the blocking list and points at annex for the gap that leaves' {
+        $text = Get-DocText $script:InstallPs1
+        Assert-Phrase -Text $text -Where 'install.ps1' `
+            -Phrase 'Only a push-capable posture opens a pull request, and only a pull request needs gh.'
+        Assert-Phrase -Text $text -Where 'install.ps1' `
+            -Phrase ('`annex` closes the gap that leaves, by refusing a push-capable posture on a ' +
+                     'machine with no gh.')
+        $script:InstallSource | Should -Match "Name = 'gh';[^\r\n]*Optional = \`$true" `
+            -Because 'gh is installed by -InstallMissing but never blocks a run'
+    }
+
+    It 'lists optional things separately from what actually blocks a dispatch' {
+        Assert-Phrase -Text $script:InstallSource -Where 'install.ps1' `
+            -Phrase 'Write-Host "Optional, and nothing is broken without them:"'
+        Assert-Phrase -Text (Get-DocText $script:InstallPs1) -Where 'install.ps1' `
+            -Phrase 'Listed, never counted.'
+    }
+
+    # Nothing wrote this line, and the prereq check failed without it - so every new machine failed
+    # a check by definition, with "add it by hand" as the only fix. It is written outside the
+    # repository, which is why the header claim below had to be corrected rather than kept.
+    It 'writes the global gitignore line, once, without rewriting the user''s file' {
+        $text = Get-DocText $script:InstallPs1
+        Assert-Phrase -Text $text -Where 'install.ps1' `
+            -Phrase 'Never duplicate the line: an installer run twice must leave exactly one.'
+        Assert-Phrase -Text $text -Where 'install.ps1' `
+            -Phrase 'Never rewrite or reorder a file the user already had'
+        Assert-Phrase -Text $script:InstallSource -Where 'install.ps1' `
+            -Phrase "`$ignoreLine = '.claude/worktrees/'"
+        Assert-Phrase -Text $script:InstallSource -Where 'install.ps1' `
+            -Phrase 'Where-Object { $_.Trim() -eq $ignoreLine }).Count -gt 0'
+        Assert-Phrase -Text $script:InstallSource -Where 'install.ps1' `
+            -Phrase '& git config --global core.excludesFile $forGit'
     }
 
     It 'prints every command before running it' {
@@ -2604,5 +2755,32 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             -Phrase ('The skills live in this repository''s own `.claude\skills\`, so nothing is ' +
                      'linked into `~\.claude\skills\` and a Claude Code session in any other ' +
                      'directory is unaffected.')
+    }
+
+    # This used to pin "except the two user environment variables". That claim became false the
+    # moment install.ps1 started writing the global gitignore line, so the claim was corrected
+    # rather than the write hidden - a header promising less than the script does is worse than no
+    # promise at all, because it is the thing a reader checks instead of reading the code. The
+    # count is pinned deliberately: adding a fourth write without saying so fails here.
+    It 'install.ps1 names all three things it writes outside this repository, and the README agrees' {
+        Assert-Phrase -Text (Get-DocText $script:InstallPs1) -Where 'the install.ps1 header' `
+            -Phrase ('It writes exactly three things outside this repository, and names each one as ' +
+                     'it does it: the two user environment variables KINGSHAND_HOME and ' +
+                     'LAVISH_AXI_PORT, and the line `.claude/worktrees/` in your global gitignore. ' +
+                     'Nothing else on the machine is touched.')
+
+        $readme = Get-DocText (Join-Path $script:Root 'README.md')
+        Assert-Phrase -Text $readme -Where 'the README Layout block' `
+            -Phrase ('writes exactly three things outside this repository: KINGSHAND_HOME, ' +
+                     'LAVISH_AXI_PORT, and one line in your global gitignore')
+        $readme.Contains('writes nothing outside this repository except KINGSHAND_HOME') |
+            Should -BeFalse -Because 'the installer now writes a third thing, and the README must not still deny it'
+    }
+
+    It 'the setup skill tells the user about that third write before it happens' {
+        Assert-Phrase -Text (Get-DocText $script:SetupMd) -Where 'the setup skill' `
+            -Phrase ('Say too that it adds one line, `.claude/worktrees/`, to their global ' +
+                     'gitignore. That is the only thing it changes outside this repository other ' +
+                     'than the two environment variables')
     }
 }

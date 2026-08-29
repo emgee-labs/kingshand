@@ -32,6 +32,11 @@ missing, and writes this machine's configuration - `KINGSHAND_HOME`, the lavish 
 `instructions.md` from the template, and the local `data\`, `state\` and `config\` directories. It
 touches none of their repositories, and it writes nothing into their `~\.claude\` profile.
 
+Say too that it adds one line, `.claude/worktrees/`, to their global gitignore. That is the only
+thing it changes outside this repository other than the two environment variables, and it is there
+because workers run inside their own repositories and would otherwise appear as untracked changes.
+One line, said once - not a paragraph of reassurance.
+
 **Then ask them one question, and only on a first run.** How far do they want work taken before it
 reaches them? Two answers, in plain words - no posture names, they do not know them yet:
 
@@ -79,6 +84,13 @@ things, briefly:
 - What still needs them: any tool that is still missing after the re-check, and `gh auth login`
   if the GitHub CLI went in fresh.
 
+**A `NOTE` line is not a problem and must never be reported as one.** The script prints `MISS`
+for something dispatch cannot work without and `NOTE` for something a working installation may
+legitimately never need - the GitHub CLI, Pester, the review gate, Azure DevOps. Read the exit
+code and the `MISS` lines for what is wrong; everything else is a choice they can make later.
+If the run ended clean, say it is ready, and do not hand them a list of optional things to worry
+about.
+
 If a tool failed to install for want of administrator rights, give them the one command to run in
 an elevated shell. Nothing here elevates itself.
 
@@ -90,7 +102,10 @@ Both are choices, not omissions, and the user should hear them now rather than d
   projects registered with the `no-mistakes` posture need it.
 - **`config\ado.json` was not written.** When that file is absent, `muster` asks for the Azure
   DevOps organization and project the first time it needs them, rather than inventing values that
-  would then be trusted as configured.
+  would then be trusted as configured. Say in the same breath that **Azure DevOps integration is
+  optional and needs nothing unless they work ADO tickets**: the `ado-local-mcp` server is not a
+  prerequisite, nothing here installs it, and without it work is described in their own words and
+  handled as adhoc, which is the ordinary path.
 
 ## Step 4 - What to do next
 

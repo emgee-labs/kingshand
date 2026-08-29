@@ -3,8 +3,10 @@
 .SYNOPSIS
   Sets up kingshand on this machine: checks prerequisites and writes the configuration that is
   one answer per machine.
-  It never writes anything outside this repository except the two user environment variables
-  below. The skills live in this repository's own `.claude\skills\`, so nothing is linked into
+  It writes exactly three things outside this repository, and names each one as it does it: the
+  two user environment variables KINGSHAND_HOME and LAVISH_AXI_PORT, and the line
+  `.claude/worktrees/` in your global gitignore. Nothing else on the machine is touched. The
+  skills live in this repository's own `.claude\skills\`, so nothing is linked into
   `~\.claude\skills\` and a Claude Code session in any other directory is unaffected.
 .DESCRIPTION
   Idempotent. Running it twice does nothing the second time except say so. It never overwrites an
@@ -71,27 +73,48 @@ function Write-Did  { param([string]$Text) Write-Host "  DONE  $Text" }
 # --------------------------------------------------------------------------------
 # 1. Prerequisites. Detect only by default - every miss names the command that fixes
 #    it. With -InstallMissing, run those commands, printing each before it runs.
+#
+#    A tool marked Optional is one a working installation may never need.
+#    It is reported NOTE rather than MISS, and never sets this script's exit code.
+#    Telling someone whose install is fine that it is broken is how a report stops
+#    being read at all, and that costs the failures that are real.
+#    -InstallMissing still installs them: the flag is consent to install what can be
+#    installed, and neither gh nor Pester is a download anyone would notice. The
+#    review gate is the one thing that stays behind its own switch, because it is
+#    14 MB and a whole delivery flow rather than a missing dependency.
 # --------------------------------------------------------------------------------
 $tools = @(
     @{ Name = 'claude';     Manager = 'npm';    Install = 'npm install -g @anthropic-ai/claude-code'; What = 'Claude Code' }
     @{ Name = 'git';        Manager = 'winget'; Install = 'winget install --id Git.Git';              What = 'Git for Windows' }
-    @{ Name = 'gh';         Manager = 'winget'; Install = 'winget install --id GitHub.cli';           What = 'GitHub CLI, then: gh auth login' }
     @{ Name = 'lavish-axi'; Manager = 'npm';    Install = 'npm install -g lavish-axi';                What = 'the review surface' }
     @{ Name = 'tasks-axi';  Manager = 'npm';    Install = 'npm install -g tasks-axi';                 What = 'the durable backlog' }
+    # Only a push-capable posture opens a pull request, and only a pull request needs gh.
+    # Someone whose work stops at a finished local branch never calls it, so it never blocks here.
+    # `annex` closes the gap that leaves, by refusing a push-capable posture on a machine with no gh.
+    @{ Name = 'gh';         Manager = 'winget'; Install = 'winget install --id GitHub.cli';           What = 'GitHub CLI - only push-capable postures need it, then: gh auth login'; Optional = $true }
 )
 
 $pesterInstall = 'Install-Module Pester -MinimumVersion 6.0.0 -Force -SkipPublisherCheck -Scope CurrentUser'
 
+# Missing optional tools from the last detection pass. Kept beside $missing rather than inside it
+# so that the summary at the end can list what is genuinely blocking dispatch and nothing else.
+$optional = @()
+
 # Detection is a function because -InstallMissing has to run it twice. Installing a thing is not
 # evidence that it installed: the second call is what turns a claim into a check.
 function Test-Prerequisite {
-    $still = [System.Collections.Generic.List[hashtable]]::new()
+    $still     = [System.Collections.Generic.List[hashtable]]::new()
+    $alsoLater = [System.Collections.Generic.List[hashtable]]::new()
 
     Write-Ok ("PowerShell {0}" -f $PSVersionTable.PSVersion)
 
     foreach ($t in $tools) {
         $found = Get-Command $t.Name -ErrorAction SilentlyContinue
         if ($found) { Write-Ok ("{0,-12} {1}" -f $t.Name, $found.Source) }
+        elseif ($t.Contains('Optional') -and $t.Optional) {
+            Write-Host ("  NOTE  {0,-12} {1} - not required. Add it with: {2}" -f $t.Name, $t.What, $t.Install)
+            $alsoLater.Add($t)
+        }
         else {
             Write-Miss ("{0,-12} {1} - install with: {2}" -f $t.Name, $t.What, $t.Install)
             $still.Add($t)
@@ -132,17 +155,24 @@ function Test-Prerequisite {
         })
     }
 
+    # Pester is a contributor dependency, not a runtime one.
+    # It runs kingshand's own test suite; nothing under bin\ and no skill imports it, so an
+    # installation without it dispatches, gates and lands exactly as well as one with it.
+    # It was reported MISS and counted towards a non-zero exit, which told a brand-new user with a
+    # perfectly working install that it was broken.
     $pester = Get-Module -ListAvailable -Name Pester |
               Where-Object { $_.Version.Major -ge 6 } |
               Sort-Object Version -Descending | Select-Object -First 1
     if ($pester) { Write-Ok ("{0,-12} {1}" -f 'Pester', $pester.Version) }
     else {
-        Write-Miss "Pester       6+ not found - install with: $pesterInstall"
+        Write-Host ("  NOTE  {0,-12} {1}" -f 'Pester', 'runs this repository''s own tests and nothing else - not needed to use kingshand.')
+        Write-Host "        To verify this clone or contribute to it: $pesterInstall"
         # Pester comes from the PowerShell Gallery, not from a package manager, so -InstallMissing
         # handles it on its own path rather than shelling out to npm or winget.
-        $still.Add(@{ Name = 'Pester'; Manager = 'psgallery'; Install = $pesterInstall; What = 'the test suite' })
+        $alsoLater.Add(@{ Name = 'Pester'; Manager = 'psgallery'; Install = $pesterInstall; What = 'the test suite' })
     }
 
+    $script:optional = @($alsoLater)
     $still
 }
 
@@ -407,8 +437,14 @@ if ($reviewGate) {
                 "Do NOT ``npm install -g no-mistakes``: that name belongs to a different, unrelated tool.")
 }
 
-if ($InstallMissing -and $missing.Count -gt 0) {
+if ($InstallMissing -and ($missing.Count + $optional.Count) -gt 0) {
     Write-Step 'Installing what is missing'
+
+    # Blockers and optionals are installed by the same machinery, and only reported differently.
+    # -InstallMissing is consent to install what can be installed, so gh and Pester go in here too;
+    # what their Optional flag buys is that their absence never reads as a broken install and never
+    # sets the exit code.
+    $installable = @($missing) + @($optional)
 
     # Only winget is a true floor: it ships with Windows as part of App Installer and cannot
     # install itself. npm is not - it comes with Node.js, which winget installs - so when winget
@@ -436,7 +472,7 @@ if ($InstallMissing -and $missing.Count -gt 0) {
         $blocked['winget'] = 'Install App Installer from the Microsoft Store, then run this again. It carries winget, which cannot install itself.'
     }
     foreach ($manager in @($blocked.Keys)) {
-        $names = @($missing | Where-Object { $_.Manager -eq $manager } | ForEach-Object { $_.Name })
+        $names = @($installable | Where-Object { $_.Manager -eq $manager } | ForEach-Object { $_.Name })
         if ($names.Count -eq 0) { continue }
         Write-Miss ("{0} cannot be installed: {1} is not on PATH." -f ($names -join ', '), $manager)
         Write-Host ("        " + $blocked[$manager])
@@ -445,7 +481,7 @@ if ($InstallMissing -and $missing.Count -gt 0) {
     # One command per package, not one per tool: `claude` and `claude.cmd` are the same npm install
     # and running it twice would report a second success for work that already happened.
     $planned = [ordered]@{}
-    foreach ($m in $missing) {
+    foreach ($m in $installable) {
         if ($m.Manager -eq 'psgallery' -or $m.Manager -eq 'herdr' -or $blocked.Contains($m.Manager)) { continue }
         if ($planned.Contains($m.Install)) { $planned[$m.Install] = "$($planned[$m.Install]), $($m.Name)" }
         else { $planned[$m.Install] = $m.Name }
@@ -468,7 +504,7 @@ if ($InstallMissing -and $missing.Count -gt 0) {
     # herdr comes from herdr.dev rather than a package manager, so it runs on its own path the same
     # way Pester does. It goes into this copy's tools\herdr\, which is gitignored: an 8.4 MB binary
     # does not belong in a repository people clone.
-    if (@($missing | Where-Object { $_.Manager -eq 'herdr' }).Count -gt 0) {
+    if (@($installable | Where-Object { $_.Manager -eq 'herdr' }).Count -gt 0) {
         Write-Host '  FOR   herdr'
         # Recorded in $actions, not discarded. A run that downloads and extracts a binary and then
         # signs off with "changed: nothing - this installation was already set up" is telling the
@@ -478,7 +514,7 @@ if ($InstallMissing -and $missing.Count -gt 0) {
         }
     }
 
-    if (@($missing | Where-Object { $_.Manager -eq 'psgallery' }).Count -gt 0) {
+    if (@($installable | Where-Object { $_.Manager -eq 'psgallery' }).Count -gt 0) {
         Write-Host "  FOR   Pester"
         Write-Host "  RUN   $pesterInstall"
         try {
@@ -536,7 +572,79 @@ if ($port -eq '4388') {
 }
 
 # --------------------------------------------------------------------------------
-# 3. instructions.md. The King's own standing word. Copied from the tracked template
+# 3. The global gitignore. Workers live in <repo>\.claude\worktrees\ inside the user's
+#    OWN repository, so without this line every dispatched worker shows up as untracked
+#    changes in a repository kingshand does not own and must not commit to.
+#
+#    This is the third and last thing written outside this repository, and the header
+#    says so. It used to be nowhere: the prereq check failed on the missing line and
+#    nothing here ever wrote it, so every new machine failed that check by definition
+#    with only "add it by hand" as the fix.
+#
+#    Three rules, and they are the whole of the care this needs.
+#    Never duplicate the line: an installer run twice must leave exactly one.
+#    Never rewrite or reorder a file the user already had - the only write to a file
+#    that already exists is one appended line.
+#    And print the file that was touched, because a script quietly editing a dotfile
+#    in someone's home directory should at minimum say which one.
+# --------------------------------------------------------------------------------
+Write-Step 'Global gitignore'
+
+$ignoreLine = '.claude/worktrees/'
+
+if (-not (Get-Command 'git' -ErrorAction SilentlyContinue)) {
+    Write-Miss 'git is not on PATH, so the global gitignore was left alone. Install git and run this again.'
+} else {
+    # `git config --global core.excludesFile` exits 1 and prints nothing when the key is unset,
+    # which is the ordinary state on a fresh machine rather than an error. It is read into a local
+    # and LASTEXITCODE is reset, so an unset key does not leak a failure into anything after it.
+    $configured = & git config --global core.excludesFile 2>$null | Select-Object -First 1
+    $global:LASTEXITCODE = 0
+    if ($configured) { $configured = $configured.Trim() }
+
+    # git writes this value with a literal `~` when it was set that way, and PowerShell's file
+    # cmdlets do not expand it. Expanding here rather than at each use keeps one meaning of the path.
+    $excludesPath = if ($configured) {
+        if ($configured -eq '~') { $HOME }
+        elseif ($configured -match '^~[\\/]') { Join-Path $HOME $configured.Substring(2) }
+        else { $configured }
+    } else {
+        Join-Path $HOME '.gitignore_global'
+    }
+
+    if (-not (Test-Path -LiteralPath $excludesPath)) {
+        $parent = Split-Path -Parent $excludesPath
+        if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+            New-Item -ItemType Directory -Force -Path $parent | Out-Null
+        }
+        Set-Content -LiteralPath $excludesPath -Value $ignoreLine -Encoding utf8
+        Write-Did "created $excludesPath with the line $ignoreLine"
+        $actions.Add('global gitignore')
+    } elseif (@(Get-Content -LiteralPath $excludesPath | Where-Object { $_.Trim() -eq $ignoreLine }).Count -gt 0) {
+        Write-Ok "$excludesPath already ignores $ignoreLine"
+    } else {
+        # A file that does not end in a newline would otherwise have this line glued onto its last
+        # one, silently changing a pattern the user wrote. Add-Content with an empty string appends
+        # the missing terminator and nothing else.
+        $existing = Get-Content -LiteralPath $excludesPath -Raw
+        if ($existing -and -not $existing.EndsWith("`n")) { Add-Content -LiteralPath $excludesPath -Value '' }
+        Add-Content -LiteralPath $excludesPath -Value $ignoreLine
+        Write-Did "appended $ignoreLine to $excludesPath - nothing else in that file was changed"
+        $actions.Add('global gitignore')
+    }
+
+    if (-not $configured) {
+        # Forward slashes on purpose: git treats a backslash in a config value as an escape, and a
+        # Windows path written raw comes back out of `git config` mangled.
+        $forGit = $excludesPath -replace '\\', '/'
+        & git config --global core.excludesFile $forGit
+        Write-Did "git config --global core.excludesFile now names $forGit"
+        $actions.Add('core.excludesFile')
+    }
+}
+
+# --------------------------------------------------------------------------------
+# 4. instructions.md. The King's own standing word. Copied from the tracked template
 #    once, then never touched again by anything - including this script.
 # --------------------------------------------------------------------------------
 Write-Step 'Standing instructions'
@@ -560,7 +668,7 @@ if (Test-Path -LiteralPath $instructions) {
 }
 
 # --------------------------------------------------------------------------------
-# 4. Local directories and config. Everything here is gitignored on purpose.
+# 5. Local directories and config. Everything here is gitignored on purpose.
 # --------------------------------------------------------------------------------
 Write-Step 'Local state and config'
 
@@ -582,9 +690,13 @@ if (Test-Path -LiteralPath $budget) {
 
 # Deliberately NOT created. muster asks for the organization and project when this file is absent,
 # and a file full of placeholders would be answered as though it were configured.
+#
+# Azure DevOps is optional in full: the MCP server muster reaches for is not a prerequisite, is
+# installed by nothing here, and needs an organization and a token nobody who does not use ADO has.
+# Without it muster treats every request as adhoc, which is the ordinary path.
 $ado = Join-Path $Root 'config\ado.json'
 if (Test-Path -LiteralPath $ado) { Write-Ok 'config\ado.json exists' }
-else { Write-Host '  NOTE  config\ado.json is deliberately absent. The Hand will ask for your Azure DevOps organization and project the first time it needs them, and offer to write them here.' }
+else { Write-Host '  NOTE  Azure DevOps integration is optional and nothing here needs it. config\ado.json is deliberately absent; describe work in your own words and it is handled as adhoc. If you do work ADO tickets, the Hand asks for your organization and project the first time it needs them and offers to write them here - and fetching a ticket by id also needs the ado-local-mcp server configured in Claude Code, which this script does not install.' }
 
 if ($ProjectRoot.Count -gt 0) {
     $settingsPath = Join-Path $Root '.claude\settings.json'
@@ -604,7 +716,7 @@ if ($ProjectRoot.Count -gt 0) {
 }
 
 # --------------------------------------------------------------------------------
-# 5. What happened, and what is left.
+# 6. What happened, and what is left.
 # --------------------------------------------------------------------------------
 Write-Step 'Summary'
 
@@ -614,6 +726,14 @@ else { Write-Host '  changed: nothing - this installation was already set up.' }
 if ($skipped.Count -gt 0) {
     Write-Host ("  left alone: " + ($skipped -join ', '))
     Write-Host '  Nothing above was overwritten. Re-run with -Force where you meant to replace it.'
+}
+
+# Listed, never counted. These are things a working installation may never need, so they belong in
+# the summary as a choice the reader can make later rather than in the blocking list below.
+if ($optional.Count -gt 0) {
+    Write-Host ""
+    Write-Host "Optional, and nothing is broken without them:"
+    $optional | ForEach-Object { Write-Host ("  - {0}: {1}" -f $_.Name, $_.Install) }
 }
 
 if ($missing.Count -gt 0) {

@@ -36,11 +36,27 @@ Two kinds of work:
 - **ticket** - an ADO work item id. Fetch it.
 - **adhoc** - free text with no ticket. Use a short kebab-case slug as the id.
 
+**Adhoc is the ordinary path and the one that needs nothing.** Azure DevOps is an optional
+integration: the `ado-local-mcp` server is not a kingshand prerequisite, `install.ps1` does not
+install it, and it needs an Azure DevOps organization and a token that most users do not have.
+Nothing else in kingshand touches it.
+
 For tickets, load the ADO tools:
 
 ```
 ToolSearch: select:mcp__ado-local-mcp__wit_get_work_item,mcp__ado-local-mcp__wit_list_work_item_comments
 ```
+
+**If those tools do not come back, say so plainly and carry on as adhoc. Never fail here, and
+never retry in a loop.** An absent MCP server is a machine that is not set up for Azure DevOps,
+which is the common case and not a fault. Tell the user in one line that Azure DevOps is not
+connected on this machine, ask them to paste the ticket text or describe the work in their own
+words, and treat what they give you as adhoc - a kebab-case slug for the id, their words as the
+requirements. Keep the ticket id in the slug where they gave one, so the work is still findable by
+it. Do not stop the dispatch, do not tell them to install anything, and do not go looking for the
+work item another way.
+
+Where the ADO tools did load, the rest of this section applies.
 
 **The ADO organization and project are configuration, never built in.** Read them from
 `$env:KINGSHAND_HOME\config\ado.json`, which is absent by default:

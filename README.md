@@ -2,7 +2,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
-[![Tests](https://img.shields.io/badge/tests-643%20passing-3fb950)](tests)
+[![Tests](https://img.shields.io/badge/tests-671%20passing-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 # You rule. It executes.
@@ -54,19 +54,27 @@ reads.
 
 ### Requirements
 
+Six things, and the installer fetches or names every one of them.
+
 | | Why | Install |
 |---|---|---|
 | PowerShell 7+ | every script targets it | `winget install --id Microsoft.PowerShell` |
 | Claude Code | the Hand and every worker | `npm install -g @anthropic-ai/claude-code` |
 | Git for Windows | worktrees are the isolation | `winget install --id Git.Git` |
-| GitHub CLI | pull requests for push-capable postures | `winget install --id GitHub.cli`, then `gh auth login` |
-| Pester 6+ | the test suite | `Install-Module Pester -MinimumVersion 6.0.0 -Force -SkipPublisherCheck -Scope CurrentUser` |
 | `lavish-axi` | the review surface both gates render to | `npm install -g lavish-axi` |
 | `tasks-axi` | the durable backlog | `npm install -g tasks-axi` |
 | `herdr` | the terminal every worker is spawned and watched through | fetched by the installer |
 
-**Optional: the review gate.** `no-mistakes` is needed only by projects you register `no-mistakes`
-or `no-mistakes-prod-only`. `setup` asks whether you want it, and `.\install.ps1 -WithReviewGate`
+Everything below this line is optional, and a run with none of it installed reports no failure.
+
+**The GitHub CLI, only for pull requests.** `gh` is needed by the push-capable postures -
+`direct-PR`, `no-mistakes`, `no-mistakes-prod-only` - because those end at a pull request. Work
+that stops at a finished local branch never calls it. `-InstallMissing` installs it anyway, and
+its absence is a note rather than a failure; `/annex` refuses to register a push-capable posture
+without it and tells you the command. `winget install --id GitHub.cli`, then `gh auth login`.
+
+**The review gate.** `no-mistakes` is needed only by projects you register `no-mistakes` or
+`no-mistakes-prod-only`. `setup` asks whether you want it, and `.\install.ps1 -WithReviewGate`
 adds it at any time - it fetches the Windows build from
 [kunchenguid/no-mistakes](https://github.com/kunchenguid/no-mistakes) and checks it against the
 published SHA-256 before extracting. Work that stops at a finished local branch never needs it.
@@ -74,12 +82,21 @@ published SHA-256 before extracting. Work that stops at a finished local branch 
 > Do not run `npm install -g no-mistakes`. That name on npm belongs to a **different, unrelated
 > tool**. It installs cleanly and then does not work, which is a slow way to find out.
 
-Add `.claude/worktrees/` to your global gitignore, or every worker shows up as untracked changes in
-your repositories:
+**Azure DevOps, only if you work ADO tickets.** Kingshand can read a work item and its comments
+straight into a brief, which needs the `ado-local-mcp` server configured in Claude Code plus an
+organization and a token. Nothing here installs it and nothing here needs it. With it absent, the
+Hand says so once and asks you to paste the ticket or describe the work, and handles it as adhoc -
+which is the ordinary path and works exactly as well.
 
-```powershell
-git config --global core.excludesFile    # then add the line to whatever it names
-```
+**Pester 6+, only to run this repository's own tests.** Nothing in `bin\` and no skill imports it,
+so an installation without Pester dispatches, gates and lands identically. `Install-Module Pester
+-MinimumVersion 6.0.0 -Force -SkipPublisherCheck -Scope CurrentUser`, or let `-InstallMissing`
+do it.
+
+The installer adds `.claude/worktrees/` to your global gitignore, because workers live inside your
+own repositories and would otherwise show up there as untracked changes. It appends one line to
+the file `git config --global core.excludesFile` names, creating that file and pointing the config
+at it when the config is unset, and it never writes the line twice.
 
 ### Install and launch
 
@@ -172,7 +189,7 @@ Eleven, all project-local. Six you invoke; five the Hand loads for itself.
 
 - **It has been used by one person, on one machine.** Expect to hit things.
 - **Windows and PowerShell 7 only.** Paths, worktrees and the process model are all Windows-shaped.
-- **The test suite is 643 cases, and roughly half assert that a prose rule exists** in `CLAUDE.md` or
+- **The test suite is 671 cases, and roughly half assert that a prose rule exists** in `CLAUDE.md` or
   a skill - not that an agent obeyed it. Those catch a rule being deleted or diluted in an edit.
   They cannot catch a model reading the rule and doing something else. The scripts under `bin\` are
   tested properly; the behaviour of the agent reading the prose is not, and cannot be by this means.
@@ -220,8 +237,9 @@ tools\herdr\            herdr, fetched and SHA-256 verified by the installer - g
                         and deliberately not on PATH
 docs\                   the architecture decisions worth keeping
 instructions.example.md the template install.ps1 copies to instructions.md
-install.ps1             prerequisites and config - writes nothing outside this repository
-                        except KINGSHAND_HOME and LAVISH_AXI_PORT
+install.ps1             prerequisites and config - writes exactly three things outside this
+                        repository: KINGSHAND_HOME, LAVISH_AXI_PORT, and one line in your
+                        global gitignore
 ```
 
 Everything a run produces - `data\`, `state\`, `config\`, `tools\` and `instructions.md` - is
