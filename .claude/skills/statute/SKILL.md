@@ -50,6 +50,12 @@ once. Every other mention of it is a one-line cross-reference, never a restateme
 whole dispatch-to-teardown procedure and `CLAUDE.md` carries one line pointing at it; that is the
 shape.
 
+**`bin\Herdr.psm1` is the only place that knows herdr's command line.** Every skill, script and
+test above it speaks in workers, panes and states; none of them composes a herdr argument list.
+That boundary is the point - herdr replaced the previous spawn layer, something will replace
+herdr, and the surface that has to be rewritten stays one file instead of scattering across four
+scripts and three skills the way the last one did.
+
 A single deliberate one-line reinforcement at a genuine risk point is allowed, for example a
 "don't forget X" placed exactly where forgetting X is costly. Restating the contract's substance a
 second time is not allowed: the two copies will drift the moment only one is edited.

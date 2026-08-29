@@ -1,23 +1,40 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  Spawns one background worker in its own git worktree and returns its supervisor-assigned id.
+  Creates one worker's git worktree, prepares it, and starts a Claude Code agent in it under herdr.
 .DESCRIPTION
-  The worker id cannot be chosen: --session-id is ignored when dispatching with --bg --worktree,
-  so the supervisor assigns its own. We identify the new worker by diffing
-  `claude agents --json` before and after the spawn.
+  The worker id is now CHOSEN, not discovered. `claude --bg --worktree` ignored --session-id and
+  minted its own id, so dispatch had to diff `claude agents --json` before and after the spawn and
+  hope exactly one background session appeared in the gap. herdr takes the name it is given, so the
+  id is simply $Name and the whole before/after diff is gone. crew.json keeps that id verbatim;
+  herdr only ever sees `ConvertTo-HerdrAgentName $Name`, which Herdr.psm1 owns.
 
-  `claude` on Windows resolves to a .ps1 that Start-Process cannot launch ("%1 is not a valid
-  Win32 application"), so we invoke the .cmd shim instead. Which shim, and where it lives, is
-  resolved at run time by `Paths.psm1` - it used to be one machine's npm prefix written out in
-  full, which is a path no other machine has.
+  kingshand creates the worktree itself now - `claude --bg --worktree` used to. It goes at
+  <repo>\.claude\worktrees\<name>, which is exactly where Claude Code put it, because .gitignore
+  already covers .claude/worktrees/ and every other script, skill and recorded crew.json row
+  already names that location.
 
-  The brief is passed BY PATH, never by value. Start-Process flattens -ArgumentList into a
-  single command line, and a multi-line string does not survive that: a 1,733-character brief
-  arrived at the worker as its 57-character first line, with every requirement silently
-  dropped. The worker only recovered because it went looking for brief.md on disk. So the
-  prompt is now a one-line instruction naming the brief, and --add-dir grants read access to
-  the brief's directory, which lives outside the repo.
+  ORDER IS LOAD-BEARING, and each step exists because of a concrete failure:
+
+    1. Resolve-BaseRef, BEFORE anything is spawned. It refuses rather than inventing a ref, and a
+       refusal after a worker exists would leave one running with nothing recorded about it.
+    2. git worktree add - the isolated checkout the worker will never leave.
+    3. Set-WorkerWorkspaceSettings - the two grants that used to be command-line flags. herdr
+       cannot pass arguments to claude on Windows at all (it launches through Start-Process against
+       a .ps1 and dies with "%1 is not a valid Win32 application"), so --permission-mode and
+       --add-dir have to be on disk in the worktree before the agent starts.
+    4. Grant-ClaudeFolderTrust - a fresh worktree is a directory Claude Code has never seen, so it
+       stops on the folder-trust dialog with nobody there to answer. `claude --bg --worktree` never
+       met this: it inherited the trust of the session that spawned it.
+    5. Start-HerdrServer, New-HerdrPane, Start-HerdrAgent - the spawn.
+    6. Send-HerdrPrompt with NO -Wait. Arming the wait is the caller's job: a dispatch that blocked
+       here would hold the Hand for the length of the worker's first turn.
+
+  The brief is passed BY PATH, never by value. That began as a defence against Start-Process
+  flattening -ArgumentList (a 1,733-character brief arrived as its 57-character first line), and it
+  outlives the defect: a brief on disk is what the worker can re-read mid-task and what survives a
+  restart, and the settings written in step 3 grant read access to the brief's directory, which
+  lives outside the repo.
 .EXAMPLE
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md
   $r.id, $r.worktree, $r.branch
@@ -32,13 +49,22 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Every git call below is checked on $LASTEXITCODE and reported with git's own output. Left mapped
+# onto $ErrorActionPreference, the first probe for a branch that does not exist would terminate the
+# whole dispatch with "Program git.exe ended with non-zero exit code: 1" and say nothing useful.
+$PSNativeCommandUseErrorActionPreference = $false
+
 if (-not (Test-Path $RepoPath))  { throw "Repo path not found: $RepoPath" }
 if (-not (Test-Path $BriefPath)) { throw "Brief not found: $BriefPath" }
 
-Import-Module (Join-Path $PSScriptRoot 'Paths.psm1') -Force
-$claudeCmd = Get-ClaudeCommandPath
-if (-not $claudeCmd) { throw (Get-ClaudeCommandHint) }
+Import-Module (Join-Path $PSScriptRoot 'Herdr.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'ClaudeWorkspace.psm1') -Force
 
+# Checked here rather than at the first herdr call: without it nothing below can work, and finding
+# that out after a worktree and a branch exist leaves debris to clean up.
+if (-not (Get-HerdrCommandPath)) { throw (Get-HerdrCommandHint) }
+
+$RepoPath  = (Resolve-Path $RepoPath).Path
 $BriefPath = (Resolve-Path $BriefPath).Path
 $briefDir  = Split-Path $BriefPath -Parent
 
@@ -49,66 +75,128 @@ $briefDir  = Split-Path $BriefPath -Parent
 # real base at dispatch.
 #
 # Resolved BEFORE the spawn on purpose: Resolve-BaseRef refuses rather than inventing a ref, and
-# a refusal after Start-Process would leave an orphaned worker running in the repo.
+# a refusal after the worker exists would leave an orphaned agent running in the repo.
 . (Join-Path $PSScriptRoot 'Resolve-BaseRef.ps1')
 $base = Resolve-BaseRef -RepoPath $RepoPath
 
-# One line, so nothing can be lost to command-line flattening. The worker reads the rest.
+$branch   = "worktree-$Name"
+$worktree = Join-Path (Join-Path (Join-Path $RepoPath '.claude') 'worktrees') $Name
+
+function Get-GitOutput {
+    param([Parameter(Mandatory)][string[]]$Arguments)
+    (& git -C $RepoPath @Arguments 2>&1 | Out-String).Trim()
+}
+
+function Test-LocalBranch {
+    param([Parameter(Mandatory)][string]$Ref)
+    $null = & git -C $RepoPath rev-parse --verify --quiet "refs/heads/$Ref" 2>$null
+    $LASTEXITCODE -eq 0
+}
+
+# git prints worktree paths with forward slashes and its own casing, so a string compare against a
+# Windows path built with Join-Path never matches. Compare fully-qualified paths instead.
+function Test-WorktreeRegistered {
+    param([Parameter(Mandatory)][string]$Path)
+    $target = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+    foreach ($line in @((Get-GitOutput @('worktree', 'list', '--porcelain')) -split "`r?`n")) {
+        if ($line -notmatch '^worktree\s+(.+)$') { continue }
+        $listed = [IO.Path]::GetFullPath(($Matches[1].Trim() -replace '/', '\')).TrimEnd('\')
+        if ($listed -eq $target) { return $true }
+    }
+    $false
+}
+
+# A worktree whose directory was deleted by hand is still recorded under .git\worktrees, and
+# `git worktree add` at that path then refuses with "already exists" about a directory nobody can
+# see. Pruning first turns that into an ordinary fresh add.
+$null = Get-GitOutput @('worktree', 'prune')
+
+# Re-dispatching the same ticket is ordinary - a worker that stopped at the trust dialog, or one
+# the King sent back to keep going - and `git worktree add -b` cannot be told twice. So the three
+# states are decided here rather than left to a raw git error the Hand would have to interpret.
+if (Test-WorktreeRegistered $worktree) {
+    # Already a checkout of this ticket's branch. Reuse it: whatever the previous attempt committed
+    # is the work in progress, and discarding it to get a clean `add` would throw that away.
+    if (-not (Test-LocalBranch $branch)) {
+        throw ("A worktree is already registered at $worktree but branch $branch does not exist, " +
+               "so this is not a kingshand worker's checkout. Resolve it by hand - dispatch will " +
+               "not repoint someone else's worktree.")
+    }
+} elseif (Test-Path -LiteralPath $worktree) {
+    throw ("$worktree already exists and git does not own it, so a worktree cannot be created " +
+           "there. Remove it, or dispatch this ticket under a different name.")
+} elseif (Test-LocalBranch $branch) {
+    # The branch survived its worktree - the usual shape after a teardown that removed the
+    # directory but kept the work. Check it out again rather than branching a second time from a
+    # base that has since moved.
+    $out = Get-GitOutput @('worktree', 'add', $worktree, $branch)
+    if ($LASTEXITCODE -ne 0) { throw "git worktree add $worktree $branch failed: $out" }
+} else {
+    $out = Get-GitOutput @('worktree', 'add', '-b', $branch, $worktree, $base)
+    if ($LASTEXITCODE -ne 0) { throw "git worktree add -b $branch $worktree $base failed: $out" }
+}
+
+# The two grants that used to be `--permission-mode bypassPermissions --add-dir <briefdir>` on the
+# command line. Written into the WORKTREE, which is a fresh checkout with no .claude of its own -
+# nothing carries across from the main checkout, because settings.local.json is untracked.
+$null = Set-WorkerWorkspaceSettings -WorktreePath $worktree -AdditionalDirectories @($briefDir)
+
+# Pre-seeded rather than answered afterwards with a synthetic keystroke: this is a written,
+# inspectable record made before launch, and it cannot race the dialog. Its result is kept because
+# a worker that comes back blocked is almost always a trust grant that did not land, and saying so
+# is the difference between an actionable failure and "the agent is blocked".
+$trust = Grant-ClaudeFolderTrust -Path $worktree
+
+Start-HerdrServer
+$paneId = New-HerdrPane -Cwd $worktree
+
+$agent = Start-HerdrAgent -Name $Name -PaneId $paneId -TimeoutMs ($TimeoutSeconds * 1000)
+if (-not $agent) {
+    throw ("herdr started no agent for $Name in pane $paneId. The worktree at $worktree and " +
+           "branch $branch were created and are untouched.")
+}
+
+# `agent start` can exit non-zero and still have registered the agent, so Start-HerdrAgent hands
+# back the live record instead of throwing. A blocked agent is sitting on an interactive prompt: it
+# is NOT given keys here, because a blind arrow-and-enter at a security prompt answers whichever
+# option happens to be highlighted, and herdr delivers a batched arrow+enter out of order anyway.
+#
+# Read through Get-HerdrAgentState, never `agent_status` directly. herdr misreports a Claude Code
+# worker sitting on a prompt - a folder-trust dialog here would come back `idle` or `done` - so the
+# raw field would wave the worker through and the brief would land in a dialog instead of a session.
+$state = Get-HerdrAgentState -Name $Name
+if ($state -eq 'blocked') {
+    $why = if ($trust.granted) { "folder trust was recorded ($($trust.reason))" }
+           else { "folder trust was NOT recorded ($($trust.reason))" }
+    throw ("Worker $Name started but is blocked on an interactive prompt in pane $paneId - " +
+           "$why. Read it with Read-HerdrAgent and answer it deliberately; nothing here sends " +
+           "keys at a prompt it has not read. The worktree at $worktree and branch $branch exist " +
+           "and hold no work yet.")
+}
+
+# One line, so the brief cannot be lost in transit and the worker has to open the file. The worker
+# reads the rest from disk, which is also what lets it re-read its own brief mid-task.
 $prompt = "Read the file $BriefPath in full - it is your brief and the complete statement of " +
           "your task - then carry it out exactly as written. Treat every requirement, exclusion " +
           "and Done-means item in it as binding. If you cannot read that file, stop immediately " +
           "and report that instead of guessing at the task."
 
-function Get-BackgroundIds {
-    $raw = & claude agents --json 2>$null
-    if (-not $raw) { return @() }
-    , @(($raw | ConvertFrom-Json) | Where-Object { $_.kind -eq 'background' } | ForEach-Object { $_.id })
-}
-
-$before = Get-BackgroundIds
-
-Push-Location $RepoPath
-try {
-    # Argument ORDER is load-bearing. --add-dir is variadic (<directories...>), so it keeps
-    # consuming positionals: with the prompt after it, the prompt is parsed as another directory
-    # and the worker starts at an empty prompt, idle, having been told nothing. Keep a
-    # non-variadic flag between --add-dir and the prompt so the directory list is terminated.
-    $null = Start-Process -FilePath $claudeCmd -ArgumentList @(
-        '--bg', '--worktree', $Name,
-        '--add-dir', "`"$briefDir`"",
-        '--permission-mode', 'bypassPermissions',
-        "`"$prompt`""
-    ) -NoNewWindow -PassThru
-} finally {
-    Pop-Location
-}
-
-# Poll for the new id rather than sleeping a fixed amount - spawn time varies with repo size.
-$deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-$newId = $null
-while ((Get-Date) -lt $deadline) {
-    Start-Sleep -Seconds 2
-    $after = Get-BackgroundIds
-    $diff = @($after | Where-Object { $_ -notin $before })
-    if ($diff.Count -ge 1) { $newId = $diff[0]; break }
-}
-
-if (-not $newId) {
-    throw "Worker did not appear in 'claude agents --json' within $TimeoutSeconds seconds."
-}
-
-# The worktree path is derived, not read from `agents --json`.
+# No -Wait: the caller arms the wait, as a background job running Wait-HerdrAgent, and its
+# completion is what wakes the Hand. Waiting here would hold the Hand for the whole first turn.
 #
-# `cwd` is racy: for the first several seconds after dispatch it still reports the repo root,
-# and only later flips to the worktree. Reading it here returned the repo path and would have
-# put the wrong path into crew.json, so every later `git -C <worktree>` would silently operate
-# on the main checkout instead. Claude Code always creates worktrees at this exact location,
-# so deriving it is both correct and immune to timing.
-$worktree = Join-Path (Join-Path (Join-Path $RepoPath '.claude') 'worktrees') $Name
+# The status this returns is STALE by design - herdr's `agent prompt` returns before the state
+# machine has moved, so the agent still reads `idle` for a moment after submitting. It is not read
+# as progress here, only for the one thing it can say straight away: that the prompt bounced.
+$submitted = Send-HerdrPrompt -Name $Name -Text $prompt
+if ($submitted -and $submitted.PSObject.Properties.Name -contains 'blocked') {
+    throw ("Worker $Name would not take its brief - it is blocked on an interactive prompt in " +
+           "pane $paneId. The worktree at $worktree and branch $branch exist; read the pane with " +
+           "Read-HerdrAgent before answering anything.")
+}
 
 [hashtable]@{
-    id       = $newId
+    id       = $Name
     worktree = $worktree
-    branch   = "worktree-$Name"
+    branch   = $branch
     base     = $base
 }

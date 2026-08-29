@@ -17,6 +17,7 @@ $failures = @()
 $notes    = @()
 
 Import-Module (Join-Path $PSScriptRoot 'Paths.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'Herdr.psm1') -Force
 
 function Test-Tool {
     param([string]$Name, [string]$Hint)
@@ -40,6 +41,23 @@ if ($claudeCmd) {
     Write-Host ("  OK  {0,-14} {1}" -f 'claude.cmd', $claudeCmd)
 } else {
     $failures += (Get-ClaudeCommandHint)
+}
+
+# herdr, resolved through the module that owns its command line rather than through Get-Command.
+# It is deliberately not on PATH - it lives in tools\herdr\ - so a name lookup would report it
+# missing on a machine where it is installed and working, and a second copy of the discovery rule
+# here is exactly how the two would drift apart.
+#
+# This is a failure, not a note. Every worker is now spawned and steered through herdr, so an
+# absent herdr means nothing can be dispatched at all - the same class of problem as a missing
+# claude.cmd, and reported the same way. The `claude` and `claude.cmd` checks above still stand:
+# herdr launches `claude` inside its pane, so the shim's discovery still matters.
+$herdr = Get-HerdrCommandPath
+
+if ($herdr) {
+    Write-Host ("  OK  {0,-14} {1}" -f 'herdr', $herdr)
+} else {
+    $failures += (Get-HerdrCommandHint)
 }
 
 # Only the `no-mistakes` posture needs the review gate, and a user who registers nothing that way

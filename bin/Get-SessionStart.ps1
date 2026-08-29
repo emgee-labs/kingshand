@@ -262,8 +262,11 @@ try {
         })
     }
 
-    # Workers: stage is intent from crew.json, liveness is the join with `claude agents --json`.
+    # Workers: stage is intent from crew.json, liveness is the join with herdr's agent list.
     # Unknown liveness is printed as unknown, never as dead - only a join that ran can say dead.
+    # The agent word appended after the slash is herdr's (idle, working, blocked, done, unknown)
+    # corrected by the worker's own screen, and `idle` there means "not mid-turn", never
+    # "finished" - a worker reads idle from the moment it starts.
     $workers = @($snap.crew.workers)
     if ($workers.Count -eq 0) {
         Add-Line '  Workers: none recorded.'
@@ -411,7 +414,7 @@ Add-Line 'Read this digest once and trust it as this session''s startup input.'
 Add-Line 'Do not separately re-read the registry, the queue, the fleet or the context files it just'
 Add-Line 'printed unless one of them was reported absent or corrupt, or a targeted piece of work must'
 Add-Line 'inspect before writing. The digest is orientation and durable record; liveness still comes'
-Add-Line 'from `claude agents --json`.'
+Add-Line 'from herdr, read when it matters rather than assumed from a line printed at session open.'
 Add-Line '=== END KINGSHAND SESSION START ==='
 
 $digest = ($script:Lines -join "`n")
