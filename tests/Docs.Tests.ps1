@@ -2145,6 +2145,123 @@ Describe 'the session-start digest is read once and not read again' {
     }
 }
 
+Describe 'every durable file is indexed, and the brief names the ones its task touches' {
+    # A settled brand spec sat in data\ naming itself the input to the website brief, and the site
+    # shipped without its logo, favicon, tagline or palette. Nothing was lost and nothing was
+    # overruled - the file was never read, because no brief named it.
+    #
+    # The first fix drafted was a "settled decision" category with its own home. It was rejected:
+    # classifying a file as important at write time is a guess about work nobody has scoped yet, and
+    # a wrong guess is silent, which is the same failure in a different hat. What shipped is an
+    # index - everything is listed, nothing is judged, and the gap is counted. These pin the four
+    # sentences that carry that, because a future editor tidying the routing section back into a
+    # category is exactly how this returns.
+    BeforeAll {
+        $script:IndexRouting = Get-HandSection 'Knowledge routing'
+        $script:IndexOwned   = Get-HandSection 'What you own'
+        $script:IndexStart   = Get-HandSection 'Session start'
+        $script:MusterText   = Get-DocText $script:MusterMd
+    }
+
+    It 'CLAUDE.md owns the index beside the other durable state' {
+        Assert-Phrase -Text $script:IndexOwned -Where 'CLAUDE.md What you own' `
+            -Phrase ('`data\index\<project>.md`, and `data\index.md` for kingshand''s own ' +
+                     'operational files - one line per durable file so a later session can find it.')
+        Assert-Phrase -Text $script:IndexOwned -Where 'CLAUDE.md What you own' `
+            -Phrase ('Written through `bin\Index.psm1` as the file itself is written, never as a ' +
+                     'separate act of remembering.')
+    }
+
+    It 'routing indexes everything at write time rather than judging what is worth listing' {
+        Assert-Phrase -Text $script:IndexRouting -Where 'CLAUDE.md knowledge routing' `
+            -Phrase '**Every durable file written under `data\` is indexed as it is written**'
+        Assert-Phrase -Text $script:IndexRouting -Where 'CLAUDE.md knowledge routing' `
+            -Phrase ('Nothing is judged important enough to list at write time: that is a guess ' +
+                     'about work nobody has scoped yet, and a wrong guess is silent')
+    }
+
+    It 'routing moves the judgement to read time and counts what nothing lists' {
+        Assert-Phrase -Text $script:IndexRouting -Where 'CLAUDE.md knowledge routing' `
+            -Phrase ('The index is a table of contents, so the reader decides at read time which ' +
+                     'files their own task touches, and a file no index lists is drift the ' +
+                     'session-start digest counts.')
+    }
+
+    # An older backlog line said the accent was amber while the spec file said teal and recorded
+    # amber as rejected. A worker handed both and told nothing picks wrong half the time.
+    It 'routing says which source wins when two disagree' {
+        Assert-Phrase -Text $script:IndexRouting -Where 'CLAUDE.md knowledge routing' `
+            -Phrase ('**Where two sources disagree the brief says which one wins**, and a settled ' +
+                     'file beats an older backlog line, ticket text or report')
+    }
+
+    It 'the digest carries the index as counts, and absence still means absence' {
+        Assert-Phrase -Text $script:IndexStart -Where 'CLAUDE.md session start' `
+            -Phrase ('the data index as counts alone - how much it covers and how many files under ' +
+                     '`data\` it has lost track of')
+        Assert-Phrase -Text $script:IndexStart -Where 'CLAUDE.md session start' `
+            -Phrase ('No `INDEX` section means there is nothing indexed and nothing to index yet, ' +
+                     'while an `UNINDEXED:` count means durable files exist that no index lists')
+    }
+
+    It 'the module is listed in the Tooling table' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
+            -Phrase ('| `bin\Index.psm1` | the data index: write a file and index it in one call')
+    }
+
+    It 'muster reads the index before a brief is written' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase '**Read the index for this project before you write anything.**'
+    }
+
+    It 'muster names the files in the brief by absolute path, to be read in full' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase ('**name in the brief, by absolute path and with an instruction to read it in ' +
+                     'full, every file this task plausibly touches**, and say which source wins ' +
+                     'where two disagree')
+    }
+
+    It 'muster says why naming it is the only delivery there is' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase ('a worker sees exactly one thing, its brief, so "it is recorded" is not a ' +
+                     'delivery mechanism')
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase ('A fully settled brand spec sat in `data\` naming itself the input to the ' +
+                     'website brief while the site shipped without its logo, its favicon, its ' +
+                     'tagline or its palette, because no brief ever named the file.')
+    }
+
+    It 'muster indexes the brief in the step that writes it, and the report in the step that reads it' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase 'Index the brief in the same step that writes it, so the two cannot come apart'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 6' `
+            -Phrase '**index the report in the same breath**'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 6' `
+            -Phrase 'a report no index lists is a finding the next brief will not find'
+    }
+
+    It 'both index calls are stated as runnable text, through the module' {
+        $fences = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('Add-IndexEntry') })
+        $fences.Count | Should -Be 2 -Because 'the brief and the report are each indexed where they are handled'
+        @($fences | Where-Object { $_.Contains('brief.md') }).Count  | Should -Be 1
+        @($fences | Where-Object { $_.Contains('report.md') }).Count | Should -Be 1
+        foreach ($fence in $fences) {
+            $fence.Contains('Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force') |
+                Should -BeTrue -Because 'the module is the one place that knows the index format'
+        }
+    }
+
+    It 'the design note records why a classification was rejected, so it is not reintroduced' {
+        $note = Get-DocText (Join-Path $script:Root 'docs\2026-08-30-data-index.md')
+        Assert-Phrase -Text $note -Where 'the data index design note' `
+            -Phrase ('Classifying a file as important at the moment it is written means guessing ' +
+                     'what some future task will need')
+        Assert-Phrase -Text $note -Where 'the data index design note' `
+            -Phrase ('"this file is listed nowhere" is a fact a machine can notice, where ' +
+                     '"somebody should have realised this mattered" never was')
+    }
+}
+
 Describe 'no long dash' {
     It 'does not appear in <file>' -ForEach @(
         @{ file = 'CLAUDE.md' }

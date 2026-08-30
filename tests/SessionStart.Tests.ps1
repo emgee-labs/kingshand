@@ -479,6 +479,98 @@ Describe 'the hook envelope carries the digest as parseable JSON' {
     }
 }
 
+Describe 'the index reaches the session as a location and two counts, never as content' {
+    # A settled brand spec sat in data\ while the site it described shipped with none of it. The
+    # digest is where a fresh session learns the index exists at all, so what it must carry is where
+    # to look and how far the index has drifted from what is on disk - and what it must NOT carry is
+    # any of the files, because paying for them at every session open is how a bounded digest stops
+    # being bounded.
+    BeforeAll {
+        function Add-IndexedFile {
+            param(
+                [Parameter(Mandatory)]$Fixture,
+                [Parameter(Mandatory)][string]$Relative,
+                [Parameter(Mandatory)][string]$Summary,
+                [string]$Project,
+                [string]$Body = 'body'
+            )
+            Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Index.psm1') -Force
+            Write-DataFile -Path $Relative -Content $Body -Summary $Summary -Project $Project -DataPath $Fixture.Data | Out-Null
+        }
+    }
+
+    It 'says nothing at all on an installation with no index and nothing to index' {
+        $f = New-Fixture 'index-fresh'
+        (Get-Digest $f).Contains('INDEX') |
+            Should -BeFalse -Because 'a fresh installation is a state, not a fault, and an empty section is not news'
+    }
+
+    It 'names where the index lives and how much it covers' {
+        $f = New-Fixture 'index-present'
+        Add-IndexedFile -Fixture $f -Relative 'data\brand.md' -Summary 'settled brand: logo, favicon, tagline' -Project 'emgeelabs-site'
+        $text = Get-Digest $f
+        $text.Contains("INDEX  ($($f.Data)\index.md, and index\<project>.md per project)") |
+            Should -BeTrue -Because 'a session that cannot find the index cannot read it'
+        $text.Contains('1 file listed across 1 index - read the one for a project before writing a brief against it.') |
+            Should -BeTrue
+    }
+
+    It 'reports drift as a count, and never as a list of files' {
+        $f = New-Fixture 'index-drift'
+        Add-IndexedFile -Fixture $f -Relative 'data\brand.md' -Summary 'settled brand' -Project 'emgeelabs-site'
+        Set-Content -Path (Join-Path $f.Data 'nobody-listed-me.md') -Value 'x' -Encoding utf8
+        Set-Content -Path (Join-Path $f.Data 'nor-me.md')           -Value 'x' -Encoding utf8
+        $text = Get-Digest $f
+
+        $text.Contains('UNINDEXED: 2 files are listed nowhere. Index each as you touch it.') |
+            Should -BeTrue -Because 'the count is what makes the gap visible without paying for a list'
+        $text.Contains('nobody-listed-me.md') |
+            Should -BeFalse -Because 'a digest that grows with the drift is the bulk this section avoids'
+    }
+
+    It 'reports an indexed file that has gone as stale' {
+        $f = New-Fixture 'index-stale'
+        Add-IndexedFile -Fixture $f -Relative 'data\gone.md' -Summary 'deleted since' -Project 'acme'
+        Remove-Item -LiteralPath (Join-Path $f.Data 'gone.md') -Force
+        (Get-Digest $f).Contains('STALE: 1 indexed file is no longer on disk.') | Should -BeTrue
+    }
+
+    It 'prints no line from any indexed file, only its count' {
+        $f = New-Fixture 'index-not-content'
+        Add-IndexedFile -Fixture $f -Relative 'data\brand.md' -Summary 'settled brand' `
+            -Project 'emgeelabs-site' -Body 'the accent is deep teal and amber was rejected'
+        $text = Get-Digest $f
+        $text.Contains('amber was rejected') |
+            Should -BeFalse -Because 'the file is read at brief-writing time, not paid for at every session open'
+        $text.Contains('settled brand') |
+            Should -BeFalse -Because 'even the one-line summaries are the index''s job, not the digest''s'
+    }
+
+    It 'is not accounted against the startup-memory budget' {
+        # 900 bytes of index against a budget of 10 tokens. An index that counted would report an
+        # overrun, and an overrun tells the Hand to run /chronicle - a curation pass over files this
+        # is not one of.
+        $f = New-Fixture 'index-unbudgeted'
+        Set-Content -Path $f.Budget -Value '10' -NoNewline -Encoding utf8
+        Add-IndexedFile -Fixture $f -Relative 'data\big.md' -Summary ('x' * 150) -Project 'acme' -Body ('y' * 900)
+        $text = Get-Digest $f
+        $text.Contains('STARTUP_MEMORY_BUDGET:') |
+            Should -BeFalse -Because 'the budget measures the two curated memory files and nothing else'
+        $text.Contains('  Startup memory: 0 of 10 estimated tokens.') | Should -BeTrue
+    }
+
+    It 'degrades with a diagnostic rather than throwing when the index location is malformed' {
+        $f = New-Fixture 'index-malformed'
+        New-Item -ItemType Directory -Force -Path (Join-Path $f.Data 'index.md') | Out-Null
+        Set-Content -Path (Join-Path $f.Data 'orphan.md') -Value 'x' -Encoding utf8
+        { Get-Digest $f } | Should -Not -Throw
+        $text = Get-Digest $f
+        $text.Contains('No index exists yet.') |
+            Should -BeTrue -Because 'a malformed location is an ordinary state, not an error'
+        $text.Contains('UNINDEXED: 1 file is listed nowhere.') | Should -BeTrue
+    }
+}
+
 # The prose side of this feature - CLAUDE.md's Session start section and its read-once rule - is
 # asserted in tests\Docs.Tests.ps1, which owns every assertion about CLAUDE.md's wording.
 

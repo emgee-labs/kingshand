@@ -171,6 +171,23 @@ line from the brief for this dispatch. `init` touches no tracked files and is re
 
 ## Step 2 - Write a brief per unit of work
 
+**Read the index for this project before you write anything.** It is at
+`$env:KINGSHAND_HOME\data\index\<project>.md`, with kingshand's own operational files in
+`$env:KINGSHAND_HOME\data\index.md`, and it is one line per durable file rather than the files
+themselves - a page to scan, not a cost. Then **name in the brief, by absolute path and with an
+instruction to read it in full, every file this task plausibly touches**, and say which source wins
+where two disagree. Nothing else delivers them: a worker sees exactly one thing, its brief, so "it
+is recorded" is not a delivery mechanism. A fully settled brand spec sat in `data\` naming itself
+the input to the website brief while the site shipped without its logo, its favicon, its tagline or
+its palette, because no brief ever named the file.
+
+Index the brief in the same step that writes it, so the two cannot come apart:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
+Add-IndexEntry -Project "<project>" -Path "data\<id>\brief.md" -Summary "<the one-line title>"
+```
+
 Write `$env:KINGSHAND_HOME\data\<id>\brief.md`:
 
 ```markdown
@@ -551,11 +568,17 @@ everything that follows: the stable key, the durable backlog item, and the decla
 either every unresolved decision from this report is registered or this report contained none.
 A worker finishing is not an answer, and nothing here closes a decision.
 
-**Record the outcome on the backlog item**, pointing at the report rather than restating it:
+**Record the outcome on the backlog item**, pointing at the report rather than restating it, and
+**index the report in the same breath** - you have just read it, so this is the one moment its one
+line can be written honestly, and a report no index lists is a finding the next brief will not
+find:
 
 ```powershell
 Set-Location $env:KINGSHAND_HOME
 tasks-axi update "<id>" --report "data\<id>\report.md"
+
+Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
+Add-IndexEntry -Project "<project>" -Path "data\<id>\report.md" -Summary "<one line of what it found>"
 ```
 
 Do not mark it done here. The item closes at Step 8 or Step 8a, when the work has actually landed.
