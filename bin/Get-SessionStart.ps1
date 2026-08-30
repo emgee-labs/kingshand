@@ -211,11 +211,16 @@ try {
 
             # The check prints its problems under a FAILED: header. If that shape ever changes,
             # fall back to everything that is not an OK confirmation rather than printing nothing.
-            $problems = if ($failedAt -ge 0 -and $failedAt -lt $text.Count - 1) {
+            #
+            # The outer @() is load-bearing. Assigning from an `if` unrolls its branch, so exactly
+            # one problem arrived here as a bare string and `$problems.Count` below threw under
+            # strict mode - which cost the whole section, reporting "could not run the toolchain
+            # check" for a check that had run and found precisely one thing.
+            $problems = @(if ($failedAt -ge 0 -and $failedAt -lt $text.Count - 1) {
                 @($text[($failedAt + 1)..($text.Count - 1)] | Where-Object { $_.Trim() })
             } else {
                 @($text | Where-Object { $_.Trim() -and $_ -notmatch '^\s*OK\s' -and $_ -notmatch '^\s+OK\s' })
-            }
+            })
 
             Add-Line ''
             foreach ($p in $problems) { Add-Line ("PREREQS: " + ($p -replace '^\s*-\s*', '').Trim()) }

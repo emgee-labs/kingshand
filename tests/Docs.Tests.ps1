@@ -2269,16 +2269,35 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     }
 
     # Naming the path in the brief is half of it. A worker's only grants are its worktree and the
-    # brief's own directory, so a settled file one level up is named but unreachable without the
-    # dispatcher being told about it - the original failure with one extra hop.
-    It 'muster hands the same paths to the dispatcher that the brief names' {
+    # brief's own directory, so a settled file one level up is named but unreachable unless
+    # dispatch carries it in - the original failure with one extra hop.
+    It 'muster hands the originals to the dispatcher and names the copies in the brief' {
         Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
-            -Phrase '**Every path you write there is passed to `-ReadPath` at Step 4'
+            -Phrase '**Name the copy, not the original.**'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase ('dispatch copies it to ' +
+                     '`$env:KINGSHAND_HOME\data\<id>\read-first\<filename>`, keeping the file ' +
+                     'name exactly')
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase '-ReadPath "<every absolute path the brief''s Read first section named>"'
-        Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase '**`-ReadPath` takes exactly the paths in that brief''s `Read first` section, and nothing else.**'
+            -Phrase '**`-ReadPath` takes the ORIGINALS of exactly the files that brief''s `Read first` section names, and nothing else.**'
+    }
+
+    # A single quoted placeholder is filled in with two paths in one string, which names no file
+    # and costs a round trip. The list shape has to be visible in the runnable text.
+    It 'the dispatch fence shows -ReadPath as a comma-separated list' {
+        $fences = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('-ReadPath') })
+        $fences.Count | Should -Be 1 -Because 'Step 4 is the one place that calls the dispatcher'
+        $fences[0] | Should -Match '-ReadPath "[^"]+", "[^"]+"'
+    }
+
+    # Granting the containing directory is the shorter route and the wrong one: the canonical
+    # settled file sits directly under data\, so that grant is the whole data root, writable.
+    It 'muster says not to ask for the original''s own directory, and why' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase ('the canonical settled file sits directly under `data\`, so that grant hands ' +
+                     'the worker every other worker''s brief and report, `king.md`, `learnings.md`, ' +
+                     '`backlog.md` and `projects.md`, and hands them writable')
     }
 
     It 'muster requires the slot even when nothing is named in it' {

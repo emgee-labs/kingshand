@@ -531,13 +531,16 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
     # The settled spec the whole index exists to deliver lives at data\<name>.md, a SIBLING of the
     # brief's own data\<id>\ directory. With only the brief's grant the worker is told to read a
     # file it cannot open, which is the original failure with one extra hop.
+    #
+    # The fixture puts the spec DIRECTLY under the data root on purpose. An earlier fixture used a
+    # subdirectory, which meant the invariant below held for the fixture and was violated by the
+    # documented case: granting the containing directory of data\<name>.md grants the data root.
     Context 'a brief that names files to read first' {
         BeforeAll {
             Set-AgentStartState
-            $script:Read = New-DispatchFixture 'readfirst'
-            $script:SpecDir = Join-Path (Split-Path $script:Read.BriefDir -Parent) 'settled'
-            New-Item -ItemType Directory -Force -Path $script:SpecDir | Out-Null
-            $script:SpecFile = Join-Path $script:SpecDir 'brand.md'
+            $script:Read     = New-DispatchFixture 'readfirst'
+            $script:DataRoot = Split-Path $script:Read.BriefDir -Parent
+            $script:SpecFile = Join-Path $script:DataRoot 'brand.md'
             Set-Content -Path $script:SpecFile -Value 'teal, not amber' -Encoding utf8
 
             $script:ReadResult = & $script:DispatchScript -RepoPath $script:Read.Repo `
@@ -545,23 +548,34 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $script:ReadGrants = @((Get-Content -LiteralPath `
                 (Join-Path $script:ReadResult.worktree '.claude\settings.local.json') -Raw |
                 ConvertFrom-Json).permissions.additionalDirectories)
+            $script:Staged = Join-Path $script:Read.BriefDir 'read-first\brand.md'
         }
 
-        It 'grants the directory holding each file the brief told the worker to read' {
-            $script:ReadGrants | Should -Contain $script:SpecDir
+        It 'puts each named file where the worker can actually reach it' {
+            Test-Path -LiteralPath $script:Staged | Should -BeTrue
+            (Get-Content -LiteralPath $script:Staged -Raw).Trim() | Should -Be 'teal, not amber'
         }
 
-        It 'keeps the brief''s own directory granted alongside it' {
-            $script:ReadGrants | Should -Contain $script:Read.BriefDir
+        It 'keeps the file name, so the path the brief already named is the path that appears' {
+            Split-Path $script:Staged -Leaf | Should -Be (Split-Path $script:SpecFile -Leaf)
         }
 
-        It 'grants the containing directories and never the data root above them' {
-            $dataRoot = Split-Path $script:Read.BriefDir -Parent
-            $script:ReadGrants | Should -Not -Contain $dataRoot `
-                -Because 'one worker must not get read access to every other worker''s brief and report'
+        # The grant list is what bypassPermissions applies to, so an entry here is read AND write.
+        It 'grants the brief''s own directory and nothing else at all' {
+            $script:ReadGrants | Should -Be @($script:Read.BriefDir)
         }
 
-        It 'lists each directory once when a file sits beside the brief itself' {
+        It 'never grants the data root, whatever the brief names' {
+            $script:ReadGrants | Should -Not -Contain $script:DataRoot `
+                -Because 'that is every other worker''s brief and report, king.md, learnings.md, backlog.md and projects.md, writable'
+        }
+
+        It 'leaves the original where it was' {
+            Test-Path -LiteralPath $script:SpecFile | Should -BeTrue
+            (Get-Content -LiteralPath $script:SpecFile -Raw).Trim() | Should -Be 'teal, not amber'
+        }
+
+        It 'adds no grant when a named file already sits beside the brief itself' {
             Set-AgentStartState
             $f = New-DispatchFixture 'readfirst-same'
             $beside = Join-Path $f.BriefDir 'notes.md'
@@ -571,7 +585,52 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $grants = @((Get-Content -LiteralPath `
                 (Join-Path $r.worktree '.claude\settings.local.json') -Raw |
                 ConvertFrom-Json).permissions.additionalDirectories)
-            @($grants | Where-Object { $_ -eq $f.BriefDir }).Count | Should -Be 1
+            $grants | Should -Be @($f.BriefDir)
+        }
+
+        It 'carries every file the brief named, not just the first' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-many'
+            $root = Split-Path $f.BriefDir -Parent
+            $one  = Join-Path $root 'brand.md'
+            $two  = Join-Path $root 'voice.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-Content -Path $two -Value 'plain words' -Encoding utf8
+
+            & $script:DispatchScript -RepoPath $f.Repo -Name 'T-5003' `
+                -BriefPath $f.BriefPath -ReadPath $one, $two | Out-Null
+
+            (Get-Content -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') -Raw).Trim() |
+                Should -Be 'teal'
+            (Get-Content -LiteralPath (Join-Path $f.BriefDir 'read-first\voice.md') -Raw).Trim() |
+                Should -Be 'plain words'
+        }
+
+        # One would land on top of the other and the worker would read whichever was copied last,
+        # with nothing to say the other was ever named.
+        It 'refuses two different files sharing one name, before creating anything' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-clash'
+            $root = Split-Path $f.BriefDir -Parent
+            $a = Join-Path $root 'a\spec.md'
+            $b = Join-Path $root 'b\spec.md'
+            foreach ($p in @($a, $b)) {
+                New-Item -ItemType Directory -Force -Path (Split-Path $p -Parent) | Out-Null
+                Set-Content -Path $p -Value 'x' -Encoding utf8
+            }
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-5004' `
+                -BriefPath $f.BriefPath -ReadPath $a, $b } |
+                Should -Throw '*two different files called spec.md*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-5004') | Should -BeFalse
+        }
+
+        It 'refuses a directory where a file was meant, before creating anything' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-dir'
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-5005' `
+                -BriefPath $f.BriefPath -ReadPath (Split-Path $f.BriefDir -Parent) } |
+                Should -Throw '*Name the files the worker must read*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-5005') | Should -BeFalse
         }
     }
 }

@@ -36,16 +36,27 @@
   restart, and the settings written in step 3 grant read access to the brief's directory, which
   lives outside the repo.
 
-  -ReadPath is the same grant for the files the brief's `Read first` section names. Those live
+  -ReadPath carries the files the brief's `Read first` section names, and it does it by COPYING
+  each one into <briefdir>\read-first\ rather than by granting where it lives. Those files sit
   beside the brief's directory rather than inside it - a settled spec at data\<name>.md is a
-  sibling of data\<id>\ - so the brief's own grant does not reach them, and a brief that names a
-  file the worker cannot open delivers nothing. The grant stays per dispatch and per file: the
-  directories of exactly the paths this brief named, never the data root, so one worker does not
-  get read access to every other worker's brief and report.
+  sibling of data\<id>\ - and a brief naming a file the worker cannot open delivers nothing, which
+  is the original failure with one extra hop.
+
+  Granting the containing directory was the obvious answer and it is wrong. The canonical settled
+  file is data\<name>.md, whose containing directory IS the kingshand data root, so that grant
+  hands the worker every other worker's brief and report, king.md, learnings.md, backlog.md and
+  projects.md - and hands them writable, because these settings also set bypassPermissions. Copying
+  keeps additionalDirectories at exactly one entry, the brief's own directory, on every dispatch
+  and whatever the brief names.
+
+  The copy is a snapshot taken at dispatch, which is the same thing the brief itself is. A worker
+  re-reading it mid-task sees what it was given, not what has changed underneath it since.
 .EXAMPLE
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md
   $r.id, $r.worktree, $r.branch
 .EXAMPLE
+  # The brief's Read first section names $env:KINGSHAND_HOME\data\T-1001\read-first\emgee-brand.md,
+  # which is where this call puts it.
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 `
          -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md `
          -ReadPath $env:KINGSHAND_HOME\data\emgee-brand.md
@@ -80,21 +91,43 @@ $RepoPath  = (Resolve-Path $RepoPath).Path
 $BriefPath = (Resolve-Path $BriefPath).Path
 $briefDir  = Split-Path $BriefPath -Parent
 
-# Resolved BEFORE the worktree exists, for the same reason the base ref is: a brief naming a file
-# that is not there is a brief the worker cannot carry out, and finding that out after a worker is
-# running means one more dispatch spent discovering it. A missing Read-first file is refused here,
-# by name, rather than becoming a worker that quietly proceeds without the spec.
-$grantDirs = [System.Collections.Generic.List[string]]::new()
-$grantDirs.Add($briefDir)
+# Staged BEFORE the worktree exists, for the same reason the base ref is resolved first: a brief
+# naming a file that is not there is a brief the worker cannot carry out, and finding that out
+# after a worker is running means one more dispatch spent discovering it. Every refusal below
+# names the offending path and leaves nothing created.
+$readFirstDir = Join-Path $briefDir 'read-first'
+$staged       = [System.Collections.Generic.Dictionary[string, string]]::new(
+                    [System.StringComparer]::OrdinalIgnoreCase)
+
 foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
     if (-not (Test-Path -LiteralPath $p)) {
         throw ("The brief names $p under Read first and it does not exist, so the worker would be " +
                "told to read a file that is not there. Nothing was created.")
     }
     $resolved = (Resolve-Path -LiteralPath $p).Path
-    $dir = if (Test-Path -LiteralPath $resolved -PathType Container) { $resolved }
-           else { Split-Path $resolved -Parent }
-    if (-not ($grantDirs | Where-Object { $_ -eq $dir })) { $grantDirs.Add($dir) }
+    if (Test-Path -LiteralPath $resolved -PathType Container) {
+        throw ("Read first names the directory $resolved. Name the files the worker must read, " +
+               "one path each - a directory would copy whatever happens to be in it. Nothing was created.")
+    }
+
+    # Two sources with one file name would land on top of each other, and the worker would read
+    # whichever was copied last with no sign the other ever existed.
+    $leaf = Split-Path $resolved -Leaf
+    if ($staged.ContainsKey($leaf) -and $staged[$leaf] -ne $resolved) {
+        throw ("Read first names two different files called $leaf - $($staged[$leaf]) and " +
+               "$resolved. One would overwrite the other. Rename one, or name only the one the " +
+               "worker needs. Nothing was created.")
+    }
+    $staged[$leaf] = $resolved
+}
+
+if ($staged.Count -gt 0) {
+    if (-not (Test-Path -LiteralPath $readFirstDir)) {
+        New-Item -ItemType Directory -Force -Path $readFirstDir | Out-Null
+    }
+    foreach ($leaf in $staged.Keys) {
+        Copy-Item -LiteralPath $staged[$leaf] -Destination (Join-Path $readFirstDir $leaf) -Force
+    }
 }
 
 # The worktree branches from the REMOTE default branch when the repo has one, not the local
@@ -168,7 +201,7 @@ if (Test-WorktreeRegistered $worktree) {
 # The two grants that used to be `--permission-mode bypassPermissions --add-dir <briefdir>` on the
 # command line. Written into the WORKTREE, which is a fresh checkout with no .claude of its own -
 # nothing carries across from the main checkout, because settings.local.json is untracked.
-$null = Set-WorkerWorkspaceSettings -WorktreePath $worktree -AdditionalDirectories @($grantDirs)
+$null = Set-WorkerWorkspaceSettings -WorktreePath $worktree -AdditionalDirectories @($briefDir)
 
 # Pre-seeded rather than answered afterwards with a synthetic keystroke: this is a written,
 # inspectable record made before launch, and it cannot race the dialog. Its result is kept because

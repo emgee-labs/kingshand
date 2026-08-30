@@ -39,6 +39,22 @@ function Get-DefaultIndexDataPath {
     Join-Path (Get-KingshandHome) 'data'
 }
 
+# The one place a caller's -DataPath becomes an absolute path, so every function below compares
+# like with like. It resolves against POWERSHELL's location, not [System.IO.Path]::GetFullPath's,
+# because those two disagree: GetFullPath uses the process working directory, which Set-Location
+# does not move. A relative `data` then resolved somewhere nobody was looking, Get-ChildItem
+# quietly found nothing there, and the drift count came back empty instead of wrong-looking.
+#
+# It does not require the directory to exist: an index can be written into a data directory that
+# is about to be created.
+function Resolve-IndexDataPath {
+    param([Parameter(Mandatory)][string]$DataPath)
+
+    $p = $DataPath.Trim().Replace('/', '\')
+    if (-not [System.IO.Path]::IsPathRooted($p)) { $p = Join-Path $PWD.ProviderPath $p }
+    [System.IO.Path]::GetFullPath($p).TrimEnd('\')
+}
+
 # The root index holds kingshand's own operational files; a project's index holds that project's.
 # The root is a file beside the directory rather than a reserved name inside it, so no project can
 # ever collide with it.
@@ -93,7 +109,7 @@ function ConvertTo-IndexRelativePath {
     )
 
     $leaf  = Split-Path $DataPath -Leaf
-    $data  = [System.IO.Path]::GetFullPath($DataPath).TrimEnd('\')
+    $data  = Resolve-IndexDataPath -DataPath $DataPath
     $clean = $Path.Trim().Replace('/', '\')
 
     $full = if ([System.IO.Path]::IsPathRooted($clean)) {
@@ -305,6 +321,11 @@ function Get-IndexableFiles {
 
     if (-not (Test-Path -LiteralPath $DataPath -PathType Container)) { return @() }
 
+    # Normalised the way ConvertTo-IndexRelativePath normalises, because the two are compared
+    # against each other. Get-ChildItem always reports an absolute FullName, so a relative
+    # -DataPath left the two exclusions below unable to match anything and every index file came
+    # back as drift.
+    $DataPath = Resolve-IndexDataPath -DataPath $DataPath
     $indexDir = (Join-Path $DataPath 'index').TrimEnd('\')
     $rootIdx  = Join-Path $DataPath 'index.md'
 

@@ -189,11 +189,22 @@ source wins where two disagree. Where the index turns up nothing this task touch
 `- Nothing beyond this brief.` rather than dropping the section, so a brief that names no file
 is a decision someone made rather than a slot someone forgot.
 
-**Every path you write there is passed to `-ReadPath` at Step 4, and naming it in the brief alone
-is not enough.** A worker's only grants are its own worktree and the brief's own directory, and a
-settled file at `data\<name>.md` is a sibling of `data\<id>\` rather than inside it - so a brief
-that names it without the grant tells the worker to open a file it cannot reach, which is the
-original failure with one extra hop. Keep the two lists identical.
+**Name the copy, not the original.** A worker can reach exactly two places: its own worktree and
+the brief's own directory. A settled file at `data\<name>.md` is a sibling of `data\<id>\` rather
+than inside it, so a brief naming it there tells the worker to open a file it cannot reach - the
+original failure with one extra hop. Step 4 hands the original to `-ReadPath` and dispatch copies
+it to `$env:KINGSHAND_HOME\data\<id>\read-first\<filename>`, keeping the file name exactly. That
+is the path the `Read first` line names, and every path you write there goes to `-ReadPath` at
+Step 4 - a line with no matching `-ReadPath` names a copy nothing ever made.
+
+Say in the same line what the copy is of, so the worker knows what it is holding and a later reader
+can find the original. The copy is taken at dispatch and does not change afterwards, which is
+exactly what the brief itself is.
+
+Granting the original's own directory would be the shorter route and it is the wrong one: the
+canonical settled file sits directly under `data\`, so that grant hands the worker every other
+worker's brief and report, `king.md`, `learnings.md`, `backlog.md` and `projects.md`, and hands
+them writable. Do not ask for it.
 
 Write `$env:KINGSHAND_HOME\data\<id>\brief.md`:
 
@@ -204,8 +215,9 @@ Write `$env:KINGSHAND_HOME\data\<id>\brief.md`:
 <what done looks like, 2-3 sentences>
 
 ## Read first
-- `<absolute path>` - <what it settles>. Read it in full before you start. If you cannot read it,
-  stop and report that rather than proceeding without it.
+- `$env:KINGSHAND_HOME\data\<id>\read-first\<filename>` - <what it settles>, copied here from
+  `<the original absolute path>`. Read it in full before you start. If you cannot read it, stop
+  and report that rather than proceeding without it.
 - Where this brief and <that file> disagree, <the one that wins> wins.
 
 ## Scope
@@ -403,14 +415,20 @@ One worker per brief:
 $r = & $env:KINGSHAND_HOME\bin\Dispatch-Worker.ps1 `
         -RepoPath "<absolute repo path>" -Name "<id>" `
         -BriefPath "$env:KINGSHAND_HOME\data\<id>\brief.md" `
-        -ReadPath "<every absolute path the brief's Read first section named>"
+        -ReadPath "<original absolute path 1>", "<original absolute path 2>"
 ```
 
-**`-ReadPath` takes exactly the paths in that brief's `Read first` section, and nothing else.** It
-is what makes those files readable from inside the worktree; without it the brief names a file the
-worker has no grant to open. Drop the parameter only when the section says
-`- Nothing beyond this brief.` Dispatch refuses by name if a path it is given does not exist, and
-refuses before the worktree is created, so a mistyped path costs nothing to fix.
+**`-ReadPath` takes the ORIGINALS of exactly the files that brief's `Read first` section names,
+and nothing else.** It is a list: one quoted path per file, separated by commas. Two paths inside
+one pair of quotes are one string naming no file, and dispatch refuses it.
+
+Dispatch copies each one to `$env:KINGSHAND_HOME\data\<id>\read-first\`, which is the path the
+brief already names, because that directory is the only place outside its worktree a worker can
+read. Drop the parameter only when the section says `- Nothing beyond this brief.`
+
+Every refusal comes before the worktree is created, so a mistake here costs nothing to fix: a path
+that does not exist, a directory where a file was meant, and two different files with the same
+name are each refused by name.
 
 Then record it:
 

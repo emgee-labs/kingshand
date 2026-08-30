@@ -260,6 +260,27 @@ Describe 'a file no index lists is drift, and drift is counted' {
         @($d.missing).Count     | Should -Be 0
     }
 
+    # Both functions are exported and CLAUDE.md advertises the module as the way to count the
+    # drift, so a hand call from KINGSHAND_HOME with `data` is an ordinary thing to do. The two
+    # exclusions were built by string-joining $DataPath and compared against Get-ChildItem's
+    # always-absolute FullName, so every index file came back as drift with no error at all.
+    It 'counts the same drift whether the data directory is named absolutely or relatively' {
+        $data = New-DataFixture 'relative-datapath'
+        New-DataFile -DataPath $data -Relative 'listed.md'   | Out-Null
+        New-DataFile -DataPath $data -Relative 'unlisted.md' | Out-Null
+        Add-IndexEntry -Path 'data\listed.md' -Summary 'listed' -Project 'acme' -DataPath $data | Out-Null
+
+        $absolute = Get-IndexDrift -DataPath $data
+        Push-Location (Split-Path $data -Parent)
+        try { $relative = Get-IndexDrift -DataPath 'data' } finally { Pop-Location }
+
+        @($relative.unindexed)       | Should -Be @($absolute.unindexed)
+        @($relative.unindexed)       | Should -Be @('data\unlisted.md')
+        $relative.indexed            | Should -Be $absolute.indexed
+        @($relative.unindexed) -contains 'data\index\acme.md' |
+            Should -BeFalse -Because 'an index does not index itself, whichever way its directory was named'
+    }
+
     It 'reads an installation with no data directory as empty rather than failing' {
         $absent = Join-Path $TestDrive 'never-installed\data'
         { Get-IndexDrift -DataPath $absent } | Should -Not -Throw

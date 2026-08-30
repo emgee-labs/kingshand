@@ -437,6 +437,33 @@ Describe 'the toolchain check is detect-only and silent when it is clean' {
             Should -BeFalse -Because 'a passing check is not news'
     }
 
+    # Exactly one problem is the ordinary shape, and it was the broken one: assigning from an `if`
+    # unrolled the single-element array to a bare string, so the guard below it threw under strict
+    # mode. The problem line was printed and then the section reported itself unable to run - a
+    # check that HAD run, and had found precisely one thing.
+    It 'does not report itself unable to run when it ran and found one problem' {
+        $broken = New-Fixture 'prereq-single' -FailingPrereqs
+        $text   = Get-Digest $broken
+        $text.Contains('could not run the toolchain check') |
+            Should -BeFalse -Because 'the check ran; saying otherwise discards its verdict'
+        $text.Contains('named nothing') |
+            Should -BeFalse -Because 'it named exactly one thing'
+    }
+
+    It 'prints every problem when the check finds more than one' {
+        $f = New-Fixture 'prereq-many' -FailingPrereqs
+        Set-Content -Path $f.Prereq -Encoding utf8 -Value @(
+            'Write-Host "FAILED:"'
+            'Write-Host "  - lavish-axi not found. Run: npm install -g lavish-axi"'
+            'Write-Host "  - herdr not found. Run: npm install -g herdr"'
+            'exit 1'
+        )
+        $text = Get-Digest $f
+        $text.Contains('PREREQS: lavish-axi not found') | Should -BeTrue
+        $text.Contains('PREREQS: herdr not found')      | Should -BeTrue
+        $text.Contains('could not run the toolchain check') | Should -BeFalse
+    }
+
     It 'says so rather than throwing when the check itself is missing' {
         $f = New-Fixture 'prereq-missing'
         Remove-Item -LiteralPath $f.Prereq -Force
