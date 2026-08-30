@@ -26,8 +26,12 @@
 # Rendered review surfaces, wherever they land.
 *.review.html
 
-# Git worktrees created by dispatch.
+# Git worktrees created by dispatch, and the permission grant written into each one before its
+# worker starts. ClaudeWorkspace.psm1 writes settings.local.json into the worktree precisely
+# because it is untracked; without this line every dispatched worker's tree is dirty from the
+# moment it is created, and the review gate refuses to run in it.
 .claude/worktrees/
+.claude/settings.local.json
 
 # Editor and OS noise.
 .vscode/
