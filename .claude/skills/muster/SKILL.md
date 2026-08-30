@@ -181,12 +181,13 @@ is recorded" is not a delivery mechanism. A fully settled brand spec sat in `dat
 the input to the website brief while the site shipped without its logo, its favicon, its tagline or
 its palette, because no brief ever named the file.
 
-Index the brief in the same step that writes it, so the two cannot come apart:
-
-```powershell
-Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
-Add-IndexEntry -Project "<project>" -Path "data\<id>\brief.md" -Summary "<the one-line title>"
-```
+**`Read first` is a mandatory section of every brief**, and it is where those paths go. A
+requirement that lives only in this skill reaches nobody: the worker never reads this file, it
+reads the brief, so the slot has to be in the artefact. Write one line per file - the absolute
+path, what it settles, and an instruction to read it in full - then the line that says which
+source wins where two disagree. Where the index turns up nothing this task touches, say
+`- Nothing beyond this brief.` rather than dropping the section, so a brief that names no file
+is a decision someone made rather than a slot someone forgot.
 
 Write `$env:KINGSHAND_HOME\data\<id>\brief.md`:
 
@@ -195,6 +196,10 @@ Write `$env:KINGSHAND_HOME\data\<id>\brief.md`:
 
 ## Goal
 <what done looks like, 2-3 sentences>
+
+## Read first
+- `<absolute path>` - <what it settles>. Read it in full before you start.
+- Where this brief and <that file> disagree, <the one that wins> wins.
 
 ## Scope
 Repo: <repo>
@@ -209,6 +214,15 @@ Do NOT touch: <explicit exclusions>
 
 ## Done means
 <the block for this project's mode - see below>
+```
+
+With that file on disk, index it. Index the brief in the same step that writes it, so the two
+cannot come apart - and never before it is written, or the index carries a line for a file that
+was abandoned:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
+Add-IndexEntry -Project "<project>" -Path "data\<id>\brief.md" -Summary "<the one-line title>"
 ```
 
 **The Done-means block is generated from the resolved mode.** Use exactly one of these three.

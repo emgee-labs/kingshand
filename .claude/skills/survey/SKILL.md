@@ -19,8 +19,8 @@ Plain `/survey` returns only the four-section chat digest. Only `/survey file` w
 dated report artifact and then returns the same four-section chat digest with the report path.
 
 This skill is operationally read-only in both modes. It never dispatches, steers, lands, merges,
-tears down, answers a decision, or mutates `state\` or `data\` other than that single dated report
-in explicit file mode.
+tears down, answers a decision, or mutates `state\` or `data\` other than that single dated report,
+and its one line in the index, in explicit file mode.
 
 ## Invocation modes
 
@@ -98,7 +98,15 @@ un-dispatched brief's path.
 - If today's file already exists, delete it first and build the new one from scratch.
 - Never read an earlier `status-report-*.md` to decide what to omit, include, describe as
   changed, or call current.
-- That file is the only write this skill is allowed to make.
+- Index it in the same step that writes it. The name carries a date, so a report nothing lists is
+  new drift on every run, and a drift count that is never zero is a count nobody reads:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
+Add-IndexEntry -Path "data\status-report-<YYYY-MM-DD>.md" -Summary "fleet status on <YYYY-MM-DD>: <one line of what it found>"
+```
+
+- That file and its one index line are the only writes this skill is allowed to make.
 
 After writing it, return the same four-section chat digest and include the report path inside it,
 without adding a fifth section.
@@ -220,8 +228,8 @@ it by comparing with `-eq 'on'`, never by testing it for truthiness.
 ## Operationally read-only
 
 This skill changes no fleet state. It never dispatches a worker, steers one, lands work, merges a
-PR, tears down a worktree, answers a decision, or writes any file except the single dated report
-in explicit file mode.
+PR, tears down a worktree, answers a decision, or writes any file except the single dated report,
+and the index line that report is entitled to, in explicit file mode.
 
 **Reading the backlog is a read.** Never add, start, hold, unhold, update or close a backlog item
 from this skill; `muster` owns every one of those, and `decree` owns the only way a

@@ -243,8 +243,10 @@ important enough to list at write time: that is a guess about work nobody has sc
 wrong guess is silent, which is how a settled brand spec sat unread while the site it described
 shipped without it. The index is a table of contents, so the reader decides at read time which
 files their own task touches, and a file no index lists is drift the session-start digest counts.
-**Where two sources disagree the brief says which one wins**, and a settled file beats an older
-backlog line, ticket text or report - a worker left to choose picks wrong half the time.
+That holds for a file another tool wrote as much as one you wrote: `data\backlog.md` is
+`tasks-axi`'s own file, and `Add-IndexEntry` lists it the first time the digest reports it
+unindexed. **Where two sources disagree the brief says which one wins**, and a settled file beats
+an older backlog line, ticket text or report - a worker left to choose picks wrong half the time.
 
 - How the user works and what they prefer belongs in `data\king.md`, after inspect-then-update:
   read the current file, decide what the new fact supersedes, and rewrite that statement rather than

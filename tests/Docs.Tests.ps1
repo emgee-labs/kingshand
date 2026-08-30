@@ -755,7 +755,8 @@ Describe 'survey reads the fleet and never acts on it' {
         Assert-Phrase -Text (Get-DocText $script:SurveyMd) -Where 'the survey skill' `
             -Phrase ('This skill is operationally read-only in both modes. It never dispatches, ' +
                      'steers, lands, merges, tears down, answers a decision, or mutates `state\` ' +
-                     'or `data\` other than that single dated report in explicit file mode.')
+                     'or `data\` other than that single dated report, and its one line in the ' +
+                     'index, in explicit file mode.')
     }
 
     It 'leaves any implied action to muster' {
@@ -2251,14 +2252,69 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
         }
     }
 
-    It 'the design note records why a classification was rejected, so it is not reintroduced' {
-        $note = Get-DocText (Join-Path $script:Root 'docs\2026-08-30-data-index.md')
-        Assert-Phrase -Text $note -Where 'the data index design note' `
-            -Phrase ('Classifying a file as important at the moment it is written means guessing ' +
-                     'what some future task will need')
-        Assert-Phrase -Text $note -Where 'the data index design note' `
-            -Phrase ('"this file is listed nowhere" is a fact a machine can notice, where ' +
-                     '"somebody should have realised this mattered" never was')
+    # The requirement to name the files lived only in the instructions for filling the template in,
+    # and the template itself asked for repo paths to change and nothing to read. A worker sees one
+    # thing, its brief, so the slot has to be in the artefact - the same fix the landing gate needed
+    # when "render the diff and poll lavish" was prose and lavish ran zero times in a full session.
+    It 'the brief template carries the slot those paths go in' {
+        $template = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains('## Goal') -and $_.Contains('## Done means') })
+        $template.Count | Should -Be 1 -Because 'the brief template is one fence and the worker gets what it says'
+        $template[0].Contains('## Read first') |
+            Should -BeTrue -Because 'a requirement with no field in the template reaches no brief'
+        $template[0].IndexOf('## Read first') |
+            Should -BeLessThan $template[0].IndexOf('## Scope') -Because 'what to read comes before what to change'
+        $template[0] | Should -Match 'Read it in full before you start'
+        $template[0] | Should -Match 'disagree'
+    }
+
+    It 'muster requires the slot even when nothing is named in it' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase '**`Read first` is a mandatory section of every brief**'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase ('Where the index turns up nothing this task touches, say `- Nothing beyond ' +
+                     'this brief.` rather than dropping the section')
+    }
+
+    # The brief was indexed above the line that wrote it, so an abandoned brief left an entry for a
+    # file that never existed - drift the digest reports as STALE.
+    It 'muster indexes the brief only once it is on disk' {
+        # The whole document, not Get-MusterStep: the brief template's own `## ` headings split
+        # Step 2 apart, so the step-scoped text stops before the fence being ordered here.
+        $write = $script:MusterText.IndexOf('Write `$env:KINGSHAND_HOME\data\<id>\brief.md`')
+        $index = $script:MusterText.IndexOf('Add-IndexEntry -Project "<project>" -Path "data\<id>\brief.md"')
+        $write | Should -BeGreaterThan -1
+        $index | Should -BeGreaterThan $write -Because 'indexing a file before writing it can index a file that never appears'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase 'never before it is written, or the index carries a line for a file that was abandoned'
+    }
+
+    # Every other kingshand writer of a durable data\ file needs the same call, or the drift count
+    # the digest prints grows from kingshand's own routine writes and stops being read. The dated
+    # status report is the one that grows without bound: a new unindexed file on every /survey file.
+    It '<skill> indexes the durable file it writes, through the module' -ForEach @(
+        @{ skill = 'survey';    file = '.claude\skills\survey\SKILL.md'
+           paths = @('data\status-report-<YYYY-MM-DD>.md') }
+        @{ skill = 'chronicle'; file = '.claude\skills\chronicle\SKILL.md'
+           paths = @('data\king.md', 'data\learnings.md') }
+    ) {
+        $fences = @(Get-CodeFence (Join-Path $script:Root $file) |
+            Where-Object { $_.Contains('Add-IndexEntry') })
+        $fences.Count | Should -BeGreaterOrEqual 1 -Because "$skill writes a durable data\ file and must list it"
+        foreach ($fence in $fences) {
+            $fence.Contains('Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force') |
+                Should -BeTrue -Because 'the module is the one place that knows the index format'
+        }
+        foreach ($named in $paths) {
+            @($fences | Where-Object { $_.Contains($named) }).Count |
+                Should -BeGreaterOrEqual 1 -Because "$named is written here and nothing else lists it"
+        }
+    }
+
+    It 'routing covers the durable file another tool writes' {
+        Assert-Phrase -Text $script:IndexRouting -Where 'CLAUDE.md knowledge routing' `
+            -Phrase ('`data\backlog.md` is `tasks-axi`''s own file, and `Add-IndexEntry` lists it ' +
+                     'the first time the digest reports it unindexed')
     }
 }
 
@@ -2279,6 +2335,7 @@ Describe 'no long dash' {
         @{ file = 'install.ps1' }
         @{ file = 'docs\2026-08-28-worker-control-plane-decision.md' }
         @{ file = 'docs\2026-08-29-herdr-worker-control-plane.md' }
+        @{ file = 'docs\2026-08-30-data-index.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
