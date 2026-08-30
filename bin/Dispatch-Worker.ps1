@@ -60,6 +60,10 @@
   other half of the fault reachable - a section naming the ORIGINAL path instead of the copy stages
   the file and still sends the worker somewhere it cannot read. The two are written in different
   steps, and prose was the only thing tying them together.
+
+  They must agree on the directory as well as the file name. A `read-first\` path under another
+  unit of work's id agrees on the name with what this call staged and still points outside this
+  worker's only grant, so it is refused by name.
 .EXAMPLE
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md
   $r.id, $r.worktree, $r.branch
@@ -134,17 +138,40 @@ foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
 # together. It is the brief's own text that the worker acts on, so it is the brief's own text that
 # is checked, and the check runs BOTH ways: a line naming a copy nothing staged, and a staged copy
 # no line names, are the same fault seen from opposite ends and each leaves the worker holding a
-# path it cannot open. Only the leaf is compared, which holds however the root was written and
-# leaves the template's "copied here from <original>" provenance note alone.
+# path it cannot open.
+#
+# The file name is compared, and so is the ONE segment in front of `read-first`, which has to be
+# this brief's own directory. Matching the name alone let another ticket's directory through -
+# briefs are written several at a time from one template, so `data\T-1002\read-first\brand.md`
+# copied into T-1003's brief agreed on the name with what T-1003 staged and still sent the worker
+# outside its only grant. The segment is compared rather than the whole path because the root may
+# be written expanded or not, and a bare `read-first\<file>` carries no segment at all and is
+# taken as this brief's own. The template's "copied here from <original>" note never puts a
+# foreign id in front of `read-first`, so it stays untouched.
+$briefLeaf  = Split-Path $briefDir -Leaf
 $briefLines = @(Get-Content -LiteralPath $BriefPath)
 $inSection  = $false
 $named      = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+$foreign    = [System.Collections.Generic.List[string]]::new()
 foreach ($line in $briefLines) {
     if ($line -match '^\s*##\s+') { $inSection = $line -match '^\s*##\s+Read first\s*$' ; continue }
     if (-not $inSection) { continue }
-    foreach ($m in [regex]::Matches($line, 'read-first[\\/](?<leaf>[^\s`''"<>|,;)\]]+)')) {
+    $pattern = '(?:(?<owner>[^\s`''"<>|,;)\]\\/]+)[\\/])?read-first[\\/](?<leaf>[^\s`''"<>|,;)\]]+)'
+    foreach ($m in [regex]::Matches($line, $pattern)) {
+        $owner = $m.Groups['owner'].Value
+        if ($owner -and $owner -ne $briefLeaf) {
+            $foreign.Add($m.Value)
+            continue
+        }
         $null = $named.Add($m.Groups['leaf'].Value)
     }
+}
+
+if ($foreign.Count -gt 0) {
+    throw ("The brief's Read first section names " + (($foreign | Sort-Object -Unique) -join ', ') +
+           ", which is another unit of work's read-first directory, not this one's. A worker can " +
+           "read only $briefDir, so that path reaches nothing. Name it under " +
+           "$briefLeaf\read-first\ instead. Nothing was created.")
 }
 
 $unstaged = @(@($named) | Where-Object { -not $staged.ContainsKey($_) } | Sort-Object)

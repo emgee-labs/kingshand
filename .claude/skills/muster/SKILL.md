@@ -200,6 +200,12 @@ nothing staged, and a staged file it names no line for - so naming the original 
 copy is caught rather than handed to the worker. The two lists cannot drift apart, but it refuses
 one dispatch at a time, and writing them together is what makes that check never fire.
 
+**Substitute this work's own id, every time.** Briefs get written several at a time from one
+template, and a `Read first` block carried over from the brief above it keeps the other unit's id -
+`data\<other id>\read-first\<filename>` names a real file in a directory this worker cannot read,
+and the file name still matches, so only the id gives it away. Dispatch refuses a `read-first\`
+path under any id but this one.
+
 Say in the same line what the copy is of, so the worker knows what it is holding and a later reader
 can find the original. The copy is taken at dispatch and does not change afterwards, which is
 exactly what the brief itself is.
@@ -431,8 +437,8 @@ read. Drop the parameter only when the section says `- Nothing beyond this brief
 
 Every refusal comes before anything at all is created, so a mistake here costs nothing to fix: a
 path that does not exist, a directory where a file was meant, two different files with the same
-name, a `Read first` line naming a copy this call never staged, and a staged file that section
-names no line for are each refused by name.
+name, a `Read first` line naming a copy this call never staged, a staged file that section names no
+line for, and a `read-first\` path carrying another unit of work's id are each refused by name.
 
 The staged copies are not indexed, and that is deliberate rather than an oversight: each one is a
 snapshot of a file the index already lists at its own path, so `Get-IndexableFiles` excludes

@@ -736,6 +736,50 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 -BriefPath $f.BriefPath -ReadPath $one } | Should -Throw '*brand.md*'
         }
 
+        # Briefs are written several at a time from one template, so a Read first block carried
+        # over from the brief above keeps the OTHER unit's id. The file name still matches what
+        # this dispatch stages, so name-only comparison passed it and the worker opened a path
+        # outside the one directory it can read.
+        It 'refuses a read-first path carrying another unit of work''s id' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-foreign-id'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'emgee-brand.md'
+            Set-Content -Path $one -Value 'teal, not amber' -Encoding utf8
+            $other = Join-Path (Split-Path $f.BriefDir -Parent) 'T-1002'
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                "- ``$other\read-first\emgee-brand.md`` - the settled brand, copied here from ``$one``.")
+
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-7001' `
+                -BriefPath $f.BriefPath -ReadPath $one } |
+                Should -Throw '*another unit of work''s read-first directory*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-7001') | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+        }
+
+        It 'accepts a read-first path carrying this brief''s own directory' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-own-id'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                "- ``$($f.BriefDir)\read-first\brand.md`` - the settled brand, copied here from ``$one``.")
+
+            (& $script:DispatchScript -RepoPath $f.Repo -Name 'T-7002' `
+                -BriefPath $f.BriefPath -ReadPath $one).id | Should -Be 'T-7002'
+        }
+
+        # A bare mention carries no directory at all, which is this brief's own by definition.
+        It 'accepts a bare read-first mention with no directory in front of it' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-bare'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @('- `read-first\brand.md` - the settled brand.')
+
+            (& $script:DispatchScript -RepoPath $f.Repo -Name 'T-7003' `
+                -BriefPath $f.BriefPath -ReadPath $one).id | Should -Be 'T-7003'
+        }
+
         # The provenance note in muster's own template repeats the original path in the same line
         # as the copy. A rule of "the section must not name any original" would refuse the shape
         # the template tells the Hand to write.
