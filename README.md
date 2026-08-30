@@ -98,10 +98,12 @@ so an installation without Pester dispatches, gates and lands identically. `Inst
 -MinimumVersion 6.0.0 -Force -SkipPublisherCheck -Scope CurrentUser`, or let `-InstallMissing`
 do it.
 
-The installer adds `.claude/worktrees/` to your global gitignore, because workers live inside your
-own repositories and would otherwise show up there as untracked changes. It appends one line to
-the file `git config --global core.excludesFile` names, creating that file and pointing the config
-at it when the config is unset, and it never writes the line twice.
+The installer adds `.claude/worktrees/` and `.claude/settings.local.json` to your global gitignore.
+Workers live inside your own repositories and would otherwise show up there as untracked changes,
+and the permission grant written into each worker's own tree would leave that tree dirty before it
+starts - which the review gate refuses to run in. It appends those two lines to the file
+`git config --global core.excludesFile` names, creating that file and pointing the config at it
+when the config is unset, and it never writes either line twice.
 
 ### Install and launch
 
@@ -232,7 +234,7 @@ tools\herdr\            herdr, fetched and SHA-256 verified by the installer - g
 docs\                   the architecture decisions worth keeping
 instructions.example.md the template install.ps1 copies to instructions.md
 install.ps1             prerequisites and config - writes at most four things outside this
-                        repository: KINGSHAND_HOME, LAVISH_AXI_PORT, one line in your global
+                        repository: KINGSHAND_HOME, LAVISH_AXI_PORT, two lines in your global
                         gitignore, and claude.exe ahead of npm's wrapper on PATH when your
                         machine only has the wrapper
 ```

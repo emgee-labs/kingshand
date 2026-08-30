@@ -81,6 +81,11 @@ function Get-AllIndexPaths {
 # Whatever a caller had to hand - an absolute path, or one already relative - reduced to the single
 # stored form. The data directory's own leaf is tolerated at the head so `data\x.md` and `x.md`
 # both resolve, and a fixture whose data directory is not called `data` still works.
+#
+# BOTH branches resolve and then check containment, and they refuse the same input the same way.
+# The relative branch used to strip leading dots instead, so `..\..\notes.md` came back as
+# `data\notes.md` - a wrong answer returned without failing, for a file that was never the
+# caller's subject, while the identical file named absolutely threw.
 function ConvertTo-IndexRelativePath {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -88,20 +93,24 @@ function ConvertTo-IndexRelativePath {
     )
 
     $leaf  = Split-Path $DataPath -Leaf
+    $data  = [System.IO.Path]::GetFullPath($DataPath).TrimEnd('\')
     $clean = $Path.Trim().Replace('/', '\')
 
-    if ([System.IO.Path]::IsPathRooted($clean)) {
-        $full = [System.IO.Path]::GetFullPath($clean)
-        $data = [System.IO.Path]::GetFullPath($DataPath).TrimEnd('\')
-        if (-not $full.StartsWith($data + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
-            throw "Only files under $DataPath can be indexed. $Path is outside it."
+    $full = if ([System.IO.Path]::IsPathRooted($clean)) {
+        [System.IO.Path]::GetFullPath($clean)
+    } else {
+        $rel = $clean.TrimStart('\')
+        if ($rel.StartsWith($leaf + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+            $rel = $rel.Substring($leaf.Length + 1)
         }
-        return ($leaf + '\' + $full.Substring($data.Length + 1))
+        if (-not $rel.Trim()) { throw "An index entry needs a file path. '$Path' names no file under $DataPath." }
+        [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($data, $rel))
     }
 
-    $clean = $clean.TrimStart('.', '\')
-    if ($clean.StartsWith($leaf + '\', [System.StringComparison]::OrdinalIgnoreCase)) { return $clean }
-    $leaf + '\' + $clean
+    if (-not $full.StartsWith($data + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Only files under $DataPath can be indexed. $Path is outside it."
+    }
+    $leaf + '\' + $full.Substring($data.Length + 1)
 }
 
 function ConvertFrom-IndexRelativePath {
@@ -156,8 +165,14 @@ function Read-IndexFile {
             $summary = $summary.Substring(0, $am.Index).Trim()
         }
 
-        $relative = ConvertTo-IndexRelativePath -Path $m.Groups['path'].Value -DataPath $DataPath
-        $full     = ConvertFrom-IndexRelativePath -Relative $relative -DataPath $DataPath
+        # A hand-edited line naming somewhere outside data\ is one bad line, not a broken index.
+        # Skipping it leaves every other entry readable, where throwing would cost the digest its
+        # whole INDEX section over a line nobody can act on from the error anyway.
+        $relative = $null
+        try { $relative = ConvertTo-IndexRelativePath -Path $m.Groups['path'].Value -DataPath $DataPath }
+        catch { $relative = $null }
+        if (-not $relative) { continue }
+        $full = ConvertFrom-IndexRelativePath -Relative $relative -DataPath $DataPath
 
         $entries.Add(@{
             project  = $project
@@ -223,7 +238,9 @@ function Add-IndexEntry {
     for ($i = 0; $i -lt $lines.Count; $i++) {
         $m = [regex]::Match($lines[$i], '^-\s+`(?<path>[^`]+)`\s+-\s+(?<summary>.*)$')
         if (-not $m.Success) { continue }
-        $existing = ConvertTo-IndexRelativePath -Path $m.Groups['path'].Value -DataPath $DataPath
+        $existing = $null
+        try { $existing = ConvertTo-IndexRelativePath -Path $m.Groups['path'].Value -DataPath $DataPath }
+        catch { $existing = $null }
         if ($existing -ne $relative) { continue }
         $replace = $i
         $am = [regex]::Match($m.Groups['summary'].Value, '\(added\s+(?<d>\d{4}-\d{2}-\d{2})\)\s*$')

@@ -2268,6 +2268,19 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
         $template[0] | Should -Match 'disagree'
     }
 
+    # Naming the path in the brief is half of it. A worker's only grants are its worktree and the
+    # brief's own directory, so a settled file one level up is named but unreachable without the
+    # dispatcher being told about it - the original failure with one extra hop.
+    It 'muster hands the same paths to the dispatcher that the brief names' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase '**Every path you write there is passed to `-ReadPath` at Step 4'
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase '-ReadPath "<every absolute path the brief''s Read first section named>"'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase '**`-ReadPath` takes exactly the paths in that brief''s `Read first` section, and nothing else.**'
+    }
+
     It 'muster requires the slot even when nothing is named in it' {
         Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
             -Phrase '**`Read first` is a mandatory section of every brief**'
@@ -2296,7 +2309,9 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
         @{ skill = 'survey';    file = '.claude\skills\survey\SKILL.md'
            paths = @('data\status-report-<YYYY-MM-DD>.md') }
         @{ skill = 'chronicle'; file = '.claude\skills\chronicle\SKILL.md'
-           paths = @('data\king.md', 'data\learnings.md') }
+           paths = @('data\king.md', 'data\learnings.md', 'data\memory-archive.md') }
+        @{ skill = 'annex';     file = '.claude\skills\annex\SKILL.md'
+           paths = @('data\projects.md') }
     ) {
         $fences = @(Get-CodeFence (Join-Path $script:Root $file) |
             Where-Object { $_.Contains('Add-IndexEntry') })
@@ -2842,13 +2857,13 @@ Describe 'install.ps1 reports rather than installs unless it is told to' {
     It 'writes the global gitignore line, once, without rewriting the user''s file' {
         $text = Get-DocText $script:InstallPs1
         Assert-Phrase -Text $text -Where 'install.ps1' `
-            -Phrase 'Never duplicate the line: an installer run twice must leave exactly one.'
+            -Phrase 'Never duplicate a line: an installer run twice must leave exactly one of each.'
         Assert-Phrase -Text $text -Where 'install.ps1' `
             -Phrase 'Never rewrite or reorder a file the user already had'
         Assert-Phrase -Text $script:InstallSource -Where 'install.ps1' `
-            -Phrase "`$ignoreLine = '.claude/worktrees/'"
+            -Phrase "`$ignoreLines = @('.claude/worktrees/', '.claude/settings.local.json')"
         Assert-Phrase -Text $script:InstallSource -Where 'install.ps1' `
-            -Phrase 'Where-Object { $_.Trim() -eq $ignoreLine }).Count -gt 0'
+            -Phrase '$wanted  = @($ignoreLines | Where-Object { $present -notcontains $_ })'
         Assert-Phrase -Text $script:InstallSource -Where 'install.ps1' `
             -Phrase '& git config --global core.excludesFile $forGit'
     }
@@ -3121,14 +3136,15 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         Assert-Phrase -Text (Get-DocText $script:InstallPs1) -Where 'the install.ps1 header' `
             -Phrase ('It writes at most four things outside this repository, and names each one as ' +
                      'it does it: the two user environment variables KINGSHAND_HOME and ' +
-                     'LAVISH_AXI_PORT, the line `.claude/worktrees/` in your global gitignore, and - ' +
+                     'LAVISH_AXI_PORT, the lines `.claude/worktrees/` and ' +
+                     '`.claude/settings.local.json` in your global gitignore, and - ' +
                      'only on a machine where Claude Code resolves to npm''s claude.cmd wrapper - the ' +
                      'real claude.exe put first on your user PATH.')
 
         $readme = Get-DocText (Join-Path $script:Root 'README.md')
         Assert-Phrase -Text $readme -Where 'the README Layout block' `
             -Phrase ('writes at most four things outside this repository: KINGSHAND_HOME, ' +
-                     'LAVISH_AXI_PORT, one line in your global gitignore, and claude.exe ahead of ' +
+                     'LAVISH_AXI_PORT, two lines in your global gitignore, and claude.exe ahead of ' +
                      'npm''s wrapper on PATH when your machine only has the wrapper')
         $readme.Contains('writes nothing outside this repository except KINGSHAND_HOME') |
             Should -BeFalse -Because 'the installer writes more than that, and the README must not deny it'
@@ -3139,8 +3155,9 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     It 'the setup skill tells the user about the writes before they happen' {
         $setup = Get-DocText $script:SetupMd
         Assert-Phrase -Text $setup -Where 'the setup skill' `
-            -Phrase ('Say too that it adds one line, `.claude/worktrees/`, to their global ' +
-                     'gitignore, because workers run inside their own repositories')
+            -Phrase ('Say too that it adds two lines, `.claude/worktrees/` and ' +
+                     '`.claude/settings.local.json`, to their global gitignore, because workers ' +
+                     'run inside their own repositories')
         Assert-Phrase -Text $setup -Where 'the setup skill' `
             -Phrase ('And say, only when it actually happens, that it put `claude.exe` ahead of ' +
                      'npm''s `claude.cmd` on their PATH')

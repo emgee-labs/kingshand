@@ -85,7 +85,7 @@ Describe 'the prereq check fails only on what dispatch cannot work without' {
         # so every new machine failed this by definition. install.ps1 does it now, and the hint has
         # to point there or the check is unactionable again.
         $source = Get-Content -LiteralPath $script:Prereqs -Raw
-        $source.Contains('Global gitignore does not cover .claude/worktrees/. Run: .\install.ps1') |
+        $source.Contains('it appends the lines .claude/worktrees/ and .claude/settings.local.json to the file named by core.excludesFile') |
             Should -BeTrue -Because 'a check whose fix nothing performs is a check that always fails'
     }
 }

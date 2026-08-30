@@ -189,6 +189,12 @@ source wins where two disagree. Where the index turns up nothing this task touch
 `- Nothing beyond this brief.` rather than dropping the section, so a brief that names no file
 is a decision someone made rather than a slot someone forgot.
 
+**Every path you write there is passed to `-ReadPath` at Step 4, and naming it in the brief alone
+is not enough.** A worker's only grants are its own worktree and the brief's own directory, and a
+settled file at `data\<name>.md` is a sibling of `data\<id>\` rather than inside it - so a brief
+that names it without the grant tells the worker to open a file it cannot reach, which is the
+original failure with one extra hop. Keep the two lists identical.
+
 Write `$env:KINGSHAND_HOME\data\<id>\brief.md`:
 
 ```markdown
@@ -198,7 +204,8 @@ Write `$env:KINGSHAND_HOME\data\<id>\brief.md`:
 <what done looks like, 2-3 sentences>
 
 ## Read first
-- `<absolute path>` - <what it settles>. Read it in full before you start.
+- `<absolute path>` - <what it settles>. Read it in full before you start. If you cannot read it,
+  stop and report that rather than proceeding without it.
 - Where this brief and <that file> disagree, <the one that wins> wins.
 
 ## Scope
@@ -395,8 +402,15 @@ One worker per brief:
 ```powershell
 $r = & $env:KINGSHAND_HOME\bin\Dispatch-Worker.ps1 `
         -RepoPath "<absolute repo path>" -Name "<id>" `
-        -BriefPath "$env:KINGSHAND_HOME\data\<id>\brief.md"
+        -BriefPath "$env:KINGSHAND_HOME\data\<id>\brief.md" `
+        -ReadPath "<every absolute path the brief's Read first section named>"
 ```
+
+**`-ReadPath` takes exactly the paths in that brief's `Read first` section, and nothing else.** It
+is what makes those files readable from inside the worktree; without it the brief names a file the
+worker has no grant to open. Drop the parameter only when the section says
+`- Nothing beyond this brief.` Dispatch refuses by name if a path it is given does not exist, and
+refuses before the worktree is created, so a mistyped path costs nothing to fix.
 
 Then record it:
 

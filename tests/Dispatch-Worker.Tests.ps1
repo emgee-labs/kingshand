@@ -514,5 +514,64 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4002' `
                 -BriefPath (Join-Path $f.BriefDir 'missing.md') } | Should -Throw '*Brief not found*'
         }
+
+        # A brief naming a file that is not there is a brief the worker cannot carry out, and
+        # finding that out after it is running costs a whole dispatch.
+        It 'refuses a Read-first path that is not on disk, before creating anything' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'no-readpath'
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4003' -BriefPath $f.BriefPath `
+                -ReadPath (Join-Path $f.BriefDir '..\brand.md') } |
+                Should -Throw '*under Read first and it does not exist*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-4003') |
+                Should -BeFalse -Because 'nothing is created before every named file is known to be there'
+        }
+    }
+
+    # The settled spec the whole index exists to deliver lives at data\<name>.md, a SIBLING of the
+    # brief's own data\<id>\ directory. With only the brief's grant the worker is told to read a
+    # file it cannot open, which is the original failure with one extra hop.
+    Context 'a brief that names files to read first' {
+        BeforeAll {
+            Set-AgentStartState
+            $script:Read = New-DispatchFixture 'readfirst'
+            $script:SpecDir = Join-Path (Split-Path $script:Read.BriefDir -Parent) 'settled'
+            New-Item -ItemType Directory -Force -Path $script:SpecDir | Out-Null
+            $script:SpecFile = Join-Path $script:SpecDir 'brand.md'
+            Set-Content -Path $script:SpecFile -Value 'teal, not amber' -Encoding utf8
+
+            $script:ReadResult = & $script:DispatchScript -RepoPath $script:Read.Repo `
+                -Name 'T-5001' -BriefPath $script:Read.BriefPath -ReadPath $script:SpecFile
+            $script:ReadGrants = @((Get-Content -LiteralPath `
+                (Join-Path $script:ReadResult.worktree '.claude\settings.local.json') -Raw |
+                ConvertFrom-Json).permissions.additionalDirectories)
+        }
+
+        It 'grants the directory holding each file the brief told the worker to read' {
+            $script:ReadGrants | Should -Contain $script:SpecDir
+        }
+
+        It 'keeps the brief''s own directory granted alongside it' {
+            $script:ReadGrants | Should -Contain $script:Read.BriefDir
+        }
+
+        It 'grants the containing directories and never the data root above them' {
+            $dataRoot = Split-Path $script:Read.BriefDir -Parent
+            $script:ReadGrants | Should -Not -Contain $dataRoot `
+                -Because 'one worker must not get read access to every other worker''s brief and report'
+        }
+
+        It 'lists each directory once when a file sits beside the brief itself' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-same'
+            $beside = Join-Path $f.BriefDir 'notes.md'
+            Set-Content -Path $beside -Value 'x' -Encoding utf8
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-5002' `
+                -BriefPath $f.BriefPath -ReadPath $beside
+            $grants = @((Get-Content -LiteralPath `
+                (Join-Path $r.worktree '.claude\settings.local.json') -Raw |
+                ConvertFrom-Json).permissions.additionalDirectories)
+            @($grants | Where-Object { $_ -eq $f.BriefDir }).Count | Should -Be 1
+        }
     }
 }

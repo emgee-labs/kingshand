@@ -35,15 +35,27 @@
   outlives the defect: a brief on disk is what the worker can re-read mid-task and what survives a
   restart, and the settings written in step 3 grant read access to the brief's directory, which
   lives outside the repo.
+
+  -ReadPath is the same grant for the files the brief's `Read first` section names. Those live
+  beside the brief's directory rather than inside it - a settled spec at data\<name>.md is a
+  sibling of data\<id>\ - so the brief's own grant does not reach them, and a brief that names a
+  file the worker cannot open delivers nothing. The grant stays per dispatch and per file: the
+  directories of exactly the paths this brief named, never the data root, so one worker does not
+  get read access to every other worker's brief and report.
 .EXAMPLE
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md
   $r.id, $r.worktree, $r.branch
+.EXAMPLE
+  $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 `
+         -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md `
+         -ReadPath $env:KINGSHAND_HOME\data\emgee-brand.md
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$RepoPath,
     [Parameter(Mandatory)][string]$Name,
     [Parameter(Mandatory)][string]$BriefPath,
+    [string[]]$ReadPath = @(),
     [int]$TimeoutSeconds = 90
 )
 
@@ -67,6 +79,23 @@ if (-not (Get-HerdrCommandPath)) { throw (Get-HerdrCommandHint) }
 $RepoPath  = (Resolve-Path $RepoPath).Path
 $BriefPath = (Resolve-Path $BriefPath).Path
 $briefDir  = Split-Path $BriefPath -Parent
+
+# Resolved BEFORE the worktree exists, for the same reason the base ref is: a brief naming a file
+# that is not there is a brief the worker cannot carry out, and finding that out after a worker is
+# running means one more dispatch spent discovering it. A missing Read-first file is refused here,
+# by name, rather than becoming a worker that quietly proceeds without the spec.
+$grantDirs = [System.Collections.Generic.List[string]]::new()
+$grantDirs.Add($briefDir)
+foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
+    if (-not (Test-Path -LiteralPath $p)) {
+        throw ("The brief names $p under Read first and it does not exist, so the worker would be " +
+               "told to read a file that is not there. Nothing was created.")
+    }
+    $resolved = (Resolve-Path -LiteralPath $p).Path
+    $dir = if (Test-Path -LiteralPath $resolved -PathType Container) { $resolved }
+           else { Split-Path $resolved -Parent }
+    if (-not ($grantDirs | Where-Object { $_ -eq $dir })) { $grantDirs.Add($dir) }
+}
 
 # The worktree branches from the REMOTE default branch when the repo has one, not the local
 # branch. Local main is often behind origin/main, and diffing the worker's branch against local
@@ -139,7 +168,7 @@ if (Test-WorktreeRegistered $worktree) {
 # The two grants that used to be `--permission-mode bypassPermissions --add-dir <briefdir>` on the
 # command line. Written into the WORKTREE, which is a fresh checkout with no .claude of its own -
 # nothing carries across from the main checkout, because settings.local.json is untracked.
-$null = Set-WorkerWorkspaceSettings -WorktreePath $worktree -AdditionalDirectories @($briefDir)
+$null = Set-WorkerWorkspaceSettings -WorktreePath $worktree -AdditionalDirectories @($grantDirs)
 
 # Pre-seeded rather than answered afterwards with a synthetic keystroke: this is a written,
 # inspectable record made before launch, and it cannot race the dialog. Its result is kept because

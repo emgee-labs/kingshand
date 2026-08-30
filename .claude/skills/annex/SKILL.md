@@ -162,6 +162,17 @@ worker that tried would be writing configuration its brief never authorised.
 Add-ProjectEntry -Name "<name>" -Path $path -Mode "<mode>" -Description "<desc>" [-Yolo]
 ```
 
+The registry is a durable file under `data\`, so index it in the same step that writes it. It has
+a fixed name and the entry is rewritten in place, so this is safe to run on every import and the
+line keeps the date the registry first entered the index. Without it a fresh install reports one
+unindexed file from its very first `/annex`, and a drift count that is never zero is a count
+nobody reads:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
+Add-IndexEntry -Path "data\projects.md" -Summary "the project registry: each project's path and standing delivery posture"
+```
+
 Confirm in one line: the name, the posture, and the gate state.
 
 If the posture is `no-mistakes` or `no-mistakes-prod-only` and the gate is not initialised, say so

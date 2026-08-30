@@ -91,6 +91,38 @@ Describe 'an entry says where a file is and what it is, in one line' {
             Should -Throw -ExpectedMessage '*outside it*'
     }
 
+    # The relative branch used to strip leading dots, so this came back as data\notes.md: an entry
+    # for a file that was never the caller's subject, written into the index with no error, while
+    # the identical file named absolutely threw. Both branches now refuse the same input.
+    It 'refuses a relative path that climbs out of data\ rather than rewriting it' {
+        $data = New-DataFixture 'escape'
+        { Add-IndexEntry -Path '..\..\notes.md' -Summary 'not ours' -DataPath $data } |
+            Should -Throw -ExpectedMessage '*outside it*'
+        Test-Path -LiteralPath (Join-Path $data 'index.md') |
+            Should -BeFalse -Because 'a refused entry must leave no line behind'
+    }
+
+    It 'still resolves a relative path that stays inside data\' {
+        $data = New-DataFixture 'inside-relative'
+        New-DataFile -DataPath $data -Relative 'sub\deep.md' | Out-Null
+        (Add-IndexEntry -Path '.\sub\deep.md' -Summary 'a nested note' -DataPath $data).path |
+            Should -Be 'data\sub\deep.md'
+    }
+
+    # A hand-edited line naming somewhere outside data\ is one bad line, not a broken index: the
+    # digest reads drift through here and would otherwise lose its whole INDEX section to it.
+    It 'skips an unreadable line rather than failing the whole index' {
+        $data = New-DataFixture 'bad-line'
+        New-DataFile -DataPath $data -Relative 'good.md' | Out-Null
+        Add-IndexEntry -Path 'data\good.md' -Summary 'a good one' -DataPath $data | Out-Null
+        Add-Content -LiteralPath (Join-Path $data 'index.md') -Value '- `..\..\escape.md` - hand-edited'
+
+        $entries = @(Get-IndexEntries -DataPath $data)
+        $entries.Count   | Should -Be 1
+        $entries[0].path | Should -Be 'data\good.md'
+        { Get-IndexDrift -DataPath $data } | Should -Not -Throw
+    }
+
     It 'refuses a project name that is not slug-shaped' {
         $data = New-DataFixture 'bad-project'
         { Get-IndexPath -Project '..\..\escape' -DataPath $data } |

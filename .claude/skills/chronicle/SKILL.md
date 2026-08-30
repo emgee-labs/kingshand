@@ -289,8 +289,9 @@ so relieves nothing; and any project file written by the Hand rather than by a w
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
-Add-IndexEntry -Path "data\king.md"      -Summary "<one line of what it now holds>"
-Add-IndexEntry -Path "data\learnings.md" -Summary "<one line of what it now holds>"
+Add-IndexEntry -Path "data\king.md"           -Summary "<one line of what it now holds>"
+Add-IndexEntry -Path "data\learnings.md"      -Summary "<one line of what it now holds>"
+Add-IndexEntry -Path "data\memory-archive.md" -Summary "<one line of what it now holds>"
 ```
 
 ## One-time migration of unmarked entries
