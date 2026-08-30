@@ -187,7 +187,9 @@ reads the brief, so the slot has to be in the artefact. Write one line per file 
 path, what it settles, and an instruction to read it in full - then the line that says which
 source wins where two disagree. Where the index turns up nothing this task touches, say
 `- Nothing beyond this brief.` rather than dropping the section, so a brief that names no file
-is a decision someone made rather than a slot someone forgot.
+is a decision someone made rather than a slot someone forgot. Dispatch refuses a brief with no
+`## Read first` heading at all, before anything is created - so a brief written before this
+section existed needs that one line adding before it can go out.
 
 **Name the copy, not the original.** A worker can reach exactly two places: its own worktree and
 the brief's own directory. A settled file at `data\<name>.md` is a sibling of `data\<id>\` rather
@@ -436,9 +438,15 @@ brief already names, because that directory is the only place outside its worktr
 read. Drop the parameter only when the section says `- Nothing beyond this brief.`
 
 Every refusal comes before anything at all is created, so a mistake here costs nothing to fix: a
-path that does not exist, a directory where a file was meant, two different files with the same
-name, a `Read first` line naming a copy this call never staged, a staged file that section names no
-line for, and a `read-first\` path carrying another unit of work's id are each refused by name.
+brief with no `## Read first` section at all, a path that does not exist, a directory where a file
+was meant, two different files with the same name, a `Read first` line naming a copy this call
+never staged, a staged file that section names no line for, and a `read-first\` path carrying
+another unit of work's id are each refused by name.
+
+**A brief written before the `Read first` section existed will be refused**, which is the intended
+behaviour rather than a migration problem: the un-dispatched briefs already on disk name no settled
+file, and that is the fault, not the refusal. Add the section before dispatching one - one line of
+`- Nothing beyond this brief.` where the index turns up nothing it touches.
 
 The staged copies are not indexed, and that is deliberate rather than an oversight: each one is a
 snapshot of a file the index already lists at its own path, so `Get-IndexableFiles` excludes

@@ -286,8 +286,12 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $home_    = Join-Path $root 'home'
             New-Item -ItemType Directory -Force -Path $briefDir | Out-Null
             New-Item -ItemType Directory -Force -Path $home_    | Out-Null
+            # The Read first section is in the default fixture because dispatch requires it of
+            # every brief, and a fixture without one would exercise a brief muster cannot write.
+            # Cases that need it absent overwrite this file themselves.
             Set-Content -Path (Join-Path $briefDir 'brief.md') -Encoding utf8 -Value @(
-                '# Brief', 'Do the thing, and the SECRET-BODY-MARKER must never travel by value.'
+                '# Brief', '', '## Read first', '- Nothing beyond this brief.', ''
+                '## Scope', 'Do the thing, and the SECRET-BODY-MARKER must never travel by value.'
             )
             # A config with a projects object, so the trust grant has somewhere real to land.
             '{ "projects": { "C:/somewhere-else": { "hasTrustDialogAccepted": true } } }' |
@@ -731,9 +735,38 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $f = New-DispatchFixture 'readfirst-nosection'
             $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
             Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-Content -Path $f.BriefPath -Encoding utf8 -Value @('# Brief', '', '## Scope', 'Do it.')
 
             { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6007' `
-                -BriefPath $f.BriefPath -ReadPath $one } | Should -Throw '*brand.md*'
+                -BriefPath $f.BriefPath -ReadPath $one } | Should -Throw "*has no '## Read first' section*"
+        }
+
+        # Every other check compares two sets, and both are empty when the section was never
+        # written and -ReadPath was never passed. So the case the whole mechanism exists to
+        # prevent - a brief naming no settled file at all - was the one case that passed every
+        # guard, and the worker launched knowing nothing about the file that was already decided.
+        It 'refuses a brief with no Read first section even when no file was staged' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-missing-slot'
+            Set-Content -Path $f.BriefPath -Encoding utf8 -Value @(
+                '# Brief', '', '## Goal', 'Ship the marketing site.', '', '## Scope', 'Repo: whatever')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-7101' } |
+                Should -Throw "*has no '## Read first' section*"
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-7101') |
+                Should -BeFalse -Because 'the refusal comes before anything is created'
+            (Get-CallLines $f).Count |
+                Should -Be 0 -Because 'no worker is spawned for a brief that names nothing to read'
+        }
+
+        # An empty section and an absent one are different facts, and only the first is a decision
+        # somebody made. A brief with genuinely nothing to read must still dispatch.
+        It 'dispatches a brief whose section says there is nothing to read' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-nothing-beyond'
+            Set-ReadFirstBrief -Fixture $f
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-7102').id | Should -Be 'T-7102'
         }
 
         # Briefs are written several at a time from one template, so a Read first block carried
