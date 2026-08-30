@@ -315,6 +315,29 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             if (-not (Test-Path -LiteralPath $Fixture.CallLog)) { return @() }
             @(Get-Content -LiteralPath $Fixture.CallLog | Where-Object { $_.Trim() })
         }
+
+        # A brief with a real `Read first` section, in the shape muster's template writes: the copy
+        # named as read-first\<leaf>, with the original repeated in the same line as provenance.
+        # Any fixture that stages a file has to name it, because dispatch now refuses a staged copy
+        # the brief says nothing about.
+        function Set-ReadFirstBrief {
+            param(
+                [Parameter(Mandatory)]$Fixture,
+                [string[]]$Leaf   = @(),
+                [string[]]$Body,
+                [string]$From     = 'C:\somewhere\original.md'
+            )
+            if (-not $PSBoundParameters.ContainsKey('Body')) {
+                $Body = if ($Leaf.Count -eq 0) { @('- Nothing beyond this brief.') } else {
+                    foreach ($l in $Leaf) {
+                        "- ``$($Fixture.BriefDir)\read-first\$l`` - what it settles, copied here from ``$From``."
+                    }
+                }
+            }
+            Set-Content -Path $Fixture.BriefPath -Encoding utf8 -Value (@(
+                '# Brief', '', '## Read first') + $Body + @(
+                '', '## Scope', 'Do the thing, and the SECRET-BODY-MARKER must never travel by value.'))
+        }
     }
 
     AfterAll {
@@ -542,6 +565,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $script:DataRoot = Split-Path $script:Read.BriefDir -Parent
             $script:SpecFile = Join-Path $script:DataRoot 'brand.md'
             Set-Content -Path $script:SpecFile -Value 'teal, not amber' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $script:Read -Leaf 'brand.md' -From $script:SpecFile
 
             $script:ReadResult = & $script:DispatchScript -RepoPath $script:Read.Repo `
                 -Name 'T-5001' -BriefPath $script:Read.BriefPath -ReadPath $script:SpecFile
@@ -580,6 +604,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $f = New-DispatchFixture 'readfirst-same'
             $beside = Join-Path $f.BriefDir 'notes.md'
             Set-Content -Path $beside -Value 'x' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf 'notes.md' -From $beside
             $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-5002' `
                 -BriefPath $f.BriefPath -ReadPath $beside
             $grants = @((Get-Content -LiteralPath `
@@ -596,6 +621,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $two  = Join-Path $root 'voice.md'
             Set-Content -Path $one -Value 'teal' -Encoding utf8
             Set-Content -Path $two -Value 'plain words' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf 'brand.md', 'voice.md'
 
             & $script:DispatchScript -RepoPath $f.Repo -Name 'T-5003' `
                 -BriefPath $f.BriefPath -ReadPath $one, $two | Out-Null
@@ -638,14 +664,6 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
     # tying them together. Omit the parameter and dispatch used to succeed having staged nothing,
     # handing the worker a brief that points at a file which does not exist.
     Context 'a brief whose Read first section and -ReadPath disagree' {
-        BeforeAll {
-            function Set-ReadFirstBrief {
-                param([Parameter(Mandatory)]$Fixture, [Parameter(Mandatory)][string[]]$Body)
-                Set-Content -Path $Fixture.BriefPath -Encoding utf8 -Value (@(
-                    '# Brief', '', '## Read first') + $Body + @('', '## Scope', 'Repo: whatever'))
-            }
-        }
-
         It 'refuses when the brief names a read-first file that nothing staged' {
             Set-AgentStartState
             $f = New-DispatchFixture 'readfirst-unstaged'
@@ -670,6 +688,66 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6002' `
                 -BriefPath $f.BriefPath -ReadPath $one } | Should -Throw '*voice.md*'
+        }
+
+        # The refusal above says "Nothing was created", and it has to be true. Staging ran before
+        # the check, so brand.md was already copied and a directory already existed underneath a
+        # message denying both.
+        It 'leaves no staged file behind when it refuses' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-nodebris'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- `read-first\brand.md` - the brand.'
+                '- `read-first\voice.md` - the voice.')
+
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6005' `
+                -BriefPath $f.BriefPath -ReadPath $one } | Should -Throw '*Nothing was created*'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') |
+                Should -BeFalse -Because 'a refusal that says nothing was created must have created nothing'
+        }
+
+        # The other direction, and the one the first pass left open. muster's "name the copy, not
+        # the original" was prose only, so the Hand names the path it actually knows - the original
+        # - and passes that same path to -ReadPath. Staging succeeds, the section mentions no
+        # read-first\ file at all, and the worker launches holding a path outside its only grant.
+        It 'refuses when the brief names the original instead of the staged copy' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-original'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'emgee-brand.md'
+            Set-Content -Path $one -Value 'teal, not amber' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @("- ``$one`` - the settled brand. Read it in full.")
+
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6006' `
+                -BriefPath $f.BriefPath -ReadPath $one } |
+                Should -Throw '*emgee-brand.md*names no line for it*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6006') | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+        }
+
+        It 'refuses when the brief has no Read first section at all but a file was staged' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-nosection'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6007' `
+                -BriefPath $f.BriefPath -ReadPath $one } | Should -Throw '*brand.md*'
+        }
+
+        # The provenance note in muster's own template repeats the original path in the same line
+        # as the copy. A rule of "the section must not name any original" would refuse the shape
+        # the template tells the Hand to write.
+        It 'accepts the template shape, which names the copy and the original in one line' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-provenance'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf 'brand.md' -From $one
+
+            (& $script:DispatchScript -RepoPath $f.Repo -Name 'T-6008' `
+                -BriefPath $f.BriefPath -ReadPath $one).id | Should -Be 'T-6008'
         }
 
         It 'dispatches when every named file was staged' {

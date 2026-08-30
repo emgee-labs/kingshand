@@ -54,9 +54,12 @@
   derived from a file the index already lists at its own path, so Get-IndexableFiles excludes
   read-first\ and the drift count does not grow by one per dispatch forever.
 
-  The brief's own `Read first` section is what decides whether -ReadPath was right: every
-  read-first\<file> it names must have been staged by this call, and dispatch refuses when one was
-  not. The two are written in different steps, and prose was the only thing tying them together.
+  The brief's own `Read first` section is what decides whether -ReadPath was right, and the two
+  must agree in both directions: every read-first\<file> the section names must have been staged by
+  this call, and every file this call stages must be named there. One direction alone leaves the
+  other half of the fault reachable - a section naming the ORIGINAL path instead of the copy stages
+  the file and still sends the worker somewhere it cannot read. The two are written in different
+  steps, and prose was the only thing tying them together.
 .EXAMPLE
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md
   $r.id, $r.worktree, $r.branch
@@ -127,6 +130,41 @@ foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
     $staged[$leaf] = $resolved
 }
 
+# The brief and -ReadPath are written in two different steps and nothing but prose tied them
+# together. It is the brief's own text that the worker acts on, so it is the brief's own text that
+# is checked, and the check runs BOTH ways: a line naming a copy nothing staged, and a staged copy
+# no line names, are the same fault seen from opposite ends and each leaves the worker holding a
+# path it cannot open. Only the leaf is compared, which holds however the root was written and
+# leaves the template's "copied here from <original>" provenance note alone.
+$briefLines = @(Get-Content -LiteralPath $BriefPath)
+$inSection  = $false
+$named      = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($line in $briefLines) {
+    if ($line -match '^\s*##\s+') { $inSection = $line -match '^\s*##\s+Read first\s*$' ; continue }
+    if (-not $inSection) { continue }
+    foreach ($m in [regex]::Matches($line, 'read-first[\\/](?<leaf>[^\s`''"<>|,;)\]]+)')) {
+        $null = $named.Add($m.Groups['leaf'].Value)
+    }
+}
+
+$unstaged = @(@($named) | Where-Object { -not $staged.ContainsKey($_) } | Sort-Object)
+if ($unstaged.Count -gt 0) {
+    throw ("The brief's Read first section names " + ($unstaged -join ', ') + " under read-first\, " +
+           "and nothing staged " + $(if ($unstaged.Count -eq 1) { 'it' } else { 'them' }) + ". Pass " +
+           "the original of each to -ReadPath, or take the line out of the brief. Nothing was created.")
+}
+
+$unnamed = @(@($staged.Keys) | Where-Object { -not $named.Contains($_) } | Sort-Object)
+if ($unnamed.Count -gt 0) {
+    throw ("-ReadPath stages " + ($unnamed -join ', ') + " and the brief's Read first section names " +
+           $(if ($unnamed.Count -eq 1) { 'no line for it' } else { 'no line for them' }) + ". A copy " +
+           "the brief never names reaches nobody, and a section naming the ORIGINAL instead points " +
+           "the worker outside the only directory it can read. Name each one as " +
+           "read-first\<filename> in that section. Nothing was created.")
+}
+
+# Copied only once every check above has passed, so a refusal is always true when it says nothing
+# was created. Staging first left a directory and a file on disk under a message denying both.
 if ($staged.Count -gt 0) {
     if (-not (Test-Path -LiteralPath $readFirstDir)) {
         New-Item -ItemType Directory -Force -Path $readFirstDir | Out-Null
@@ -134,29 +172,6 @@ if ($staged.Count -gt 0) {
     foreach ($leaf in $staged.Keys) {
         Copy-Item -LiteralPath $staged[$leaf] -Destination (Join-Path $readFirstDir $leaf) -Force
     }
-}
-
-# The brief and -ReadPath are written in two different steps and nothing but prose tied them
-# together, so a brief could name read-first\<file> with -ReadPath left off and dispatch would
-# succeed having staged nothing - the worker then opens a path that does not exist. It is the
-# brief's own text that decides, so it is the brief's own text that is checked. Only the leaf is
-# compared, which holds however the root was written.
-$briefLines = @(Get-Content -LiteralPath $BriefPath)
-$inSection  = $false
-$named      = [System.Collections.Generic.List[string]]::new()
-foreach ($line in $briefLines) {
-    if ($line -match '^\s*##\s+') { $inSection = $line -match '^\s*##\s+Read first\s*$' ; continue }
-    if (-not $inSection) { continue }
-    foreach ($m in [regex]::Matches($line, 'read-first[\\/](?<leaf>[^\s`''"<>|,;)\]]+)')) {
-        $named.Add($m.Groups['leaf'].Value)
-    }
-}
-
-$unstaged = @(@($named) | Where-Object { -not $staged.ContainsKey($_) } | Select-Object -Unique)
-if ($unstaged.Count -gt 0) {
-    throw ("The brief's Read first section names " + ($unstaged -join ', ') + " under read-first\, " +
-           "and nothing staged " + $(if ($unstaged.Count -eq 1) { 'it' } else { 'them' }) + ". Pass " +
-           "the original of each to -ReadPath, or take the line out of the brief. Nothing was created.")
 }
 
 # The worktree branches from the REMOTE default branch when the repo has one, not the local

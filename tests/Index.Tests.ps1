@@ -4,7 +4,11 @@
 #
 # So the two behaviours that carry the whole design are pinned hardest here: writing a file and
 # indexing it must be ONE call, and a file no index lists must be counted as drift. Everything else
-# - the one-line cap, the per-project scope, the exclusions - exists to keep those two honest.
+# - the one-line cap, the per-project scope, the three exclusions - exists to keep those two
+# honest. The exclusions are an index file, a rendered `*.html` surface and a `read-first\` copy,
+# and each passes the same test: it is derived from a file the index already lists, so an entry
+# would record one fact twice. An exclusion that cannot say what it is derived from does not
+# belong, whatever the count.
 #
 # Every case runs against its own throwaway data directory under TestDrive. The live
 # $env:KINGSHAND_HOME\data\ is never read and never written by this suite.
@@ -293,7 +297,7 @@ Describe 'a file no index lists is drift, and drift is counted' {
         @($script:Drift.unindexed) -contains 'data\index\acme.md' |
             Should -BeFalse -Because 'an index does not index itself'
         @(Get-IndexableFiles -DataPath $script:Data).Count |
-            Should -Be 2 -Because 'those two exclusions are the only ones, and neither is about a file being unimportant'
+            Should -Be 2 -Because 'the exclusions are an index, a rendered surface and a read-first copy, and each one is a file derived from a listed file rather than a file judged unimportant'
     }
 
     It 'reports an entry whose file has gone as stale rather than as indexed cover' {
