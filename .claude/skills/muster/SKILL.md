@@ -195,7 +195,9 @@ than inside it, so a brief naming it there tells the worker to open a file it ca
 original failure with one extra hop. Step 4 hands the original to `-ReadPath` and dispatch copies
 it to `$env:KINGSHAND_HOME\data\<id>\read-first\<filename>`, keeping the file name exactly. That
 is the path the `Read first` line names, and every path you write there goes to `-ReadPath` at
-Step 4 - a line with no matching `-ReadPath` names a copy nothing ever made.
+Step 4. Dispatch reads this section back and refuses when a `read-first\` file it names was not
+staged, so the two lists cannot drift apart - but it refuses one dispatch at a time, and writing
+them together is what makes that check never fire.
 
 Say in the same line what the copy is of, so the worker knows what it is holding and a later reader
 can find the original. The copy is taken at dispatch and does not change afterwards, which is
@@ -427,8 +429,12 @@ brief already names, because that directory is the only place outside its worktr
 read. Drop the parameter only when the section says `- Nothing beyond this brief.`
 
 Every refusal comes before the worktree is created, so a mistake here costs nothing to fix: a path
-that does not exist, a directory where a file was meant, and two different files with the same
-name are each refused by name.
+that does not exist, a directory where a file was meant, two different files with the same name,
+and a `Read first` line naming a copy this call never staged are each refused by name.
+
+The staged copies are not indexed, and that is deliberate rather than an oversight: each one is a
+snapshot of a file the index already lists at its own path, so `Get-IndexableFiles` excludes
+`read-first\` and the drift count stays about files nothing has recorded anywhere.
 
 Then record it:
 

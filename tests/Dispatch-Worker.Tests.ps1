@@ -633,4 +633,70 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-5005') | Should -BeFalse
         }
     }
+
+    # The brief line and -ReadPath are written in two different steps, and prose was the only thing
+    # tying them together. Omit the parameter and dispatch used to succeed having staged nothing,
+    # handing the worker a brief that points at a file which does not exist.
+    Context 'a brief whose Read first section and -ReadPath disagree' {
+        BeforeAll {
+            function Set-ReadFirstBrief {
+                param([Parameter(Mandatory)]$Fixture, [Parameter(Mandatory)][string[]]$Body)
+                Set-Content -Path $Fixture.BriefPath -Encoding utf8 -Value (@(
+                    '# Brief', '', '## Read first') + $Body + @('', '## Scope', 'Repo: whatever'))
+            }
+        }
+
+        It 'refuses when the brief names a read-first file that nothing staged' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-unstaged'
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                "- ``$($f.BriefDir)\read-first\emgee-brand.md`` - the settled brand. Read it in full.")
+
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6001' -BriefPath $f.BriefPath } |
+                Should -Throw '*emgee-brand.md*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6001') |
+                Should -BeFalse -Because 'the refusal comes before anything is created'
+        }
+
+        It 'refuses when one of two named files was left out of -ReadPath' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-partial'
+            $root = Split-Path $f.BriefDir -Parent
+            $one  = Join-Path $root 'brand.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- `read-first\brand.md` - the brand.'
+                '- `read-first\voice.md` - the voice.')
+
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6002' `
+                -BriefPath $f.BriefPath -ReadPath $one } | Should -Throw '*voice.md*'
+        }
+
+        It 'dispatches when every named file was staged' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-matched'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                "- ``$($f.BriefDir)\read-first\brand.md`` - the settled brand. Read it in full.")
+
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6003' `
+                -BriefPath $f.BriefPath -ReadPath $one
+            $r.id | Should -Be 'T-6003'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') | Should -BeTrue
+        }
+
+        # The check reads one section, not the whole brief: read-first\ named anywhere else is
+        # ordinary prose, and a brief with nothing to read must still dispatch.
+        It 'ignores read-first mentioned outside the Read first section' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-elsewhere'
+            Set-Content -Path $f.BriefPath -Encoding utf8 -Value @(
+                '# Brief', '', '## Read first', '- Nothing beyond this brief.', ''
+                '## Scope', 'Do NOT touch read-first\anything.md')
+
+            (& $script:DispatchScript -RepoPath $f.Repo -Name 'T-6004' -BriefPath $f.BriefPath).id |
+                Should -Be 'T-6004'
+        }
+    }
 }

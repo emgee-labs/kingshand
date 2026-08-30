@@ -19,8 +19,13 @@ Set-StrictMode -Version Latest
 # resolves. The summary is capped: this is a table of contents, never content, and a cap is the
 # only thing that keeps it one.
 #
-# Two exclusions, both mechanical and neither a judgement about worth: the index files themselves,
-# and rendered `*.html` surfaces, which are regenerated from state and are never read as a source.
+# The exclusions are mechanical and none is a judgement about worth. The test each one passes is
+# DERIVATION: the file is produced from something else that is itself listed, so listing it would
+# record the same fact twice. An index does not index itself; a rendered `*.html` surface is
+# regenerated from state; a `read-first\` copy is the snapshot dispatch took of a file that already
+# has its own entry at its own path. An exclusion that cannot answer "derived from what?" is the
+# rejected classification creeping back, and does not belong here.
+#
 # Anything else under data\ that no index lists is drift, and Get-IndexDrift counts it - "this file
 # was never indexed" is detectable, where "somebody should have realised this mattered" never was.
 
@@ -270,6 +275,15 @@ function Add-IndexEntry {
         $lines[$replace] = $entryLine
         Set-Content -Path $indexPath -Encoding utf8 -Value $lines
     } elseif (Test-Path -LiteralPath $indexPath -PathType Leaf) {
+        # An index whose last line is unterminated would take this entry onto the end of it, and
+        # the reader's regex still matches that joined line as the FIRST entry with the second
+        # swallowed into its summary - so the file just added silently becomes drift again, which
+        # is the failure this module exists to prevent. Module-written indexes always end in a
+        # newline; a hand-edited one need not.
+        $existingText = Get-Content -LiteralPath $indexPath -Raw
+        if ($existingText -and -not $existingText.EndsWith("`n")) {
+            Add-Content -Path $indexPath -Encoding utf8 -Value ''
+        }
         Add-Content -Path $indexPath -Encoding utf8 -Value $entryLine
     } else {
         Set-Content -Path $indexPath -Encoding utf8 -Value (@($lines) + @('', $entryLine))
@@ -312,9 +326,8 @@ function Write-DataFile {
     Add-IndexEntry -Path $full -Summary $one -Project $Project -DataPath $DataPath
 }
 
-# Every durable file under data\, minus the two mechanical exclusions. Neither one is a judgement
-# about a file's worth: an index does not index itself, and a rendered surface is regenerated from
-# state rather than read as a source.
+# Every durable file under data\, minus the mechanical exclusions at the top of this file. None is
+# a judgement about a file's worth: each names a file derived from one the index already covers.
 function Get-IndexableFiles {
     [CmdletBinding()]
     param([string]$DataPath = (Get-DefaultIndexDataPath))
@@ -333,6 +346,7 @@ function Get-IndexableFiles {
         if ($f.Extension -eq '.html') { continue }
         if ($f.FullName -eq $rootIdx) { continue }
         if ($f.FullName.StartsWith($indexDir + '\', [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        if ((Split-Path $f.FullName -Parent) -match '(^|\\)read-first$') { continue }
         $f.FullName
     }
 

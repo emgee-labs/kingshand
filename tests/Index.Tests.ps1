@@ -158,6 +158,28 @@ Describe 're-indexing a file rewrites its line rather than adding a second one' 
         # hashtable is a key lookup that quietly returns $null rather than the entry.
         @(Get-IndexEntries -Project 'acme' -DataPath $script:Data)[0].summary | Should -Be 'the corrected summary'
     }
+
+    # A hand-edited index whose last line has no terminator took the appended entry onto the end of
+    # it. The reader's regex still matched that joined line as the FIRST entry, with the second
+    # swallowed into its summary - so the file just indexed silently became drift again, which is
+    # the one failure this module exists to prevent.
+    It 'appends to an index whose last line has no newline without joining the two' {
+        $data = New-DataFixture 'unterminated'
+        New-DataFile -DataPath $data -Relative 'a.md' | Out-Null
+        New-DataFile -DataPath $data -Relative 'b.md' | Out-Null
+        $index = Join-Path $data 'index\acme.md'
+        New-Item -ItemType Directory -Force -Path (Split-Path $index -Parent) | Out-Null
+        [IO.File]::WriteAllText($index, "# Index`n`n- ``data\a.md`` - the brand (added 2026-08-29)")
+
+        Add-IndexEntry -Path 'data\b.md' -Summary 'the report' -Project 'acme' -DataPath $data | Out-Null
+
+        $entries = @(Get-IndexEntries -Project 'acme' -DataPath $data)
+        @($entries | ForEach-Object { $_.path }) | Should -Be @('data\a.md', 'data\b.md')
+        @($entries | Where-Object { $_.path -eq 'data\a.md' })[0].summary |
+            Should -Be 'the brand' -Because 'the first entry must not swallow the second as its summary'
+        @(Get-IndexDrift -DataPath $data).unindexed |
+            Should -BeNullOrEmpty -Because 'a file that was just indexed must not still read as drift'
+    }
 }
 
 Describe 'writing a file and indexing it are one call' {
@@ -234,6 +256,35 @@ Describe 'a file no index lists is drift, and drift is counted' {
 
     It 'names the durable file nobody indexed' {
         @($script:Drift.unindexed) | Should -Be @('data\T-1\report.md')
+    }
+
+    # Dispatch stages a copy of every Read-first file into data\<id>\read-first\, teardown keeps
+    # data\<id>\, and the original already has its own entry - so counting the copies grew the
+    # drift number by one per dispatch forever, and the instruction it printed ("index each as you
+    # touch it") would have put a duplicate entry in the table of contents for a file already
+    # listed. The exclusion is derivation, not worth: the copy is made from a listed file.
+    It 'never counts a dispatch''s staged read-first copy against the drift' {
+        $data = New-DataFixture 'read-first-copies'
+        New-DataFile -DataPath $data -Relative 'emgee-brand.md'                     | Out-Null
+        New-DataFile -DataPath $data -Relative 'T-1\read-first\emgee-brand.md'       | Out-Null
+        New-DataFile -DataPath $data -Relative 'T-2\read-first\emgee-brand.md'       | Out-Null
+        Add-IndexEntry -Path 'data\emgee-brand.md' -Summary 'settled brand' -Project 'acme' -DataPath $data | Out-Null
+
+        $d = Get-IndexDrift -DataPath $data
+        @($d.unindexed).Count | Should -Be 0 -Because 'the copies are snapshots of a file the index already lists'
+        @($d.missing).Count   | Should -Be 0
+    }
+
+    # The exclusion must not become "anything with that name is uninteresting". A worker's own
+    # durable files still count, and so does a file that merely starts with the same letters.
+    It 'still counts the durable files that sit beside a read-first directory' {
+        $data = New-DataFixture 'read-first-siblings'
+        New-DataFile -DataPath $data -Relative 'T-1\read-first\spec.md' | Out-Null
+        New-DataFile -DataPath $data -Relative 'T-1\report.md'          | Out-Null
+        New-DataFile -DataPath $data -Relative 'read-first-notes.md'    | Out-Null
+
+        @(Get-IndexDrift -DataPath $data).unindexed |
+            Should -Be @('data\read-first-notes.md', 'data\T-1\report.md')
     }
 
     It 'never counts a rendered surface or an index against the drift' {

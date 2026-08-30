@@ -61,9 +61,18 @@ machine can notice, where "somebody should have realised this mattered" never wa
 
 ## What is deliberately not in it
 
-Two exclusions, and neither is a judgement about a file's worth. An index does not index itself, and
-a rendered `*.html` review surface is regenerated from state rather than read as a source. Any
-third exclusion would be the rejected design creeping back in one file at a time.
+No exclusion is a judgement about a file's worth. The test each one passes is derivation: the file
+is produced from something else that is itself listed, so an entry would record the same fact
+twice. An index does not index itself. A rendered `*.html` review surface is regenerated from
+state rather than read as a source. A `read-first\` copy is the snapshot dispatch takes of a file
+that already has its own entry at its own path, so that its worker can reach it at all.
+
+The count is not the rule; the test is. Guarding a number would have taken the drift signal down
+instead: `read-first\` arrived after this note was first written, and with only "there are exactly
+two" to go on, the choice was between a drift count that grows by one per dispatch forever - a
+count nobody reads - and indexing each copy, which would put a duplicate entry in the table of
+contents for a file already listed. An exclusion that cannot answer "derived from what?" is the
+rejected classification creeping back in one file at a time, and that is what must not be added.
 
 The digest prints counts and the location, never a file list and never a file's contents. The
 startup-memory budget accounts for `king.md` and `learnings.md` only; the index is not printed in
