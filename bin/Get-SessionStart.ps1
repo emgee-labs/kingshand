@@ -1,9 +1,9 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  The once-per-session digest: toolchain problems, fleet state, the queue, the King's own standing
-  instructions, and the two curated memory files, rendered as one block a session can read and
-  trust.
+  The once-per-session digest: toolchain problems, fleet state, the queue, where the data index is
+  and how far it has drifted, the King's own standing instructions, and the two curated memory
+  files, rendered as one block a session can read and trust.
 .DESCRIPTION
   This is operational input, not a report. It runs from a SessionStart hook and its whole purpose
   is to make a restart a non-event: everything a fresh session needs to orient itself is printed
@@ -14,11 +14,12 @@
   startup facts nobody asked for, read once at session open. Neither calls the other, and nothing
   runs survey on the user's behalf.
 
-  Bounded on purpose. The fleet and queue sections are counts and one-liners; only `instructions.md`
-  and the two memory files are printed in full, and only the two memory files are accounted against
-  the startup-memory budget. A digest that grew with the fleet would be the session-start bulk this
-  deliberately avoids - the registry line is name, posture and path, never the detail that belongs
-  elsewhere.
+  Bounded on purpose. The fleet, queue and index sections are counts and one-liners; only
+  `instructions.md` and the two memory files are printed in full, and only the two memory files are
+  accounted against the startup-memory budget. A digest that grew with the fleet would be the
+  session-start bulk this deliberately avoids - the registry line is name, posture and path, never
+  the detail that belongs elsewhere, and the index section is where the index is and how far it has
+  drifted, never what any indexed file says.
 
   `instructions.md` is the King's own standing instructions, written by hand and never edited by
   the Hand. It is deliberately NOT one of the memory files: `king.md` and `learnings.md` are what
@@ -36,12 +37,12 @@
   exists and holds nothing. An empty registry means nothing can be dispatched until
   `/annex` runs. Each of those is a state the digest states plainly.
 
-  Reuses `Get-SurveySnapshot.ps1` for fleet state and `Memory.psm1` for the budget rather than
-  reading either a second way. There is one fleet reader and one estimator, and this is a caller
-  of both.
+  Reuses `Get-SurveySnapshot.ps1` for fleet state, `Index.psm1` for the index and its drift, and
+  `Memory.psm1` for the budget rather than reading any of them a second way. There is one fleet
+  reader, one index reader and one estimator, and this is a caller of all three.
 
 .PARAMETER DataPath
-  the data\ directory holding king.md, learnings.md, and data\<id>\.
+  the data\ directory holding king.md, learnings.md, data\<id>\, and the index.
 .PARAMETER StatePath
   state\crew.json - worker intent.
 .PARAMETER RegistryPath
@@ -210,11 +211,16 @@ try {
 
             # The check prints its problems under a FAILED: header. If that shape ever changes,
             # fall back to everything that is not an OK confirmation rather than printing nothing.
-            $problems = if ($failedAt -ge 0 -and $failedAt -lt $text.Count - 1) {
+            #
+            # The outer @() is load-bearing. Assigning from an `if` unrolls its branch, so exactly
+            # one problem arrived here as a bare string and `$problems.Count` below threw under
+            # strict mode - which cost the whole section, reporting "could not run the toolchain
+            # check" for a check that had run and found precisely one thing.
+            $problems = @(if ($failedAt -ge 0 -and $failedAt -lt $text.Count - 1) {
                 @($text[($failedAt + 1)..($text.Count - 1)] | Where-Object { $_.Trim() })
             } else {
                 @($text | Where-Object { $_.Trim() -and $_ -notmatch '^\s*OK\s' -and $_ -notmatch '^\s+OK\s' })
-            }
+            })
 
             Add-Line ''
             foreach ($p in $problems) { Add-Line ("PREREQS: " + ($p -replace '^\s*-\s*', '').Trim()) }
@@ -278,7 +284,10 @@ try {
         Add-Line "  Projects: $($entries.Count) registered"
         Add-BoundedList -Items @($entries | ForEach-Object {
             $pathNote = if ($_.pathExists) { $_.path } else { "$($_.path) - PATH MISSING" }
-            "- $($_.name) [$($_.rawMode)] yolo $($_.yolo) - $pathNote"
+            # A hand-written name the index cannot resolve fails one brief at a time, always after
+            # the brief is on disk, so it is said here rather than discovered there.
+            $nameNote = if ($_.indexable) { '' } else { ' - NAME NOT INDEXABLE: rename it, or nothing written for it can be listed' }
+            "- $($_.name) [$($_.rawMode)] yolo $($_.yolo) - $pathNote$nameNote"
         })
     }
 
@@ -362,7 +371,55 @@ try {
 }
 
 # --------------------------------------------------------------------------------
-# 4. Context - the King's standing instructions and the two curated memory files, in
+# 4. Index - where the data index is, how much it covers, and how far it has drifted
+#    from what is actually on disk. Names and counts only, never contents: the index
+#    is itself a table of contents, and a session that needs one of the files opens
+#    it at brief-writing time rather than paying for it here.
+#
+#    Drift is the load-bearing number. A settled brand spec sat in data\ and the site
+#    shipped without it, because nothing made anyone read the file - "this file is
+#    listed nowhere" is a fact a machine can notice, where "somebody should have
+#    realised this mattered" never was.
+#
+#    Silent when there is no index and nothing to index, exactly as the toolchain
+#    check is when it is clean. That is a fresh installation, not a fault.
+# --------------------------------------------------------------------------------
+try {
+    Import-Module (Join-Path $PSScriptRoot 'Index.psm1') -Force -ErrorAction Stop
+    $drift = Get-IndexDrift -DataPath $DataPath
+
+    $indexCount     = @($drift.indexes).Count
+    $unindexedCount = @($drift.unindexed).Count
+    $missingCount   = @($drift.missing).Count
+
+    if ($indexCount -gt 0 -or $unindexedCount -gt 0) {
+        Add-Line ''
+        Add-Line "INDEX  ($DataPath\index.md, and index\<project>.md per project)"
+        if ($indexCount -gt 0) {
+            $files   = if ($drift.indexed -eq 1) { 'file' }  else { 'files' }
+            $indexes = if ($indexCount -eq 1)    { 'index' } else { 'indexes' }
+            Add-Line ("  $($drift.indexed) $files listed across $indexCount $indexes - read the one " +
+                      'for a project before writing a brief against it.')
+        } else {
+            Add-Line '  No index exists yet.'
+        }
+        if ($unindexedCount -gt 0) {
+            $files = if ($unindexedCount -eq 1) { 'file is' } else { 'files are' }
+            Add-Line "  UNINDEXED: $unindexedCount $files listed nowhere. Index each as you touch it."
+        }
+        if ($missingCount -gt 0) {
+            $files = if ($missingCount -eq 1) { 'file is' } else { 'files are' }
+            Add-Line ("  STALE: $missingCount indexed $files no longer on disk. Clear with " +
+                      'Remove-IndexEntry -Missing -All.')
+        }
+    }
+} catch {
+    Add-Line ''
+    Add-Line ("INDEX: could not be read - " + (Format-Fault $_.Exception.Message))
+}
+
+# --------------------------------------------------------------------------------
+# 5. Context - the King's standing instructions and the two curated memory files, in
 #    full and clearly delimited. This is the part that makes a restart a non-event,
 #    so it is the one place the digest prints file bodies rather than facts about
 #    them. instructions.md comes first on purpose: what the King stated outranks what

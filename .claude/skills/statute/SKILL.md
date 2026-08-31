@@ -138,6 +138,13 @@ test the thing that notices when the prose is gone.
   as paragraphs rather than one sentence per line.
 - Scripts under `bin\` are PowerShell 7: open with `#Requires -Version 7.0` and
   `Set-StrictMode -Version Latest`, as `Crew.psm1` and `Projects.psm1` do.
+- A module under `bin\` imports a nested module **without** `-Force`; a script may force its own
+  top-level imports. `-Force` removes the module before re-importing it, and the removal takes the
+  copy the calling script already had, so that script silently loses the nested module's functions
+  partway through and dies with "not recognized" from a module it never touched - which is how
+  `Test-CrewPrereqs` printed every check OK and then lost `Get-KingshandHome`. `Herdr.psm1`,
+  `Index.psm1` and `Projects.psm1` point their import line back here, and `tests\Index.Tests.ps1`
+  and `tests\Projects.Tests.ps1` pin the two edges that regressed.
 - `yolo` is the string `'on'` or `'off'`, never a boolean. Test it as `-eq 'on'`; `if ($proj.yolo)`
   is true for `'off'` because every non-empty string is truthy in PowerShell.
 - Tests live in `tests\` as Pester, named `<Subject>.Tests.ps1`. Extend an existing file rather

@@ -117,11 +117,23 @@ else { $failures += "LAVISH_AXI_PORT is '$port', expected 4388. Run: [Environmen
 # This stays a failure, and it is now one a user can actually clear: `install.ps1` sets it up, the
 # same way it sets LAVISH_AXI_PORT above. It used to fail on every fresh machine by definition,
 # because nothing in the repository ever wrote the line and the only advice was to do it by hand.
+#
+# Both lines are checked, because they cover two different files in two different trees. The
+# worktree pattern keeps the worker's checkout out of the parent repo; the settings one keeps the
+# permission grant out of the worker's own tree, where it would otherwise be untracked from the
+# moment it is written and the review gate refuses to run in a dirty tree.
 $excludes = git config --global core.excludesFile
-if ($excludes -and (Test-Path $excludes) -and (Select-String -Path $excludes -Pattern '\.claude/worktrees/' -Quiet)) {
+$missing  = @()
+if ($excludes -and (Test-Path $excludes)) {
+    $lines = @(Get-Content -LiteralPath $excludes | ForEach-Object { $_.Trim() })
+    $missing = @(@('.claude/worktrees/', '.claude/settings.local.json') | Where-Object { $lines -notcontains $_ })
+} else {
+    $missing = @('.claude/worktrees/', '.claude/settings.local.json')
+}
+if ($missing.Count -eq 0) {
     Write-Host ("  OK   gitignore     {0}" -f $excludes)
 } else {
-    $failures += 'Global gitignore does not cover .claude/worktrees/. Run: .\install.ps1 - it appends the line .claude/worktrees/ to the file named by core.excludesFile, and creates that file and points the config at it when the config is unset. Otherwise workers appear as untracked changes in your repos.'
+    $failures += ("Global gitignore does not cover " + ($missing -join ' or ') + ". Run: .\install.ps1 - it appends the lines .claude/worktrees/ and .claude/settings.local.json to the file named by core.excludesFile, and creates that file and points the config at it when the config is unset. Otherwise workers appear as untracked changes in your repos, and every worker's own tree is dirty before it starts.")
 }
 
 if ($notes.Count -gt 0) {

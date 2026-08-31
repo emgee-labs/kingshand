@@ -33,6 +33,10 @@ rather than guessing - a wrong path registers the wrong repository.
 Default the project name to the directory's leaf name. The user may override name, mode and
 yolo in the request itself, in which case go straight to Step 3.
 
+The name becomes a file name - this project's index at `data\index\<name>.md` - so it may hold only
+letters, digits, `.`, `_` and `-`. A directory leaf like `@acme/web` needs a name chosen for it;
+`Add-ProjectEntry` refuses anything else rather than registering a project nothing can index.
+
 ## Step 2 - Propose the posture
 
 State the resolved default rather than asking the user to invent one:
@@ -76,7 +80,7 @@ $check = Test-ProjectImportable -Path "<absolute path>" -Mode "<mode>"
 if (-not $check.ok) { $check.reason }
 ```
 
-`Test-ProjectImportable` owns three of the five refusals: the path existing, it being a git
+`Test-ProjectImportable` owns three of the six refusals: the path existing, it being a git
 repository, and a push-capable mode requiring an `origin` remote. Report `$check.reason`
 verbatim and stop; do not paraphrase it into something softer.
 
@@ -99,6 +103,10 @@ at its first dispatch, which is the same defect the gate check below exists to p
 The fifth is uniqueness. The name must be unique, and the path must not already be registered
 under another name. `Add-ProjectEntry` enforces both in Step 4; let it throw rather than
 pre-checking.
+
+The sixth is the name's shape, from Step 1: a name the index cannot turn into a file name is
+refused by that same `Add-ProjectEntry` call, and its message names a usable name. Pick a
+slug-shaped name at Step 1 rather than carrying a directory leaf like `@acme/web` this far.
 
 ## Step 4 - Record the gate state, then write the entry
 
@@ -160,6 +168,17 @@ worker that tried would be writing configuration its brief never authorised.
 
 ```powershell
 Add-ProjectEntry -Name "<name>" -Path $path -Mode "<mode>" -Description "<desc>" [-Yolo]
+```
+
+The registry is a durable file under `data\`, so index it in the same step that writes it. It has
+a fixed name and the entry is rewritten in place, so this is safe to run on every import and the
+line keeps the date the registry first entered the index. Without it a fresh install reports one
+unindexed file from its very first `/annex`, and a drift count that is never zero is a count
+nobody reads:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
+Add-IndexEntry -Path "data\projects.md" -Summary "the project registry: each project's path and standing delivery posture"
 ```
 
 Confirm in one line: the name, the posture, and the gate state.

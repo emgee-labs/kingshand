@@ -238,6 +238,27 @@ Describe 'the registry is named project by project, with its posture' {
         (Get-Digest $f).Contains('PATH MISSING') |
             Should -BeTrue -Because 'a posture that points nowhere cannot be dispatched into'
     }
+
+    # The registry is maintained by hand as well as by /annex, and a name the index cannot turn into
+    # a file name fails one brief at a time, always after the brief is on disk. Said here instead,
+    # and said without taking the digest down: reading the registry may not throw.
+    It 'flags a hand-written project name the index cannot resolve, without failing the digest' {
+        $f = New-Fixture 'registry-unindexable'
+        New-Item -ItemType Directory -Force -Path (Join-Path $f.Root 'repos\web') | Out-Null
+        Add-RegistryEntry $f '- @acme/web [local-only] - a hand-written entry (added 2026-01-01)' (Join-Path $f.Root 'repos\web')
+
+        $text = Get-Digest $f
+        $text.Contains('Projects: 1 registered') |
+            Should -BeTrue -Because 'the entry is flagged, not dropped - the user did register it'
+        $text.Contains('NAME NOT INDEXABLE') |
+            Should -BeTrue -Because 'the mismatch has to be visible before a brief is written for it'
+        $text.Contains('@acme/web') | Should -BeTrue
+    }
+
+    It 'leaves a slug-shaped name unflagged' {
+        $script:RegText.Contains('NAME NOT INDEXABLE') |
+            Should -BeFalse -Because 'every fixture name here is one the index can resolve'
+    }
 }
 
 Describe 'an absent context file is a fact, not an omission' {
@@ -437,6 +458,33 @@ Describe 'the toolchain check is detect-only and silent when it is clean' {
             Should -BeFalse -Because 'a passing check is not news'
     }
 
+    # Exactly one problem is the ordinary shape, and it was the broken one: assigning from an `if`
+    # unrolled the single-element array to a bare string, so the guard below it threw under strict
+    # mode. The problem line was printed and then the section reported itself unable to run - a
+    # check that HAD run, and had found precisely one thing.
+    It 'does not report itself unable to run when it ran and found one problem' {
+        $broken = New-Fixture 'prereq-single' -FailingPrereqs
+        $text   = Get-Digest $broken
+        $text.Contains('could not run the toolchain check') |
+            Should -BeFalse -Because 'the check ran; saying otherwise discards its verdict'
+        $text.Contains('named nothing') |
+            Should -BeFalse -Because 'it named exactly one thing'
+    }
+
+    It 'prints every problem when the check finds more than one' {
+        $f = New-Fixture 'prereq-many' -FailingPrereqs
+        Set-Content -Path $f.Prereq -Encoding utf8 -Value @(
+            'Write-Host "FAILED:"'
+            'Write-Host "  - lavish-axi not found. Run: npm install -g lavish-axi"'
+            'Write-Host "  - herdr not found. Run: npm install -g herdr"'
+            'exit 1'
+        )
+        $text = Get-Digest $f
+        $text.Contains('PREREQS: lavish-axi not found') | Should -BeTrue
+        $text.Contains('PREREQS: herdr not found')      | Should -BeTrue
+        $text.Contains('could not run the toolchain check') | Should -BeFalse
+    }
+
     It 'says so rather than throwing when the check itself is missing' {
         $f = New-Fixture 'prereq-missing'
         Remove-Item -LiteralPath $f.Prereq -Force
@@ -476,6 +524,98 @@ Describe 'the hook envelope carries the digest as parseable JSON' {
         # below it; everything after that is the same digest in both modes.
         $strip = { param($t) ($t -split "`n" | Select-Object -Skip 1) -join "`n" }
         (& $strip $obj.hookSpecificOutput.additionalContext) | Should -Be (& $strip $plain)
+    }
+}
+
+Describe 'the index reaches the session as a location and two counts, never as content' {
+    # A settled brand spec sat in data\ while the site it described shipped with none of it. The
+    # digest is where a fresh session learns the index exists at all, so what it must carry is where
+    # to look and how far the index has drifted from what is on disk - and what it must NOT carry is
+    # any of the files, because paying for them at every session open is how a bounded digest stops
+    # being bounded.
+    BeforeAll {
+        function Add-IndexedFile {
+            param(
+                [Parameter(Mandatory)]$Fixture,
+                [Parameter(Mandatory)][string]$Relative,
+                [Parameter(Mandatory)][string]$Summary,
+                [string]$Project,
+                [string]$Body = 'body'
+            )
+            Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Index.psm1') -Force
+            Write-DataFile -Path $Relative -Content $Body -Summary $Summary -Project $Project -DataPath $Fixture.Data | Out-Null
+        }
+    }
+
+    It 'says nothing at all on an installation with no index and nothing to index' {
+        $f = New-Fixture 'index-fresh'
+        (Get-Digest $f).Contains('INDEX') |
+            Should -BeFalse -Because 'a fresh installation is a state, not a fault, and an empty section is not news'
+    }
+
+    It 'names where the index lives and how much it covers' {
+        $f = New-Fixture 'index-present'
+        Add-IndexedFile -Fixture $f -Relative 'data\brand.md' -Summary 'settled brand: logo, favicon, tagline' -Project 'emgeelabs-site'
+        $text = Get-Digest $f
+        $text.Contains("INDEX  ($($f.Data)\index.md, and index\<project>.md per project)") |
+            Should -BeTrue -Because 'a session that cannot find the index cannot read it'
+        $text.Contains('1 file listed across 1 index - read the one for a project before writing a brief against it.') |
+            Should -BeTrue
+    }
+
+    It 'reports drift as a count, and never as a list of files' {
+        $f = New-Fixture 'index-drift'
+        Add-IndexedFile -Fixture $f -Relative 'data\brand.md' -Summary 'settled brand' -Project 'emgeelabs-site'
+        Set-Content -Path (Join-Path $f.Data 'nobody-listed-me.md') -Value 'x' -Encoding utf8
+        Set-Content -Path (Join-Path $f.Data 'nor-me.md')           -Value 'x' -Encoding utf8
+        $text = Get-Digest $f
+
+        $text.Contains('UNINDEXED: 2 files are listed nowhere. Index each as you touch it.') |
+            Should -BeTrue -Because 'the count is what makes the gap visible without paying for a list'
+        $text.Contains('nobody-listed-me.md') |
+            Should -BeFalse -Because 'a digest that grows with the drift is the bulk this section avoids'
+    }
+
+    It 'reports an indexed file that has gone as stale' {
+        $f = New-Fixture 'index-stale'
+        Add-IndexedFile -Fixture $f -Relative 'data\gone.md' -Summary 'deleted since' -Project 'acme'
+        Remove-Item -LiteralPath (Join-Path $f.Data 'gone.md') -Force
+        (Get-Digest $f).Contains('STALE: 1 indexed file is no longer on disk.') | Should -BeTrue
+    }
+
+    It 'prints no line from any indexed file, only its count' {
+        $f = New-Fixture 'index-not-content'
+        Add-IndexedFile -Fixture $f -Relative 'data\brand.md' -Summary 'settled brand' `
+            -Project 'emgeelabs-site' -Body 'the accent is deep teal and amber was rejected'
+        $text = Get-Digest $f
+        $text.Contains('amber was rejected') |
+            Should -BeFalse -Because 'the file is read at brief-writing time, not paid for at every session open'
+        $text.Contains('settled brand') |
+            Should -BeFalse -Because 'even the one-line summaries are the index''s job, not the digest''s'
+    }
+
+    It 'is not accounted against the startup-memory budget' {
+        # 900 bytes of index against a budget of 10 tokens. An index that counted would report an
+        # overrun, and an overrun tells the Hand to run /chronicle - a curation pass over files this
+        # is not one of.
+        $f = New-Fixture 'index-unbudgeted'
+        Set-Content -Path $f.Budget -Value '10' -NoNewline -Encoding utf8
+        Add-IndexedFile -Fixture $f -Relative 'data\big.md' -Summary ('x' * 150) -Project 'acme' -Body ('y' * 900)
+        $text = Get-Digest $f
+        $text.Contains('STARTUP_MEMORY_BUDGET:') |
+            Should -BeFalse -Because 'the budget measures the two curated memory files and nothing else'
+        $text.Contains('  Startup memory: 0 of 10 estimated tokens.') | Should -BeTrue
+    }
+
+    It 'degrades with a diagnostic rather than throwing when the index location is malformed' {
+        $f = New-Fixture 'index-malformed'
+        New-Item -ItemType Directory -Force -Path (Join-Path $f.Data 'index.md') | Out-Null
+        Set-Content -Path (Join-Path $f.Data 'orphan.md') -Value 'x' -Encoding utf8
+        { Get-Digest $f } | Should -Not -Throw
+        $text = Get-Digest $f
+        $text.Contains('No index exists yet.') |
+            Should -BeTrue -Because 'a malformed location is an ordinary state, not an error'
+        $text.Contains('UNINDEXED: 1 file is listed nowhere.') | Should -BeTrue
     }
 }
 

@@ -57,11 +57,12 @@ exists to prevent.
 ## Session start
 
 A `SessionStart` hook runs `bin\Get-SessionStart.ps1` and injects its digest as this session's
-first input. The digest carries four things: any actionable toolchain problem, the fleet -
+first input. The digest carries five things: any actionable toolchain problem, the fleet -
 registered projects with their posture, recorded workers with stage and liveness, un-dispatched
-briefs and available reports - the queue from `tasks-axi ready --include-held`, and the full
-contents of `instructions.md`, `data\king.md` and `data\learnings.md`. A clean toolchain prints
-nothing at all, so silence there is the good outcome.
+briefs and available reports - the queue from `tasks-axi ready --include-held`, the data index as
+counts alone - how much it covers and how many files under `data\` it has lost track of - and the
+full contents of `instructions.md`, `data\king.md` and `data\learnings.md`. A clean toolchain
+prints nothing at all, so silence there is the good outcome.
 
 **The digest is invisible to the King.** It arrives as injected context, not as terminal output, and
 Claude Code says nothing at all until they type. So their first sight of kingshand is an empty
@@ -84,11 +85,15 @@ assumed from a line printed at session open.
 Absence in the digest is a state, never an error. `ABSENT` against `king.md` or `learnings.md`
 means nothing has been recorded there yet, which is not the same as a file that exists and holds
 nothing, and neither is a reason to write a placeholder. An empty registry means nothing can be
-dispatched until `/annex` runs. A `STARTUP_MEMORY_BUDGET:` line means the two memory files have
-outgrown their budget - invoke `chronicle` to curate them back down, and read them anyway, because
-the budget is a signal and not a gate. `ABSENT` against `instructions.md` reads the same
-way: the King has stated no standing instructions, which is an ordinary state and not a prompt to
-create the file.
+dispatched until `/annex` runs. No `INDEX` section means there is nothing indexed and nothing to
+index yet, while an `UNINDEXED:` count means durable files exist that no index lists - index each
+as you touch it rather than in a sweep. A `STALE:` count is the same drift from the other end,
+entries whose file is gone: clear it with `Remove-IndexEntry -Missing -All` from `bin\Index.psm1`,
+because a count nothing can take to zero stops being read. A `STARTUP_MEMORY_BUDGET:` line means
+the two memory files have outgrown their budget - invoke `chronicle` to curate them back down, and
+read them anyway, because the budget is a signal and not a gate. `ABSENT` against
+`instructions.md` reads the same way: the King has stated no standing instructions, which is an
+ordinary state and not a prompt to create the file.
 
 The digest is not `survey` and neither runs the other. This is mechanical startup input nobody
 asked for; `survey` is a curated answer to "what needs me" that only the user ever asks for.
@@ -109,6 +114,9 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
   until there is something to store, and curated by `chronicle` rather than appended to.
 - `data\learnings.md` - kingshand's own operational facts and gotchas, dated and evidence-backed.
   Absent until there is a learning to store, and curated the same way.
+- `data\index\<project>.md`, and `data\index.md` for kingshand's own operational files - one line
+  per durable file so a later session can find it. Written through `bin\Index.psm1` as the file
+  itself is written, never as a separate act of remembering.
 
 **`instructions.md` at the repo root is not yours.** It is the King's own standing instructions,
 stated by hand. **Read it and never edit it** - not to reformat it, not to fold a new preference
@@ -139,8 +147,9 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Get-SurveySnapshot.ps1` | the one bounded gather behind `/survey`: registry, workers joined with live state, reports, un-dispatched briefs. Returns structured data, renders nothing, never throws |
 | `bin\Render-Review.ps1` | structured data to reviewable HTML for lavish |
 | `bin\Test-CrewPrereqs.ps1` | verifies the toolchain; run it if anything behaves oddly |
-| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook: toolchain problems, fleet, queue, and both context files in full. Never throws |
+| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook: toolchain problems, fleet, queue, index counts, and both context files in full. Never throws |
 | `bin\Memory.psm1` | the startup-memory budget: what the two memory files cost, against what is allowed |
+| `bin\Index.psm1` | the data index: write a file and index it in one call, add an entry for a file another tool wrote, read a project's index, count the drift, drop an entry whose file is gone |
 
 ## Skills
 
@@ -229,6 +238,20 @@ syntax. Do not restate flags here; read the help.
 ## Knowledge routing
 
 Durable knowledge goes to its most specific owner, and only there.
+
+**Every durable file written under `data\` is indexed as it is written** - `bin\Index.psm1` writes
+and indexes in one call - whatever it is and whoever turns out to need it. Nothing is judged
+important enough to list at write time: that is a guess about work nobody has scoped yet, and a
+wrong guess is silent, which is how a settled brand spec sat unread while the site it described
+shipped without it. The index is a table of contents, so the reader decides at read time which
+files their own task touches, and a file no index lists is drift the session-start digest counts.
+That holds for a file another tool wrote as much as one you wrote: `data\backlog.md` is
+`tasks-axi`'s own file, and `Add-IndexEntry` lists it the first time the digest reports it
+unindexed. `data\done-archive.md` is the same file in slower motion - `tasks-axi` starts writing it
+once more items have closed than `.tasks.toml` keeps - so it is listed the same way rather than
+excluded, and the drift count returns to zero instead of sitting at one forever.
+**Where two sources disagree the brief says which one wins**, and a settled file beats
+an older backlog line, ticket text or report - a worker left to choose picks wrong half the time.
 
 - How the user works and what they prefer belongs in `data\king.md`, after inspect-then-update:
   read the current file, decide what the new fact supersedes, and rewrite that statement rather than

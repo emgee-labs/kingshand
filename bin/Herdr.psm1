@@ -14,14 +14,9 @@ Set-StrictMode -Version Latest
 
 $script:HerdrTimeoutMs = 240000
 
-# Imported once, at module load, and WITHOUT -Force.
-#
-# `-Force` does not mean "make sure it is loaded" - it removes the module first and re-imports it,
-# and the removal takes the copy the CALLING script already imported. A script that imported
-# Paths.psm1, then called anything in here, silently lost Get-KingshandHome partway through:
-# Test-CrewPrereqs printed every check OK and then died on the next line with "the term
-# Get-KingshandHome is not recognized". Doing it here rather than inside a function also means it
-# happens once, not on every path lookup.
+# NOT -Force - a module never forces a nested import. The rule and the failure it prevents (first
+# observed here, against this edge) are in the `statute` skill's style rules. At module load rather
+# than inside a function, so it happens once and not on every path lookup.
 Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
 
 # The bundled herdr binary, or $null when it is not installed.

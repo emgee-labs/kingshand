@@ -4,7 +4,8 @@
   Sets up kingshand on this machine: checks prerequisites and writes the configuration that is
   one answer per machine.
   It writes at most four things outside this repository, and names each one as it does it: the two
-  user environment variables KINGSHAND_HOME and LAVISH_AXI_PORT, the line `.claude/worktrees/` in
+  user environment variables KINGSHAND_HOME and LAVISH_AXI_PORT, the lines `.claude/worktrees/` and
+  `.claude/settings.local.json` in
   your global gitignore, and - only on a machine where Claude Code resolves to npm's claude.cmd
   wrapper - the real claude.exe put first on your user PATH. Nothing else on the machine is touched. The
   skills live in this repository's own `.claude\skills\`, so nothing is linked into
@@ -624,16 +625,24 @@ if ($script:ClaudeIsWrapper) {
 #    nothing here ever wrote it, so every new machine failed that check by definition
 #    with only "add it by hand" as the fix.
 #
+#    There are two lines, not one, and the second is not optional. Each worktree is
+#    its own working tree, so inside it the permission grant kingshand writes before
+#    the worker starts is at `.claude/settings.local.json` relative to that tree's own
+#    root - a path the repo's `.claude/worktrees/` pattern does not match. Without the
+#    second line every dispatched worker's tree is dirty from the moment it is created,
+#    and the review gate refuses to run in a dirty tree. This repository ignores both
+#    for itself; these lines are what make that true in the user's own repos too.
+#
 #    Three rules, and they are the whole of the care this needs.
-#    Never duplicate the line: an installer run twice must leave exactly one.
+#    Never duplicate a line: an installer run twice must leave exactly one of each.
 #    Never rewrite or reorder a file the user already had - the only write to a file
-#    that already exists is one appended line.
+#    that already exists is an appended line.
 #    And print the file that was touched, because a script quietly editing a dotfile
 #    in someone's home directory should at minimum say which one.
 # --------------------------------------------------------------------------------
 Write-Step 'Global gitignore'
 
-$ignoreLine = '.claude/worktrees/'
+$ignoreLines = @('.claude/worktrees/', '.claude/settings.local.json')
 
 if (-not (Get-Command 'git' -ErrorAction SilentlyContinue)) {
     Write-Miss 'git is not on PATH, so the global gitignore was left alone. Install git and run this again.'
@@ -660,20 +669,27 @@ if (-not (Get-Command 'git' -ErrorAction SilentlyContinue)) {
         if ($parent -and -not (Test-Path -LiteralPath $parent)) {
             New-Item -ItemType Directory -Force -Path $parent | Out-Null
         }
-        Set-Content -LiteralPath $excludesPath -Value $ignoreLine -Encoding utf8
-        Write-Did "created $excludesPath with the line $ignoreLine"
+        Set-Content -LiteralPath $excludesPath -Value $ignoreLines -Encoding utf8
+        Write-Did "created $excludesPath with the lines $($ignoreLines -join ' and ')"
         $actions.Add('global gitignore')
-    } elseif (@(Get-Content -LiteralPath $excludesPath | Where-Object { $_.Trim() -eq $ignoreLine }).Count -gt 0) {
-        Write-Ok "$excludesPath already ignores $ignoreLine"
     } else {
-        # A file that does not end in a newline would otherwise have this line glued onto its last
-        # one, silently changing a pattern the user wrote. Add-Content with an empty string appends
-        # the missing terminator and nothing else.
-        $existing = Get-Content -LiteralPath $excludesPath -Raw
-        if ($existing -and -not $existing.EndsWith("`n")) { Add-Content -LiteralPath $excludesPath -Value '' }
-        Add-Content -LiteralPath $excludesPath -Value $ignoreLine
-        Write-Did "appended $ignoreLine to $excludesPath - nothing else in that file was changed"
-        $actions.Add('global gitignore')
+        # Each line is decided on its own, so a file that already has one gets only the other and
+        # a file that has both is left completely alone.
+        $present = @(Get-Content -LiteralPath $excludesPath | ForEach-Object { $_.Trim() })
+        $wanted  = @($ignoreLines | Where-Object { $present -notcontains $_ })
+
+        if ($wanted.Count -eq 0) {
+            Write-Ok "$excludesPath already ignores $($ignoreLines -join ' and ')"
+        } else {
+            # A file that does not end in a newline would otherwise have the first of these glued
+            # onto its last one, silently changing a pattern the user wrote. Add-Content with an
+            # empty string appends the missing terminator and nothing else.
+            $existing = Get-Content -LiteralPath $excludesPath -Raw
+            if ($existing -and -not $existing.EndsWith("`n")) { Add-Content -LiteralPath $excludesPath -Value '' }
+            Add-Content -LiteralPath $excludesPath -Value $wanted
+            Write-Did "appended $($wanted -join ' and ') to $excludesPath - nothing else in that file was changed"
+            $actions.Add('global gitignore')
+        }
     }
 
     if (-not $configured) {

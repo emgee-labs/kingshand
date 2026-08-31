@@ -15,6 +15,15 @@ Set-StrictMode -Version Latest
 
 $script:ValidModes = @('no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only')
 
+# For the project-name shape only. The index owns that rule because the name becomes a file name
+# there, and this module asks rather than keeping a second copy of the pattern: two copies of one
+# validation drift the moment either is edited, and a registry that accepted more than the index
+# could resolve let a project register and then fail every index write it was ever named in.
+#
+# NOT -Force - a module never forces a nested import. The rule and the failure it prevents are in
+# the `statute` skill's style rules; tests\Projects.Tests.ps1 pins this edge.
+Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
+
 function Get-DefaultRegistryPath {
     Join-Path (Split-Path $PSScriptRoot -Parent) 'data\projects.md'
 }
@@ -83,6 +92,20 @@ function Read-Registry {
         $rawMode = $mode
         if ($mode -eq 'no-mistakes-prod-only') { $mode = 'no-mistakes' }
 
+        # The registry is maintained by hand as well as by /annex, so a name Add-ProjectEntry would
+        # refuse can still arrive by hand - and every durable file written for that project is
+        # indexed at data\index\<name>.md, so it fails one brief at a time, always after the brief
+        # is on disk. Flagged and warned rather than refused: this function is read on every session
+        # start, and an exception here would take the whole digest down over one bad line, while
+        # dropping the entry would hide a project the user did register.
+        $indexable = Test-IndexProjectName -Project $name
+        if (-not $indexable) {
+            Write-Warning ("Project name '$name' cannot be indexed: it becomes the file name " +
+                           "data\index\$name.md, which allows only $(Get-IndexProjectNameRule). " +
+                           "Rename it in $RegistryPath - '$(ConvertTo-IndexProjectName -Project $name)' " +
+                           "would work - or nothing written for it can be listed.")
+        }
+
         $entries.Add(@{
             name        = $name
             path        = $path
@@ -91,6 +114,7 @@ function Read-Registry {
             yolo        = $yolo
             description = $desc
             added       = $added
+            indexable   = $indexable
         })
     }
 
@@ -168,6 +192,16 @@ function Add-ProjectEntry {
 
     if ($script:ValidModes -notcontains $Mode) {
         throw "Invalid mode '$Mode'. Must be one of: $($script:ValidModes -join ', ')"
+    }
+
+    # Refused where the name is chosen, not later where it is used. Every durable file written for a
+    # project is indexed under data\index\<name>.md, so a name the index cannot turn into a file name
+    # is a project nothing can ever index - and the failure would land one brief at a time, after
+    # each one was already on disk.
+    if (-not (Test-IndexProjectName -Project $Name)) {
+        throw ("Project name '$Name' cannot be registered: it becomes the file name of this " +
+               "project's index at data\index\$Name.md. Use a name of $(Get-IndexProjectNameRule) - " +
+               "for example '$(ConvertTo-IndexProjectName -Project $Name)'.")
     }
 
     if (Test-Path $RegistryPath) {

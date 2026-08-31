@@ -171,6 +171,55 @@ line from the brief for this dispatch. `init` touches no tracked files and is re
 
 ## Step 2 - Write a brief per unit of work
 
+**Read the index for this project before you write anything.** It is at
+`$env:KINGSHAND_HOME\data\index\<project>.md`, with kingshand's own operational files in
+`$env:KINGSHAND_HOME\data\index.md`, and it is one line per durable file rather than the files
+themselves - a page to scan, not a cost. Then **name in the brief, by absolute path and with an
+instruction to read it in full, every file this task plausibly touches**, and say which source wins
+where two disagree. Nothing else delivers them: a worker sees exactly one thing, its brief, so "it
+is recorded" is not a delivery mechanism. A fully settled brand spec sat in `data\` naming itself
+the input to the website brief while the site shipped without its logo, its favicon, its tagline or
+its palette, because no brief ever named the file.
+
+**`Read first` is a mandatory section of every brief**, and it is where those paths go. A
+requirement that lives only in this skill reaches nobody: the worker never reads this file, it
+reads the brief, so the slot has to be in the artefact. Write one line per file - the absolute
+path, what it settles, and an instruction to read it in full - then the line that says which
+source wins where two disagree. Where the index turns up nothing this task touches, say
+`- Nothing beyond this brief.` rather than dropping the section, so a brief that names no file
+is a decision someone made rather than a slot someone forgot. Dispatch refuses a brief with no
+`## Read first` heading at all, before anything is created - so a brief written before this
+section existed needs that one line adding before it can go out.
+
+**Name the copy, not the original.** A worker can reach exactly two places: its own worktree and
+the brief's own directory. A settled file at `data\<name>.md` is a sibling of `data\<id>\` rather
+than inside it, so a brief naming it there tells the worker to open a file it cannot reach - the
+original failure with one extra hop. Step 4 hands the original to `-ReadPath` and dispatch copies
+it to `$env:KINGSHAND_HOME\data\<id>\read-first\<filename>`, keeping the file name exactly. That
+is the path the `Read first` line names, and every path you write there goes to `-ReadPath` at
+Step 4.
+
+**Nothing checks that those two agree, so you are the one who has to.** Dispatch reads this section
+for its heading and for nothing else: the paths reach it through `-ReadPath`, from you, in the same
+call. Write the section and the parameter together, in one go, and the pair cannot come apart. A
+line naming the original at `data\<name>.md` instead of the copy sends the worker to a sibling of
+the one directory it can read, and a copy no line names reaches nobody - both are yours to get
+right at the moment you write them.
+
+**Substitute this work's own id, every time.** Briefs get written several at a time from one
+template, and a `Read first` block carried over from the brief above it keeps the other unit's id -
+`data\<other id>\read-first\<filename>` names a real file in a directory this worker cannot read,
+and the file name still matches, so only the id gives it away.
+
+Say in the same line what the copy is of, so the worker knows what it is holding and a later reader
+can find the original. The copy is taken at dispatch and does not change afterwards, which is
+exactly what the brief itself is.
+
+Granting the original's own directory would be the shorter route and it is the wrong one: the
+canonical settled file sits directly under `data\`, so that grant hands the worker every other
+worker's brief and report, `king.md`, `learnings.md`, `backlog.md` and `projects.md`, and hands
+them writable. Do not ask for it.
+
 Write `$env:KINGSHAND_HOME\data\<id>\brief.md`:
 
 ```markdown
@@ -178,6 +227,12 @@ Write `$env:KINGSHAND_HOME\data\<id>\brief.md`:
 
 ## Goal
 <what done looks like, 2-3 sentences>
+
+## Read first
+- `$env:KINGSHAND_HOME\data\<id>\read-first\<filename>` - <what it settles>, copied here from
+  `<the original absolute path>`. Read it in full before you start. If you cannot read it, stop
+  and report that rather than proceeding without it.
+- Where this brief and <that file> disagree, <the one that wins> wins.
 
 ## Scope
 Repo: <repo>
@@ -192,6 +247,15 @@ Do NOT touch: <explicit exclusions>
 
 ## Done means
 <the block for this project's mode - see below>
+```
+
+With that file on disk, index it. Index the brief in the same step that writes it, so the two
+cannot come apart - and never before it is written, or the index carries a line for a file that
+was abandoned:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
+Add-IndexEntry -Project "<project>" -Path "data\<id>\brief.md" -Summary "<the one-line title>"
 ```
 
 **The Done-means block is generated from the resolved mode.** Use exactly one of these three.
@@ -364,8 +428,38 @@ One worker per brief:
 ```powershell
 $r = & $env:KINGSHAND_HOME\bin\Dispatch-Worker.ps1 `
         -RepoPath "<absolute repo path>" -Name "<id>" `
-        -BriefPath "$env:KINGSHAND_HOME\data\<id>\brief.md"
+        -BriefPath "$env:KINGSHAND_HOME\data\<id>\brief.md" `
+        -ReadPath "<original absolute path 1>", "<original absolute path 2>"
 ```
+
+**`-ReadPath` takes the ORIGINALS of exactly the files that brief's `Read first` section names,
+and nothing else.** It is a list: one quoted path per file, separated by commas. Two paths inside
+one pair of quotes are one string naming no file, and dispatch refuses it.
+
+Dispatch copies each one to `$env:KINGSHAND_HOME\data\<id>\read-first\`, which is the path the
+brief already names, because that directory is the only place outside its worktree a worker can
+read. Drop the parameter only when the section says `- Nothing beyond this brief.`
+
+Every refusal comes before anything at all is created, so a mistake here costs nothing to fix.
+There are four, and each is refused by name: a brief with no `## Read first` section at all, a
+path that does not exist, a directory where a file was meant, and two different files whose names
+would land on top of each other in the staging directory.
+
+**Dispatch does not read the paths out of the brief's prose, and nothing may make it start.** An
+earlier version did, comparing what it parsed there against `-ReadPath`, and it cost six review
+rounds without reaching a last bug - a path in prose can be absolute or relative, forward or back
+slashed, quoted or bare, contain spaces, sit inside a sentence or wrap across a line, and two of
+those rounds refused correct briefs over paths nobody had written. You write the brief and you make
+this call, so you already hold the list. Passing it here is the whole mechanism.
+
+**A brief written before the `Read first` section existed will be refused**, which is the intended
+behaviour rather than a migration problem: the un-dispatched briefs already on disk name no settled
+file, and that is the fault, not the refusal. Add the section before dispatching one - one line of
+`- Nothing beyond this brief.` where the index turns up nothing it touches.
+
+The staged copies are not indexed, and that is deliberate rather than an oversight: each one is a
+snapshot of a file the index already lists at its own path, so `Get-IndexableFiles` excludes
+`read-first\` and the drift count stays about files nothing has recorded anywhere.
 
 Then record it:
 
@@ -551,12 +645,22 @@ everything that follows: the stable key, the durable backlog item, and the decla
 either every unresolved decision from this report is registered or this report contained none.
 A worker finishing is not an answer, and nothing here closes a decision.
 
-**Record the outcome on the backlog item**, pointing at the report rather than restating it:
+**Record the outcome on the backlog item**, pointing at the report rather than restating it, and
+**index the report in the same breath** - you have just read it, so this is the one moment its one
+line can be written honestly, and a report no index lists is a finding the next brief will not
+find:
 
 ```powershell
 Set-Location $env:KINGSHAND_HOME
 tasks-axi update "<id>" --report "data\<id>\report.md"
+
+Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
+Add-IndexEntry -Project "<project>" -Path "data\<id>\report.md" -Summary "<one line of what it found>"
 ```
+
+A report is indexed whenever it is first read, not only here. A worker that fails or goes
+unresponsive never reaches this step - the Hand loads `rally` instead - and that path indexes it
+too, so a torn-down worker's findings are never left listed nowhere.
 
 Do not mark it done here. The item closes at Step 8 or Step 8a, when the work has actually landed.
 

@@ -35,15 +35,68 @@
   outlives the defect: a brief on disk is what the worker can re-read mid-task and what survives a
   restart, and the settings written in step 3 grant read access to the brief's directory, which
   lives outside the repo.
+
+  -ReadPath carries the files the brief's `Read first` section names, and it does it by COPYING
+  each one into <briefdir>\read-first\ rather than by granting where it lives. Those files sit
+  beside the brief's directory rather than inside it - a settled spec at data\<name>.md is a
+  sibling of data\<id>\ - and a brief naming a file the worker cannot open delivers nothing, which
+  is the original failure with one extra hop.
+
+  Granting the containing directory was the obvious answer and it is wrong. The canonical settled
+  file is data\<name>.md, whose containing directory IS the kingshand data root, so that grant
+  hands the worker every other worker's brief and report, king.md, learnings.md, backlog.md and
+  projects.md - and hands them writable, because these settings also set bypassPermissions. Copying
+  keeps additionalDirectories at exactly one entry, the brief's own directory, on every dispatch
+  and whatever the brief names.
+
+  The copy is a snapshot taken at dispatch, which is the same thing the brief itself is. A worker
+  re-reading it mid-task sees what it was given, not what has changed underneath it since. It is
+  derived from a file the index already lists at its own path, so Get-IndexableFiles excludes
+  read-first\ and the drift count does not grow by one per dispatch forever.
+
+  The paths arrive STRUCTURALLY, in -ReadPath, and nothing here reads them back out of the brief's
+  prose. An earlier version did: it parsed the `Read first` section for file paths and compared
+  that set against -ReadPath in both directions. The intent was right and the mechanism has no last
+  bug. It cost six consecutive review rounds - refuse paths outside the grant, read every path
+  form, read whole paths, tighten the parsing, refuse spaced names, refuse spaced mentions - each
+  one closing a real hole and exposing the next, because a path written in prose can be absolute or
+  relative, forward or back slashed, quoted or bare, contain spaces, sit inside a sentence, or wrap
+  across a line. Two of those rounds had already refused correct briefs over paths nobody wrote.
+
+  The Hand writes the brief AND calls this script, so it is holding the list at the moment it
+  dispatches. Passing that list is the whole fix, and there is nothing left to infer. The prose
+  section stays as what the WORKER reads and acts on; nothing reads it mechanically except the
+  presence check below. Do not reintroduce a parser here.
+
+  What survives is the one check that never needed a path: the section must EXIST. A brief with no
+  `## Read first` heading names no settled file at all - the original failure verbatim rather than
+  a variant of it, since a brief with nothing to read says so in one line while a brief missing the
+  slot says nothing, and only the first is a decision somebody made. It is a regex against a
+  heading, and refusing here costs one line in a brief that has not been dispatched yet.
+
+  Fenced code is quoted text, so it is skipped while looking for that heading. A brief for a task
+  on muster's own template quotes that template, fence and all, and the quoted `## Read first`
+  heading satisfied the check for a brief that had no section of its own.
+
+  Everything else refused here is about -ReadPath itself, where the path is known exactly and
+  nothing is being read out of anything: a path that is not on disk, a directory where a file was
+  meant, and two entries whose file names would collide in the staging directory.
 .EXAMPLE
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md
   $r.id, $r.worktree, $r.branch
+.EXAMPLE
+  # The brief's Read first section names $env:KINGSHAND_HOME\data\T-1001\read-first\emgee-brand.md,
+  # which is where this call puts it.
+  $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 `
+         -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md `
+         -ReadPath $env:KINGSHAND_HOME\data\emgee-brand.md
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$RepoPath,
     [Parameter(Mandatory)][string]$Name,
     [Parameter(Mandatory)][string]$BriefPath,
+    [string[]]$ReadPath = @(),
     [int]$TimeoutSeconds = 90
 )
 
@@ -67,6 +120,85 @@ if (-not (Get-HerdrCommandPath)) { throw (Get-HerdrCommandHint) }
 $RepoPath  = (Resolve-Path $RepoPath).Path
 $BriefPath = (Resolve-Path $BriefPath).Path
 $briefDir  = Split-Path $BriefPath -Parent
+
+# Staged BEFORE the worktree exists, for the same reason the base ref is resolved first: a brief
+# naming a file that is not there is a brief the worker cannot carry out, and finding that out
+# after a worker is running means one more dispatch spent discovering it. Every refusal below
+# names the offending path and leaves nothing created.
+$readFirstDir = Join-Path $briefDir 'read-first'
+$staged       = [System.Collections.Generic.Dictionary[string, string]]::new(
+                    [System.StringComparer]::OrdinalIgnoreCase)
+
+foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
+    if (-not (Test-Path -LiteralPath $p)) {
+        throw ("The brief names $p under Read first and it does not exist, so the worker would be " +
+               "told to read a file that is not there. Nothing was created.")
+    }
+    $resolved = (Resolve-Path -LiteralPath $p).Path
+    if (Test-Path -LiteralPath $resolved -PathType Container) {
+        throw ("Read first names the directory $resolved. Name the files the worker must read, " +
+               "one path each - a directory would copy whatever happens to be in it. Nothing was created.")
+    }
+
+    $leaf = Split-Path $resolved -Leaf
+
+    # Two sources with one file name would land on top of each other, and the worker would read
+    # whichever was copied last with no sign the other ever existed.
+    if ($staged.ContainsKey($leaf) -and $staged[$leaf] -ne $resolved) {
+        throw ("Read first names two different files called $leaf - $($staged[$leaf]) and " +
+               "$resolved. One would overwrite the other. Pass only the one this task needs, or " +
+               "copy one under a distinct name first and pass that copy. Do not rename either " +
+               "original: two reports really are both called report.md, and that name is the " +
+               "convention every index entry pointing at them already uses. Nothing was created.")
+    }
+    $staged[$leaf] = $resolved
+}
+
+# The heading, and NOTHING about the paths underneath it. The section's lines are what the worker
+# reads and acts on; the files it must be handed arrive in -ReadPath, from the same Hand that wrote
+# the section. An earlier version read the paths back out of these lines and compared the two sets,
+# and that parser is what the header records: six review rounds, no last bug, and two correct
+# briefs refused over paths nobody had written. Nothing here may start parsing this text again.
+#
+# Fenced blocks are QUOTED TEXT rather than this brief's own structure. A brief for a task on
+# muster's own template quotes that template, fence and all, and the quoted `## Read first` heading
+# satisfied this check for a brief that had no section of its own.
+$hasSection = $false
+$inFence    = $false
+foreach ($line in @(Get-Content -LiteralPath $BriefPath)) {
+    if ($line -match '^\s*```') {
+        $inFence = -not $inFence
+        continue
+    }
+    if ($inFence) { continue }
+    if ($line -match '^\s*##\s+Read first\s*$') {
+        $hasSection = $true
+        break
+    }
+}
+
+# The section has to be PRESENT. This is the check that closes the originating failure: a brief
+# that names no settled file at all, a worker that never learns one exists, and a site shipped
+# without the brand that was already decided. A brief with nothing to read says so in a line; a
+# brief missing the slot says nothing, and the two are not the same fact.
+if (-not $hasSection) {
+    throw ("The brief at $BriefPath has no '## Read first' section. Every brief carries one, " +
+           "because a worker reads exactly one thing and a settled file it is never handed reaches " +
+           "it not at all. Add the section naming each file to read - or the single line " +
+           "'- Nothing beyond this brief.' when the index turns up nothing this task touches, so " +
+           "that it reads as a decision rather than an omission. Nothing was created.")
+}
+
+# Copied only once every check above has passed, so a refusal is always true when it says nothing
+# was created. Staging first left a directory and a file on disk under a message denying both.
+if ($staged.Count -gt 0) {
+    if (-not (Test-Path -LiteralPath $readFirstDir)) {
+        New-Item -ItemType Directory -Force -Path $readFirstDir | Out-Null
+    }
+    foreach ($leaf in $staged.Keys) {
+        Copy-Item -LiteralPath $staged[$leaf] -Destination (Join-Path $readFirstDir $leaf) -Force
+    }
+}
 
 # The worktree branches from the REMOTE default branch when the repo has one, not the local
 # branch. Local main is often behind origin/main, and diffing the worker's branch against local

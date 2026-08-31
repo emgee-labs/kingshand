@@ -281,6 +281,18 @@ so relieves nothing; and any project file written by the Hand rather than by a w
    `statute`, or deleting an entry that is a duplicate of, or already preserved by, a
    stronger existing owner. **A stale unique fact is never deleted, only archived.** Do not invent
    another exit.
+5. **Index every memory file this pass wrote or rewrote**, in the pass that wrote it. `king.md`,
+   `learnings.md` and `memory-archive.md` are durable files under `data\` like any other, and a
+   file no index lists is drift the session-start digest counts. An existing entry is rewritten in
+   place and keeps the date the file first entered the index, so re-indexing a curated file does
+   not make it look new. Index only what this pass actually touched:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
+Add-IndexEntry -Path "data\king.md"           -Summary "<one line of what it now holds>"
+Add-IndexEntry -Path "data\learnings.md"      -Summary "<one line of what it now holds>"
+Add-IndexEntry -Path "data\memory-archive.md" -Summary "<one line of what it now holds>"
+```
 
 ## One-time migration of unmarked entries
 

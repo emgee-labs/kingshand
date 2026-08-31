@@ -755,7 +755,8 @@ Describe 'survey reads the fleet and never acts on it' {
         Assert-Phrase -Text (Get-DocText $script:SurveyMd) -Where 'the survey skill' `
             -Phrase ('This skill is operationally read-only in both modes. It never dispatches, ' +
                      'steers, lands, merges, tears down, answers a decision, or mutates `state\` ' +
-                     'or `data\` other than that single dated report in explicit file mode.')
+                     'or `data\` other than that single dated report, and its one line in the ' +
+                     'index, in explicit file mode.')
     }
 
     It 'leaves any implied action to muster' {
@@ -1878,9 +1879,18 @@ Describe 'annex refuses a push-capable posture on a machine with no gh' {
 
     It 'the refusal is still counted among the preflight refusals rather than left loose' {
         Assert-Phrase -Text $script:ImportPreflight -Where 'annex Step 3' `
-            -Phrase '`Test-ProjectImportable` owns three of the five refusals'
+            -Phrase '`Test-ProjectImportable` owns three of the six refusals'
         Assert-Phrase -Text $script:ImportPreflight -Where 'annex Step 3' `
             -Phrase 'The fifth is uniqueness.'
+    }
+
+    # The count is what a Hand plans Step 4 around. Add-ProjectEntry throws on a non-slug name as
+    # well as on a duplicate, and uniqueness is counted here precisely because it is enforced by
+    # that same call - so leaving the name shape out understated what Step 4 refuses.
+    It 'counts the name-shape refusal Add-ProjectEntry makes alongside uniqueness' {
+        Assert-Phrase -Text $script:ImportPreflight -Where 'annex Step 3' `
+            -Phrase ('The sixth is the name''s shape, from Step 1: a name the index cannot turn ' +
+                     'into a file name is refused by that same `Add-ProjectEntry` call')
     }
 }
 
@@ -2145,6 +2155,247 @@ Describe 'the session-start digest is read once and not read again' {
     }
 }
 
+Describe 'every durable file is indexed, and the brief names the ones its task touches' {
+    # A settled brand spec sat in data\ naming itself the input to the website brief, and the site
+    # shipped without its logo, favicon, tagline or palette. Nothing was lost and nothing was
+    # overruled - the file was never read, because no brief named it.
+    #
+    # The first fix drafted was a "settled decision" category with its own home. It was rejected:
+    # classifying a file as important at write time is a guess about work nobody has scoped yet, and
+    # a wrong guess is silent, which is the same failure in a different hat. What shipped is an
+    # index - everything is listed, nothing is judged, and the gap is counted. These pin the four
+    # sentences that carry that, because a future editor tidying the routing section back into a
+    # category is exactly how this returns.
+    BeforeAll {
+        $script:IndexRouting = Get-HandSection 'Knowledge routing'
+        $script:IndexOwned   = Get-HandSection 'What you own'
+        $script:IndexStart   = Get-HandSection 'Session start'
+        $script:MusterText   = Get-DocText $script:MusterMd
+    }
+
+    It 'CLAUDE.md owns the index beside the other durable state' {
+        Assert-Phrase -Text $script:IndexOwned -Where 'CLAUDE.md What you own' `
+            -Phrase ('`data\index\<project>.md`, and `data\index.md` for kingshand''s own ' +
+                     'operational files - one line per durable file so a later session can find it.')
+        Assert-Phrase -Text $script:IndexOwned -Where 'CLAUDE.md What you own' `
+            -Phrase ('Written through `bin\Index.psm1` as the file itself is written, never as a ' +
+                     'separate act of remembering.')
+    }
+
+    It 'routing indexes everything at write time rather than judging what is worth listing' {
+        Assert-Phrase -Text $script:IndexRouting -Where 'CLAUDE.md knowledge routing' `
+            -Phrase '**Every durable file written under `data\` is indexed as it is written**'
+        Assert-Phrase -Text $script:IndexRouting -Where 'CLAUDE.md knowledge routing' `
+            -Phrase ('Nothing is judged important enough to list at write time: that is a guess ' +
+                     'about work nobody has scoped yet, and a wrong guess is silent')
+    }
+
+    It 'routing moves the judgement to read time and counts what nothing lists' {
+        Assert-Phrase -Text $script:IndexRouting -Where 'CLAUDE.md knowledge routing' `
+            -Phrase ('The index is a table of contents, so the reader decides at read time which ' +
+                     'files their own task touches, and a file no index lists is drift the ' +
+                     'session-start digest counts.')
+    }
+
+    # An older backlog line said the accent was amber while the spec file said teal and recorded
+    # amber as rejected. A worker handed both and told nothing picks wrong half the time.
+    It 'routing says which source wins when two disagree' {
+        Assert-Phrase -Text $script:IndexRouting -Where 'CLAUDE.md knowledge routing' `
+            -Phrase ('**Where two sources disagree the brief says which one wins**, and a settled ' +
+                     'file beats an older backlog line, ticket text or report')
+    }
+
+    It 'the digest carries the index as counts, and absence still means absence' {
+        Assert-Phrase -Text $script:IndexStart -Where 'CLAUDE.md session start' `
+            -Phrase ('the data index as counts alone - how much it covers and how many files under ' +
+                     '`data\` it has lost track of')
+        Assert-Phrase -Text $script:IndexStart -Where 'CLAUDE.md session start' `
+            -Phrase ('No `INDEX` section means there is nothing indexed and nothing to index yet, ' +
+                     'while an `UNINDEXED:` count means durable files exist that no index lists')
+    }
+
+    It 'the module is listed in the Tooling table' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
+            -Phrase ('| `bin\Index.psm1` | the data index: write a file and index it in one call')
+    }
+
+    It 'muster reads the index before a brief is written' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase '**Read the index for this project before you write anything.**'
+    }
+
+    It 'muster names the files in the brief by absolute path, to be read in full' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase ('**name in the brief, by absolute path and with an instruction to read it in ' +
+                     'full, every file this task plausibly touches**, and say which source wins ' +
+                     'where two disagree')
+    }
+
+    It 'muster says why naming it is the only delivery there is' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase ('a worker sees exactly one thing, its brief, so "it is recorded" is not a ' +
+                     'delivery mechanism')
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase ('A fully settled brand spec sat in `data\` naming itself the input to the ' +
+                     'website brief while the site shipped without its logo, its favicon, its ' +
+                     'tagline or its palette, because no brief ever named the file.')
+    }
+
+    It 'muster indexes the brief in the step that writes it, and the report in the step that reads it' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase 'Index the brief in the same step that writes it, so the two cannot come apart'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 6' `
+            -Phrase '**index the report in the same breath**'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 6' `
+            -Phrase 'a report no index lists is a finding the next brief will not find'
+    }
+
+    It 'both index calls are stated as runnable text, through the module' {
+        $fences = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('Add-IndexEntry') })
+        $fences.Count | Should -Be 2 -Because 'the brief and the report are each indexed where they are handled'
+        @($fences | Where-Object { $_.Contains('brief.md') }).Count  | Should -Be 1
+        @($fences | Where-Object { $_.Contains('report.md') }).Count | Should -Be 1
+        foreach ($fence in $fences) {
+            $fence.Contains('Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force') |
+                Should -BeTrue -Because 'the module is the one place that knows the index format'
+        }
+    }
+
+    # The requirement to name the files lived only in the instructions for filling the template in,
+    # and the template itself asked for repo paths to change and nothing to read. A worker sees one
+    # thing, its brief, so the slot has to be in the artefact - the same fix the landing gate needed
+    # when "render the diff and poll lavish" was prose and lavish ran zero times in a full session.
+    It 'the brief template carries the slot those paths go in' {
+        $template = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains('## Goal') -and $_.Contains('## Done means') })
+        $template.Count | Should -Be 1 -Because 'the brief template is one fence and the worker gets what it says'
+        $template[0].Contains('## Read first') |
+            Should -BeTrue -Because 'a requirement with no field in the template reaches no brief'
+        $template[0].IndexOf('## Read first') |
+            Should -BeLessThan $template[0].IndexOf('## Scope') -Because 'what to read comes before what to change'
+        $template[0] | Should -Match 'Read it in full before you start'
+        $template[0] | Should -Match 'disagree'
+    }
+
+    # Naming the path in the brief is half of it. A worker's only grants are its worktree and the
+    # brief's own directory, so a settled file one level up is named but unreachable unless
+    # dispatch carries it in - the original failure with one extra hop.
+    It 'muster hands the originals to the dispatcher and names the copies in the brief' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase '**Name the copy, not the original.**'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase ('dispatch copies it to ' +
+                     '`$env:KINGSHAND_HOME\data\<id>\read-first\<filename>`, keeping the file ' +
+                     'name exactly')
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase '**`-ReadPath` takes the ORIGINALS of exactly the files that brief''s `Read first` section names, and nothing else.**'
+    }
+
+    # The paths reach dispatch as a list, never by being read back out of the brief. An earlier
+    # version parsed that prose and it took six review rounds without reaching a last bug, two of
+    # them refusing correct briefs over paths nobody had written. The prohibition has to be written
+    # where the next round of the same idea would be, or it comes back: the finding that prompts it
+    # is always true, and only this says the answer is not another parser.
+    It 'muster forbids reading the Read first paths back out of the brief' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('**Dispatch does not read the paths out of the brief''s prose, and nothing ' +
+                     'may make it start.**')
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'You write the brief and you make this call, so you already hold the list'
+    }
+
+    # Nothing enforces the pairing any more, so the skill has to say who does. Left unsaid, the
+    # Hand goes on believing dispatch will catch a section that names the original.
+    It 'muster says the Hand is what keeps the section and -ReadPath together' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase '**Nothing checks that those two agree, so you are the one who has to.**'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase 'Write the section and the parameter together, in one go'
+    }
+
+    # The refusals are what a caller plans around, so their count and their subjects are pinned.
+    # Each one knows its path exactly because the caller handed it over - that is what separates
+    # this list from the parsed cross-check it replaced.
+    It 'muster states the four refusals dispatch still makes' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('There are four, and each is refused by name: a brief with no ' +
+                     '`## Read first` section at all, a path that does not exist, a directory ' +
+                     'where a file was meant, and two different files whose names would land on ' +
+                     'top of each other in the staging directory.')
+    }
+
+    # A single quoted placeholder is filled in with two paths in one string, which names no file
+    # and costs a round trip. The list shape has to be visible in the runnable text.
+    It 'the dispatch fence shows -ReadPath as a comma-separated list' {
+        $fences = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('-ReadPath') })
+        $fences.Count | Should -Be 1 -Because 'Step 4 is the one place that calls the dispatcher'
+        $fences[0] | Should -Match '-ReadPath "[^"]+", "[^"]+"'
+    }
+
+    # Granting the containing directory is the shorter route and the wrong one: the canonical
+    # settled file sits directly under data\, so that grant is the whole data root, writable.
+    It 'muster says not to ask for the original''s own directory, and why' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase ('the canonical settled file sits directly under `data\`, so that grant hands ' +
+                     'the worker every other worker''s brief and report, `king.md`, `learnings.md`, ' +
+                     '`backlog.md` and `projects.md`, and hands them writable')
+    }
+
+    It 'muster requires the slot even when nothing is named in it' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase '**`Read first` is a mandatory section of every brief**'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase ('Where the index turns up nothing this task touches, say `- Nothing beyond ' +
+                     'this brief.` rather than dropping the section')
+    }
+
+    # The brief was indexed above the line that wrote it, so an abandoned brief left an entry for a
+    # file that never existed - drift the digest reports as STALE.
+    It 'muster indexes the brief only once it is on disk' {
+        # The whole document, not Get-MusterStep: the brief template's own `## ` headings split
+        # Step 2 apart, so the step-scoped text stops before the fence being ordered here.
+        $write = $script:MusterText.IndexOf('Write `$env:KINGSHAND_HOME\data\<id>\brief.md`')
+        $index = $script:MusterText.IndexOf('Add-IndexEntry -Project "<project>" -Path "data\<id>\brief.md"')
+        $write | Should -BeGreaterThan -1
+        $index | Should -BeGreaterThan $write -Because 'indexing a file before writing it can index a file that never appears'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase 'never before it is written, or the index carries a line for a file that was abandoned'
+    }
+
+    # Every other kingshand writer of a durable data\ file needs the same call, or the drift count
+    # the digest prints grows from kingshand's own routine writes and stops being read. The dated
+    # status report is the one that grows without bound: a new unindexed file on every /survey file.
+    It '<skill> indexes the durable file it writes, through the module' -ForEach @(
+        @{ skill = 'survey';    file = '.claude\skills\survey\SKILL.md'
+           paths = @('data\status-report-<YYYY-MM-DD>.md') }
+        @{ skill = 'chronicle'; file = '.claude\skills\chronicle\SKILL.md'
+           paths = @('data\king.md', 'data\learnings.md', 'data\memory-archive.md') }
+        @{ skill = 'annex';     file = '.claude\skills\annex\SKILL.md'
+           paths = @('data\projects.md') }
+    ) {
+        $fences = @(Get-CodeFence (Join-Path $script:Root $file) |
+            Where-Object { $_.Contains('Add-IndexEntry') })
+        $fences.Count | Should -BeGreaterOrEqual 1 -Because "$skill writes a durable data\ file and must list it"
+        foreach ($fence in $fences) {
+            $fence.Contains('Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force') |
+                Should -BeTrue -Because 'the module is the one place that knows the index format'
+        }
+        foreach ($named in $paths) {
+            @($fences | Where-Object { $_.Contains($named) }).Count |
+                Should -BeGreaterOrEqual 1 -Because "$named is written here and nothing else lists it"
+        }
+    }
+
+    It 'routing covers the durable file another tool writes' {
+        Assert-Phrase -Text $script:IndexRouting -Where 'CLAUDE.md knowledge routing' `
+            -Phrase ('`data\backlog.md` is `tasks-axi`''s own file, and `Add-IndexEntry` lists it ' +
+                     'the first time the digest reports it unindexed')
+    }
+}
+
 Describe 'no long dash' {
     It 'does not appear in <file>' -ForEach @(
         @{ file = 'CLAUDE.md' }
@@ -2162,6 +2413,7 @@ Describe 'no long dash' {
         @{ file = 'install.ps1' }
         @{ file = 'docs\2026-08-28-worker-control-plane-decision.md' }
         @{ file = 'docs\2026-08-29-herdr-worker-control-plane.md' }
+        @{ file = 'docs\2026-08-30-data-index.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
@@ -2668,13 +2920,13 @@ Describe 'install.ps1 reports rather than installs unless it is told to' {
     It 'writes the global gitignore line, once, without rewriting the user''s file' {
         $text = Get-DocText $script:InstallPs1
         Assert-Phrase -Text $text -Where 'install.ps1' `
-            -Phrase 'Never duplicate the line: an installer run twice must leave exactly one.'
+            -Phrase 'Never duplicate a line: an installer run twice must leave exactly one of each.'
         Assert-Phrase -Text $text -Where 'install.ps1' `
             -Phrase 'Never rewrite or reorder a file the user already had'
         Assert-Phrase -Text $script:InstallSource -Where 'install.ps1' `
-            -Phrase "`$ignoreLine = '.claude/worktrees/'"
+            -Phrase "`$ignoreLines = @('.claude/worktrees/', '.claude/settings.local.json')"
         Assert-Phrase -Text $script:InstallSource -Where 'install.ps1' `
-            -Phrase 'Where-Object { $_.Trim() -eq $ignoreLine }).Count -gt 0'
+            -Phrase '$wanted  = @($ignoreLines | Where-Object { $present -notcontains $_ })'
         Assert-Phrase -Text $script:InstallSource -Where 'install.ps1' `
             -Phrase '& git config --global core.excludesFile $forGit'
     }
@@ -2947,14 +3199,15 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         Assert-Phrase -Text (Get-DocText $script:InstallPs1) -Where 'the install.ps1 header' `
             -Phrase ('It writes at most four things outside this repository, and names each one as ' +
                      'it does it: the two user environment variables KINGSHAND_HOME and ' +
-                     'LAVISH_AXI_PORT, the line `.claude/worktrees/` in your global gitignore, and - ' +
+                     'LAVISH_AXI_PORT, the lines `.claude/worktrees/` and ' +
+                     '`.claude/settings.local.json` in your global gitignore, and - ' +
                      'only on a machine where Claude Code resolves to npm''s claude.cmd wrapper - the ' +
                      'real claude.exe put first on your user PATH.')
 
         $readme = Get-DocText (Join-Path $script:Root 'README.md')
         Assert-Phrase -Text $readme -Where 'the README Layout block' `
             -Phrase ('writes at most four things outside this repository: KINGSHAND_HOME, ' +
-                     'LAVISH_AXI_PORT, one line in your global gitignore, and claude.exe ahead of ' +
+                     'LAVISH_AXI_PORT, two lines in your global gitignore, and claude.exe ahead of ' +
                      'npm''s wrapper on PATH when your machine only has the wrapper')
         $readme.Contains('writes nothing outside this repository except KINGSHAND_HOME') |
             Should -BeFalse -Because 'the installer writes more than that, and the README must not deny it'
@@ -2965,8 +3218,9 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     It 'the setup skill tells the user about the writes before they happen' {
         $setup = Get-DocText $script:SetupMd
         Assert-Phrase -Text $setup -Where 'the setup skill' `
-            -Phrase ('Say too that it adds one line, `.claude/worktrees/`, to their global ' +
-                     'gitignore, because workers run inside their own repositories')
+            -Phrase ('Say too that it adds two lines, `.claude/worktrees/` and ' +
+                     '`.claude/settings.local.json`, to their global gitignore, because workers ' +
+                     'run inside their own repositories')
         Assert-Phrase -Text $setup -Where 'the setup skill' `
             -Phrase ('And say, only when it actually happens, that it put `claude.exe` ahead of ' +
                      'npm''s `claude.cmd` on their PATH')

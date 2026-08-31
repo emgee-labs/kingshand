@@ -247,6 +247,80 @@ Describe 'Get-AllProjects' {
     }
 }
 
+# CLAUDE.md documents the registry as maintained by hand as well as by /annex, so a name
+# Add-ProjectEntry refuses can still arrive by hand - and every durable file written for that
+# project is indexed at data\index\<name>.md, so it fails one brief at a time, always after the
+# brief is on disk. Reading may not throw: this runs on every session start.
+Describe 'a hand-written name the index cannot resolve' {
+    BeforeAll {
+        $script:UnindexableReg = New-TestRegistry @"
+# Projects
+
+- @acme/web [local-only] - hand written (added 2026-08-24)
+      path: $script:RealPath
+
+- acme-api [direct-PR] - annexed (added 2026-08-24)
+      path: $script:RealPath
+"@
+    }
+
+    It 'still lists it, flagged rather than dropped or thrown over' {
+        { Get-AllProjects -RegistryPath $script:UnindexableReg -WarningAction SilentlyContinue | Out-Null } |
+            Should -Not -Throw -Because 'the digest reads this on every session start'
+        $all = Get-AllProjects -RegistryPath $script:UnindexableReg -WarningAction SilentlyContinue
+        @($all).Count      | Should -Be 2 -Because 'the user did register it, so hiding it is worse'
+        $all[0].name       | Should -Be '@acme/web'
+        $all[0].indexable  | Should -BeFalse
+        $all[1].indexable  | Should -BeTrue
+    }
+
+    It 'says which name and what would work' {
+        $warnings = $null
+        Get-AllProjects -RegistryPath $script:UnindexableReg -WarningVariable warnings `
+            -WarningAction SilentlyContinue | Out-Null
+        $text = @($warnings) -join ' '
+        $text | Should -BeLike '*@acme/web*'
+        $text | Should -BeLike '*-acme-web*' -Because 'a flag with no remedy is not actionable'
+    }
+
+    It 'resolves it through Get-ProjectEntry as the registered project it is' {
+        $e = Get-ProjectEntry -Name '@acme/web' -RegistryPath $script:UnindexableReg -WarningAction SilentlyContinue
+        $e.mode      | Should -Be 'local-only'
+        $e.indexable | Should -BeFalse
+    }
+}
+
+# A forced nested import removes Index.psm1 before re-importing it, so a session that had already
+# imported it lost Get-IndexDrift and Add-IndexEntry the moment Projects.psm1 loaded - an error
+# from a module the caller never touched. One child process, in the order that breaks.
+Describe 'importing Projects does not unload Index from the caller' {
+    BeforeAll {
+        $root   = Split-Path $PSScriptRoot -Parent
+        $reg    = Join-Path ([IO.Path]::GetTempPath()) ("importorder-" + [guid]::NewGuid().ToString('N') + '.md')
+        $driver = Join-Path ([IO.Path]::GetTempPath()) ("importorder-" + [guid]::NewGuid().ToString('N') + '.ps1')
+        Set-Content -LiteralPath $driver -Encoding utf8 -Value @"
+Import-Module '$root\bin\Index.psm1' -Force
+Import-Module '$root\bin\Projects.psm1' -Force
+Write-Host "INDEX_BOUND=`$([bool](Get-Command Get-IndexDrift -ErrorAction SilentlyContinue))"
+`$refused = `$false
+try {
+    Add-ProjectEntry -Name '@acme/web' -Path '$($script:RealPath)' -Mode 'local-only' ``
+                     -Description 'd' -RegistryPath '$reg' | Out-Null
+} catch { `$refused = `$true }
+Write-Host "NAME_REFUSED=`$refused"
+"@
+        $script:ImportOut = & (Get-Process -Id $PID).Path -NoProfile -File $driver 2>&1 | Out-String
+    }
+
+    It 'keeps the index functions bound in the session that imported them first' {
+        $script:ImportOut | Should -BeLike '*INDEX_BOUND=True*'
+    }
+
+    It 'still refuses a name the index cannot resolve' {
+        $script:ImportOut | Should -BeLike '*NAME_REFUSED=True*'
+    }
+}
+
 Describe 'Add-ProjectEntry' {
     BeforeEach {
         $dir = Join-Path ([System.IO.Path]::GetTempPath()) ("addreg-" + [guid]::NewGuid().ToString('N'))
@@ -294,6 +368,38 @@ Describe 'Add-ProjectEntry' {
     It 'refuses an invalid mode' {
         { Add-ProjectEntry -Name proj -Path $script:RealPath -Mode 'nonsense' `
                            -Description 'd' -RegistryPath $script:reg } | Should -Throw '*mode*'
+    }
+
+    # Every durable file written for a project is indexed at data\index\<name>.md, so a name the
+    # index cannot turn into a file name is a project nothing can ever index. It used to register
+    # happily and then fail each index write one brief at a time, after the brief was on disk.
+    It 'refuses a name the index cannot resolve to a file, and registers nothing' {
+        $err = { Add-ProjectEntry -Name '@acme/web' -Path $script:RealPath -Mode 'local-only' `
+                                  -Description 'd' -RegistryPath $script:reg } | Should -Throw -PassThru
+        $err.Exception.Message | Should -BeLike "*letters, digits, '.', '_' and '-'*"
+        $err.Exception.Message |
+            Should -BeLike '*-acme-web*' -Because 'the message has to offer a name that would work'
+        Test-Path -LiteralPath $script:reg |
+            Should -BeFalse -Because 'a refused name must leave no entry and no registry behind'
+    }
+
+    It 'suggests a name the index really accepts, not one from a second copy of the rule' {
+        Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Index.psm1')
+        $err = { Add-ProjectEntry -Name '@acme/web' -Path $script:RealPath -Mode 'local-only' `
+                                  -Description 'd' -RegistryPath $script:reg } | Should -Throw -PassThru
+        $suggested = ConvertTo-IndexProjectName -Project '@acme/web'
+        $err.Exception.Message | Should -BeLike "*'$suggested'*"
+        Test-IndexProjectName -Project $suggested |
+            Should -BeTrue -Because 'a refusal whose suggested name is also refused is no remedy'
+    }
+
+    It 'accepts the slug-shaped names the index can resolve' {
+        foreach ($name in @('acme-api', 'acme_api', 'acme.api', 'Acme123')) {
+            Add-ProjectEntry -Name $name -Path (Join-Path $script:RealPath $name) -Mode 'local-only' `
+                             -Description 'd' -RegistryPath $script:reg
+        }
+        @(Get-AllProjects -RegistryPath $script:reg | ForEach-Object { $_.name }) |
+            Should -Be @('acme-api', 'acme_api', 'acme.api', 'Acme123')
     }
 
     It 'refuses the same path written with a trailing separator' {
