@@ -89,11 +89,11 @@ dispatched until `/annex` runs. No `INDEX` section means there is nothing indexe
 index yet, while an `UNINDEXED:` count means durable files exist that no index lists - index each
 as you touch it rather than in a sweep. A `STALE:` count is the same drift from the other end,
 entries whose file is gone: clear it with `Remove-IndexEntry -Missing -All` from `bin\Index.psm1`,
-because a count nothing can take to zero stops being read. A `STARTUP_MEMORY_BUDGET:` line means the two memory files
-have outgrown their budget - invoke `chronicle` to curate them back down, and read them anyway,
-because the budget is a signal and not a gate. `ABSENT` against `instructions.md` reads the same
-way: the King has stated no standing instructions, which is an ordinary state and not a prompt to
-create the file.
+because a count nothing can take to zero stops being read. A `STARTUP_MEMORY_BUDGET:` line means
+the two memory files have outgrown their budget - invoke `chronicle` to curate them back down, and
+read them anyway, because the budget is a signal and not a gate. `ABSENT` against
+`instructions.md` reads the same way: the King has stated no standing instructions, which is an
+ordinary state and not a prompt to create the file.
 
 The digest is not `survey` and neither runs the other. This is mechanical startup input nobody
 asked for; `survey` is a curated answer to "what needs me" that only the user ever asks for.

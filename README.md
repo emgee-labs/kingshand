@@ -41,9 +41,12 @@ reads.
   rather than inferred.
 - **A durable queue.** Work items, dependencies and held decisions survive a restart, because a
   decision that lives only in the conversation is a decision you will lose.
-- **A session-start digest.** Registered projects, live workers, the queue, your standing
-  instructions and the curated memory, printed once at session open. A restart is meant to be a
-  non-event.
+- **A session-start digest.** Registered projects, live workers, the queue, the index of everything
+  the tool holds for you, your standing instructions and the curated memory, printed once at
+  session open. A restart is meant to be a non-event.
+- **Nothing settled goes unread.** Every durable file the tool keeps for you gets one line in an
+  index, and every brief names the files its worker must read before it starts - so a decision you
+  already made cannot sit in a file nobody opens while the work ships without it.
 - **Replies are short by default, and what cannot be short gets rendered.** Next action first,
   numbered steps, lists capped at five, no preamble. Anything you have to decide on opens as a
   review surface in your browser rather than a wall of chat, because a choice buried in a paragraph
