@@ -147,7 +147,7 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Get-SurveySnapshot.ps1` | the one bounded gather behind `/survey`: registry, workers joined with live state, reports, un-dispatched briefs. Returns structured data, renders nothing, never throws |
 | `bin\Render-Review.ps1` | structured data to reviewable HTML for lavish |
 | `bin\Test-CrewPrereqs.ps1` | verifies the toolchain; run it if anything behaves oddly |
-| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook: toolchain problems, fleet, queue, and both context files in full. Never throws |
+| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook: toolchain problems, fleet, queue, index counts, and both context files in full. Never throws |
 | `bin\Memory.psm1` | the startup-memory budget: what the two memory files cost, against what is allowed |
 | `bin\Index.psm1` | the data index: write a file and index it in one call, add an entry for a file another tool wrote, read a project's index, count the drift, drop an entry whose file is gone |
 
