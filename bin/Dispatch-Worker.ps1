@@ -84,13 +84,14 @@
   prose - a brief about this repo describes `data\backlog.md` without asking anyone to open it - and
   refusing a legitimate brief is worse than the gap.
 
-  Every path is lifted out of a line WHOLE before any of this matches against it, because a file
-  name may contain a space. Each pattern used to stop at the first one, which refused a correct
-  brief naming `read-first\brand spec.md` by comparing the leaf `brand` against the staged
-  `brand spec.md`, and blinded the scan above to `data\brand spec.md` by looking for a file called
-  `data\brand`. The template writes paths in backticks, so a backtick span is one candidate; a path
-  written without them yields the token, the token plus the next word, and so on, and whichever
-  reading the staged copy or the filesystem confirms is the one used.
+  A -ReadPath file whose name contains a SPACE is refused at staging, and that is what keeps every
+  check above decidable. A brief is prose, so `data\brand spec.md in full` has no split a parser can
+  know: an earlier version tried each reading in turn and kept whichever some other evidence
+  confirmed, and it refused two correct briefs with messages naming paths nobody had written - a
+  staged original that ran on into the following words and lost its exemption, and the leaf ` in`
+  read out of the phrase "under read-first\ in this directory". Nothing kingshand keeps under data\
+  carries a space, so the name is refused where it is known exactly and every path here is then read
+  as one backtick span or one whitespace-delimited token, with no guessing anywhere.
 
   Fenced code is quoted text and is skipped entirely. A brief that quotes the brief template used
   to have that quotation read as its own structure: the quoted `## Read first` heading satisfied the
@@ -161,9 +162,23 @@ foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
                "one path each - a directory would copy whatever happens to be in it. Nothing was created.")
     }
 
+    $leaf = Split-Path $resolved -Leaf
+
+    # A space in the file name is refused HERE, at the one point where the name is known exactly,
+    # rather than guessed at later by the parser that reads paths back out of the brief's prose.
+    # A brief is prose, so `data\brand spec.md in full` has no decidable split: every attempt to
+    # infer one either truncated a real name or ran a real path on into the words after it, and
+    # both produced refusals naming files nobody had written. Nothing kingshand keeps under data\
+    # carries a space, so this costs a rename and removes the ambiguity entirely.
+    if ($leaf -match '\s') {
+        throw ("Read first names $resolved, and its file name contains a space. Every path in a " +
+               "brief is read back out of prose, where a name with a space in it cannot be told " +
+               "from a path followed by another word. Rename the file without one, or copy it to a " +
+               "name without one and pass that copy instead. Nothing was created.")
+    }
+
     # Two sources with one file name would land on top of each other, and the worker would read
     # whichever was copied last with no sign the other ever existed.
-    $leaf = Split-Path $resolved -Leaf
     if ($staged.ContainsKey($leaf) -and $staged[$leaf] -ne $resolved) {
         throw ("Read first names two different files called $leaf - $($staged[$leaf]) and " +
                "$resolved. One would overwrite the other. Pass only the one this task needs, or " +
@@ -189,23 +204,19 @@ foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
 # taken as this brief's own. The template's "copied here from <original>" note never puts a
 # foreign id in front of `read-first`, so it stays untouched.
 #
-# A path is pulled out of a line as a WHOLE candidate before anything is matched against it,
-# because a file name is allowed to contain a space and every earlier pattern stopped at the first
-# one. `read-first\brand spec.md` parsed as the leaf `brand spec.md` in the staging loop above and
-# as `brand` here, so a correctly written brief was refused with a message naming a file nobody
-# had mentioned - and in the other direction an unreachable `data\brand spec.md` was scanned as
-# `data\brand`, which exists nowhere and so was waved through.
+# Every path a line names, with NO guessing about where one ends. A backtick span is one candidate
+# because the backticks say exactly where it stops, and everything outside them is split on
+# whitespace, because with a spaced name refused at staging a path can no longer contain a space.
 #
-# The template writes paths in backticks, so a backtick span is one candidate, spaces and all. A
-# path written WITHOUT them is where the space is undecidable from the text alone, so each starting
-# token instead yields a RUN of candidates - the token, then the token plus the next word, and so on
-# - and the caller keeps the one its own evidence confirms: the copy the section named that was
-# actually staged, or the path that actually names a file. Nothing is added for a run whose
-# candidates confirm nothing, so extending never invents a mention; it only stops truncating one.
+# There was a version of this that tried to infer the split - each token, then the token plus the
+# next word, and so on, keeping whichever reading some other evidence confirmed. It produced two
+# refusals naming files nobody had written: a staged original ran on into the words after it and
+# lost its exemption, and prose containing `read-first\ ` yielded the leaf ` in`. A prose parser
+# that guesses is worse than one that cannot see a case the staging gate has already refused.
 function Get-PathCandidate {
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Line)
 
-    $runs  = [System.Collections.Generic.List[string[]]]::new()
+    $found = [System.Collections.Generic.List[string]]::new()
     $plain = [System.Text.StringBuilder]::new()
     $i     = 0
     while ($i -lt $Line.Length) {
@@ -221,31 +232,17 @@ function Get-PathCandidate {
             break
         }
         $span = $Line.Substring($open + 1, $close - $open - 1).Trim()
-        if ($span) { $runs.Add(@($span)) }
+        if ($span) { $found.Add($span) }
         # A separator in place of the span, or the words either side of it join into one token.
         $null = $plain.Append(' ')
         $i = $close + 1
     }
 
-    $tokens = @(
-        foreach ($token in ($plain.ToString() -split '\s+')) {
-            $trimmed = $token.Trim('(', '[', '{', '<', '>', '|', '"', "'", ',', ';', ':', ')', ']', '}', '!', '?', '.')
-            if ($trimmed) { $trimmed }
-        }
-    )
-
-    # Seven words past the first is far more than any real file name, and a bound keeps a long
-    # prose line from generating candidates by the square of its length.
-    for ($start = 0; $start -lt $tokens.Count; $start++) {
-        $alternatives = [System.Collections.Generic.List[string]]::new()
-        $last = [Math]::Min($tokens.Count - 1, $start + 7)
-        for ($end = $start; $end -le $last; $end++) {
-            $alternatives.Add(($tokens[$start..$end] -join ' '))
-        }
-        $runs.Add($alternatives.ToArray())
+    foreach ($token in ($plain.ToString() -split '\s+')) {
+        $trimmed = $token.Trim('(', '[', '{', '<', '>', '|', '"', "'", ',', ';', ':', ')', ']', '}', '!', '?', '.')
+        if ($trimmed) { $found.Add($trimmed) }
     }
-
-    , $runs
+    $found
 }
 
 # Fenced blocks are QUOTED TEXT, not this brief's own structure, and both halves of the section
@@ -278,23 +275,14 @@ foreach ($line in $briefLines) {
     if (-not $inSection) { continue }
     $sectionLines.Add($line)
 
-    foreach ($run in (Get-PathCandidate -Line $line)) {
-        $pick = $null
-        foreach ($alternative in $run) {
-            $m = [regex]::Match($alternative, $readFirstPattern)
-            if (-not $m.Success) { continue }
-            # The match has to begin where the path does. Extending a candidate across spaces means
-            # `Read read-first\brand` is one of them, and reading a leaf out of that invents the
-            # file `brand` from two words of prose.
-            if ($m.Index -gt 0 -and $alternative[$m.Index - 1] -notin @('\', '/')) { continue }
-            if (-not $pick) { $pick = $m }
-            # The staged copy is the evidence that this longer reading is the real file name.
-            if ($staged.ContainsKey($m.Groups['leaf'].Value)) {
-                $pick = $m
-                break
-            }
-        }
-        if (-not $pick) { continue }
+    foreach ($candidate in (Get-PathCandidate -Line $line)) {
+        $pick = [regex]::Match($candidate, $readFirstPattern)
+        if (-not $pick.Success) { continue }
+        # The match has to begin where the path does, and a leaf can hold no whitespace: no staged
+        # copy can be named ` in`, so a backticked prose span mentioning `read-first\` cannot make
+        # this invent one.
+        if ($pick.Index -gt 0 -and $candidate[$pick.Index - 1] -notin @('\', '/')) { continue }
+        if ($pick.Groups['leaf'].Value -match '\s') { continue }
         $owner = $pick.Groups['owner'].Value
         if ($owner -and $owner -ne $briefLeaf) {
             $foreign.Add($pick.Value)
@@ -398,8 +386,9 @@ if ($dataRoot) {
         }
     }
 
-    # One mention, resolved: $null when it is not a kingshand path this worker is barred from, and
-    # otherwise the resolved path plus whether a file is really there.
+    # One mention, resolved to the path it names, or $null when this worker is not barred from it -
+    # a staged original, something inside the brief's own directory, or anything outside the data
+    # root at all.
     function Resolve-Mention {
         param([Parameter(Mandatory)][string]$Mention)
 
@@ -417,31 +406,22 @@ if ($dataRoot) {
             if ($probe.StartsWith($briefPrefix, [StringComparison]::OrdinalIgnoreCase)) { return $null }
             if (-not $probe.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) { return $null }
 
-            $exists = [bool](Test-Path -LiteralPath $full -PathType Leaf)
-            # The relative form is the ambiguous one, so it counts only when the file is really
-            # there; the other two name kingshand's tree by construction and are refused either way.
-            if ($form.kind -eq 'relative' -and -not $exists) { return $null }
-            return @{ full = $full; exists = $exists }
+            # The relative form is the ambiguous one - `data\schema.json` is an ordinary repo path in
+            # plenty of projects - so it counts only when the file is really there; the other two
+            # name kingshand's tree by construction and are refused either way.
+            if ($form.kind -eq 'relative' -and -not (Test-Path -LiteralPath $full -PathType Leaf)) {
+                return $null
+            }
+            return $full
         }
         $null
     }
 
     $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($line in $sectionLines) {
-        foreach ($run in (Get-PathCandidate -Line $line)) {
-            $take = $null
-            foreach ($alternative in $run) {
-                $r = Resolve-Mention -Mention $alternative
-                if (-not $r) { continue }
-                # An existing file is proof that this reading of the words is the path meant, so it
-                # wins over the shorter one that named nothing.
-                if ($r.exists) {
-                    $take = @{ mention = $alternative; full = $r.full }
-                    break
-                }
-                if (-not $take) { $take = @{ mention = $alternative; full = $r.full } }
-            }
-            if ($take -and $seen.Add($take.full)) { $outside.Add($take.mention) }
+        foreach ($mention in (Get-PathCandidate -Line $line)) {
+            $full = Resolve-Mention -Mention $mention
+            if ($full -and $seen.Add($full)) { $outside.Add($mention) }
         }
     }
 }

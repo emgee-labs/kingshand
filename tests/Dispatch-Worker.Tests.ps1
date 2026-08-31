@@ -856,24 +856,28 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') | Should -BeTrue
         }
 
-        # A file name is allowed to contain a space, and every pattern here stopped at the first
-        # one: the leaf parsed as `brand`, the staging loop keyed the copy on `brand spec.md`, and a
-        # correctly written brief was refused over a file nobody had named.
-        It 'dispatches a correctly written brief whose read-first file name contains a space' {
+        # A brief is prose, so a spaced file name has no split any parser can know: every attempt to
+        # infer one refused a correct brief over a path nobody wrote. So the name is refused where it
+        # is known exactly - here, before anything exists - and the parser never has to guess.
+        It 'refuses a Read-first file whose name contains a space, before creating anything' {
             Set-AgentStartState
             $f = New-DispatchFixture 'readfirst-spaced-name'
             $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand spec.md'
             Set-Content -Path $one -Value 'teal' -Encoding utf8
             Set-ReadFirstBrief -Fixture $f -Leaf 'brand spec.md' -From $one
 
-            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6017' `
-                -BriefPath $f.BriefPath -ReadPath $one
-            $r.id | Should -Be 'T-6017'
-            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand spec.md') | Should -BeTrue
+            $err = { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6017' `
+                -BriefPath $f.BriefPath -ReadPath $one } | Should -Throw -PassThru
+            $err.Exception.Message | Should -BeLike '*brand spec.md*'
+            $err.Exception.Message |
+                Should -BeLike '*copy it to a name without one*' -Because 'the caller needs the route out'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6017') | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+            (Get-CallLines $f).Count | Should -Be 0
         }
 
-        # The same truncation in the other direction: the scan looked for a file called `data\brand`,
-        # found none, and waved an unreachable original through.
+        # A backticked path needs no guessing - the backticks say where it ends - so a spaced
+        # original named in the section is still caught even though staging refuses to carry one.
         It 'refuses an unreachable original whose file name contains a space' {
             Set-AgentStartState
             $f = New-DispatchFixture 'readfirst-spaced-original'
@@ -934,47 +938,40 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             (Invoke-Dispatch -Fixture $f -Name 'T-6022').id | Should -Be 'T-6022'
         }
 
-        # The space fix has to hold without backticks too, where the split is undecidable from the
-        # text alone: `data\brand spec.md` was scanned as `data\brand`, which names nothing, so an
-        # unreachable original went out to the worker.
-        It 'refuses an unreachable original with a spaced name written without backticks' {
+        # The provenance note written WITHOUT backticks. A parser that tried readings in turn ran the
+        # staged original on into the words after it - "...\brand.md Read" - which is not equal to
+        # the original, so the exemption missed and a correct brief was refused over a path nobody
+        # had written.
+        It 'dispatches when the provenance note repeats the original without backticks' {
             Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-spaced-plain'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand spec.md'
-            Set-Content -Path $one -Value 'teal' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @('- Read data\brand spec.md in full.')
-
-            { Invoke-Dispatch -Fixture $f -Name 'T-6023' } | Should -Throw '*brand spec.md*'
-            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6023') | Should -BeFalse
-        }
-
-        # The same truncation made the message name a path the operator never wrote.
-        It 'names the whole spaced path it refuses, not the first word of it' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-spaced-plain-message'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand spec.md'
+            $f = New-DispatchFixture 'readfirst-plain-provenance'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
             Set-Content -Path $one -Value 'teal' -Encoding utf8
             Set-ReadFirstBrief -Fixture $f -Body @(
-                '- Read $env:KINGSHAND_HOME\data\brand spec.md in full.')
+                "- read-first\brand.md - the settled brand, copied here from $one. Read it in full.")
 
-            $err = { Invoke-Dispatch -Fixture $f -Name 'T-6024' } | Should -Throw -PassThru
-            $err.Exception.Message | Should -BeLike '*data\brand spec.md*'
-            $err.Exception.Message | Should -BeLike '*read-first\brand spec.md*'
-        }
-
-        # And a correctly written one without backticks must still go out.
-        It 'dispatches a spaced read-first name written without backticks' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-spaced-plain-ok'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand spec.md'
-            Set-Content -Path $one -Value 'teal' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                '- Read read-first\brand spec.md in full before you start.')
-
-            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6025' `
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6023' `
                 -BriefPath $f.BriefPath -ReadPath $one
-            $r.id | Should -Be 'T-6025'
-            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand spec.md') | Should -BeTrue
+            $r.id | Should -Be 'T-6023'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') | Should -BeTrue
+        }
+
+        # `read-first\` followed by a space is how this file's own refusals and muster's prose phrase
+        # it, so a Hand echoing that phrasing into the section is ordinary. Reading a leaf out of it
+        # invented the file ' in' and refused the brief for not staging it.
+        It 'invents no file from prose that mentions read-first without naming one' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-prose-mention'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- `read-first\brand.md` - the settled brand. Read it in full.'
+                '- Everything else under `read-first\ in this directory` is a copy of a file with its own entry.'
+                '- The copy lives under read-first\ in this directory.')
+
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6024' `
+                -BriefPath $f.BriefPath -ReadPath $one
+            $r.id | Should -Be 'T-6024'
         }
 
         # The two reports an inquest follow-up needs really are both called report.md, so the advice
