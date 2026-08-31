@@ -856,6 +856,78 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') | Should -BeTrue
         }
 
+        # A file name is allowed to contain a space, and every pattern here stopped at the first
+        # one: the leaf parsed as `brand`, the staging loop keyed the copy on `brand spec.md`, and a
+        # correctly written brief was refused over a file nobody had named.
+        It 'dispatches a correctly written brief whose read-first file name contains a space' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-spaced-name'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand spec.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf 'brand spec.md' -From $one
+
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6017' `
+                -BriefPath $f.BriefPath -ReadPath $one
+            $r.id | Should -Be 'T-6017'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand spec.md') | Should -BeTrue
+        }
+
+        # The same truncation in the other direction: the scan looked for a file called `data\brand`,
+        # found none, and waved an unreachable original through.
+        It 'refuses an unreachable original whose file name contains a space' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-spaced-original'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand spec.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- `data\brand spec.md` - the settled brand. Read it in full.')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-6018' } | Should -Throw '*brand spec.md*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6018') | Should -BeFalse
+        }
+
+        # A dead path is dead wherever the brief writes it. A correct Read first section plus the
+        # settled file named under Requirements passed every check while the worker still could not
+        # open it.
+        It 'refuses an unreachable path named outside the Read first section' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-elsewhere-dead'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'emgee-brand.md'
+            Set-Content -Path $one -Value 'teal, not amber' -Encoding utf8
+            Set-Content -Path $f.BriefPath -Encoding utf8 -Value @(
+                '# Brief', '', '## Read first', '- Nothing beyond this brief.', ''
+                '## Requirements'
+                '- Follow the settled brand at `$env:KINGSHAND_HOME\data\emgee-brand.md`.')
+
+            $err = { Invoke-Dispatch -Fixture $f -Name 'T-6019' } | Should -Throw -PassThru
+            $err.Exception.Message | Should -BeLike '*emgee-brand.md*'
+            $err.Exception.Message | Should -BeLike "*$($f.BriefPath)*"
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6019') | Should -BeFalse
+            (Get-CallLines $f).Count | Should -Be 0
+        }
+
+        # The two reports an inquest follow-up needs really are both called report.md, so the advice
+        # has to be one the caller can act on rather than a rename that breaks the convention every
+        # index entry pointing at them uses.
+        It 'advises a route that exists when two staged files share one name' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-clash-advice'
+            $root = Split-Path $f.BriefDir -Parent
+            $a = Join-Path $root 'T-1000\report.md'
+            $b = Join-Path $root 'T-1001\report.md'
+            foreach ($p in @($a, $b)) {
+                New-Item -ItemType Directory -Force -Path (Split-Path $p -Parent) | Out-Null
+                Set-Content -Path $p -Value 'found it' -Encoding utf8
+            }
+
+            $err = { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6020' `
+                -BriefPath $f.BriefPath -ReadPath $a, $b } | Should -Throw -PassThru
+            $err.Exception.Message | Should -BeLike '*Pass only the one this task needs*'
+            $err.Exception.Message | Should -BeLike '*copy one under a distinct name*'
+            $err.Exception.Message |
+                Should -Not -BeLike '*Rename one*' -Because 'renaming a durable report.md is not a route'
+        }
+
         It 'refuses when the brief has no Read first section at all but a file was staged' {
             Set-AgentStartState
             $f = New-DispatchFixture 'readfirst-nosection'
