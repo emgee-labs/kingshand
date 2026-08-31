@@ -84,8 +84,10 @@
   prose - a brief about this repo describes `data\backlog.md` without asking anyone to open it - and
   refusing a legitimate brief is worse than the gap.
 
-  A -ReadPath file whose name contains a SPACE is refused at staging, and that is what keeps every
-  check above decidable. A brief is prose, so `data\brand spec.md in full` has no split a parser can
+  A file name containing a SPACE is refused from BOTH ends - at staging when -ReadPath names one,
+  and in the section when a `read-first\` line names one - and that is what keeps every check above
+  decidable. Refusing one end only left the other silent, which hid exactly the unstaged mention the
+  binding exists to catch. A brief is prose, so `data\brand spec.md in full` has no split a parser can
   know: an earlier version tried each reading in turn and kept whichever some other evidence
   confirmed, and it refused two correct briefs with messages naming paths nobody had written - a
   staged original that ran on into the following words and lost its exemption, and the leaf ` in`
@@ -259,6 +261,7 @@ $inFence    = $false
 $hasSection = $false
 $named      = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 $foreign    = [System.Collections.Generic.List[string]]::new()
+$spaced     = [System.Collections.Generic.List[string]]::new()
 $sectionLines = [System.Collections.Generic.List[string]]::new()
 $readFirstPattern = '(?:(?<owner>[^\\/]+)[\\/])?read-first[\\/](?<leaf>[^\\/]+)$'
 foreach ($line in $briefLines) {
@@ -278,11 +281,23 @@ foreach ($line in $briefLines) {
     foreach ($candidate in (Get-PathCandidate -Line $line)) {
         $pick = [regex]::Match($candidate, $readFirstPattern)
         if (-not $pick.Success) { continue }
-        # The match has to begin where the path does, and a leaf can hold no whitespace: no staged
-        # copy can be named ` in`, so a backticked prose span mentioning `read-first\` cannot make
-        # this invent one.
+        # The match has to begin where the path does.
         if ($pick.Index -gt 0 -and $candidate[$pick.Index - 1] -notin @('\', '/')) { continue }
-        if ($pick.Groups['leaf'].Value -match '\s') { continue }
+
+        # A leaf that begins or ends with whitespace is not a file name at all - it is the tail of a
+        # sentence, as in "the copy lives under read-first\ in this directory" - so there is nothing
+        # to refuse and nothing to record. A leaf with a space INSIDE it is a file name, and one
+        # staging can never produce, because -ReadPath refuses a spaced name outright. Skipping that
+        # silently was the worst of the three options: it hid the very case the unstaged check exists
+        # to catch, and a brief naming read-first\brand spec.md with nothing staged went out to a
+        # worker that then had no such file.
+        $leafNamed = $pick.Groups['leaf'].Value
+        if ($leafNamed -ne $leafNamed.Trim()) { continue }
+        if ($leafNamed -match '\s') {
+            $spaced.Add($leafNamed)
+            continue
+        }
+
         $owner = $pick.Groups['owner'].Value
         if ($owner -and $owner -ne $briefLeaf) {
             $foreign.Add($pick.Value)
@@ -305,6 +320,16 @@ if (-not $hasSection) {
            "it not at all. Add the section naming each file to read - or the single line " +
            "'- Nothing beyond this brief.' when the index turns up nothing this task touches, so " +
            "that it reads as a decision rather than an omission. Nothing was created.")
+}
+
+if ($spaced.Count -gt 0) {
+    throw ("The brief's Read first section names " + (($spaced | Sort-Object -Unique) -join ', ') +
+           " under read-first\, and " + $(if ($spaced.Count -eq 1) { 'that file name contains' }
+                                          else { 'those file names contain' }) + " a space. Nothing " +
+           "can stage it: every path in a brief is read back out of prose, where a name with a space " +
+           "in it cannot be told from a path followed by another word, so -ReadPath refuses one too. " +
+           "Rename the file without a space, or copy it to a name without one, and name that copy " +
+           "here. Nothing was created.")
 }
 
 if ($foreign.Count -gt 0) {

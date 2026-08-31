@@ -876,6 +876,38 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             (Get-CallLines $f).Count | Should -Be 0
         }
 
+        # The other end of the same rule. Skipping a spaced leaf hid the case the unstaged check
+        # exists to catch: the section named read-first\brand spec.md, nothing staged it, every
+        # guard passed, and the worker opened a file that was never created.
+        It 'refuses a read-first line naming a spaced file, before creating anything' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-spaced-mention'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand spec.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- `read-first\brand spec.md` - the settled brand. Read it in full.')
+
+            $err = { Invoke-Dispatch -Fixture $f -Name 'T-6026' } | Should -Throw -PassThru
+            $err.Exception.Message | Should -BeLike '*brand spec.md*'
+            $err.Exception.Message | Should -BeLike '*copy it to a name without one*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6026') | Should -BeFalse
+            (Get-CallLines $f).Count | Should -Be 0
+        }
+
+        # Same skip, same hole, one directory over. Written in the index's relative form, nothing
+        # else can catch it either: the residual scan requires that form to name a real file, and
+        # this one names a copy in another unit's directory that was never made.
+        It 'refuses a spaced read-first file under another unit of work''s id' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-spaced-foreign'
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- `data\T-1002\read-first\brand spec.md` - the settled brand.')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-6027' } | Should -Throw '*brand spec.md*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6027') | Should -BeFalse
+            (Get-CallLines $f).Count | Should -Be 0
+        }
+
         # A backticked path needs no guessing - the backticks say where it ends - so a spaced
         # original named in the section is still caught even though staging refuses to carry one.
         It 'refuses an unreachable original whose file name contains a space' {

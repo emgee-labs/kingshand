@@ -213,9 +213,10 @@ template, and a `Read first` block carried over from the brief above it keeps th
 and the file name still matches, so only the id gives it away. Dispatch refuses a `read-first\`
 path under any id but this one.
 
-**A file name with a space in it does not go through.** Dispatch refuses one at `-ReadPath`, because
-a path is read back out of the brief's prose and a spaced name cannot be told there from a path
-followed by another word. Copy such a file to a name without one and pass that copy.
+**A file name with a space in it does not go through.** Dispatch refuses one at `-ReadPath` and
+refuses a `read-first\` line naming one, because a path is read back out of the brief's prose and a
+spaced name cannot be told there from a path followed by another word. Copy such a file to a name
+without one, pass that copy, and name the copy here.
 
 Say in the same line what the copy is of, so the worker knows what it is holding and a later reader
 can find the original. The copy is taken at dispatch and does not change afterwards, which is

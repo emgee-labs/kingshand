@@ -400,6 +400,22 @@ Describe 'an entry whose file is gone can be dropped, so stale drift reaches zer
         @((Get-IndexDrift -DataPath $data).unindexed) | Should -Be @('data\here.md')
     }
 
+    # The path is the key and lives in exactly one index, so a named path searches them all. Scoping
+    # the search to whichever index -Project resolved to made a miss look identical to a clean index:
+    # dropping a project file's entry without naming the project returned an empty removal, no error,
+    # and left the stale count exactly where it was.
+    It 'finds the entry whichever index holds it, without being told the project' {
+        $data = New-DataFixture 'prune-project-scope'
+        Write-DataFile -Path 'data\acme-spec.md' -Content 's' -Summary 'a project file' -Project 'acme' -DataPath $data | Out-Null
+        Remove-Item -LiteralPath (Join-Path $data 'acme-spec.md') -Force
+        @((Get-IndexDrift -DataPath $data).missing) | Should -Be @('data\acme-spec.md')
+
+        @((Remove-IndexEntry -Path 'data\acme-spec.md' -DataPath $data).removed) |
+            Should -Be @('data\acme-spec.md')
+        @((Get-IndexDrift -DataPath $data).missing).Count |
+            Should -Be 0 -Because 'an empty removal must mean no index lists it, not that it looked in one'
+    }
+
     It 'removes nothing and reports nothing when the entry was never there' {
         $data = New-DataFixture 'prune-absent'
         Write-DataFile -Path 'data\a.md' -Content 'a' -Summary 'file a' -DataPath $data | Out-Null

@@ -312,13 +312,20 @@ function Add-IndexEntry {
 # to every index rather than one. Naming a path whose file is still on disk is refused without
 # -Force, because that trades one half of the drift count for the other: the file stays there and
 # reads as unindexed from the next session on.
+#
+# A named PATH searches every index, and -Project narrows nothing here. The path is the key and can
+# appear in exactly one index, so there is nothing to disambiguate - and scoping the search to
+# whichever index -Project resolved to made a miss indistinguishable from a clean index: dropping a
+# project file's entry without naming the project returned `removed = []` with no error, byte for
+# byte what a genuinely absent entry returns, while the stale count stayed exactly where it was.
+# Now an empty `removed` means one thing: no index lists that path.
 function Remove-IndexEntry {
     [CmdletBinding(DefaultParameterSetName = 'ByPath')]
     param(
         [Parameter(Mandatory, ParameterSetName = 'ByPath')][string]$Path,
         [Parameter(Mandatory, ParameterSetName = 'Missing')][switch]$Missing,
         [Parameter(ParameterSetName = 'Missing')][switch]$All,
-        [string]$Project,
+        [Parameter(ParameterSetName = 'Missing')][string]$Project,
         [switch]$Force,
         [string]$DataPath = (Get-DefaultIndexDataPath)
     )
@@ -338,7 +345,7 @@ function Remove-IndexEntry {
         }
     }
 
-    $targets = if (-not $byPath -and $All) {
+    $targets = if ($byPath -or $All) {
         @(Get-AllIndexPaths -DataPath $DataPath)
     } else {
         @(Get-IndexPath -Project $Project -DataPath $DataPath)
