@@ -77,15 +77,25 @@
   models, and the `data\<name>.md` the index stores. The latter two are resolved against the
   brief's own data root, because the brief's directory is what this dispatch actually knows about
   the tree. The relative form is refused only when it names a real file there, since it is the one
-  shape that could equally be a path in the repo the worker is about to work in. It reads the whole
-  brief rather than the `Read first` section alone: a path the worker cannot open is dead under
-  Requirements too.
+  shape that could equally be a path in the repo the worker is about to work in.
+
+  It reads the `Read first` section and NOT the whole brief, on purpose. That section is the list
+  of files the worker must open, so an unreachable path in it is a defect; elsewhere a data\ path is
+  prose - a brief about this repo describes `data\backlog.md` without asking anyone to open it - and
+  refusing a legitimate brief is worse than the gap.
 
   Every path is lifted out of a line WHOLE before any of this matches against it, because a file
   name may contain a space. Each pattern used to stop at the first one, which refused a correct
   brief naming `read-first\brand spec.md` by comparing the leaf `brand` against the staged
   `brand spec.md`, and blinded the scan above to `data\brand spec.md` by looking for a file called
-  `data\brand`. The template writes paths in backticks, so a backtick span is one candidate.
+  `data\brand`. The template writes paths in backticks, so a backtick span is one candidate; a path
+  written without them yields the token, the token plus the next word, and so on, and whichever
+  reading the staged copy or the filesystem confirms is the one used.
+
+  Fenced code is quoted text and is skipped entirely. A brief that quotes the brief template used
+  to have that quotation read as its own structure: the quoted `## Read first` heading satisfied the
+  mandatory-section check for a brief that had none, and the quoted `<id>` placeholder was refused
+  as another unit of work's directory.
 
   And the section must EXIST. Agreement between two empty sets is not agreement about anything, so
   a brief with no `## Read first` heading passed every check above while naming no settled file at
@@ -184,14 +194,18 @@ foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
 # one. `read-first\brand spec.md` parsed as the leaf `brand spec.md` in the staging loop above and
 # as `brand` here, so a correctly written brief was refused with a message naming a file nobody
 # had mentioned - and in the other direction an unreachable `data\brand spec.md` was scanned as
-# `data\brand`, which exists nowhere and so was waved through. The template always writes a path
-# inside backticks, so a backtick-delimited span is taken whole, spaces and all; text outside
-# backticks still falls back to whitespace-delimited tokens, with the punctuation a sentence
-# leaves on the end trimmed off.
+# `data\brand`, which exists nowhere and so was waved through.
+#
+# The template writes paths in backticks, so a backtick span is one candidate, spaces and all. A
+# path written WITHOUT them is where the space is undecidable from the text alone, so each starting
+# token instead yields a RUN of candidates - the token, then the token plus the next word, and so on
+# - and the caller keeps the one its own evidence confirms: the copy the section named that was
+# actually staged, or the path that actually names a file. Nothing is added for a run whose
+# candidates confirm nothing, so extending never invents a mention; it only stops truncating one.
 function Get-PathCandidate {
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Line)
 
-    $found = [System.Collections.Generic.List[string]]::new()
+    $runs  = [System.Collections.Generic.List[string[]]]::new()
     $plain = [System.Text.StringBuilder]::new()
     $i     = 0
     while ($i -lt $Line.Length) {
@@ -207,40 +221,86 @@ function Get-PathCandidate {
             break
         }
         $span = $Line.Substring($open + 1, $close - $open - 1).Trim()
-        if ($span) { $found.Add($span) }
+        if ($span) { $runs.Add(@($span)) }
+        # A separator in place of the span, or the words either side of it join into one token.
+        $null = $plain.Append(' ')
         $i = $close + 1
     }
 
-    foreach ($token in ($plain.ToString() -split '\s+')) {
-        $trimmed = $token.Trim('(', '[', '{', '<', '>', '|', '"', "'", ',', ';', ':', ')', ']', '}', '!', '?', '.')
-        if ($trimmed) { $found.Add($trimmed) }
+    $tokens = @(
+        foreach ($token in ($plain.ToString() -split '\s+')) {
+            $trimmed = $token.Trim('(', '[', '{', '<', '>', '|', '"', "'", ',', ';', ':', ')', ']', '}', '!', '?', '.')
+            if ($trimmed) { $trimmed }
+        }
+    )
+
+    # Seven words past the first is far more than any real file name, and a bound keeps a long
+    # prose line from generating candidates by the square of its length.
+    for ($start = 0; $start -lt $tokens.Count; $start++) {
+        $alternatives = [System.Collections.Generic.List[string]]::new()
+        $last = [Math]::Min($tokens.Count - 1, $start + 7)
+        for ($end = $start; $end -le $last; $end++) {
+            $alternatives.Add(($tokens[$start..$end] -join ' '))
+        }
+        $runs.Add($alternatives.ToArray())
     }
-    $found
+
+    , $runs
 }
 
+# Fenced blocks are QUOTED TEXT, not this brief's own structure, and both halves of the section
+# guard read them as structure. A brief for a task on muster's own template quotes that template,
+# fence and all: the quoted `## Read first` heading satisfied the mandatory-section check for a
+# brief that had no section of its own, and the quoted placeholder line
+# `$env:KINGSHAND_HOME\data\<id>\read-first\<filename>` was then read as a real path whose owner
+# segment is the literal `<id>`, refusing the dispatch over "another unit of work's read-first
+# directory" for a path nobody wrote as a path. Skipping fenced lines closes both at once.
 $briefLeaf  = Split-Path $briefDir -Leaf
 $briefLines = @(Get-Content -LiteralPath $BriefPath)
 $inSection  = $false
+$inFence    = $false
 $hasSection = $false
 $named      = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 $foreign    = [System.Collections.Generic.List[string]]::new()
+$sectionLines = [System.Collections.Generic.List[string]]::new()
 $readFirstPattern = '(?:(?<owner>[^\\/]+)[\\/])?read-first[\\/](?<leaf>[^\\/]+)$'
 foreach ($line in $briefLines) {
+    if ($line -match '^\s*```') {
+        $inFence = -not $inFence
+        continue
+    }
+    if ($inFence) { continue }
     if ($line -match '^\s*##\s+') {
         $inSection = $line -match '^\s*##\s+Read first\s*$'
         if ($inSection) { $hasSection = $true }
         continue
     }
     if (-not $inSection) { continue }
-    foreach ($candidate in (Get-PathCandidate -Line $line)) {
-        $m = [regex]::Match($candidate, $readFirstPattern)
-        if (-not $m.Success) { continue }
-        $owner = $m.Groups['owner'].Value
+    $sectionLines.Add($line)
+
+    foreach ($run in (Get-PathCandidate -Line $line)) {
+        $pick = $null
+        foreach ($alternative in $run) {
+            $m = [regex]::Match($alternative, $readFirstPattern)
+            if (-not $m.Success) { continue }
+            # The match has to begin where the path does. Extending a candidate across spaces means
+            # `Read read-first\brand` is one of them, and reading a leaf out of that invents the
+            # file `brand` from two words of prose.
+            if ($m.Index -gt 0 -and $alternative[$m.Index - 1] -notin @('\', '/')) { continue }
+            if (-not $pick) { $pick = $m }
+            # The staged copy is the evidence that this longer reading is the real file name.
+            if ($staged.ContainsKey($m.Groups['leaf'].Value)) {
+                $pick = $m
+                break
+            }
+        }
+        if (-not $pick) { continue }
+        $owner = $pick.Groups['owner'].Value
         if ($owner -and $owner -ne $briefLeaf) {
-            $foreign.Add($m.Value)
+            $foreign.Add($pick.Value)
             continue
         }
-        $null = $named.Add($m.Groups['leaf'].Value)
+        $null = $named.Add($pick.Groups['leaf'].Value)
     }
 }
 
@@ -308,11 +368,15 @@ if ($unnamed.Count -gt 0) {
 # the data root. The other two forms name kingshand's own tree by construction and need no such
 # proof.
 #
-# The WHOLE brief is scanned, not just the `Read first` section. A dead path is dead wherever it is
-# written: "follow the settled brand at $env:KINGSHAND_HOME\data\emgee-brand.md" under Requirements
-# reaches the worker exactly as little as the same path under Read first, and a section-scoped scan
-# read past it. The template writes no data\ path outside the section except the Done-means
-# report.md, which is inside the brief's own directory and exempt already.
+# It reads the `Read first` section ONLY, and that is deliberate - do not widen it to the whole
+# brief. That section is by definition the list of files the worker must open, so every path in it
+# ought to be a staged copy and "this one is not reachable" is a decidable statement about it.
+# Anywhere else in a brief a data\ path is prose: a statute task on this very module carries
+# "`Add-IndexEntry` must list `data\backlog.md` the first time the digest reports it unindexed"
+# under Requirements, which is a description of behaviour, not an instruction to open a file. A
+# whole-brief scan refused that brief and offered staging a dispatch-time snapshot of the live
+# backlog as the remedy, which is not what the line meant. Refusing a legitimate brief is worse
+# than the gap.
 $dataRoot = Split-Path $briefDir -Parent
 $outside  = [System.Collections.Generic.List[string]]::new()
 if ($dataRoot) {
@@ -334,26 +398,50 @@ if ($dataRoot) {
         }
     }
 
-    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($line in $briefLines) {
-        foreach ($mention in (Get-PathCandidate -Line $line)) {
-            foreach ($form in $forms) {
-                if ($mention -notmatch $form.pattern) { continue }
-                $target = switch ($form.kind) {
-                    'absolute' { $mention }
-                    'home'     { Join-Path $homeRoot ($mention -replace '^\$env:KINGSHAND_HOME[\\/]', '') }
-                    default    { Join-Path $homeRoot $mention }
-                }
-                $full = $null
-                try { $full = [IO.Path]::GetFullPath($target) } catch { continue }
-                if ($originals.Contains($full)) { continue }
-                $probe = $full.TrimEnd('\') + '\'
-                if ($probe.StartsWith($briefPrefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
-                if (-not $probe.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
-                if ($form.kind -eq 'relative' -and -not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
-                if ($seen.Add($full)) { $outside.Add($mention) }
-                break
+    # One mention, resolved: $null when it is not a kingshand path this worker is barred from, and
+    # otherwise the resolved path plus whether a file is really there.
+    function Resolve-Mention {
+        param([Parameter(Mandatory)][string]$Mention)
+
+        foreach ($form in $forms) {
+            if ($Mention -notmatch $form.pattern) { continue }
+            $target = switch ($form.kind) {
+                'absolute' { $Mention }
+                'home'     { Join-Path $homeRoot ($Mention -replace '^\$env:KINGSHAND_HOME[\\/]', '') }
+                default    { Join-Path $homeRoot $Mention }
             }
+            $full = $null
+            try { $full = [IO.Path]::GetFullPath($target) } catch { return $null }
+            if ($originals.Contains($full)) { return $null }
+            $probe = $full.TrimEnd('\') + '\'
+            if ($probe.StartsWith($briefPrefix, [StringComparison]::OrdinalIgnoreCase)) { return $null }
+            if (-not $probe.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) { return $null }
+
+            $exists = [bool](Test-Path -LiteralPath $full -PathType Leaf)
+            # The relative form is the ambiguous one, so it counts only when the file is really
+            # there; the other two name kingshand's tree by construction and are refused either way.
+            if ($form.kind -eq 'relative' -and -not $exists) { return $null }
+            return @{ full = $full; exists = $exists }
+        }
+        $null
+    }
+
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($line in $sectionLines) {
+        foreach ($run in (Get-PathCandidate -Line $line)) {
+            $take = $null
+            foreach ($alternative in $run) {
+                $r = Resolve-Mention -Mention $alternative
+                if (-not $r) { continue }
+                # An existing file is proof that this reading of the words is the path meant, so it
+                # wins over the shorter one that named nothing.
+                if ($r.exists) {
+                    $take = @{ mention = $alternative; full = $r.full }
+                    break
+                }
+                if (-not $take) { $take = @{ mention = $alternative; full = $r.full } }
+            }
+            if ($take -and $seen.Add($take.full)) { $outside.Add($take.mention) }
         }
     }
 }
@@ -361,11 +449,11 @@ if ($dataRoot) {
 if ($outside.Count -gt 0) {
     $bad  = @($outside | Sort-Object -Unique)
     $leaf = Split-Path $bad[0] -Leaf
-    throw ("The brief at $BriefPath names " + ($bad -join ', ') + ", and a worker can read only " +
-           "$briefDir - so that path reaches nothing wherever in the brief it is written, which is " +
-           "the original failure with one extra hop. Pass each one to -ReadPath and name the copy " +
-           "in the Read first section instead, one line each - '- read-first\$leaf - what it " +
-           "settles, copied here from $($bad[0]). Read it in full.' Nothing was created.")
+    throw ("The brief at $BriefPath names " + ($bad -join ', ') + " under Read first, and a worker " +
+           "can read only $briefDir - so that path reaches nothing, which is the original failure " +
+           "with one extra hop. Pass each one to -ReadPath and name the copy in that section " +
+           "instead, one line each - '- read-first\$leaf - what it settles, copied here from " +
+           "$($bad[0]). Read it in full.' Nothing was created.")
 }
 
 # Copied only once every check above has passed, so a refusal is always true when it says nothing

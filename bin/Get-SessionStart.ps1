@@ -406,7 +406,8 @@ try {
         }
         if ($missingCount -gt 0) {
             $files = if ($missingCount -eq 1) { 'file is' } else { 'files are' }
-            Add-Line "  STALE: $missingCount indexed $files no longer on disk."
+            Add-Line ("  STALE: $missingCount indexed $files no longer on disk. Clear with " +
+                      'Remove-IndexEntry -Missing -All.')
         }
     }
 } catch {

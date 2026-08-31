@@ -32,6 +32,9 @@ Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot 'Paths.psm1') -Force
 
 $script:MaxSummary   = 160
+# One entry line, in one place. Three functions match it and they must agree, because a reader that
+# parses a line a writer never produces reports the file it names as drift.
+$script:EntryPattern = '^-\s+`(?<path>[^`]+)`\s+-\s+(?<summary>.*)$'
 $script:IndexHeader  = @(
     '# Index'
     ''
@@ -175,7 +178,7 @@ function Read-IndexFile {
     }
 
     foreach ($line in @(Get-Content -LiteralPath $IndexPath)) {
-        $m = [regex]::Match($line, '^-\s+`(?<path>[^`]+)`\s+-\s+(?<summary>.*)$')
+        $m = [regex]::Match($line, $script:EntryPattern)
         if (-not $m.Success) { continue }
 
         $summary = $m.Groups['summary'].Value.Trim()
@@ -257,7 +260,7 @@ function Add-IndexEntry {
     $added   = Get-Date -Format 'yyyy-MM-dd'
     $replace = -1
     for ($i = 0; $i -lt $lines.Count; $i++) {
-        $m = [regex]::Match($lines[$i], '^-\s+`(?<path>[^`]+)`\s+-\s+(?<summary>.*)$')
+        $m = [regex]::Match($lines[$i], $script:EntryPattern)
         if (-not $m.Success) { continue }
         $existing = $null
         try { $existing = ConvertTo-IndexRelativePath -Path $m.Groups['path'].Value -DataPath $DataPath }
@@ -296,6 +299,84 @@ function Add-IndexEntry {
         fullPath  = ConvertFrom-IndexRelativePath -Relative $relative -DataPath $DataPath
         summary   = $one
         added     = $added
+    }
+}
+
+# Drops a file's line. Without it the drift count could only ever move in one direction: a file
+# nothing lists is fixed by indexing it, but an entry whose file is gone had no remover at all, so
+# the digest's STALE count sat above zero forever - and a count nothing can clear is a count nobody
+# reads, which is the argument this whole module rests on. `/survey file` writes a dated artefact
+# that is meant to be deleted, and every deletion used to cost one permanent line of noise.
+#
+# -Missing prunes every entry whose file is gone, which is the STALE count itself; -All widens that
+# to every index rather than one. Naming a path whose file is still on disk is refused without
+# -Force, because that trades one half of the drift count for the other: the file stays there and
+# reads as unindexed from the next session on.
+function Remove-IndexEntry {
+    [CmdletBinding(DefaultParameterSetName = 'ByPath')]
+    param(
+        [Parameter(Mandatory, ParameterSetName = 'ByPath')][string]$Path,
+        [Parameter(Mandatory, ParameterSetName = 'Missing')][switch]$Missing,
+        [Parameter(ParameterSetName = 'Missing')][switch]$All,
+        [string]$Project,
+        [switch]$Force,
+        [string]$DataPath = (Get-DefaultIndexDataPath)
+    )
+
+    $byPath = $PSCmdlet.ParameterSetName -eq 'ByPath'
+    $wanted = $null
+    if ($byPath) {
+        $wanted = ConvertTo-IndexRelativePath -Path $Path -DataPath $DataPath
+        if (-not $Force) {
+            $full = ConvertFrom-IndexRelativePath -Relative $wanted -DataPath $DataPath
+            if (Test-Path -LiteralPath $full -PathType Leaf) {
+                throw ("$wanted is still on disk, so dropping its line would only trade one half of " +
+                       "the drift count for the other - the file would read as unindexed from the " +
+                       "next session on. Drop the entry once the file is gone, or pass -Force when " +
+                       "unlisting a file that is still there is what you mean.")
+            }
+        }
+    }
+
+    $targets = if (-not $byPath -and $All) {
+        @(Get-AllIndexPaths -DataPath $DataPath)
+    } else {
+        @(Get-IndexPath -Project $Project -DataPath $DataPath)
+    }
+
+    $removed = [System.Collections.Generic.List[string]]::new()
+    foreach ($indexPath in $targets) {
+        if (-not (Test-Path -LiteralPath $indexPath -PathType Leaf)) { continue }
+
+        $keep = [System.Collections.Generic.List[string]]::new()
+        $hit  = $false
+        foreach ($line in @(Get-Content -LiteralPath $indexPath)) {
+            $existing = $null
+            $m = [regex]::Match($line, $script:EntryPattern)
+            if ($m.Success) {
+                try { $existing = ConvertTo-IndexRelativePath -Path $m.Groups['path'].Value -DataPath $DataPath }
+                catch { $existing = $null }
+            }
+            if ($existing) {
+                $drop = if ($byPath) { $existing -eq $wanted } else {
+                    -not (Test-Path -PathType Leaf -LiteralPath `
+                            (ConvertFrom-IndexRelativePath -Relative $existing -DataPath $DataPath))
+                }
+                if ($drop) {
+                    $removed.Add($existing)
+                    $hit = $true
+                    continue
+                }
+            }
+            $keep.Add($line)
+        }
+
+        if ($hit) { Set-Content -Path $indexPath -Encoding utf8 -Value $keep.ToArray() }
+    }
+
+    @{
+        indexes = @($targets)
+        removed = @($removed.ToArray())
     }
 }
 
@@ -383,5 +464,5 @@ function Get-IndexDrift {
 }
 
 Export-ModuleMember -Function Get-IndexPath, Get-AllIndexPaths, Get-IndexEntries, Add-IndexEntry,
-                              Write-DataFile, Get-IndexableFiles, Get-IndexDrift,
+                              Remove-IndexEntry, Write-DataFile, Get-IndexableFiles, Get-IndexDrift,
                               Get-DefaultIndexDataPath

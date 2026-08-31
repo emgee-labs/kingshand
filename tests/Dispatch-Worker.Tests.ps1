@@ -886,24 +886,95 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6018') | Should -BeFalse
         }
 
-        # A dead path is dead wherever the brief writes it. A correct Read first section plus the
-        # settled file named under Requirements passed every check while the worker still could not
-        # open it.
-        It 'refuses an unreachable path named outside the Read first section' {
+        # Read first is the list of files to OPEN, and that is the only place an unreachable path is
+        # a defect. Elsewhere a data\ path is description - a brief about kingshand's own repo says
+        # what Add-IndexEntry does to data\backlog.md - and refusing that brief is worse than the
+        # gap, because the remedy the refusal offers would stage a snapshot of the live backlog.
+        It 'dispatches when a data path is only described outside the Read first section' {
             Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-elsewhere-dead'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'emgee-brand.md'
-            Set-Content -Path $one -Value 'teal, not amber' -Encoding utf8
+            $f = New-DispatchFixture 'readfirst-described-elsewhere'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'backlog.md'
+            Set-Content -Path $one -Value 'T-1 do the thing' -Encoding utf8
             Set-Content -Path $f.BriefPath -Encoding utf8 -Value @(
                 '# Brief', '', '## Read first', '- Nothing beyond this brief.', ''
                 '## Requirements'
-                '- Follow the settled brand at `$env:KINGSHAND_HOME\data\emgee-brand.md`.')
+                '- `Add-IndexEntry` must list `data\backlog.md` the first time the digest reports it unindexed.'
+                '- The digest prints `$env:KINGSHAND_HOME\data\learnings.md` in full.')
 
-            $err = { Invoke-Dispatch -Fixture $f -Name 'T-6019' } | Should -Throw -PassThru
-            $err.Exception.Message | Should -BeLike '*emgee-brand.md*'
-            $err.Exception.Message | Should -BeLike "*$($f.BriefPath)*"
-            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6019') | Should -BeFalse
-            (Get-CallLines $f).Count | Should -Be 0
+            (Invoke-Dispatch -Fixture $f -Name 'T-6019').id | Should -Be 'T-6019'
+        }
+
+        # A fenced block is quoted example text. A brief for a task on muster's own template quotes
+        # that template, and the quoted heading was read as this brief's own section.
+        It 'does not accept a Read first heading that only appears inside a fenced block' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-fenced-heading'
+            Set-Content -Path $f.BriefPath -Encoding utf8 -Value @(
+                '# Brief', '', '## Requirements', 'The template muster writes is:', '', '```markdown'
+                '## Read first'
+                '- `$env:KINGSHAND_HOME\data\<id>\read-first\<filename>` - what it settles.'
+                '```', '', 'Keep that slot.')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-6021' } |
+                Should -Throw "*has no '## Read first' section*"
+        }
+
+        # And the same quotation must not be read as a path: the placeholder's owner segment is the
+        # literal <id>, which was refused as another unit of work's directory.
+        It 'ignores a quoted template path inside a fenced block' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-fenced-path'
+            Set-Content -Path $f.BriefPath -Encoding utf8 -Value @(
+                '# Brief', '', '## Read first', '- Nothing beyond this brief.', ''
+                '## Requirements', 'The template muster writes is:', '', '```markdown'
+                '## Read first'
+                '- `$env:KINGSHAND_HOME\data\<id>\read-first\<filename>` - what it settles.'
+                '```')
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-6022').id | Should -Be 'T-6022'
+        }
+
+        # The space fix has to hold without backticks too, where the split is undecidable from the
+        # text alone: `data\brand spec.md` was scanned as `data\brand`, which names nothing, so an
+        # unreachable original went out to the worker.
+        It 'refuses an unreachable original with a spaced name written without backticks' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-spaced-plain'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand spec.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @('- Read data\brand spec.md in full.')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-6023' } | Should -Throw '*brand spec.md*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6023') | Should -BeFalse
+        }
+
+        # The same truncation made the message name a path the operator never wrote.
+        It 'names the whole spaced path it refuses, not the first word of it' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-spaced-plain-message'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand spec.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Read $env:KINGSHAND_HOME\data\brand spec.md in full.')
+
+            $err = { Invoke-Dispatch -Fixture $f -Name 'T-6024' } | Should -Throw -PassThru
+            $err.Exception.Message | Should -BeLike '*data\brand spec.md*'
+            $err.Exception.Message | Should -BeLike '*read-first\brand spec.md*'
+        }
+
+        # And a correctly written one without backticks must still go out.
+        It 'dispatches a spaced read-first name written without backticks' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-spaced-plain-ok'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand spec.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Read read-first\brand spec.md in full before you start.')
+
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6025' `
+                -BriefPath $f.BriefPath -ReadPath $one
+            $r.id | Should -Be 'T-6025'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand spec.md') | Should -BeTrue
         }
 
         # The two reports an inquest follow-up needs really are both called report.md, so the advice

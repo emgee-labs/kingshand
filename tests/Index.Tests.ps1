@@ -345,3 +345,66 @@ Describe 'a file no index lists is drift, and drift is counted' {
         @($d.indexes).Count   | Should -Be 0
     }
 }
+
+# The count has to be able to reach zero from BOTH ends. Indexing a file clears the unindexed half,
+# but an entry whose file is gone had no remover at all, so the digest's STALE line sat above zero
+# for good - and the argument this whole module rests on is that a count nobody can clear is a count
+# nobody reads. A dated `/survey file` artefact is written to be deleted, and every deletion used to
+# cost one permanent line of noise.
+Describe 'an entry whose file is gone can be dropped, so stale drift reaches zero' {
+    It 'prunes every entry whose file has gone, across every index' {
+        $data = New-DataFixture 'prune-missing'
+        Write-DataFile -Path 'data\kept.md'  -Content 'k' -Summary 'still here' -DataPath $data | Out-Null
+        Write-DataFile -Path 'data\gone.md'  -Content 'g' -Summary 'about to go' -DataPath $data | Out-Null
+        Write-DataFile -Path 'data\acme.md'  -Content 'a' -Summary 'project file' -Project 'acme' -DataPath $data | Out-Null
+        Remove-Item -LiteralPath (Join-Path $data 'gone.md') -Force
+        Remove-Item -LiteralPath (Join-Path $data 'acme.md') -Force
+        @((Get-IndexDrift -DataPath $data).missing).Count | Should -Be 2
+
+        $r = Remove-IndexEntry -Missing -All -DataPath $data
+
+        @($r.removed) | Should -Be @('data\gone.md', 'data\acme.md') `
+            -Because 'the root index is read first, then one per project'
+        $d = Get-IndexDrift -DataPath $data
+        @($d.missing).Count   | Should -Be 0 -Because 'the stale half of the count must be clearable'
+        @($d.unindexed).Count | Should -Be 0
+        $d.indexed            | Should -Be 1
+        @(Get-IndexEntries -All -DataPath $data | ForEach-Object { $_.path }) | Should -Be @('data\kept.md')
+    }
+
+    It 'drops one named entry and leaves every other line as it was' {
+        $data = New-DataFixture 'prune-one'
+        Write-DataFile -Path 'data\a.md' -Content 'a' -Summary 'file a' -DataPath $data | Out-Null
+        Write-DataFile -Path 'data\b.md' -Content 'b' -Summary 'file b' -DataPath $data | Out-Null
+        $before = @(Get-Content -LiteralPath (Get-IndexPath -DataPath $data) |
+                    Where-Object { $_ -notlike '*data\a.md*' })
+        Remove-Item -LiteralPath (Join-Path $data 'a.md') -Force
+
+        @((Remove-IndexEntry -Path 'data\a.md' -DataPath $data).removed) | Should -Be @('data\a.md')
+
+        @(Get-Content -LiteralPath (Get-IndexPath -DataPath $data)) | Should -Be $before
+        @((Get-IndexDrift -DataPath $data).missing).Count | Should -Be 0
+    }
+
+    # Dropping the line of a file that is still there just trades one half of the count for the
+    # other: the file stays on disk and reads as unindexed from the next session on.
+    It 'refuses to unlist a file that is still on disk unless that is what was meant' {
+        $data = New-DataFixture 'prune-present'
+        Write-DataFile -Path 'data\here.md' -Content 'h' -Summary 'still here' -DataPath $data | Out-Null
+
+        { Remove-IndexEntry -Path 'data\here.md' -DataPath $data } | Should -Throw '*still on disk*'
+        @((Get-IndexDrift -DataPath $data).indexed) | Should -Be 1
+
+        @((Remove-IndexEntry -Path 'data\here.md' -Force -DataPath $data).removed) |
+            Should -Be @('data\here.md')
+        @((Get-IndexDrift -DataPath $data).unindexed) | Should -Be @('data\here.md')
+    }
+
+    It 'removes nothing and reports nothing when the entry was never there' {
+        $data = New-DataFixture 'prune-absent'
+        Write-DataFile -Path 'data\a.md' -Content 'a' -Summary 'file a' -DataPath $data | Out-Null
+
+        @((Remove-IndexEntry -Path 'data\never-listed.md' -DataPath $data).removed).Count | Should -Be 0
+        @(Get-IndexEntries -All -DataPath $data | ForEach-Object { $_.path }) | Should -Be @('data\a.md')
+    }
+}

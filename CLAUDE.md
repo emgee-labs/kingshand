@@ -87,7 +87,9 @@ means nothing has been recorded there yet, which is not the same as a file that 
 nothing, and neither is a reason to write a placeholder. An empty registry means nothing can be
 dispatched until `/annex` runs. No `INDEX` section means there is nothing indexed and nothing to
 index yet, while an `UNINDEXED:` count means durable files exist that no index lists - index each
-as you touch it rather than in a sweep. A `STARTUP_MEMORY_BUDGET:` line means the two memory files
+as you touch it rather than in a sweep. A `STALE:` count is the same drift from the other end,
+entries whose file is gone: clear it with `Remove-IndexEntry -Missing -All` from `bin\Index.psm1`,
+because a count nothing can take to zero stops being read. A `STARTUP_MEMORY_BUDGET:` line means the two memory files
 have outgrown their budget - invoke `chronicle` to curate them back down, and read them anyway,
 because the budget is a signal and not a gate. `ABSENT` against `instructions.md` reads the same
 way: the King has stated no standing instructions, which is an ordinary state and not a prompt to
@@ -147,7 +149,7 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Test-CrewPrereqs.ps1` | verifies the toolchain; run it if anything behaves oddly |
 | `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook: toolchain problems, fleet, queue, and both context files in full. Never throws |
 | `bin\Memory.psm1` | the startup-memory budget: what the two memory files cost, against what is allowed |
-| `bin\Index.psm1` | the data index: write a file and index it in one call, add an entry for a file another tool wrote, read a project's index, count the drift |
+| `bin\Index.psm1` | the data index: write a file and index it in one call, add an entry for a file another tool wrote, read a project's index, count the drift, drop an entry whose file is gone |
 
 ## Skills
 

@@ -59,6 +59,12 @@ session-start digest prints that count. This is the part that makes the whole th
 and it is the reason an index beats a classification: "this file is listed nowhere" is a fact a
 machine can notice, where "somebody should have realised this mattered" never was.
 
+**And it has to be clearable from both ends.** The digest also prints `STALE:`, the entries whose
+file is gone, and that half had no remover at first - a dated `/survey file` artefact is written to
+be deleted, so every deletion cost one permanent line of noise and took the whole number with it.
+`Remove-IndexEntry -Missing -All` prunes them. The same argument that says a drift count growing by
+one per dispatch is a count nobody reads says a count nothing can take to zero is not a signal.
+
 ## What is deliberately not in it
 
 No exclusion is a judgement about a file's worth. The test each one passes is derivation: the file
