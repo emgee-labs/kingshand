@@ -20,10 +20,8 @@ $script:ValidModes = @('no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-pr
 # validation drift the moment either is edited, and a registry that accepted more than the index
 # could resolve let a project register and then fail every index write it was ever named in.
 #
-# NOT -Force. A forced nested import REMOVES Index.psm1 first, so a session that had already
-# imported it lost Get-IndexDrift and Add-IndexEntry the moment it imported this module, and the
-# next index call failed with "not recognized" from a module nobody had touched. A plain import
-# binds what is already loaded and disturbs no caller.
+# NOT -Force - a module never forces a nested import. The rule and the failure it prevents are in
+# the `statute` skill's style rules; tests\Projects.Tests.ps1 pins this edge.
 Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
 
 function Get-DefaultRegistryPath {

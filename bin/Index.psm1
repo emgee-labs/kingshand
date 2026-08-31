@@ -29,11 +29,8 @@ Set-StrictMode -Version Latest
 # Anything else under data\ that no index lists is drift, and Get-IndexDrift counts it - "this file
 # was never indexed" is detectable, where "somebody should have realised this mattered" never was.
 
-# NOT -Force, for the reason Herdr.psm1 records against these same two modules: a forced nested
-# import REMOVES Paths.psm1 first, and the removal takes the copy the CALLING script already
-# imported. That script then loses Get-KingshandHome partway through and dies on its next path
-# lookup with "not recognized", from a module it never touched. A plain import binds what is
-# already loaded and disturbs no caller.
+# NOT -Force - a module never forces a nested import. The rule and the failure it prevents are in
+# the `statute` skill's style rules; tests\Index.Tests.ps1 pins this edge.
 Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
 
 $script:MaxSummary   = 160
