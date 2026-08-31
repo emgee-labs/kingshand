@@ -667,47 +667,23 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         }
     }
 
-    # The brief line and -ReadPath are written in two different steps, and prose was the only thing
-    # tying them together. Omit the parameter and dispatch used to succeed having staged nothing,
-    # handing the worker a brief that points at a file which does not exist.
-    Context 'a brief whose Read first section and -ReadPath disagree' {
-        It 'refuses when the brief names a read-first file that nothing staged' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-unstaged'
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                "- ``$($f.BriefDir)\read-first\emgee-brand.md`` - the settled brand. Read it in full.")
-
-            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6001' -BriefPath $f.BriefPath } |
-                Should -Throw '*emgee-brand.md*'
-            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6001') |
-                Should -BeFalse -Because 'the refusal comes before anything is created'
-        }
-
-        It 'refuses when one of two named files was left out of -ReadPath' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-partial'
-            $root = Split-Path $f.BriefDir -Parent
-            $one  = Join-Path $root 'brand.md'
-            Set-Content -Path $one -Value 'teal' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                '- `read-first\brand.md` - the brand.'
-                '- `read-first\voice.md` - the voice.')
-
-            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6002' `
-                -BriefPath $f.BriefPath -ReadPath $one } | Should -Throw '*voice.md*'
-        }
-
-        # The refusal above says "Nothing was created", and it has to be true. Staging ran before
-        # the check, so brand.md was already copied and a directory already existed underneath a
+    # Four refusals, and not one of them reads a path out of the brief's prose. An earlier version
+    # parsed the `Read first` section and compared that set against -ReadPath in both directions.
+    # The intent was right and the mechanism had no last bug: six consecutive review rounds each
+    # closed one path shape and exposed the next, and two of them refused correct briefs over paths
+    # nobody had written. The Hand writes the brief AND calls the dispatcher, so it supplies the
+    # list; what remains is checked where the path is known exactly, plus the one check about the
+    # section that never needed a path at all - that it is there.
+    Context 'the Read first section the dispatcher requires' {
+        # The refusals all say "Nothing was created", and that has to be true. An earlier ordering
+        # staged first, so a file was already copied and a directory already existed underneath a
         # message denying both.
         It 'leaves no staged file behind when it refuses' {
             Set-AgentStartState
             $f = New-DispatchFixture 'readfirst-nodebris'
             $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
             Set-Content -Path $one -Value 'teal' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                '- `read-first\brand.md` - the brand.'
-                '- `read-first\voice.md` - the voice.')
+            Set-Content -Path $f.BriefPath -Encoding utf8 -Value @('# Brief', '', '## Scope', 'Do it.')
 
             { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6005' `
                 -BriefPath $f.BriefPath -ReadPath $one } | Should -Throw '*Nothing was created*'
@@ -715,229 +691,44 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 Should -BeFalse -Because 'a refusal that says nothing was created must have created nothing'
         }
 
-        # The other direction, and the one the first pass left open. muster's "name the copy, not
-        # the original" was prose only, so the Hand names the path it actually knows - the original
-        # - and passes that same path to -ReadPath. Staging succeeds, the section mentions no
-        # read-first\ file at all, and the worker launches holding a path outside its only grant.
-        It 'refuses when the brief names the original instead of the staged copy' {
+        # The whole point of passing the list structurally: whatever shape a path is written in
+        # down there, nothing reads it. Every one of these lines refused a dispatch at some round of
+        # the parser's life - the original path, the env-var form the template teaches, the relative
+        # form the index stores, a file name with a space in it, and prose that says `read-first\`
+        # without naming a file after it. The brief is the WORKER's instruction; -ReadPath is the
+        # dispatcher's.
+        It 'dispatches whatever path shapes the section is written in, because nothing reads them' {
             Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-original'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'emgee-brand.md'
-            Set-Content -Path $one -Value 'teal, not amber' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @("- ``$one`` - the settled brand. Read it in full.")
-
-            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6006' `
-                -BriefPath $f.BriefPath -ReadPath $one } |
-                Should -Throw '*emgee-brand.md*names no line for it*'
-            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6006') | Should -BeFalse
-            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
-        }
-
-        # And the variant neither of those two closes: the section names the original, -ReadPath is
-        # omitted entirely, and both checks above compare empty sets. No copy was named so nothing
-        # was missing, and nothing was staged so nothing was unnamed - dispatch succeeded and the
-        # worker launched holding a sibling of the only directory it can read.
-        It 'refuses the original path with no -ReadPath at all, before creating anything' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-original-nostage'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'emgee-brand.md'
-            Set-Content -Path $one -Value 'teal, not amber' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @("- ``$one`` - the settled brand. Read it in full.")
-
-            $err = { Invoke-Dispatch -Fixture $f -Name 'T-6009' } | Should -Throw -PassThru
-            $err.Exception.Message | Should -BeLike "*$one*"
-            $err.Exception.Message |
-                Should -BeLike "*$($f.BriefPath)*" -Because 'the operator has to know which brief to edit'
-            $err.Exception.Message |
-                Should -BeLike '*read-first\emgee-brand.md*' -Because 'the message states the line to write instead'
-            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6009') | Should -BeFalse
-            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
-            (Get-CallLines $f).Count | Should -Be 0
-        }
-
-        # Same fault one directory deeper: a settled file in a subdirectory of data\ is no more
-        # reachable than one sitting directly in it.
-        It 'refuses an unreachable path anywhere under the data root' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-original-deep'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'specs\brand.md'
-            New-Item -ItemType Directory -Force -Path (Split-Path $one -Parent) | Out-Null
-            Set-Content -Path $one -Value 'teal' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @("- ``$one`` - the settled brand.")
-
-            { Invoke-Dispatch -Fixture $f -Name 'T-6010' } | Should -Throw '*Nothing was created*'
-            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6010') | Should -BeFalse
-        }
-
-        # The rule is about the tree the grant leaves out, not about absolute paths in general. A
-        # brief routinely names files in the repo the worker is about to work in, and refusing those
-        # would refuse every ordinary brief.
-        It 'accepts a path outside the data root, which the worker can reach' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-outside-data'
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                "- ``$($f.Repo)\README.md`` - the repo's own notes, in your worktree.")
-
-            (Invoke-Dispatch -Fixture $f -Name 'T-6011').id | Should -Be 'T-6011'
-        }
-
-        # A file sitting beside the brief needs no copy and is inside the grant already.
-        It 'accepts a path inside the brief''s own directory' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-inside-briefdir'
-            $beside = Join-Path $f.BriefDir 'notes.md'
-            Set-Content -Path $beside -Value 'x' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @("- ``$beside`` - notes, beside your brief.")
-
-            (Invoke-Dispatch -Fixture $f -Name 'T-6012').id | Should -Be 'T-6012'
-        }
-
-        # The form muster's own template teaches. A guard that only saw drive-letter paths let the
-        # originating failure straight through the path shape the Hand is most likely to type,
-        # because `$env:KINGSHAND_HOME\data\...` holds no letter-colon-separator sequence at all.
-        It 'refuses the original written as $env:KINGSHAND_HOME\data\..., before creating anything' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-envvar-original'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'emgee-brand.md'
-            Set-Content -Path $one -Value 'teal, not amber' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                '- `$env:KINGSHAND_HOME\data\emgee-brand.md` - the settled brand. Read it in full.')
-
-            $err = { Invoke-Dispatch -Fixture $f -Name 'T-6013' } | Should -Throw -PassThru
-            $err.Exception.Message | Should -BeLike '*emgee-brand.md*'
-            $err.Exception.Message |
-                Should -BeLike "*$($f.BriefPath)*" -Because 'the operator has to know which brief to edit'
-            $err.Exception.Message | Should -BeLike '*read-first\emgee-brand.md*'
-            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6013') | Should -BeFalse
-            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
-            (Get-CallLines $f).Count | Should -Be 0
-        }
-
-        # And the form the index itself stores, which is what Step 2 tells the Hand to read: entries
-        # are relative to the install root, so the path in front of the Hand is `data\<name>.md`.
-        It 'refuses the original written in the index''s own relative form' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-relative-original'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'emgee-brand.md'
-            Set-Content -Path $one -Value 'teal, not amber' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                '- `data\emgee-brand.md` - the settled brand. Read it in full.')
-
-            { Invoke-Dispatch -Fixture $f -Name 'T-6014' } | Should -Throw '*emgee-brand.md*'
-            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6014') | Should -BeFalse
-        }
-
-        # The relative form is the one genuinely ambiguous shape: the same text is an ordinary repo
-        # path in any project with a data directory, and refusing those would refuse the briefs that
-        # need them. It names a file under kingshand's data root or it does not.
-        It 'accepts a relative data path that names no file under the data root' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-relative-repo'
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                '- `data/schema.json` - the schema in your worktree. Read it in full.')
-
-            (Invoke-Dispatch -Fixture $f -Name 'T-6015').id | Should -Be 'T-6015'
-        }
-
-        # The template shape again, written the way the template actually writes it - env-var form
-        # for both the copy and the provenance note. Neither may false-fire.
-        It 'accepts the template shape written in env-var form' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-envvar-template'
+            $f = New-DispatchFixture 'readfirst-shapes'
             $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
             Set-Content -Path $one -Value 'teal' -Encoding utf8
             Set-ReadFirstBrief -Fixture $f -Body @(
-                ('- `$env:KINGSHAND_HOME\data\brief\read-first\brand.md` - the settled brand, ' +
-                 'copied here from `$env:KINGSHAND_HOME\data\brand.md`. Read it in full.'))
+                "- ``$one`` - the settled brand, written as the original absolute path."
+                '- `$env:KINGSHAND_HOME\data\emgee-brand.md` - the form the template teaches.'
+                '- `data\emgee-brand.md` - the form the index stores.'
+                '- `data\T-1002\read-first\brand spec.md` - another unit''s copy, with a space in it.'
+                '- The copy lives under read-first\ in this directory.')
 
-            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6016' `
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6001' `
                 -BriefPath $f.BriefPath -ReadPath $one
-            $r.id | Should -Be 'T-6016'
+            $r.id | Should -Be 'T-6001'
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') | Should -BeTrue
         }
 
-        # A brief is prose, so a spaced file name has no split any parser can know: every attempt to
-        # infer one refused a correct brief over a path nobody wrote. So the name is refused where it
-        # is known exactly - here, before anything exists - and the parser never has to guess.
-        It 'refuses a Read-first file whose name contains a space, before creating anything' {
+        # A spaced name was refused at -ReadPath only so the prose parser never had to guess where
+        # such a path ended. With no parser there is nothing to guess, and staging carries the file
+        # perfectly well.
+        It 'stages a file whose name contains a space' {
             Set-AgentStartState
             $f = New-DispatchFixture 'readfirst-spaced-name'
             $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand spec.md'
             Set-Content -Path $one -Value 'teal' -Encoding utf8
             Set-ReadFirstBrief -Fixture $f -Leaf 'brand spec.md' -From $one
 
-            $err = { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6017' `
-                -BriefPath $f.BriefPath -ReadPath $one } | Should -Throw -PassThru
-            $err.Exception.Message | Should -BeLike '*brand spec.md*'
-            $err.Exception.Message |
-                Should -BeLike '*copy it to a name without one*' -Because 'the caller needs the route out'
-            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6017') | Should -BeFalse
-            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
-            (Get-CallLines $f).Count | Should -Be 0
-        }
-
-        # The other end of the same rule. Skipping a spaced leaf hid the case the unstaged check
-        # exists to catch: the section named read-first\brand spec.md, nothing staged it, every
-        # guard passed, and the worker opened a file that was never created.
-        It 'refuses a read-first line naming a spaced file, before creating anything' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-spaced-mention'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand spec.md'
-            Set-Content -Path $one -Value 'teal' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                '- `read-first\brand spec.md` - the settled brand. Read it in full.')
-
-            $err = { Invoke-Dispatch -Fixture $f -Name 'T-6026' } | Should -Throw -PassThru
-            $err.Exception.Message | Should -BeLike '*brand spec.md*'
-            $err.Exception.Message | Should -BeLike '*copy it to a name without one*'
-            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6026') | Should -BeFalse
-            (Get-CallLines $f).Count | Should -Be 0
-        }
-
-        # Same skip, same hole, one directory over. Written in the index's relative form, nothing
-        # else can catch it either: the residual scan requires that form to name a real file, and
-        # this one names a copy in another unit's directory that was never made.
-        It 'refuses a spaced read-first file under another unit of work''s id' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-spaced-foreign'
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                '- `data\T-1002\read-first\brand spec.md` - the settled brand.')
-
-            { Invoke-Dispatch -Fixture $f -Name 'T-6027' } | Should -Throw '*brand spec.md*'
-            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6027') | Should -BeFalse
-            (Get-CallLines $f).Count | Should -Be 0
-        }
-
-        # A backticked path needs no guessing - the backticks say where it ends - so a spaced
-        # original named in the section is still caught even though staging refuses to carry one.
-        It 'refuses an unreachable original whose file name contains a space' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-spaced-original'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand spec.md'
-            Set-Content -Path $one -Value 'teal' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                '- `data\brand spec.md` - the settled brand. Read it in full.')
-
-            { Invoke-Dispatch -Fixture $f -Name 'T-6018' } | Should -Throw '*brand spec.md*'
-            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6018') | Should -BeFalse
-        }
-
-        # Read first is the list of files to OPEN, and that is the only place an unreachable path is
-        # a defect. Elsewhere a data\ path is description - a brief about kingshand's own repo says
-        # what Add-IndexEntry does to data\backlog.md - and refusing that brief is worse than the
-        # gap, because the remedy the refusal offers would stage a snapshot of the live backlog.
-        It 'dispatches when a data path is only described outside the Read first section' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-described-elsewhere'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'backlog.md'
-            Set-Content -Path $one -Value 'T-1 do the thing' -Encoding utf8
-            Set-Content -Path $f.BriefPath -Encoding utf8 -Value @(
-                '# Brief', '', '## Read first', '- Nothing beyond this brief.', ''
-                '## Requirements'
-                '- `Add-IndexEntry` must list `data\backlog.md` the first time the digest reports it unindexed.'
-                '- The digest prints `$env:KINGSHAND_HOME\data\learnings.md` in full.')
-
-            (Invoke-Dispatch -Fixture $f -Name 'T-6019').id | Should -Be 'T-6019'
+            (& $script:DispatchScript -RepoPath $f.Repo -Name 'T-6017' `
+                -BriefPath $f.BriefPath -ReadPath $one).id | Should -Be 'T-6017'
+            (Get-Content -LiteralPath (Join-Path $f.BriefDir 'read-first\brand spec.md') -Raw).Trim() |
+                Should -Be 'teal'
         }
 
         # A fenced block is quoted example text. A brief for a task on muster's own template quotes
@@ -953,57 +744,6 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             { Invoke-Dispatch -Fixture $f -Name 'T-6021' } |
                 Should -Throw "*has no '## Read first' section*"
-        }
-
-        # And the same quotation must not be read as a path: the placeholder's owner segment is the
-        # literal <id>, which was refused as another unit of work's directory.
-        It 'ignores a quoted template path inside a fenced block' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-fenced-path'
-            Set-Content -Path $f.BriefPath -Encoding utf8 -Value @(
-                '# Brief', '', '## Read first', '- Nothing beyond this brief.', ''
-                '## Requirements', 'The template muster writes is:', '', '```markdown'
-                '## Read first'
-                '- `$env:KINGSHAND_HOME\data\<id>\read-first\<filename>` - what it settles.'
-                '```')
-
-            (Invoke-Dispatch -Fixture $f -Name 'T-6022').id | Should -Be 'T-6022'
-        }
-
-        # The provenance note written WITHOUT backticks. A parser that tried readings in turn ran the
-        # staged original on into the words after it - "...\brand.md Read" - which is not equal to
-        # the original, so the exemption missed and a correct brief was refused over a path nobody
-        # had written.
-        It 'dispatches when the provenance note repeats the original without backticks' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-plain-provenance'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
-            Set-Content -Path $one -Value 'teal' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                "- read-first\brand.md - the settled brand, copied here from $one. Read it in full.")
-
-            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6023' `
-                -BriefPath $f.BriefPath -ReadPath $one
-            $r.id | Should -Be 'T-6023'
-            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') | Should -BeTrue
-        }
-
-        # `read-first\` followed by a space is how this file's own refusals and muster's prose phrase
-        # it, so a Hand echoing that phrasing into the section is ordinary. Reading a leaf out of it
-        # invented the file ' in' and refused the brief for not staging it.
-        It 'invents no file from prose that mentions read-first without naming one' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-prose-mention'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
-            Set-Content -Path $one -Value 'teal' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                '- `read-first\brand.md` - the settled brand. Read it in full.'
-                '- Everything else under `read-first\ in this directory` is a copy of a file with its own entry.'
-                '- The copy lives under read-first\ in this directory.')
-
-            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6024' `
-                -BriefPath $f.BriefPath -ReadPath $one
-            $r.id | Should -Be 'T-6024'
         }
 
         # The two reports an inquest follow-up needs really are both called report.md, so the advice
@@ -1067,89 +807,20 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             (Invoke-Dispatch -Fixture $f -Name 'T-7102').id | Should -Be 'T-7102'
         }
 
-        # Briefs are written several at a time from one template, so a Read first block carried
-        # over from the brief above keeps the OTHER unit's id. The file name still matches what
-        # this dispatch stages, so name-only comparison passed it and the worker opened a path
-        # outside the one directory it can read.
-        It 'refuses a read-first path carrying another unit of work''s id' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-foreign-id'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'emgee-brand.md'
-            Set-Content -Path $one -Value 'teal, not amber' -Encoding utf8
-            $other = Join-Path (Split-Path $f.BriefDir -Parent) 'T-1002'
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                "- ``$other\read-first\emgee-brand.md`` - the settled brand, copied here from ``$one``.")
-
-            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-7001' `
-                -BriefPath $f.BriefPath -ReadPath $one } |
-                Should -Throw '*another unit of work''s read-first directory*'
-            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-7001') | Should -BeFalse
-            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
-        }
-
-        It 'accepts a read-first path carrying this brief''s own directory' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-own-id'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
-            Set-Content -Path $one -Value 'teal' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                "- ``$($f.BriefDir)\read-first\brand.md`` - the settled brand, copied here from ``$one``.")
-
-            (& $script:DispatchScript -RepoPath $f.Repo -Name 'T-7002' `
-                -BriefPath $f.BriefPath -ReadPath $one).id | Should -Be 'T-7002'
-        }
-
-        # A bare mention carries no directory at all, which is this brief's own by definition.
-        It 'accepts a bare read-first mention with no directory in front of it' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-bare'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
-            Set-Content -Path $one -Value 'teal' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @('- `read-first\brand.md` - the settled brand.')
-
-            (& $script:DispatchScript -RepoPath $f.Repo -Name 'T-7003' `
-                -BriefPath $f.BriefPath -ReadPath $one).id | Should -Be 'T-7003'
-        }
-
-        # The provenance note in muster's own template repeats the original path in the same line
-        # as the copy. A rule of "the section must not name any original" would refuse the shape
-        # the template tells the Hand to write.
-        It 'accepts the template shape, which names the copy and the original in one line' {
+        # The shape muster's template actually writes: the copy named as read-first\<leaf>, with the
+        # original repeated in the same line as provenance. This is the ordinary dispatch, and it
+        # has to stay ordinary.
+        It 'dispatches the template shape, which names the copy and the original in one line' {
             Set-AgentStartState
             $f = New-DispatchFixture 'readfirst-provenance'
             $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
             Set-Content -Path $one -Value 'teal' -Encoding utf8
             Set-ReadFirstBrief -Fixture $f -Leaf 'brand.md' -From $one
 
-            (& $script:DispatchScript -RepoPath $f.Repo -Name 'T-6008' `
-                -BriefPath $f.BriefPath -ReadPath $one).id | Should -Be 'T-6008'
-        }
-
-        It 'dispatches when every named file was staged' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-matched'
-            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
-            Set-Content -Path $one -Value 'teal' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                "- ``$($f.BriefDir)\read-first\brand.md`` - the settled brand. Read it in full.")
-
-            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6003' `
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6008' `
                 -BriefPath $f.BriefPath -ReadPath $one
-            $r.id | Should -Be 'T-6003'
+            $r.id | Should -Be 'T-6008'
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') | Should -BeTrue
-        }
-
-        # The check reads one section, not the whole brief: read-first\ named anywhere else is
-        # ordinary prose, and a brief with nothing to read must still dispatch.
-        It 'ignores read-first mentioned outside the Read first section' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'readfirst-elsewhere'
-            Set-Content -Path $f.BriefPath -Encoding utf8 -Value @(
-                '# Brief', '', '## Read first', '- Nothing beyond this brief.', ''
-                '## Scope', 'Do NOT touch read-first\anything.md')
-
-            (& $script:DispatchScript -RepoPath $f.Repo -Name 'T-6004' -BriefPath $f.BriefPath).id |
-                Should -Be 'T-6004'
         }
     }
 }

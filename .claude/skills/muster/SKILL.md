@@ -197,26 +197,19 @@ than inside it, so a brief naming it there tells the worker to open a file it ca
 original failure with one extra hop. Step 4 hands the original to `-ReadPath` and dispatch copies
 it to `$env:KINGSHAND_HOME\data\<id>\read-first\<filename>`, keeping the file name exactly. That
 is the path the `Read first` line names, and every path you write there goes to `-ReadPath` at
-Step 4. Dispatch reads this section back and refuses both ways - a `read-first\` file it names that
-nothing staged, and a staged file it names no line for - so naming the original here instead of the
-copy is caught rather than handed to the worker. It also refuses any path this section names under
-`data\` that is not inside `data\<id>\`, whether or not `-ReadPath` was passed, because that is
-exactly the tree the worker's one grant leaves out - written as `C:\...\data\<name>.md`, as
-`$env:KINGSHAND_HOME\data\<name>.md`, or as the bare `data\<name>.md` the index stores, all three
-are refused alike. Only this section, though: elsewhere in a brief a `data\` path is description,
-and a brief about kingshand's own repo names those routinely. The two lists cannot drift apart, but it refuses one dispatch at a time, and
-writing them together is what makes that check never fire.
+Step 4.
+
+**Nothing checks that those two agree, so you are the one who has to.** Dispatch reads this section
+for its heading and for nothing else: the paths reach it through `-ReadPath`, from you, in the same
+call. Write the section and the parameter together, in one go, and the pair cannot come apart. A
+line naming the original at `data\<name>.md` instead of the copy sends the worker to a sibling of
+the one directory it can read, and a copy no line names reaches nobody - both are yours to get
+right at the moment you write them.
 
 **Substitute this work's own id, every time.** Briefs get written several at a time from one
 template, and a `Read first` block carried over from the brief above it keeps the other unit's id -
 `data\<other id>\read-first\<filename>` names a real file in a directory this worker cannot read,
-and the file name still matches, so only the id gives it away. Dispatch refuses a `read-first\`
-path under any id but this one.
-
-**A file name with a space in it does not go through.** Dispatch refuses one at `-ReadPath` and
-refuses a `read-first\` line naming one, because a path is read back out of the brief's prose and a
-spaced name cannot be told there from a path followed by another word. Copy such a file to a name
-without one, pass that copy, and name the copy here.
+and the file name still matches, so only the id gives it away.
 
 Say in the same line what the copy is of, so the worker knows what it is holding and a later reader
 can find the original. The copy is taken at dispatch and does not change afterwards, which is
@@ -447,11 +440,17 @@ Dispatch copies each one to `$env:KINGSHAND_HOME\data\<id>\read-first\`, which i
 brief already names, because that directory is the only place outside its worktree a worker can
 read. Drop the parameter only when the section says `- Nothing beyond this brief.`
 
-Every refusal comes before anything at all is created, so a mistake here costs nothing to fix: a
-brief with no `## Read first` section at all, a path that does not exist, a directory where a file
-was meant, two different files with the same name, a `Read first` line naming a copy this call
-never staged, a staged file that section names no line for, and a `read-first\` path carrying
-another unit of work's id are each refused by name.
+Every refusal comes before anything at all is created, so a mistake here costs nothing to fix.
+There are four, and each is refused by name: a brief with no `## Read first` section at all, a
+path that does not exist, a directory where a file was meant, and two different files whose names
+would land on top of each other in the staging directory.
+
+**Dispatch does not read the paths out of the brief's prose, and nothing may make it start.** An
+earlier version did, comparing what it parsed there against `-ReadPath`, and it cost six review
+rounds without reaching a last bug - a path in prose can be absolute or relative, forward or back
+slashed, quoted or bare, contain spaces, sit inside a sentence or wrap across a line, and two of
+those rounds refused correct briefs over paths nobody had written. You write the brief and you make
+this call, so you already hold the list. Passing it here is the whole mechanism.
 
 **A brief written before the `Read first` section existed will be refused**, which is the intended
 behaviour rather than a migration problem: the un-dispatched briefs already on disk name no settled

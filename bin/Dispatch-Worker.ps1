@@ -54,57 +54,33 @@
   derived from a file the index already lists at its own path, so Get-IndexableFiles excludes
   read-first\ and the drift count does not grow by one per dispatch forever.
 
-  The brief's own `Read first` section is what decides whether -ReadPath was right, and the two
-  must agree in both directions: every read-first\<file> the section names must have been staged by
-  this call, and every file this call stages must be named there. One direction alone leaves the
-  other half of the fault reachable - a section naming the ORIGINAL path instead of the copy stages
-  the file and still sends the worker somewhere it cannot read. The two are written in different
-  steps, and prose was the only thing tying them together.
+  The paths arrive STRUCTURALLY, in -ReadPath, and nothing here reads them back out of the brief's
+  prose. An earlier version did: it parsed the `Read first` section for file paths and compared
+  that set against -ReadPath in both directions. The intent was right and the mechanism has no last
+  bug. It cost six consecutive review rounds - refuse paths outside the grant, read every path
+  form, read whole paths, tighten the parsing, refuse spaced names, refuse spaced mentions - each
+  one closing a real hole and exposing the next, because a path written in prose can be absolute or
+  relative, forward or back slashed, quoted or bare, contain spaces, sit inside a sentence, or wrap
+  across a line. Two of those rounds had already refused correct briefs over paths nobody wrote.
 
-  They must agree on the directory as well as the file name. A `read-first\` path under another
-  unit of work's id agrees on the name with what this call staged and still points outside this
-  worker's only grant, so it is refused by name.
+  The Hand writes the brief AND calls this script, so it is holding the list at the moment it
+  dispatches. Passing that list is the whole fix, and there is nothing left to infer. The prose
+  section stays as what the WORKER reads and acts on; nothing reads it mechanically except the
+  presence check below. Do not reintroduce a parser here.
 
-  Both of those checks are keyed on `read-first\<file>` mentions, so a section that names ONLY the
-  original - the path the Hand actually knows, `data\<name>.md` - put nothing in either set and
-  passed them both, with or without -ReadPath. So the section is also read for any path under the
-  data root that is not under the brief's own directory: that is precisely the tree the single
-  grant excludes, and a path there reaches nothing. A path handed to -ReadPath is exempt, which is
-  what keeps the template's "copied here from <original>" note legal.
+  What survives is the one check that never needed a path: the section must EXIST. A brief with no
+  `## Read first` heading names no settled file at all - the original failure verbatim rather than
+  a variant of it, since a brief with nothing to read says so in one line while a brief missing the
+  slot says nothing, and only the first is a decision somebody made. It is a regex against a
+  heading, and refusing here costs one line in a brief that has not been dispatched yet.
 
-  That last check reads all three forms such a path is written in, not just drive-letter paths:
-  `C:\...\data\<name>.md`, the `$env:KINGSHAND_HOME\data\<name>.md` the brief template itself
-  models, and the `data\<name>.md` the index stores. The latter two are resolved against the
-  brief's own data root, because the brief's directory is what this dispatch actually knows about
-  the tree. The relative form is refused only when it names a real file there, since it is the one
-  shape that could equally be a path in the repo the worker is about to work in.
+  Fenced code is quoted text, so it is skipped while looking for that heading. A brief for a task
+  on muster's own template quotes that template, fence and all, and the quoted `## Read first`
+  heading satisfied the check for a brief that had no section of its own.
 
-  It reads the `Read first` section and NOT the whole brief, on purpose. That section is the list
-  of files the worker must open, so an unreachable path in it is a defect; elsewhere a data\ path is
-  prose - a brief about this repo describes `data\backlog.md` without asking anyone to open it - and
-  refusing a legitimate brief is worse than the gap.
-
-  A file name containing a SPACE is refused from BOTH ends - at staging when -ReadPath names one,
-  and in the section when a `read-first\` line names one - and that is what keeps every check above
-  decidable. Refusing one end only left the other silent, which hid exactly the unstaged mention the
-  binding exists to catch. A brief is prose, so `data\brand spec.md in full` has no split a parser can
-  know: an earlier version tried each reading in turn and kept whichever some other evidence
-  confirmed, and it refused two correct briefs with messages naming paths nobody had written - a
-  staged original that ran on into the following words and lost its exemption, and the leaf ` in`
-  read out of the phrase "under read-first\ in this directory". Nothing kingshand keeps under data\
-  carries a space, so the name is refused where it is known exactly and every path here is then read
-  as one backtick span or one whitespace-delimited token, with no guessing anywhere.
-
-  Fenced code is quoted text and is skipped entirely. A brief that quotes the brief template used
-  to have that quotation read as its own structure: the quoted `## Read first` heading satisfied the
-  mandatory-section check for a brief that had none, and the quoted `<id>` placeholder was refused
-  as another unit of work's directory.
-
-  And the section must EXIST. Agreement between two empty sets is not agreement about anything, so
-  a brief with no `## Read first` heading passed every check above while naming no settled file at
-  all - the original failure exactly, not a variant of it. A brief with nothing to read says so in
-  one line; a brief missing the slot says nothing, and only the first is a decision. Refusing here
-  costs one line in a brief that has not been dispatched yet.
+  Everything else refused here is about -ReadPath itself, where the path is known exactly and
+  nothing is being read out of anything: a path that is not on disk, a directory where a file was
+  meant, and two entries whose file names would collide in the staging directory.
 .EXAMPLE
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md
   $r.id, $r.worktree, $r.branch
@@ -166,19 +142,6 @@ foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
 
     $leaf = Split-Path $resolved -Leaf
 
-    # A space in the file name is refused HERE, at the one point where the name is known exactly,
-    # rather than guessed at later by the parser that reads paths back out of the brief's prose.
-    # A brief is prose, so `data\brand spec.md in full` has no decidable split: every attempt to
-    # infer one either truncated a real name or ran a real path on into the words after it, and
-    # both produced refusals naming files nobody had written. Nothing kingshand keeps under data\
-    # carries a space, so this costs a rename and removes the ambiguity entirely.
-    if ($leaf -match '\s') {
-        throw ("Read first names $resolved, and its file name contains a space. Every path in a " +
-               "brief is read back out of prose, where a name with a space in it cannot be told " +
-               "from a path followed by another word. Rename the file without one, or copy it to a " +
-               "name without one and pass that copy instead. Nothing was created.")
-    }
-
     # Two sources with one file name would land on top of each other, and the worker would read
     # whichever was copied last with no sign the other ever existed.
     if ($staged.ContainsKey($leaf) -and $staged[$leaf] -ne $resolved) {
@@ -191,274 +154,39 @@ foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
     $staged[$leaf] = $resolved
 }
 
-# The brief and -ReadPath are written in two different steps and nothing but prose tied them
-# together. It is the brief's own text that the worker acts on, so it is the brief's own text that
-# is checked, and the check runs BOTH ways: a line naming a copy nothing staged, and a staged copy
-# no line names, are the same fault seen from opposite ends and each leaves the worker holding a
-# path it cannot open.
+# The heading, and NOTHING about the paths underneath it. The section's lines are what the worker
+# reads and acts on; the files it must be handed arrive in -ReadPath, from the same Hand that wrote
+# the section. An earlier version read the paths back out of these lines and compared the two sets,
+# and that parser is what the header records: six review rounds, no last bug, and two correct
+# briefs refused over paths nobody had written. Nothing here may start parsing this text again.
 #
-# The file name is compared, and so is the ONE segment in front of `read-first`, which has to be
-# this brief's own directory. Matching the name alone let another ticket's directory through -
-# briefs are written several at a time from one template, so `data\T-1002\read-first\brand.md`
-# copied into T-1003's brief agreed on the name with what T-1003 staged and still sent the worker
-# outside its only grant. The segment is compared rather than the whole path because the root may
-# be written expanded or not, and a bare `read-first\<file>` carries no segment at all and is
-# taken as this brief's own. The template's "copied here from <original>" note never puts a
-# foreign id in front of `read-first`, so it stays untouched.
-#
-# Every path a line names, with NO guessing about where one ends. A backtick span is one candidate
-# because the backticks say exactly where it stops, and everything outside them is split on
-# whitespace, because with a spaced name refused at staging a path can no longer contain a space.
-#
-# There was a version of this that tried to infer the split - each token, then the token plus the
-# next word, and so on, keeping whichever reading some other evidence confirmed. It produced two
-# refusals naming files nobody had written: a staged original ran on into the words after it and
-# lost its exemption, and prose containing `read-first\ ` yielded the leaf ` in`. A prose parser
-# that guesses is worse than one that cannot see a case the staging gate has already refused.
-function Get-PathCandidate {
-    param([Parameter(Mandatory)][AllowEmptyString()][string]$Line)
-
-    $found = [System.Collections.Generic.List[string]]::new()
-    $plain = [System.Text.StringBuilder]::new()
-    $i     = 0
-    while ($i -lt $Line.Length) {
-        $open = $Line.IndexOf('`', $i)
-        if ($open -lt 0) {
-            $null = $plain.Append($Line.Substring($i))
-            break
-        }
-        $null = $plain.Append($Line.Substring($i, $open - $i))
-        $close = $Line.IndexOf('`', $open + 1)
-        if ($close -lt 0) {
-            $null = $plain.Append($Line.Substring($open + 1))
-            break
-        }
-        $span = $Line.Substring($open + 1, $close - $open - 1).Trim()
-        if ($span) { $found.Add($span) }
-        # A separator in place of the span, or the words either side of it join into one token.
-        $null = $plain.Append(' ')
-        $i = $close + 1
-    }
-
-    foreach ($token in ($plain.ToString() -split '\s+')) {
-        $trimmed = $token.Trim('(', '[', '{', '<', '>', '|', '"', "'", ',', ';', ':', ')', ']', '}', '!', '?', '.')
-        if ($trimmed) { $found.Add($trimmed) }
-    }
-    $found
-}
-
-# Fenced blocks are QUOTED TEXT, not this brief's own structure, and both halves of the section
-# guard read them as structure. A brief for a task on muster's own template quotes that template,
-# fence and all: the quoted `## Read first` heading satisfied the mandatory-section check for a
-# brief that had no section of its own, and the quoted placeholder line
-# `$env:KINGSHAND_HOME\data\<id>\read-first\<filename>` was then read as a real path whose owner
-# segment is the literal `<id>`, refusing the dispatch over "another unit of work's read-first
-# directory" for a path nobody wrote as a path. Skipping fenced lines closes both at once.
-$briefLeaf  = Split-Path $briefDir -Leaf
-$briefLines = @(Get-Content -LiteralPath $BriefPath)
-$inSection  = $false
-$inFence    = $false
+# Fenced blocks are QUOTED TEXT rather than this brief's own structure. A brief for a task on
+# muster's own template quotes that template, fence and all, and the quoted `## Read first` heading
+# satisfied this check for a brief that had no section of its own.
 $hasSection = $false
-$named      = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-$foreign    = [System.Collections.Generic.List[string]]::new()
-$spaced     = [System.Collections.Generic.List[string]]::new()
-$sectionLines = [System.Collections.Generic.List[string]]::new()
-$readFirstPattern = '(?:(?<owner>[^\\/]+)[\\/])?read-first[\\/](?<leaf>[^\\/]+)$'
-foreach ($line in $briefLines) {
+$inFence    = $false
+foreach ($line in @(Get-Content -LiteralPath $BriefPath)) {
     if ($line -match '^\s*```') {
         $inFence = -not $inFence
         continue
     }
     if ($inFence) { continue }
-    if ($line -match '^\s*##\s+') {
-        $inSection = $line -match '^\s*##\s+Read first\s*$'
-        if ($inSection) { $hasSection = $true }
-        continue
-    }
-    if (-not $inSection) { continue }
-    $sectionLines.Add($line)
-
-    foreach ($candidate in (Get-PathCandidate -Line $line)) {
-        $pick = [regex]::Match($candidate, $readFirstPattern)
-        if (-not $pick.Success) { continue }
-        # The match has to begin where the path does.
-        if ($pick.Index -gt 0 -and $candidate[$pick.Index - 1] -notin @('\', '/')) { continue }
-
-        # A leaf that begins or ends with whitespace is not a file name at all - it is the tail of a
-        # sentence, as in "the copy lives under read-first\ in this directory" - so there is nothing
-        # to refuse and nothing to record. A leaf with a space INSIDE it is a file name, and one
-        # staging can never produce, because -ReadPath refuses a spaced name outright. Skipping that
-        # silently was the worst of the three options: it hid the very case the unstaged check exists
-        # to catch, and a brief naming read-first\brand spec.md with nothing staged went out to a
-        # worker that then had no such file.
-        $leafNamed = $pick.Groups['leaf'].Value
-        if ($leafNamed -ne $leafNamed.Trim()) { continue }
-        if ($leafNamed -match '\s') {
-            $spaced.Add($leafNamed)
-            continue
-        }
-
-        $owner = $pick.Groups['owner'].Value
-        if ($owner -and $owner -ne $briefLeaf) {
-            $foreign.Add($pick.Value)
-            continue
-        }
-        $null = $named.Add($pick.Groups['leaf'].Value)
+    if ($line -match '^\s*##\s+Read first\s*$') {
+        $hasSection = $true
+        break
     }
 }
 
-# The section has to be PRESENT, not merely consistent with -ReadPath. Every other check here
-# compares two sets, and both are empty when the section was never written and -ReadPath was never
-# passed - so the one case this whole mechanism exists to prevent was the one case that passed
-# every guard. That case is the original failure verbatim: a brief that names no settled file, a
-# worker that never learns one exists, and a site shipped without the brand that was already
-# decided. A brief with nothing to read says so in a line; a brief missing the slot says nothing,
-# and the two are not the same fact.
+# The section has to be PRESENT. This is the check that closes the originating failure: a brief
+# that names no settled file at all, a worker that never learns one exists, and a site shipped
+# without the brand that was already decided. A brief with nothing to read says so in a line; a
+# brief missing the slot says nothing, and the two are not the same fact.
 if (-not $hasSection) {
     throw ("The brief at $BriefPath has no '## Read first' section. Every brief carries one, " +
            "because a worker reads exactly one thing and a settled file it is never handed reaches " +
            "it not at all. Add the section naming each file to read - or the single line " +
            "'- Nothing beyond this brief.' when the index turns up nothing this task touches, so " +
            "that it reads as a decision rather than an omission. Nothing was created.")
-}
-
-if ($spaced.Count -gt 0) {
-    throw ("The brief's Read first section names " + (($spaced | Sort-Object -Unique) -join ', ') +
-           " under read-first\, and " + $(if ($spaced.Count -eq 1) { 'that file name contains' }
-                                          else { 'those file names contain' }) + " a space. Nothing " +
-           "can stage it: every path in a brief is read back out of prose, where a name with a space " +
-           "in it cannot be told from a path followed by another word, so -ReadPath refuses one too. " +
-           "Rename the file without a space, or copy it to a name without one, and name that copy " +
-           "here. Nothing was created.")
-}
-
-if ($foreign.Count -gt 0) {
-    throw ("The brief's Read first section names " + (($foreign | Sort-Object -Unique) -join ', ') +
-           ", which is another unit of work's read-first directory, not this one's. A worker can " +
-           "read only $briefDir, so that path reaches nothing. Name it under " +
-           "$briefLeaf\read-first\ instead. Nothing was created.")
-}
-
-$unstaged = @(@($named) | Where-Object { -not $staged.ContainsKey($_) } | Sort-Object)
-if ($unstaged.Count -gt 0) {
-    throw ("The brief's Read first section names " + ($unstaged -join ', ') + " under read-first\, " +
-           "and nothing staged " + $(if ($unstaged.Count -eq 1) { 'it' } else { 'them' }) + ". Pass " +
-           "the original of each to -ReadPath, or take the line out of the brief. Nothing was created.")
-}
-
-$unnamed = @(@($staged.Keys) | Where-Object { -not $named.Contains($_) } | Sort-Object)
-if ($unnamed.Count -gt 0) {
-    throw ("-ReadPath stages " + ($unnamed -join ', ') + " and the brief's Read first section names " +
-           $(if ($unnamed.Count -eq 1) { 'no line for it' } else { 'no line for them' }) + ". A copy " +
-           "the brief never names reaches nobody, and a section naming the ORIGINAL instead points " +
-           "the worker outside the only directory it can read. Name each one as " +
-           "read-first\<filename> in that section. Nothing was created.")
-}
-
-# The residual case, and the one both checks above are blind to: a section naming the ORIGINAL and
-# no copy at all. Neither set is keyed on it - no `read-first\` file was named, so nothing was
-# missing, and with -ReadPath omitted nothing was staged either, so nothing was unnamed. Every
-# guard passed on two empty sets while the brief pointed the worker at data\<name>.md, a sibling of
-# the one directory it can read.
-#
-# Scoped to the data root rather than to every absolute path, because that is the tree the single
-# grant deliberately excludes - every other worker's brief and report, king.md, learnings.md,
-# backlog.md and projects.md. A path under the brief's own directory is reachable, and a path
-# passed to -ReadPath is what the template's "copied here from <original>" note repeats, so both
-# are exempt. Paths are compared normalized: the root may be written expanded or with `..` in it.
-#
-# All THREE forms a kingshand path is actually written in are read, because a drive-letter scan
-# alone missed the two the Hand is most likely to type. muster's own brief template writes
-# `$env:KINGSHAND_HOME\data\...`, and the index stores its entries relative to the install root as
-# `data\<name>.md` - so a section naming the settled file in either form sailed past a check whose
-# claim was "any path under the data root". Both are resolved against the BRIEF's own data root
-# rather than against the environment variable: the brief's directory is the ground truth for
-# where this dispatch's data lives, and an installation whose KINGSHAND_HOME points somewhere else
-# would otherwise resolve the mention out of the tree and pass it.
-#
-# The relative form is the one genuinely ambiguous shape - `data\schema.json` could be a file in
-# the repo the worker is about to work in - so it is refused only when it really names a file under
-# the data root. The other two forms name kingshand's own tree by construction and need no such
-# proof.
-#
-# It reads the `Read first` section ONLY, and that is deliberate - do not widen it to the whole
-# brief. That section is by definition the list of files the worker must open, so every path in it
-# ought to be a staged copy and "this one is not reachable" is a decidable statement about it.
-# Anywhere else in a brief a data\ path is prose: a statute task on this very module carries
-# "`Add-IndexEntry` must list `data\backlog.md` the first time the digest reports it unindexed"
-# under Requirements, which is a description of behaviour, not an instruction to open a file. A
-# whole-brief scan refused that brief and offered staging a dispatch-time snapshot of the live
-# backlog as the remedy, which is not what the line meant. Refusing a legitimate brief is worse
-# than the gap.
-$dataRoot = Split-Path $briefDir -Parent
-$outside  = [System.Collections.Generic.List[string]]::new()
-if ($dataRoot) {
-    $rootPrefix  = [IO.Path]::GetFullPath($dataRoot).TrimEnd('\') + '\'
-    $briefPrefix = [IO.Path]::GetFullPath($briefDir).TrimEnd('\') + '\'
-    $homeRoot    = Split-Path $dataRoot -Parent
-    $dataLeaf    = Split-Path $dataRoot -Leaf
-    $originals   = [System.Collections.Generic.HashSet[string]]::new(
-                       [System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($v in $staged.Values) { $null = $originals.Add($v) }
-
-    $forms = [System.Collections.Generic.List[hashtable]]::new()
-    $forms.Add(@{ kind = 'absolute'; pattern = '^[A-Za-z]:[\\/].+$' })
-    if ($homeRoot) {
-        $forms.Add(@{ kind = 'home'; pattern = '^\$env:KINGSHAND_HOME[\\/].+$' })
-        if ($dataLeaf) {
-            $forms.Add(@{ kind    = 'relative'
-                          pattern = '^' + [regex]::Escape($dataLeaf) + '[\\/].+$' })
-        }
-    }
-
-    # One mention, resolved to the path it names, or $null when this worker is not barred from it -
-    # a staged original, something inside the brief's own directory, or anything outside the data
-    # root at all.
-    function Resolve-Mention {
-        param([Parameter(Mandatory)][string]$Mention)
-
-        foreach ($form in $forms) {
-            if ($Mention -notmatch $form.pattern) { continue }
-            $target = switch ($form.kind) {
-                'absolute' { $Mention }
-                'home'     { Join-Path $homeRoot ($Mention -replace '^\$env:KINGSHAND_HOME[\\/]', '') }
-                default    { Join-Path $homeRoot $Mention }
-            }
-            $full = $null
-            try { $full = [IO.Path]::GetFullPath($target) } catch { return $null }
-            if ($originals.Contains($full)) { return $null }
-            $probe = $full.TrimEnd('\') + '\'
-            if ($probe.StartsWith($briefPrefix, [StringComparison]::OrdinalIgnoreCase)) { return $null }
-            if (-not $probe.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) { return $null }
-
-            # The relative form is the ambiguous one - `data\schema.json` is an ordinary repo path in
-            # plenty of projects - so it counts only when the file is really there; the other two
-            # name kingshand's tree by construction and are refused either way.
-            if ($form.kind -eq 'relative' -and -not (Test-Path -LiteralPath $full -PathType Leaf)) {
-                return $null
-            }
-            return $full
-        }
-        $null
-    }
-
-    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($line in $sectionLines) {
-        foreach ($mention in (Get-PathCandidate -Line $line)) {
-            $full = Resolve-Mention -Mention $mention
-            if ($full -and $seen.Add($full)) { $outside.Add($mention) }
-        }
-    }
-}
-
-if ($outside.Count -gt 0) {
-    $bad  = @($outside | Sort-Object -Unique)
-    $leaf = Split-Path $bad[0] -Leaf
-    throw ("The brief at $BriefPath names " + ($bad -join ', ') + " under Read first, and a worker " +
-           "can read only $briefDir - so that path reaches nothing, which is the original failure " +
-           "with one extra hop. Pass each one to -ReadPath and name the copy in that section " +
-           "instead, one line each - '- read-first\$leaf - what it settles, copied here from " +
-           "$($bad[0]). Read it in full.' Nothing was created.")
 }
 
 # Copied only once every check above has passed, so a refusal is always true when it says nothing

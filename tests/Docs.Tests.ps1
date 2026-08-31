@@ -2283,6 +2283,41 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
             -Phrase '**`-ReadPath` takes the ORIGINALS of exactly the files that brief''s `Read first` section names, and nothing else.**'
     }
 
+    # The paths reach dispatch as a list, never by being read back out of the brief. An earlier
+    # version parsed that prose and it took six review rounds without reaching a last bug, two of
+    # them refusing correct briefs over paths nobody had written. The prohibition has to be written
+    # where the next round of the same idea would be, or it comes back: the finding that prompts it
+    # is always true, and only this says the answer is not another parser.
+    It 'muster forbids reading the Read first paths back out of the brief' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('**Dispatch does not read the paths out of the brief''s prose, and nothing ' +
+                     'may make it start.**')
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'You write the brief and you make this call, so you already hold the list'
+    }
+
+    # Nothing enforces the pairing any more, so the skill has to say who does. Left unsaid, the
+    # Hand goes on believing dispatch will catch a section that names the original.
+    It 'muster says the Hand is what keeps the section and -ReadPath together' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase '**Nothing checks that those two agree, so you are the one who has to.**'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase 'Write the section and the parameter together, in one go'
+    }
+
+    # The refusals are what a caller plans around, so their count and their subjects are pinned.
+    # Each one knows its path exactly because the caller handed it over - that is what separates
+    # this list from the parsed cross-check it replaced.
+    It 'muster states the four refusals dispatch still makes' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('There are four, and each is refused by name: a brief with no ' +
+                     '`## Read first` section at all, a path that does not exist, a directory ' +
+                     'where a file was meant, and two different files whose names would land on ' +
+                     'top of each other in the staging directory.')
+    }
+
     # A single quoted placeholder is filled in with two paths in one string, which names no file
     # and costs a round trip. The list shape has to be visible in the runnable text.
     It 'the dispatch fence shows -ReadPath as a comma-separated list' {
