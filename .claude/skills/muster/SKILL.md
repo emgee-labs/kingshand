@@ -201,8 +201,10 @@ Step 4. Dispatch reads this section back and refuses both ways - a `read-first\`
 nothing staged, and a staged file it names no line for - so naming the original here instead of the
 copy is caught rather than handed to the worker. It also refuses any path this section names under
 `data\` that is not inside `data\<id>\`, whether or not `-ReadPath` was passed, because that is
-exactly the tree the worker's one grant leaves out. The two lists cannot drift apart, but it
-refuses one dispatch at a time, and writing them together is what makes that check never fire.
+exactly the tree the worker's one grant leaves out - written as `C:\...\data\<name>.md`, as
+`$env:KINGSHAND_HOME\data\<name>.md`, or as the bare `data\<name>.md` the index stores, all three
+are refused alike. The two lists cannot drift apart, but it refuses one dispatch at a time, and
+writing them together is what makes that check never fire.
 
 **Substitute this work's own id, every time.** Briefs get written several at a time from one
 template, and a `Read first` block carried over from the brief above it keeps the other unit's id -
@@ -650,6 +652,10 @@ tasks-axi update "<id>" --report "data\<id>\report.md"
 Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
 Add-IndexEntry -Project "<project>" -Path "data\<id>\report.md" -Summary "<one line of what it found>"
 ```
+
+A report is indexed whenever it is first read, not only here. A worker that fails or goes
+unresponsive never reaches this step - the Hand loads `rally` instead - and that path indexes it
+too, so a torn-down worker's findings are never left listed nowhere.
 
 Do not mark it done here. The item closes at Step 8 or Step 8a, when the work has actually landed.
 

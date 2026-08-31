@@ -16,6 +16,16 @@ with live state. Where the two disagree, the live read wins for liveness and `cr
 intent. A worker's own record of what it found is `$env:KINGSHAND_HOME\data\<id>\report.md`, which
 lives outside the worktree and survives everything below.
 
+**Index that report the moment you read it.** This path never reaches `muster` Step 6, which is the
+only other place that lists it, so a worker rallied or torn down here leaves its findings in a file
+no index names - and an unlisted report is a finding the next brief will not find, plus a drift
+count the session-start digest prints forever:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
+Add-IndexEntry -Project "<project>" -Path "data\<id>\report.md" -Summary "<one line of what it found, or that the worker stopped before writing one>"
+```
+
 ## What kingshand can and cannot do to a running worker
 
 The control plane is herdr, reached only through `bin\Herdr.psm1`. Nothing here composes a herdr

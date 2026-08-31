@@ -282,7 +282,10 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         function New-DispatchFixture {
             param([Parameter(Mandatory)][string]$Name)
             $root = New-TempFixturePath -Prefix "dispatch-$Name-"
-            $briefDir = Join-Path $root 'brief'
+            # data\<id>\, the real layout: the guard resolves `$env:KINGSHAND_HOME\data\...` and the
+            # index's bare `data\<name>.md` against the brief's own data root, so a fixture whose
+            # data root is not called data would exercise neither form.
+            $briefDir = Join-Path $root 'data\brief'
             $home_    = Join-Path $root 'home'
             New-Item -ItemType Directory -Force -Path $briefDir | Out-Null
             New-Item -ItemType Directory -Force -Path $home_    | Out-Null
@@ -787,6 +790,70 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Set-ReadFirstBrief -Fixture $f -Body @("- ``$beside`` - notes, beside your brief.")
 
             (Invoke-Dispatch -Fixture $f -Name 'T-6012').id | Should -Be 'T-6012'
+        }
+
+        # The form muster's own template teaches. A guard that only saw drive-letter paths let the
+        # originating failure straight through the path shape the Hand is most likely to type,
+        # because `$env:KINGSHAND_HOME\data\...` holds no letter-colon-separator sequence at all.
+        It 'refuses the original written as $env:KINGSHAND_HOME\data\..., before creating anything' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-envvar-original'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'emgee-brand.md'
+            Set-Content -Path $one -Value 'teal, not amber' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- `$env:KINGSHAND_HOME\data\emgee-brand.md` - the settled brand. Read it in full.')
+
+            $err = { Invoke-Dispatch -Fixture $f -Name 'T-6013' } | Should -Throw -PassThru
+            $err.Exception.Message | Should -BeLike '*emgee-brand.md*'
+            $err.Exception.Message |
+                Should -BeLike "*$($f.BriefPath)*" -Because 'the operator has to know which brief to edit'
+            $err.Exception.Message | Should -BeLike '*read-first\emgee-brand.md*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6013') | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+            (Get-CallLines $f).Count | Should -Be 0
+        }
+
+        # And the form the index itself stores, which is what Step 2 tells the Hand to read: entries
+        # are relative to the install root, so the path in front of the Hand is `data\<name>.md`.
+        It 'refuses the original written in the index''s own relative form' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-relative-original'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'emgee-brand.md'
+            Set-Content -Path $one -Value 'teal, not amber' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- `data\emgee-brand.md` - the settled brand. Read it in full.')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-6014' } | Should -Throw '*emgee-brand.md*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6014') | Should -BeFalse
+        }
+
+        # The relative form is the one genuinely ambiguous shape: the same text is an ordinary repo
+        # path in any project with a data directory, and refusing those would refuse the briefs that
+        # need them. It names a file under kingshand's data root or it does not.
+        It 'accepts a relative data path that names no file under the data root' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-relative-repo'
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- `data/schema.json` - the schema in your worktree. Read it in full.')
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-6015').id | Should -Be 'T-6015'
+        }
+
+        # The template shape again, written the way the template actually writes it - env-var form
+        # for both the copy and the provenance note. Neither may false-fire.
+        It 'accepts the template shape written in env-var form' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-envvar-template'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                ('- `$env:KINGSHAND_HOME\data\brief\read-first\brand.md` - the settled brand, ' +
+                 'copied here from `$env:KINGSHAND_HOME\data\brand.md`. Read it in full.'))
+
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-6016' `
+                -BriefPath $f.BriefPath -ReadPath $one
+            $r.id | Should -Be 'T-6016'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') | Should -BeTrue
         }
 
         It 'refuses when the brief has no Read first section at all but a file was staged' {

@@ -72,6 +72,13 @@
   grant excludes, and a path there reaches nothing. A path handed to -ReadPath is exempt, which is
   what keeps the template's "copied here from <original>" note legal.
 
+  That last check reads all three forms such a path is written in, not just drive-letter paths:
+  `C:\...\data\<name>.md`, the `$env:KINGSHAND_HOME\data\<name>.md` the brief template itself
+  models, and the `data\<name>.md` the index stores. The latter two are resolved against the
+  brief's own data root, because the brief's directory is what this dispatch actually knows about
+  the tree. The relative form is refused only when it names a real file there, since it is the one
+  shape that could equally be a path in the repo the worker is about to work in.
+
   And the section must EXIST. Agreement between two empty sets is not agreement about anything, so
   a brief with no `## Read first` heading passed every check above while naming no settled file at
   all - the original failure exactly, not a variant of it. A brief with nothing to read says so in
@@ -236,24 +243,61 @@ if ($unnamed.Count -gt 0) {
 # backlog.md and projects.md. A path under the brief's own directory is reachable, and a path
 # passed to -ReadPath is what the template's "copied here from <original>" note repeats, so both
 # are exempt. Paths are compared normalized: the root may be written expanded or with `..` in it.
+#
+# All THREE forms a kingshand path is actually written in are read, because a drive-letter scan
+# alone missed the two the Hand is most likely to type. muster's own brief template writes
+# `$env:KINGSHAND_HOME\data\...`, and the index stores its entries relative to the install root as
+# `data\<name>.md` - so a section naming the settled file in either form sailed past a check whose
+# claim was "any path under the data root". Both are resolved against the BRIEF's own data root
+# rather than against the environment variable: the brief's directory is the ground truth for
+# where this dispatch's data lives, and an installation whose KINGSHAND_HOME points somewhere else
+# would otherwise resolve the mention out of the tree and pass it.
+#
+# The relative form is the one genuinely ambiguous shape - `data\schema.json` could be a file in
+# the repo the worker is about to work in - so it is refused only when it really names a file under
+# the data root. The other two forms name kingshand's own tree by construction and need no such
+# proof.
 $dataRoot = Split-Path $briefDir -Parent
 $outside  = [System.Collections.Generic.List[string]]::new()
 if ($dataRoot) {
     $rootPrefix  = [IO.Path]::GetFullPath($dataRoot).TrimEnd('\') + '\'
     $briefPrefix = [IO.Path]::GetFullPath($briefDir).TrimEnd('\') + '\'
+    $homeRoot    = Split-Path $dataRoot -Parent
+    $dataLeaf    = Split-Path $dataRoot -Leaf
     $originals   = [System.Collections.Generic.HashSet[string]]::new(
                        [System.StringComparer]::OrdinalIgnoreCase)
     foreach ($v in $staged.Values) { $null = $originals.Add($v) }
 
+    $tail  = '[^\s`''"<>|,;)\]]*'
+    $forms = [System.Collections.Generic.List[hashtable]]::new()
+    $forms.Add(@{ kind = 'absolute'; pattern = '[A-Za-z]:[\\/]' + $tail })
+    if ($homeRoot) {
+        $forms.Add(@{ kind = 'home'; pattern = '\$env:KINGSHAND_HOME[\\/]' + $tail })
+        if ($dataLeaf) {
+            $forms.Add(@{ kind     = 'relative'
+                          pattern  = '(?<![\w\\/.:$])' + [regex]::Escape($dataLeaf) + '[\\/]' + $tail })
+        }
+    }
+
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($line in $sectionLines) {
-        foreach ($m in [regex]::Matches($line, '[A-Za-z]:[\\/][^\s`''"<>|,;)\]]*')) {
-            $full = $null
-            try { $full = [IO.Path]::GetFullPath($m.Value) } catch { continue }
-            if ($originals.Contains($full)) { continue }
-            $probe = $full.TrimEnd('\') + '\'
-            if ($probe.StartsWith($briefPrefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
-            if (-not $probe.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
-            if (-not $outside.Contains($full)) { $outside.Add($full) }
+        foreach ($form in $forms) {
+            foreach ($m in [regex]::Matches($line, $form.pattern)) {
+                $mention = $m.Value
+                $target  = switch ($form.kind) {
+                    'absolute' { $mention }
+                    'home'     { Join-Path $homeRoot ($mention -replace '^\$env:KINGSHAND_HOME[\\/]', '') }
+                    default    { Join-Path $homeRoot $mention }
+                }
+                $full = $null
+                try { $full = [IO.Path]::GetFullPath($target) } catch { continue }
+                if ($originals.Contains($full)) { continue }
+                $probe = $full.TrimEnd('\') + '\'
+                if ($probe.StartsWith($briefPrefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
+                if (-not $probe.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
+                if ($form.kind -eq 'relative' -and -not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+                if ($seen.Add($full)) { $outside.Add($mention) }
+            }
         }
     }
 }
