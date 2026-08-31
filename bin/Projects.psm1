@@ -15,6 +15,12 @@ Set-StrictMode -Version Latest
 
 $script:ValidModes = @('no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only')
 
+# For the project-name shape only. The index owns that rule because the name becomes a file name
+# there, and this module asks rather than keeping a second copy of the pattern: two copies of one
+# validation drift the moment either is edited, and a registry that accepted more than the index
+# could resolve let a project register and then fail every index write it was ever named in.
+Import-Module (Join-Path $PSScriptRoot 'Index.psm1') -Force
+
 function Get-DefaultRegistryPath {
     Join-Path (Split-Path $PSScriptRoot -Parent) 'data\projects.md'
 }
@@ -168,6 +174,16 @@ function Add-ProjectEntry {
 
     if ($script:ValidModes -notcontains $Mode) {
         throw "Invalid mode '$Mode'. Must be one of: $($script:ValidModes -join ', ')"
+    }
+
+    # Refused where the name is chosen, not later where it is used. Every durable file written for a
+    # project is indexed under data\index\<name>.md, so a name the index cannot turn into a file name
+    # is a project nothing can ever index - and the failure would land one brief at a time, after
+    # each one was already on disk.
+    if (-not (Test-IndexProjectName -Project $Name)) {
+        throw ("Project name '$Name' cannot be registered: it becomes the file name of this " +
+               "project's index at data\index\$Name.md. Use a name of $(Get-IndexProjectNameRule) - " +
+               "for example '$($Name -replace '[^A-Za-z0-9._-]', '-')'.")
     }
 
     if (Test-Path $RegistryPath) {

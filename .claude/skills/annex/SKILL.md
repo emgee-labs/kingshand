@@ -33,6 +33,10 @@ rather than guessing - a wrong path registers the wrong repository.
 Default the project name to the directory's leaf name. The user may override name, mode and
 yolo in the request itself, in which case go straight to Step 3.
 
+The name becomes a file name - this project's index at `data\index\<name>.md` - so it may hold only
+letters, digits, `.`, `_` and `-`. A directory leaf like `@acme/web` needs a name chosen for it;
+`Add-ProjectEntry` refuses anything else rather than registering a project nothing can index.
+
 ## Step 2 - Propose the posture
 
 State the resolved default rather than asking the user to invent one:

@@ -204,6 +204,18 @@ Describe 'writing a file and indexing it are one call' {
         Test-Path -LiteralPath $r.fullPath | Should -BeTrue
     }
 
+    # The summary was validated before the write and the project name was not, so a name the index
+    # rejects got as far as Set-Content and threw from the indexing half - leaving a durable file
+    # that nothing lists, reached through the one call that exists to make that impossible.
+    It 'leaves no file behind when the project name is one the index would refuse' {
+        $data = New-DataFixture 'bad-project-write'
+        { Write-DataFile -Path 'data\x.md' -Content 'c' -Summary 's' -Project 'acme/web' -DataPath $data } |
+            Should -Throw -ExpectedMessage '*slug-shaped*'
+        Test-Path -LiteralPath (Join-Path $data 'x.md') |
+            Should -BeFalse -Because 'a write that cannot be indexed must not leave the file behind'
+        @(Get-IndexDrift -DataPath $data).unindexed.Count | Should -Be 0
+    }
+
     It 'leaves no file behind when the summary is one the index would refuse' {
         { Write-DataFile -Path 'data\rejected.md' -Content 'body' -Summary ('x' * 200) -DataPath $script:Data } |
             Should -Throw

@@ -63,6 +63,25 @@ function Resolve-IndexDataPath {
     [System.IO.Path]::GetFullPath($p).TrimEnd('\')
 }
 
+# What a project name may be, stated ONCE. It becomes a file name - data\index\<project>.md - so
+# the index is where the constraint comes from, and every other place that has to agree with it
+# calls in here rather than keeping a second copy of the pattern. The registry did keep no copy at
+# all, which let `@acme/web` register and then fail every index write it was named in, each time
+# after the brief or report was already on disk.
+$script:ProjectNamePattern = '^[A-Za-z0-9._-]+$'
+$script:ProjectNameRule    = "letters, digits, '.', '_' and '-'"
+
+function Test-IndexProjectName {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Project)
+
+    [bool]($Project -match $script:ProjectNamePattern)
+}
+
+function Get-IndexProjectNameRule {
+    $script:ProjectNameRule
+}
+
 # The root index holds kingshand's own operational files; a project's index holds that project's.
 # The root is a file beside the directory rather than a reserved name inside it, so no project can
 # ever collide with it.
@@ -74,8 +93,10 @@ function Get-IndexPath {
     )
 
     if ([string]::IsNullOrWhiteSpace($Project)) { return (Join-Path $DataPath 'index.md') }
-    if ($Project -notmatch '^[A-Za-z0-9._-]+$') {
-        throw "Project name '$Project' is not slug-shaped. Use the name it is registered under: letters, digits, '.', '_' and '-'."
+    if (-not (Test-IndexProjectName -Project $Project)) {
+        throw ("Project name '$Project' is not slug-shaped, and it has to be: it becomes the file " +
+               "name data\index\$Project.md. Allowed: $script:ProjectNameRule. Register the project " +
+               "under a name of that shape - the registry refuses any other.")
     }
     Join-Path $DataPath "index\$Project.md"
 }
@@ -399,11 +420,15 @@ function Write-DataFile {
         [string]$DataPath = (Get-DefaultIndexDataPath)
     )
 
-    # Validated before a byte is written: a summary the index would refuse must not leave a file
-    # on disk that nothing lists.
-    $one  = ConvertTo-IndexSummary -Summary $Summary
-    $rel  = ConvertTo-IndexRelativePath -Path $Path -DataPath $DataPath
-    $full = ConvertFrom-IndexRelativePath -Relative $rel -DataPath $DataPath
+    # EVERYTHING the index could refuse is checked before a byte is written, the project name
+    # included. The summary was validated here and the name was not, so a name the index rejects got
+    # as far as Set-Content and then threw from Add-IndexEntry - leaving a durable file on disk that
+    # no index lists, which is the write-and-index-come-apart failure this function exists to
+    # prevent, arrived at through the function itself.
+    $one       = ConvertTo-IndexSummary -Summary $Summary
+    $rel       = ConvertTo-IndexRelativePath -Path $Path -DataPath $DataPath
+    $full      = ConvertFrom-IndexRelativePath -Relative $rel -DataPath $DataPath
+    $null      = Get-IndexPath -Project $Project -DataPath $DataPath
 
     $dir = Split-Path -Parent $full
     if ($dir -and -not (Test-Path -LiteralPath $dir)) {
@@ -472,4 +497,4 @@ function Get-IndexDrift {
 
 Export-ModuleMember -Function Get-IndexPath, Get-AllIndexPaths, Get-IndexEntries, Add-IndexEntry,
                               Remove-IndexEntry, Write-DataFile, Get-IndexableFiles, Get-IndexDrift,
-                              Get-DefaultIndexDataPath
+                              Get-DefaultIndexDataPath, Test-IndexProjectName, Get-IndexProjectNameRule

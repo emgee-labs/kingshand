@@ -296,6 +296,28 @@ Describe 'Add-ProjectEntry' {
                            -Description 'd' -RegistryPath $script:reg } | Should -Throw '*mode*'
     }
 
+    # Every durable file written for a project is indexed at data\index\<name>.md, so a name the
+    # index cannot turn into a file name is a project nothing can ever index. It used to register
+    # happily and then fail each index write one brief at a time, after the brief was on disk.
+    It 'refuses a name the index cannot resolve to a file, and registers nothing' {
+        $err = { Add-ProjectEntry -Name '@acme/web' -Path $script:RealPath -Mode 'local-only' `
+                                  -Description 'd' -RegistryPath $script:reg } | Should -Throw -PassThru
+        $err.Exception.Message | Should -BeLike "*letters, digits, '.', '_' and '-'*"
+        $err.Exception.Message |
+            Should -BeLike '*-acme-web*' -Because 'the message has to offer a name that would work'
+        Test-Path -LiteralPath $script:reg |
+            Should -BeFalse -Because 'a refused name must leave no entry and no registry behind'
+    }
+
+    It 'accepts the slug-shaped names the index can resolve' {
+        foreach ($name in @('acme-api', 'acme_api', 'acme.api', 'Acme123')) {
+            Add-ProjectEntry -Name $name -Path (Join-Path $script:RealPath $name) -Mode 'local-only' `
+                             -Description 'd' -RegistryPath $script:reg
+        }
+        @(Get-AllProjects -RegistryPath $script:reg | ForEach-Object { $_.name }) |
+            Should -Be @('acme-api', 'acme_api', 'acme.api', 'Acme123')
+    }
+
     It 'refuses the same path written with a trailing separator' {
         Add-ProjectEntry -Name one -Path $script:RealPath -Mode 'local-only' `
                          -Description 'd' -RegistryPath $script:reg
