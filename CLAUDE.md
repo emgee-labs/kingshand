@@ -245,7 +245,10 @@ shipped without it. The index is a table of contents, so the reader decides at r
 files their own task touches, and a file no index lists is drift the session-start digest counts.
 That holds for a file another tool wrote as much as one you wrote: `data\backlog.md` is
 `tasks-axi`'s own file, and `Add-IndexEntry` lists it the first time the digest reports it
-unindexed. **Where two sources disagree the brief says which one wins**, and a settled file beats
+unindexed. `data\done-archive.md` is the same file in slower motion - `tasks-axi` starts writing it
+once more items have closed than `.tasks.toml` keeps - so it is listed the same way rather than
+excluded, and the drift count returns to zero instead of sitting at one forever.
+**Where two sources disagree the brief says which one wins**, and a settled file beats
 an older backlog line, ticket text or report - a worker left to choose picks wrong half the time.
 
 - How the user works and what they prefer belongs in `data\king.md`, after inspect-then-update:

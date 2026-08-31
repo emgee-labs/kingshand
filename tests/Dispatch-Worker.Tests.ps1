@@ -730,6 +730,65 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
         }
 
+        # And the variant neither of those two closes: the section names the original, -ReadPath is
+        # omitted entirely, and both checks above compare empty sets. No copy was named so nothing
+        # was missing, and nothing was staged so nothing was unnamed - dispatch succeeded and the
+        # worker launched holding a sibling of the only directory it can read.
+        It 'refuses the original path with no -ReadPath at all, before creating anything' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-original-nostage'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'emgee-brand.md'
+            Set-Content -Path $one -Value 'teal, not amber' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @("- ``$one`` - the settled brand. Read it in full.")
+
+            $err = { Invoke-Dispatch -Fixture $f -Name 'T-6009' } | Should -Throw -PassThru
+            $err.Exception.Message | Should -BeLike "*$one*"
+            $err.Exception.Message |
+                Should -BeLike "*$($f.BriefPath)*" -Because 'the operator has to know which brief to edit'
+            $err.Exception.Message |
+                Should -BeLike '*read-first\emgee-brand.md*' -Because 'the message states the line to write instead'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6009') | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+            (Get-CallLines $f).Count | Should -Be 0
+        }
+
+        # Same fault one directory deeper: a settled file in a subdirectory of data\ is no more
+        # reachable than one sitting directly in it.
+        It 'refuses an unreachable path anywhere under the data root' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-original-deep'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'specs\brand.md'
+            New-Item -ItemType Directory -Force -Path (Split-Path $one -Parent) | Out-Null
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @("- ``$one`` - the settled brand.")
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-6010' } | Should -Throw '*Nothing was created*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-6010') | Should -BeFalse
+        }
+
+        # The rule is about the tree the grant leaves out, not about absolute paths in general. A
+        # brief routinely names files in the repo the worker is about to work in, and refusing those
+        # would refuse every ordinary brief.
+        It 'accepts a path outside the data root, which the worker can reach' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-outside-data'
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                "- ``$($f.Repo)\README.md`` - the repo's own notes, in your worktree.")
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-6011').id | Should -Be 'T-6011'
+        }
+
+        # A file sitting beside the brief needs no copy and is inside the grant already.
+        It 'accepts a path inside the brief''s own directory' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'readfirst-inside-briefdir'
+            $beside = Join-Path $f.BriefDir 'notes.md'
+            Set-Content -Path $beside -Value 'x' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @("- ``$beside`` - notes, beside your brief.")
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-6012').id | Should -Be 'T-6012'
+        }
+
         It 'refuses when the brief has no Read first section at all but a file was staged' {
             Set-AgentStartState
             $f = New-DispatchFixture 'readfirst-nosection'

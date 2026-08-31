@@ -65,6 +65,13 @@
   unit of work's id agrees on the name with what this call staged and still points outside this
   worker's only grant, so it is refused by name.
 
+  Both of those checks are keyed on `read-first\<file>` mentions, so a section that names ONLY the
+  original - the path the Hand actually knows, `data\<name>.md` - put nothing in either set and
+  passed them both, with or without -ReadPath. So the section is also read for any path under the
+  data root that is not under the brief's own directory: that is precisely the tree the single
+  grant excludes, and a path there reaches nothing. A path handed to -ReadPath is exempt, which is
+  what keeps the template's "copied here from <original>" note legal.
+
   And the section must EXIST. Agreement between two empty sets is not agreement about anything, so
   a brief with no `## Read first` heading passed every check above while naming no settled file at
   all - the original failure exactly, not a variant of it. A brief with nothing to read says so in
@@ -160,6 +167,7 @@ $inSection  = $false
 $hasSection = $false
 $named      = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 $foreign    = [System.Collections.Generic.List[string]]::new()
+$sectionLines = [System.Collections.Generic.List[string]]::new()
 foreach ($line in $briefLines) {
     if ($line -match '^\s*##\s+') {
         $inSection = $line -match '^\s*##\s+Read first\s*$'
@@ -167,6 +175,7 @@ foreach ($line in $briefLines) {
         continue
     }
     if (-not $inSection) { continue }
+    $sectionLines.Add($line)
     $pattern = '(?:(?<owner>[^\s`''"<>|,;)\]\\/]+)[\\/])?read-first[\\/](?<leaf>[^\s`''"<>|,;)\]]+)'
     foreach ($m in [regex]::Matches($line, $pattern)) {
         $owner = $m.Groups['owner'].Value
@@ -214,6 +223,49 @@ if ($unnamed.Count -gt 0) {
            "the brief never names reaches nobody, and a section naming the ORIGINAL instead points " +
            "the worker outside the only directory it can read. Name each one as " +
            "read-first\<filename> in that section. Nothing was created.")
+}
+
+# The residual case, and the one both checks above are blind to: a section naming the ORIGINAL and
+# no copy at all. Neither set is keyed on it - no `read-first\` file was named, so nothing was
+# missing, and with -ReadPath omitted nothing was staged either, so nothing was unnamed. Every
+# guard passed on two empty sets while the brief pointed the worker at data\<name>.md, a sibling of
+# the one directory it can read.
+#
+# Scoped to the data root rather than to every absolute path, because that is the tree the single
+# grant deliberately excludes - every other worker's brief and report, king.md, learnings.md,
+# backlog.md and projects.md. A path under the brief's own directory is reachable, and a path
+# passed to -ReadPath is what the template's "copied here from <original>" note repeats, so both
+# are exempt. Paths are compared normalized: the root may be written expanded or with `..` in it.
+$dataRoot = Split-Path $briefDir -Parent
+$outside  = [System.Collections.Generic.List[string]]::new()
+if ($dataRoot) {
+    $rootPrefix  = [IO.Path]::GetFullPath($dataRoot).TrimEnd('\') + '\'
+    $briefPrefix = [IO.Path]::GetFullPath($briefDir).TrimEnd('\') + '\'
+    $originals   = [System.Collections.Generic.HashSet[string]]::new(
+                       [System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($v in $staged.Values) { $null = $originals.Add($v) }
+
+    foreach ($line in $sectionLines) {
+        foreach ($m in [regex]::Matches($line, '[A-Za-z]:[\\/][^\s`''"<>|,;)\]]*')) {
+            $full = $null
+            try { $full = [IO.Path]::GetFullPath($m.Value) } catch { continue }
+            if ($originals.Contains($full)) { continue }
+            $probe = $full.TrimEnd('\') + '\'
+            if ($probe.StartsWith($briefPrefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
+            if (-not $probe.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) { continue }
+            if (-not $outside.Contains($full)) { $outside.Add($full) }
+        }
+    }
+}
+
+if ($outside.Count -gt 0) {
+    $bad  = @($outside | Sort-Object -Unique)
+    $leaf = Split-Path $bad[0] -Leaf
+    throw ("The brief at $BriefPath names " + ($bad -join ', ') + " under Read first, and a worker " +
+           "can read only $briefDir - so that path reaches nothing, which is the original failure " +
+           "with one extra hop. Pass each one to -ReadPath and write the copy in that section " +
+           "instead, one line each - '- read-first\$leaf - what it settles, copied here from " +
+           "$($bad[0]). Read it in full.' Nothing was created.")
 }
 
 # Copied only once every check above has passed, so a refusal is always true when it says nothing

@@ -199,8 +199,10 @@ it to `$env:KINGSHAND_HOME\data\<id>\read-first\<filename>`, keeping the file na
 is the path the `Read first` line names, and every path you write there goes to `-ReadPath` at
 Step 4. Dispatch reads this section back and refuses both ways - a `read-first\` file it names that
 nothing staged, and a staged file it names no line for - so naming the original here instead of the
-copy is caught rather than handed to the worker. The two lists cannot drift apart, but it refuses
-one dispatch at a time, and writing them together is what makes that check never fire.
+copy is caught rather than handed to the worker. It also refuses any path this section names under
+`data\` that is not inside `data\<id>\`, whether or not `-ReadPath` was passed, because that is
+exactly the tree the worker's one grant leaves out. The two lists cannot drift apart, but it
+refuses one dispatch at a time, and writing them together is what makes that check never fire.
 
 **Substitute this work's own id, every time.** Briefs get written several at a time from one
 template, and a `Read first` block carried over from the brief above it keeps the other unit's id -
