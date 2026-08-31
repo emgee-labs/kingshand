@@ -68,7 +68,8 @@ function Resolve-IndexDataPath {
 # calls in here rather than keeping a second copy of the pattern. The registry did keep no copy at
 # all, which let `@acme/web` register and then fail every index write it was named in, each time
 # after the brief or report was already on disk.
-$script:ProjectNamePattern = '^[A-Za-z0-9._-]+$'
+$script:ProjectNameClass   = 'A-Za-z0-9._-'
+$script:ProjectNamePattern = "^[$script:ProjectNameClass]+$"
 $script:ProjectNameRule    = "letters, digits, '.', '_' and '-'"
 
 function Test-IndexProjectName {
@@ -80,6 +81,17 @@ function Test-IndexProjectName {
 
 function Get-IndexProjectNameRule {
     $script:ProjectNameRule
+}
+
+# The name a caller could use instead, derived from the same character class the test above uses,
+# so a refusal's suggested name cannot drift from what the index actually accepts. A second copy of
+# the class in the registry would have gone on mangling `+` after the index started allowing it,
+# and would have suggested a name the index still refused after any narrowing edit.
+function ConvertTo-IndexProjectName {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Project)
+
+    $Project -replace "[^$script:ProjectNameClass]", '-'
 }
 
 # The root index holds kingshand's own operational files; a project's index holds that project's.
@@ -497,4 +509,5 @@ function Get-IndexDrift {
 
 Export-ModuleMember -Function Get-IndexPath, Get-AllIndexPaths, Get-IndexEntries, Add-IndexEntry,
                               Remove-IndexEntry, Write-DataFile, Get-IndexableFiles, Get-IndexDrift,
-                              Get-DefaultIndexDataPath, Test-IndexProjectName, Get-IndexProjectNameRule
+                              Get-DefaultIndexDataPath, Test-IndexProjectName, Get-IndexProjectNameRule,
+                              ConvertTo-IndexProjectName

@@ -162,6 +162,10 @@ if ($registryPresent) {
                 path    = $path
                 # No path line recorded is as missing as a path that is gone.
                 pathExists = $(if ($path) { Test-PathQuiet $path } else { $false })
+                # A name the index cannot turn into a file name. Get-Field hands back strings, so
+                # only an explicit False flags a project: a missing or odd field reads as fine
+                # rather than inventing a problem in the digest.
+                indexable  = $((Get-Field $p 'indexable' 'True') -ne 'False')
             }
         }
         $registryReadable = $true

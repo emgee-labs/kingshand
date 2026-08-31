@@ -238,6 +238,27 @@ Describe 'the registry is named project by project, with its posture' {
         (Get-Digest $f).Contains('PATH MISSING') |
             Should -BeTrue -Because 'a posture that points nowhere cannot be dispatched into'
     }
+
+    # The registry is maintained by hand as well as by /annex, and a name the index cannot turn into
+    # a file name fails one brief at a time, always after the brief is on disk. Said here instead,
+    # and said without taking the digest down: reading the registry may not throw.
+    It 'flags a hand-written project name the index cannot resolve, without failing the digest' {
+        $f = New-Fixture 'registry-unindexable'
+        New-Item -ItemType Directory -Force -Path (Join-Path $f.Root 'repos\web') | Out-Null
+        Add-RegistryEntry $f '- @acme/web [local-only] - a hand-written entry (added 2026-01-01)' (Join-Path $f.Root 'repos\web')
+
+        $text = Get-Digest $f
+        $text.Contains('Projects: 1 registered') |
+            Should -BeTrue -Because 'the entry is flagged, not dropped - the user did register it'
+        $text.Contains('NAME NOT INDEXABLE') |
+            Should -BeTrue -Because 'the mismatch has to be visible before a brief is written for it'
+        $text.Contains('@acme/web') | Should -BeTrue
+    }
+
+    It 'leaves a slug-shaped name unflagged' {
+        $script:RegText.Contains('NAME NOT INDEXABLE') |
+            Should -BeFalse -Because 'every fixture name here is one the index can resolve'
+    }
 }
 
 Describe 'an absent context file is a fact, not an omission' {

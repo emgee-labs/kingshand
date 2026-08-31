@@ -284,7 +284,10 @@ try {
         Add-Line "  Projects: $($entries.Count) registered"
         Add-BoundedList -Items @($entries | ForEach-Object {
             $pathNote = if ($_.pathExists) { $_.path } else { "$($_.path) - PATH MISSING" }
-            "- $($_.name) [$($_.rawMode)] yolo $($_.yolo) - $pathNote"
+            # A hand-written name the index cannot resolve fails one brief at a time, always after
+            # the brief is on disk, so it is said here rather than discovered there.
+            $nameNote = if ($_.indexable) { '' } else { ' - NAME NOT INDEXABLE: rename it, or nothing written for it can be listed' }
+            "- $($_.name) [$($_.rawMode)] yolo $($_.yolo) - $pathNote$nameNote"
         })
     }
 
