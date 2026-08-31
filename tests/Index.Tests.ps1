@@ -436,3 +436,30 @@ Describe 'an entry whose file is gone can be dropped, so stale drift reaches zer
         @(Get-IndexEntries -All -DataPath $data | ForEach-Object { $_.path }) | Should -Be @('data\a.md')
     }
 }
+
+# A forced nested import removes Paths.psm1 before re-importing it, so a script that had already
+# imported it lost Get-KingshandHome the moment this module loaded, and died on its next path
+# lookup with an error from a module it never touched. Herdr.psm1 and Projects.psm1 both record
+# having hit exactly that; this is the same invariant for the Index -> Paths edge. One child
+# process, in the order that breaks.
+Describe 'importing Index does not unload Paths from the caller' {
+    BeforeAll {
+        $root   = Split-Path $PSScriptRoot -Parent
+        $driver = Join-Path ([IO.Path]::GetTempPath()) ("indeximport-" + [guid]::NewGuid().ToString('N') + '.ps1')
+        Set-Content -LiteralPath $driver -Encoding utf8 -Value @"
+Import-Module '$root\bin\Paths.psm1' -Force
+Import-Module '$root\bin\Index.psm1' -Force
+Write-Host "PATHS_BOUND=`$([bool](Get-Command Get-KingshandHome -ErrorAction SilentlyContinue))"
+Write-Host "INDEX_BOUND=`$([bool](Get-Command Get-IndexDrift -ErrorAction SilentlyContinue))"
+"@
+        $script:IndexImportOut = & (Get-Process -Id $PID).Path -NoProfile -File $driver 2>&1 | Out-String
+    }
+
+    It 'keeps Get-KingshandHome bound in the session that imported Paths first' {
+        $script:IndexImportOut | Should -BeLike '*PATHS_BOUND=True*'
+    }
+
+    It 'still binds its own exports' {
+        $script:IndexImportOut | Should -BeLike '*INDEX_BOUND=True*'
+    }
+}

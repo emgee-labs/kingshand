@@ -80,7 +80,7 @@ $check = Test-ProjectImportable -Path "<absolute path>" -Mode "<mode>"
 if (-not $check.ok) { $check.reason }
 ```
 
-`Test-ProjectImportable` owns three of the five refusals: the path existing, it being a git
+`Test-ProjectImportable` owns three of the six refusals: the path existing, it being a git
 repository, and a push-capable mode requiring an `origin` remote. Report `$check.reason`
 verbatim and stop; do not paraphrase it into something softer.
 
@@ -103,6 +103,10 @@ at its first dispatch, which is the same defect the gate check below exists to p
 The fifth is uniqueness. The name must be unique, and the path must not already be registered
 under another name. `Add-ProjectEntry` enforces both in Step 4; let it throw rather than
 pre-checking.
+
+The sixth is the name's shape, from Step 1: a name the index cannot turn into a file name is
+refused by that same `Add-ProjectEntry` call, and its message names a usable name. Pick a
+slug-shaped name at Step 1 rather than carrying a directory leaf like `@acme/web` this far.
 
 ## Step 4 - Record the gate state, then write the entry
 

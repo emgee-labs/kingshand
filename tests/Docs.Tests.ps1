@@ -1879,9 +1879,18 @@ Describe 'annex refuses a push-capable posture on a machine with no gh' {
 
     It 'the refusal is still counted among the preflight refusals rather than left loose' {
         Assert-Phrase -Text $script:ImportPreflight -Where 'annex Step 3' `
-            -Phrase '`Test-ProjectImportable` owns three of the five refusals'
+            -Phrase '`Test-ProjectImportable` owns three of the six refusals'
         Assert-Phrase -Text $script:ImportPreflight -Where 'annex Step 3' `
             -Phrase 'The fifth is uniqueness.'
+    }
+
+    # The count is what a Hand plans Step 4 around. Add-ProjectEntry throws on a non-slug name as
+    # well as on a duplicate, and uniqueness is counted here precisely because it is enforced by
+    # that same call - so leaving the name shape out understated what Step 4 refuses.
+    It 'counts the name-shape refusal Add-ProjectEntry makes alongside uniqueness' {
+        Assert-Phrase -Text $script:ImportPreflight -Where 'annex Step 3' `
+            -Phrase ('The sixth is the name''s shape, from Step 1: a name the index cannot turn ' +
+                     'into a file name is refused by that same `Add-ProjectEntry` call')
     }
 }
 
