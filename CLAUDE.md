@@ -137,7 +137,8 @@ rather than trusting a list; a list here goes stale and has twice.
 | Script | Job |
 |---|---|
 | `bin\Paths.psm1` | the one resolution point for `KINGSHAND_HOME` |
-| `bin\Herdr.psm1` | the only place that knows herdr's command line: start the server, make a pane, start a worker, read its state, prompt it, wait on it, read its screen, answer a prompt, stop it |
+| `bin\Herdr.psm1` | the only place that knows herdr's command line: start the server, make a pane, start a worker, read its state, prompt it, wait on it, notice it has stopped advancing, read its screen, answer a prompt, stop it |
+| `bin\Ci.psm1` | whether a repository has any CI that could report a check, before a task is promised a wait for one |
 | `bin\ClaudeWorkspace.psm1` | writes a worktree's `settings.local.json` and pre-seeds folder trust, because no arguments can be passed to a worker |
 | `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, query, save |
 | `bin\Projects.psm1` | the project registry: read an entry and its posture, add one, test importability |
@@ -203,9 +204,9 @@ arrives.
   decision a `report.md` names and nobody has answered.
 - `statute` - load before changing kingshand's own tracked material (`CLAUDE.md`, `bin\`,
   `.claude\skills\`, `tests\`, `docs\`), and name it in the brief when a task touches it.
-- `rally` - load when a worker reads dead or has no live process, or is looping, repeatedly
-  confused, asking what its brief already answers, unresponsive, or still recorded as working
-  after a session restart. Never remove a stuck worker's worktree before loading it.
+- `rally` - load when a worker reads dead or has no live process, or is reported stalled, looping,
+  repeatedly confused, asking what its brief already answers, unresponsive, or still recorded as
+  working after a session restart. Never remove a stuck worker's worktree before loading it.
 
 ## Backlog contract
 
@@ -316,8 +317,14 @@ wait is a background job belonging to the session that armed it, so a restart ki
 while the worker carries on. The worker is then running with nothing watching it, and the first you
 would know is the user asking - which is the exact failure this whole layer exists to prevent, and
 the digest cannot spot it because a live worker looks identical either way. So: for every worker the
-digest reports live, arm a fresh `Wait-HerdrAgentSettled` background job as `muster` Step 4
+digest reports live, arm a fresh `Wait-HerdrAgentProgress` background job as `muster` Step 4
 describes, then say in one line which workers you picked back up.
+
+**A worker that is alive is not necessarily getting anywhere**, and liveness cannot tell you which
+you have. The re-armed wait watches the worker's screen for movement as well as for the worker
+stopping, and reports a stall with its evidence rather than acting on one - `rally` owns the
+response. Re-arming after a restart starts that clock fresh, so a worker already stuck before the
+restart takes the full threshold to be noticed again.
 
 **A restart must be a non-event**, because durable state and the live process inventory - not
 conversation memory - are authoritative. Re-arming is what makes that true rather than aspirational.

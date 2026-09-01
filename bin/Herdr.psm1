@@ -197,12 +197,56 @@ function New-HerdrPane {
     $r.root_pane.pane_id
 }
 
+# One read of a worker's LIVE screen, and whether that read actually succeeded.
+#
+# The success half is the whole reason this exists. `agent read` is invoked with `2>&1`, so herdr's
+# own failure - a pane that has gone, a name it no longer knows - arrives as ordinary text on the
+# success path. Every caller here then treats that error payload as the worker's screen: it is
+# non-empty, so it reads as readable; it is constant, so it fingerprints identically every sample;
+# and twenty minutes later the watch reports a stall whose evidence is herdr's error message dressed
+# up as what the worker was last seen doing. A failed read is not a screen, and this is the one place
+# that says so, because three functions read the same viewport and each would have to remember.
+#
+# .ok is false for an empty read, a non-zero exit and an error envelope. `$LASTEXITCODE` is unset
+# rather than zero when nothing has run in the session, which is not a failure and must not be read
+# as one.
+function Read-HerdrAgentScreen {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Name)
+
+    $agentName = ConvertTo-HerdrAgentName -Name $Name
+    $exe = Get-HerdrCommandPath
+    if (-not $exe) { throw (Get-HerdrCommandHint) }
+
+    $raw  = & $exe agent read $agentName --source visible 2>&1
+    $code = $LASTEXITCODE
+    $text = ($raw | Out-String)
+
+    $failed = [pscustomobject]@{ ok = $false; text = '' }
+
+    if ($code) { return $failed }
+    if (-not $text -or -not $text.Trim()) { return $failed }
+
+    # herdr answers errors as JSON on stderr, which `2>&1` folds into the text above. A rendered
+    # terminal does not parse as an object carrying an `error`, so this discriminates without
+    # needing to know herdr's error codes.
+    $parsed = $null
+    try { $parsed = $text | ConvertFrom-Json } catch { }
+    if ($parsed -and $parsed.PSObject.Properties.Name -contains 'error') { return $failed }
+
+    [pscustomobject]@{ ok = $true; text = $text }
+}
+
 # True when a worker's terminal is wide enough for the screen guard to work on it.
 #
 # The guard matches phrases like "Enter to select". A pane too narrow to render one of them cannot
 # be read, and a read that cannot succeed must not be reported as "no prompt found" - that is the
 # difference between "this worker is fine" and "I cannot tell". Callers that treat a false from
 # Test-HerdrAgentAwaitingInput as proof of health need to know which one they have.
+#
+# A read that failed answers false here for the same reason, and it is not a nicety: this is the
+# cross-check `rally` sends the Hand to when a stall is reported, so a wide error payload reading as
+# a healthy pane is the one answer that would confirm the wrong story.
 function Test-HerdrAgentReadable {
     [CmdletBinding()]
     param(
@@ -210,15 +254,11 @@ function Test-HerdrAgentReadable {
         [int]$MinimumColumns = 40
     )
 
-    $agentName = ConvertTo-HerdrAgentName -Name $Name
-    $exe = Get-HerdrCommandPath
-    if (-not $exe) { throw (Get-HerdrCommandHint) }
-
-    $screen = (& $exe agent read $agentName --source visible 2>&1 | Out-String)
-    if (-not $screen) { return $false }
+    $read = Read-HerdrAgentScreen -Name $Name
+    if (-not $read.ok) { return $false }
 
     $widest = 0
-    foreach ($line in ($screen -split "`n")) {
+    foreach ($line in ($read.text -split "`n")) {
         $len = $line.TrimEnd().Length
         if ($len -gt $widest) { $widest = $len }
     }
@@ -399,15 +439,11 @@ function Test-HerdrAgentAwaitingInput {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Name)
 
-    $agentName = ConvertTo-HerdrAgentName -Name $Name
-    $exe = Get-HerdrCommandPath
-    if (-not $exe) { throw (Get-HerdrCommandHint) }
-
-    $screen = (& $exe agent read $agentName --source visible 2>&1 | Out-String)
-    if (-not $screen) { return $false }
+    $read = Read-HerdrAgentScreen -Name $Name
+    if (-not $read.ok) { return $false }
 
     foreach ($sig in $script:AwaitingInputSignatures) {
-        if ($screen.Contains($sig)) { return $true }
+        if ($read.text.Contains($sig)) { return $true }
     }
     $false
 }
@@ -455,6 +491,265 @@ function Wait-HerdrAgentSettled {
         state         = if ($awaiting) { 'blocked' } else { $agent.agent_status }
         awaitingInput = $awaiting
     }
+}
+
+# ---------------------------------------------------------------------------------------------
+# Progress, which is a different question from liveness.
+#
+# `Wait-HerdrAgentSettled` above asks whether a worker has stopped. That is the right question for
+# waking on completion and it is the wrong question for noticing a worker that has quietly stopped
+# getting anywhere. Both failure directions were observed on this machine on 2026-08-31 and
+# 2026-09-01: a worker that handed its work to a background pipeline and returned to its prompt read
+# `done` within seconds, so the wait fired and reported a completion that had not happened, and on
+# the same night a worker whose work was genuinely finished read `working` because stray text was
+# sitting in its input box. Neither state word says anything about whether the work is advancing.
+#
+# THE SIGNAL IS THE WORKER'S OWN SCREEN, NORMALISED. It was chosen over a pipeline's run status and
+# over the worktree's git log for one reason: it needs no knowledge of what the worker was sent to
+# do. The Hand waits on investigations, audits and plain edits as well as review-gate runs, and a
+# watcher that only understands pipelines is blind to every other kind of work. It also subsumes the
+# pipeline signal in practice - a review gate prints its own step transitions into the worker's
+# terminal, so a step advancing IS a screen change, with nothing here having to know that a pipeline
+# exists or which run id is the right one.
+#
+# Normalisation is what makes the screen usable at all. Claude Code redraws an elapsed timer and a
+# token counter every second while it works, so the raw screen is never twice the same and a naive
+# hash would report a worker frozen for an hour as making steady progress. Only those volatile
+# shapes are removed - durations, token counts, spinner glyphs, trailing space. Digits in general
+# are left alone, deliberately: a counter like `142/300` is real progress and must survive. The bias
+# that leaves is toward MISSING a stall rather than inventing one, which is the correct direction -
+# a false alarm reaching the King is worse than a silent one, and a missed stall is only as bad as
+# today.
+$script:StallMinutes   = 20
+$script:SampleSeconds  = 60
+
+# How long to wait before believing that a worker herdr did not name is really gone. A read that
+# comes back empty is "no such agent" OR "herdr could not answer", and one transient error must not
+# end a watch on a worker that is alive and working - the same null-is-not-zero discipline the CI
+# preflight applies to check counts.
+$script:GoneConfirmMs  = 1500
+
+# How many consecutive waits may come back without having consumed their slice before the watch
+# gives up. A wait built on somebody else's timeout becomes a silent spin the moment that timeout
+# stops being honoured, and only a return that was materially faster than the slice it asked for is
+# evidence of that - a wait that blocked for its full minute has cost a minute of clock and is
+# ordinary. The margin is wide because a herdr server restart or a single error envelope is not a
+# spin, and it is bounded because twenty instant failures in a row are.
+$script:MaxFastWaitReturns = 20
+
+# Durations, token counters and spinner glyphs: everything Claude Code repaints on its own while
+# nothing is happening. Each pattern is anchored on its unit so it cannot eat ordinary numbers.
+$script:VolatileScreenPatterns = @(
+    '\x1b\[[0-9;?]*[a-zA-Z]'                  # ANSI escapes, if the reader ever stops stripping them
+    '\b\d+h\s*\d*\s*m\b'                      # 1h 4m
+    '\b\d+m\s*\d*\s*s\b'                      # 3m 20s
+    '\b\d+(\.\d+)?\s*s\b'                     # 47s
+    '\b\d+(\.\d+)?[kKmM]?\s*tokens?\b'        # 1.4k tokens
+    '[✦✳✹✻✽∗·∙●○⠀-⣿]'         # spinner glyphs, braille block included
+)
+
+# One comparable fingerprint of what is on a worker's screen right now.
+#
+# .readable is the fail-closed half and it is not a detail: a screen that could not be read is not
+# evidence of anything, and a caller that treats an unreadable screen as "unchanged" reports a
+# healthy worker as stalled. A pane too narrow to render is the case that produced this - the same
+# width defect that blinded the blocked-worker guard.
+function Get-HerdrAgentProgressSignal {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Name)
+
+    # The live viewport, for the same reason the blocked guard reads it: scrollback never changes,
+    # so a signal taken over `recent` would look static on a worker that is working perfectly.
+    $read = Read-HerdrAgentScreen -Name $Name
+    if (-not $read.ok) {
+        return [pscustomobject]@{ readable = $false; signal = ''; lastActivity = '' }
+    }
+
+    $text = $read.text
+    foreach ($p in $script:VolatileScreenPatterns) { $text = $text -replace $p, ' ' }
+
+    $lines = @($text -split "`r?`n" |
+               ForEach-Object { ($_ -replace '\s+', ' ').Trim() } |
+               Where-Object { $_ })
+    $body = $lines -join "`n"
+
+    $digest = if ($body) {
+        [BitConverter]::ToString(
+            [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($body))
+        ).Replace('-', '').Substring(0, 16).ToLowerInvariant()
+    } else { '' }
+
+    # The last few meaningful lines, so an escalation can say what the worker was last seen doing
+    # rather than only that it stopped. Evidence a person can act on is the whole deliverable of a
+    # stall report.
+    $tail = if ($lines.Count -gt 3) { $lines[-3..-1] } else { $lines }
+
+    [pscustomobject]@{
+        readable     = [bool]$digest
+        signal       = $digest
+        lastActivity = ($tail -join ' | ')
+    }
+}
+
+# Waits for a worker to stop, and gives up on it when it stops advancing instead.
+#
+# This is ADDED BESIDE `Wait-HerdrAgentSettled` and changes nothing about it. That function is still
+# correct for what it does and other callers depend on it; this one answers the second question.
+#
+# It is still an event rather than a poll. herdr's own wait is the blocking primitive - it returns
+# the instant the worker settles - and the sample interval is only that wait's timeout, so nothing
+# here sleeps on the ordinary path and a finished worker still wakes the caller immediately. The one
+# sleep is the second read that confirms a worker herdr did not name is really gone. Sampling is
+# unavoidable for the stall half: "nothing happened" is not an event anything can push.
+#
+# It never recovers anything. A stall is reported with its evidence and the response belongs to
+# `rally` - a wrong automatic action on a stalled worker is worse than a late human one.
+function Wait-HerdrAgentProgress {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [int]$TimeoutMs = 0,
+        [int]$StallMinutes = $script:StallMinutes,
+        [int]$SampleSeconds = $script:SampleSeconds
+    )
+
+    if ($SampleSeconds -lt 1) { $SampleSeconds = 1 }
+    $sliceMs = $SampleSeconds * 1000
+
+    # The default timeout is COMPUTED FROM THE STALL THRESHOLD, because a watch that ends before the
+    # threshold can never reach it. Taking herdr's own four-minute default here made the two defaults
+    # mutually exclusive: twenty minutes of silence cannot be observed inside four, so the stall
+    # branch was unreachable for every caller that did not override the timeout. A caller that passes
+    # a shorter timeout deliberately gets what it asked for - a watch for completion only.
+    if ($TimeoutMs -le 0) {
+        $TimeoutMs = [Math]::Max($script:HerdrTimeoutMs, ($StallMinutes + 1) * 60000)
+    }
+
+    $started    = Get-Date
+    $deadline   = $started.AddMilliseconds($TimeoutMs)
+    $first      = Get-HerdrAgentProgressSignal -Name $Name
+    $signal     = $first.signal
+    $activity   = $first.lastActivity
+    $readable   = $first.readable
+    $lastChange = $started
+    $samples    = 1
+
+    # Consecutive waits that returned without consuming their slice. Counting every iteration
+    # instead would leave about three iterations of margin over a legitimate watch, so one herdr
+    # restart or one error envelope on a healthy worker would end the watch as `wait-failed`; only a
+    # return that cost no clock is evidence of the spin this guards against.
+    $fastReturns = 0
+
+    $report = {
+        param($settled, $state, $awaiting, $stalled, $reason)
+        $now = Get-Date
+        [pscustomobject]@{
+            settled        = $settled
+            state          = $state
+            awaitingInput  = $awaiting
+            stalled        = $stalled
+            reason         = $reason
+            quietMinutes   = [Math]::Round(($now - $lastChange).TotalMinutes, 1)
+            waitedMinutes  = [Math]::Round(($now - $started).TotalMinutes, 1)
+            lastChangeUtc  = $lastChange.ToUniversalTime()
+            lastActivity   = $activity
+            signalReadable = $readable
+            samples        = $samples
+            stallMinutes   = $StallMinutes
+        }
+    }
+
+    while ((Get-Date) -lt $deadline) {
+        $remaining = [int]([Math]::Min($sliceMs, ($deadline - (Get-Date)).TotalMilliseconds))
+        if ($remaining -lt 1) { break }
+
+        $sliceStarted = Get-Date
+        $agent = Wait-HerdrAgent -Name $Name -TimeoutMs $remaining
+        if ($agent) {
+            $awaiting = Test-HerdrAgentAwaitingInput -Name $Name
+            $state    = if ($awaiting) { 'blocked' } else { $agent.agent_status }
+
+            # The final screen, carried out with the wake. A state word cannot tell a worker that
+            # finished from one that handed its work to a background pipeline and returned to its
+            # prompt - both read `done` within seconds - so what the wake can honestly do is hand
+            # over what that worker's screen last said and let a person read it. Reporting stale
+            # activity from before the worker stopped would be worse than reporting none.
+            $final = Get-HerdrAgentProgressSignal -Name $Name
+            $readable = $final.readable
+            $activity = if ($final.readable) { $final.lastActivity } else { '' }
+
+            return & $report $true $state $awaiting $false 'settled'
+        }
+
+        if (((Get-Date) - $sliceStarted).TotalMilliseconds -lt ($remaining / 2)) {
+            $fastReturns++
+        } else {
+            $fastReturns = 0
+        }
+
+        # Null is a timeout OR a herdr error, and the two are not the same. A worker herdr has never
+        # heard of is gone rather than slow, and saying so is what sends the caller to `rally`
+        # instead of leaving it waiting on a process that no longer exists.
+        #
+        # One empty read is not that answer, though: `Get-HerdrAgent` returns nothing for "no such
+        # agent" AND for "herdr could not answer", so a single transient error would end the watch on
+        # a worker that is alive and working. It is confirmed once, after a pause, before the watch
+        # gives up on it.
+        $live = Get-HerdrAgent -Name $Name
+        if (-not $live) {
+            Start-Sleep -Milliseconds $script:GoneConfirmMs
+            $live = Get-HerdrAgent -Name $Name
+            if (-not $live) {
+                # A server that is down answers nothing for every agent, exactly as it does for one
+                # that was never registered, and the confirm pause above is far shorter than the
+                # thirty seconds a server takes to come back up. The difference matters to whoever
+                # reads this: `gone` sends them to reconcile a worktree that may still be being
+                # written to, while `wait-failed` sends them to the server and a re-armed wait.
+                if (-not (Test-HerdrServer)) {
+                    return & $report $false $null $false $false 'wait-failed'
+                }
+                return & $report $false $null $false $false 'gone'
+            }
+        }
+
+        if ($fastReturns -gt $script:MaxFastWaitReturns) {
+            return & $report $false $null $false $false 'wait-failed'
+        }
+
+        $samples++
+        $sample = Get-HerdrAgentProgressSignal -Name $Name
+        if (-not $sample.readable) {
+            # Fail closed. An unreadable screen is not a still one, so the clock is left where it is
+            # and no stall is claimed - the caller is told the watch was blind instead.
+            $readable = $false
+            continue
+        }
+
+        $readable = $true
+        $activity = $sample.lastActivity
+        if ($sample.signal -ne $signal) {
+            $signal     = $sample.signal
+            $lastChange = Get-Date
+            continue
+        }
+
+        if (((Get-Date) - $lastChange).TotalMinutes -ge $StallMinutes) {
+            # The state is READ, never assumed. A worker sitting on a dialog the screen guard did not
+            # match looks exactly like a stalled one, and reporting that as `working` would send the
+            # Hand looking for a stuck step when what is actually needed is the user's answer. The
+            # screen outranks herdr's word here for the same reason it does on every other wake.
+            $awaiting   = Test-HerdrAgentAwaitingInput -Name $Name
+            $stallState = 'working'
+            if (($live.PSObject.Properties.Name -contains 'agent_status') -and $live.agent_status) {
+                $stallState = $live.agent_status
+            }
+            if ($awaiting) { $stallState = 'blocked' }
+
+            return & $report $false $stallState $awaiting $true 'stalled'
+        }
+    }
+
+    & $report $false $null $false $false 'timeout'
 }
 
 # Answers an interactive prompt one key at a time.
@@ -535,4 +830,5 @@ Export-ModuleMember -Function Get-HerdrCommandPath, Get-HerdrCommandHint, Conver
                               Start-HerdrAgent, Get-HerdrAgent, Get-HerdrAgents, Send-HerdrPrompt,
                               Wait-HerdrAgent, Read-HerdrAgent, Send-HerdrKeys, Stop-HerdrAgent,
                               Remove-HerdrPane, Test-HerdrAgentAwaitingInput, Get-HerdrAgentState,
-                              Wait-HerdrAgentSettled, Test-HerdrAgentReadable
+                              Wait-HerdrAgentSettled, Test-HerdrAgentReadable,
+                              Get-HerdrAgentProgressSignal, Wait-HerdrAgentProgress
