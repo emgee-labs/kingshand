@@ -38,10 +38,14 @@ BeforeAll {
     }
 
     function New-WorkflowFile {
-        param([Parameter(Mandatory)][string]$RepoPath, [string]$Name = 'ci.yml')
+        param(
+            [Parameter(Mandatory)][string]$RepoPath,
+            [string]$Name = 'ci.yml',
+            [string]$Content = 'on: push'
+        )
         $dir = Join-Path $RepoPath '.github\workflows'
         New-Item -ItemType Directory -Force -Path $dir | Out-Null
-        Set-Content -Path (Join-Path $dir $Name) -Value 'on: push' -Encoding utf8
+        Set-Content -Path (Join-Path $dir $Name) -Value $Content -Encoding utf8
     }
 
     # gh's two reply shapes, and nothing invented: a success carrying the --jq output as text, and a
@@ -83,6 +87,18 @@ Describe 'Get-CiBriefLine puts the answer into the brief rather than leaving it 
     # loses an hour to checks that may not exist.
     It 'gives an undetermined repository the same terminating line as one with no CI' {
         Get-CiBriefLine -Status 'unknown' | Should -Be (Get-CiBriefLine -Status 'no-ci')
+    }
+
+    # Sharing the instruction is deliberate; sharing a claim would not be. An `unknown` lookup never
+    # established that nothing reports here - a missing `gh` or an expired token gets that answer -
+    # so a line asserting it as fact would have the worker report a repository as CI-less on the
+    # strength of a failed lookup, which is the one conversion this module refuses to make.
+    It 'states only what both statuses support, never that nothing reports here' {
+        $line = Get-CiBriefLine -Status 'unknown'
+        $line.Contains('may not report') |
+            Should -BeTrue -Because 'the shared line may only claim what an unanswered lookup supports'
+        $line.Contains('are not expected to report') |
+            Should -BeFalse -Because 'an unsettled question is not evidence that nothing reports'
     }
 
     It 'refuses a status that is not one of the three' {
@@ -175,6 +191,24 @@ Describe 'Get-CommitCheckCount separates zero checks from nobody answering' {
         Get-CommitCheckCount -Slug 'o/r' -Sha 'abc' |
             Should -BeNullOrEmpty -Because 'a failed lookup is not a count of zero'
     }
+
+    # The same collapse arriving through the success path. `Invoke-GhApi` folds stderr into the
+    # value it returns, so any non-fatal line gh prints alongside the count leaves a reply that is
+    # not a number - and reading that as zero is how a repository with CI gets reported as having
+    # none, with nothing anywhere saying the question went unanswered.
+    It 'reports nothing at all when the reply came back but was not a number' {
+        Mock -ModuleName Ci Invoke-GhApi { New-GhOk 'gh: a warning arrived instead of a count' }
+        Get-CommitCheckCount -Slug 'o/r' -Sha 'abc' |
+            Should -BeNullOrEmpty -Because 'a reply nobody could parse is not a count of zero'
+    }
+
+    It 'still counts the endpoint that answered when the other reply was unreadable' {
+        Mock -ModuleName Ci Invoke-GhApi {
+            if ($Arguments[1] -like '*check-runs') { New-GhOk 'gh: a warning' } else { New-GhOk '2' }
+        }
+        Get-CommitCheckCount -Slug 'o/r' -Sha 'abc' |
+            Should -Be 2 -Because 'one endpoint failing to parse does not discard the one that answered'
+    }
 }
 
 Describe 'Get-RepoCiStatus refuses to guess, and never converts a failed lookup into an answer' {
@@ -190,6 +224,108 @@ Describe 'Get-RepoCiStatus refuses to guess, and never converts a failed lookup 
             $r.signal | Should -Be 'ci-config'
             $r.detail | Should -BeLike '*ci.yml*' -Because 'the reader must be able to check the evidence'
             Should -Invoke Invoke-GhApi -ModuleName Ci -Times 0 -Exactly
+        }
+
+        It 'answers has-ci from a workflow triggered by a pull request, without asking GitHub' {
+            Mock -ModuleName Ci Invoke-GhApi { throw 'the network must not be reached for this case' }
+            $repo = New-TempRepo -Origin 'https://github.com/o/r.git'
+            New-WorkflowFile -RepoPath $repo -Content "on:`n  pull_request:`n    branches: [main]`n"
+
+            (Get-RepoCiStatus -RepoPath $repo).status | Should -Be 'has-ci'
+            Should -Invoke Invoke-GhApi -ModuleName Ci -Times 0 -Exactly
+        }
+    }
+
+    # THE OTHER HALF OF "NOT SUFFICIENT IN EITHER DIRECTION". A file existing is not a check
+    # arriving: a workflow triggered only by `schedule` or `workflow_dispatch` will never report on
+    # a pull request, so answering has-ci from its presence restores the hour-long wait exactly as
+    # an empty workflows directory would.
+    Context 'when the repository configures CI that cannot run on a pull request' {
+        BeforeEach {
+            $script:Repo = New-TempRepo -Origin 'https://github.com/o/r.git'
+            New-WorkflowFile -RepoPath $script:Repo -Name 'nightly.yml' `
+                -Content "name: nightly`non:`n  schedule:`n    - cron: '0 3 * * *'`n  workflow_dispatch:`njobs:`n  build:`n    runs-on: ubuntu-latest`n"
+        }
+
+        It 'asks GitHub instead of answering from the file, and reports no-ci when nothing reported' {
+            Mock -ModuleName Ci Invoke-GhApi {
+                if ($Arguments[1] -eq 'repos/o/r') { return New-GhOk 'main' }
+                New-GhOk 'sha1'
+            }
+            Mock -ModuleName Ci Get-CommitCheckCount { 0 }
+
+            $r = Get-RepoCiStatus -RepoPath $script:Repo
+            $r.status | Should -Be 'no-ci' -Because 'a nightly workflow cannot put a check on a pull request'
+            $r.detail | Should -BeLike '*nightly.yml*' -Because 'the file that was discounted has to reach the reader'
+        }
+
+        It 'still answers has-ci when GitHub reports checks on the commits anyway' {
+            Mock -ModuleName Ci Invoke-GhApi {
+                if ($Arguments[1] -eq 'repos/o/r') { return New-GhOk 'main' }
+                New-GhOk 'sha1'
+            }
+            Mock -ModuleName Ci Get-CommitCheckCount { 3 }
+
+            (Get-RepoCiStatus -RepoPath $script:Repo).signal | Should -Be 'checks-reported'
+        }
+
+        It 'answers unknown rather than no-ci when the checks could not be read' {
+            Mock -ModuleName Ci Invoke-GhApi { New-GhFail 'gh: Bad credentials (HTTP 401)' }
+
+            (Get-RepoCiStatus -RepoPath $script:Repo).status |
+                Should -Be 'unknown' -Because 'discounting the file settles nothing on its own'
+        }
+
+        # Both biases point the same way: keep the file. An unreadable `on:` block is not evidence
+        # of absence, and another provider's config is only in the list because that provider reads
+        # it - this can reason about GitHub's schema and nobody else's.
+        It 'keeps a workflow whose triggers could not be read at all' {
+            Mock -ModuleName Ci Invoke-GhApi { throw 'the network must not be reached for this case' }
+            $repo = New-TempRepo -Origin 'https://github.com/o/r.git'
+            New-WorkflowFile -RepoPath $repo -Content "name: something with no triggers`njobs: {}`n"
+
+            (Get-RepoCiStatus -RepoPath $repo).status | Should -Be 'has-ci'
+        }
+
+        It 'keeps another provider''s config, whose schema this cannot read' {
+            Mock -ModuleName Ci Invoke-GhApi { throw 'the network must not be reached for this case' }
+            $repo = New-TempRepo -Origin 'https://github.com/o/r.git'
+            Set-Content -Path (Join-Path $repo 'azure-pipelines.yml') -Value 'schedules: []' -Encoding utf8
+
+            (Get-RepoCiStatus -RepoPath $repo).status | Should -Be 'has-ci'
+        }
+    }
+
+    Context 'reading one workflow''s triggers' {
+        It 'reads <case>' -ForEach @(
+            @{ case = 'a bare trigger';        yaml = "on: push`n";                                expected = 'push' }
+            @{ case = 'an inline list';        yaml = "on: [schedule, pull_request]`n";            expected = 'pull_request' }
+            @{ case = 'a block';               yaml = "on:`n  pull_request:`n    branches: [main]`n"; expected = 'pull_request' }
+            @{ case = 'a block written as a list'; yaml = "on:`n  - schedule`n  - push`n";         expected = 'push' }
+            @{ case = 'a quoted key';          yaml = "'on':`n  merge_group:`n";                   expected = 'merge_group' }
+            @{ case = 'the YAML 1.1 boolean';  yaml = "true:`n  workflow_call:`n";                 expected = 'workflow_call' }
+        ) {
+            $repo = New-TempRepo
+            New-WorkflowFile -RepoPath $repo -Content $yaml
+            @(Get-WorkflowTriggers -Path (Join-Path $repo '.github\workflows\ci.yml')) |
+                Should -Contain $expected
+        }
+
+        # The nested keys under a trigger are not triggers. Reading `branches` as one would make
+        # every branch-restricted workflow unrecognisable.
+        It 'does not mistake a trigger''s own settings for triggers' {
+            $repo = New-TempRepo
+            New-WorkflowFile -RepoPath $repo -Content "on:`n  schedule:`n    - cron: '0 3 * * *'`njobs:`n  build:`n"
+            $triggers = @(Get-WorkflowTriggers -Path (Join-Path $repo '.github\workflows\ci.yml'))
+            $triggers.Count | Should -Be 1 -Because 'cron and build are not triggers'
+            $triggers[0]    | Should -Be 'schedule'
+        }
+
+        It 'answers nothing at all for a file with no on: key, rather than an empty list' {
+            $repo = New-TempRepo
+            New-WorkflowFile -RepoPath $repo -Content "name: nothing`njobs: {}`n"
+            Get-WorkflowTriggers -Path (Join-Path $repo '.github\workflows\ci.yml') |
+                Should -BeNullOrEmpty -Because 'not established is not the same as no triggers'
         }
     }
 

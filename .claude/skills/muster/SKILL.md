@@ -365,10 +365,11 @@ is the whole point of the preflight - it ends a wait that would otherwise have n
 - Implemented and committed on this worktree's branch.
 - Run the review gate from inside the worktree and fix what it parks:
   `no-mistakes axi run --intent "<the Goal above, one line>"`
-- Drive the pipeline through to a pull request and stop there. Checks are not expected to report on
-  this repository, so when the pipeline's `ci` step has been waiting more than fifteen minutes with
-  no checks reported, report the pull request's full https:// URL as delivered and say plainly that
-  CI cannot report here. Do not sit on it. Do not merge it.
+- Drive the pipeline through to a pull request and stop there.
+  Checks may not report on this repository at all, so when the pipeline's `ci` step has been
+  waiting more than fifteen minutes with no checks reported, report the pull request's full
+  https:// URL as delivered, say plainly that no checks were reported, and stop. Do not sit on it.
+  Do not merge it.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
   required every time, including when the work succeeded plainly with nothing surprising in it.
 - Never call `AskUserQuestion`, and never open any interactive prompt, menu or confirmation of
@@ -619,8 +620,13 @@ because "nothing happened" is not an event anything can push at you.
   `Test-HerdrAgentReadable` and say plainly that you cannot see the worker rather than reporting it
   healthy.
 - **`reason` of `gone` means herdr has no such worker any more.** That is not a timeout and not a
-  stall: the process is not there. Load `rally` and reconcile before anything else, and never remove
-  its worktree first.
+  stall: the process is not there. It is confirmed by a second read before it is reported, so one
+  transient error does not produce it. Load `rally` and reconcile before anything else, and never
+  remove its worktree first.
+- **`reason` of `wait-failed` is the watch failing, not the worker.** herdr kept answering
+  instantly instead of blocking for its slice, so the wait gave up rather than spinning silently.
+  The worker is still alive and now unwatched: check the server with `Test-HerdrServer`, re-arm the
+  wait, and say in one line that you lost sight of it rather than reporting it healthy.
 - **Never arm the wait immediately after submitting a prompt without accounting for stale state.**
   A worker reads `idle` for a moment after its prompt is submitted, so a wait armed on `idle`
   alone can return instantly and report a completion that never happened. The dispatcher hands

@@ -35,7 +35,11 @@ directory is the obvious signal and it is insufficient in both directions: `emge
 workflow file anywhere in the repository and gets Cloudflare Pages check runs on every commit, while
 a repository that deleted its last workflow keeps the empty directory. So the stronger signal is the
 checks GitHub actually reported on recent commits of the default branch, and it is consulted
-whenever the repository itself configures nothing. Both were verified against the three real cases
+whenever nothing the repository itself configures could report on a pull request. That last clause
+is the third way a file listing lies: a workflow triggered only by `schedule` or `workflow_dispatch`
+exists, runs, and still never puts a check on a pull request, so its triggers are read rather than
+its presence counted. A workflow whose `on:` block cannot be read is kept, and so is another
+provider's config file, because neither is evidence of absence. Both were verified against the three real cases
 on this machine: kingshand answers `no-ci`, emgeelabs-site answers `has-ci` from check runs alone,
 and a repository that cannot be reached answers `unknown` with the HTTP error in the detail.
 
@@ -45,7 +49,9 @@ answer. Nothing in that module converts a failed lookup into either answer, beca
 answers are expensive: a false `no-ci` throws away a real green check, and a false `has-ci` restores
 the hour-long wait. `unknown` takes the same terminating brief line as `no-ci`, because under
 uncertainty stopping at the pull request loses at most a wait for a check the user can see on the
-forge anyway.
+forge anyway. The shared line says checks *may* not report rather than that they are not expected
+to: the instruction is what ends the wait, and a line that asserted the absence as fact would have a
+worker report a repository as CI-less on the strength of an expired token.
 
 ### The progress signal is the worker's own screen, normalised
 
@@ -102,8 +108,14 @@ action on a stalled worker is worse than a late human one.
 - **The wait stays an event.** herdr's own wait is the blocking primitive and the sample interval is
   only that wait's timeout, so a finished worker still wakes the caller instantly. Sampling exists
   only for the stall half, because "nothing happened" is not an event anything can push, and it is
-  bounded by an iteration cap so that a herdr answering instantly with an error cannot turn the wait
-  into a spin.
+  bounded so that a herdr answering instantly with an error cannot turn the wait into a spin. The
+  bound counts only returns that came back without consuming their slice: counting every iteration
+  left about three of margin, so one server restart on a healthy worker ended the watch.
+- **Nothing on a wake is assumed.** A worker herdr does not name is read twice before it is called
+  gone, because one empty read is also what a transient error looks like. A stall reports the state
+  and `awaitingInput` it read, because a worker sitting on an unmatched dialog looks exactly like a
+  stalled one and needs the user rather than a hunt for a stuck step. And the default timeout is
+  computed from the stall threshold, since a watch that ends first can never reach it.
 
 ## Revisit when
 

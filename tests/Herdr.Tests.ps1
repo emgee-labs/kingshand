@@ -780,6 +780,49 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         $r.stalled | Should -BeFalse -Because 'a worker that is not there did not stall, it disappeared'
     }
 
+    # `Get-HerdrAgent` answers with nothing for "no such agent" AND for "herdr could not answer", so
+    # a single transient error looks exactly like a worker that has disappeared. Ending the watch on
+    # one empty read leaves a live worker unwatched and sends the Hand to reconcile a worktree that
+    # is still being written to.
+    It 'confirms an unanswered read before deciding a worker is gone' {
+        $script:reads = 0
+        Mock -ModuleName Herdr Get-HerdrAgent {
+            $script:reads++
+            if ($script:reads -eq 1) { return $null }
+            [pscustomobject]@{ name = 't-9001'; agent_status = 'working'; pane_id = 'p1' }
+        }
+
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 2000 -SampleSeconds 1 -StallMinutes 120
+        $r.reason | Should -Be 'timeout' -Because 'one unanswered read is not a worker that has gone'
+        $script:reads | Should -BeGreaterThan 1 -Because 'the read is retried rather than trusted once'
+    }
+
+    # A worker sitting on a dialog the screen guard did not match looks exactly like a stalled one.
+    # Reporting that as `working` sends the Hand hunting for a stuck step when what is needed is the
+    # user's answer, so the state is read on this path like it is on every other wake.
+    It 'reads the state on a stall rather than asserting the worker is working' {
+        Mock -ModuleName Herdr Test-HerdrAgentAwaitingInput { $true }
+
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 4000 -SampleSeconds 1 -StallMinutes 0
+        $r.stalled       | Should -BeTrue
+        $r.state         | Should -Be 'blocked' -Because 'the screen outranks the state word here too'
+        $r.awaitingInput | Should -BeTrue -Because 'a fabricated $false would hide the question being asked'
+    }
+
+    # The two defaults were mutually exclusive: herdr's own four-minute timeout against twenty
+    # minutes of silence means the stall branch can never be reached by a caller that takes both.
+    It 'never watches for less time than the stall threshold it was given' {
+        $script:askedFor = 0
+        Mock -ModuleName Herdr Wait-HerdrAgent {
+            $script:askedFor = $TimeoutMs
+            [pscustomobject]@{ name = 't-9001'; agent_status = 'idle'; pane_id = 'p1' }
+        }
+
+        $null = Wait-HerdrAgentProgress -Name 'T-9001' -StallMinutes 20 -SampleSeconds 3600
+        $script:askedFor |
+            Should -BeGreaterThan (20 * 60000) -Because 'a watch that ends first can never reach the threshold'
+    }
+
     # A wait built on somebody else's timeout becomes a spin the moment that timeout stops being
     # honoured, and a spin is silent. The iteration bound is what stops it, so it is asserted by
     # count rather than by hope.

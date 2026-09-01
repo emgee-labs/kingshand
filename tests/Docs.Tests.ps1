@@ -3412,9 +3412,12 @@ Describe 'the review gate is never promised a check that cannot come' {
                      'workflow file may still get checks from outside it')
     }
 
+    # The line is shared by `no-ci` and `unknown`, so it says what both support and no more. An
+    # `unknown` lookup never established that nothing reports here, and a worker told it had would
+    # report a repository as CI-less on the strength of an expired token.
     It 'the no-CI variant ends the wait instead of leaving it open' {
         $blocks = @(Get-CodeFence $script:MusterMd |
-            Where-Object { $_.Contains('Checks are not expected to report on') })
+            Where-Object { $_.Contains('Checks may not report on this repository at all') })
         $blocks.Count | Should -Be 1 -Because 'the terminating line is stated once, in its own Done-means block'
         $blocks[0].Contains('waiting more than fifteen minutes') |
             Should -BeTrue -Because 'an open-ended wait is exactly the failure this removes'

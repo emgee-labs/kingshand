@@ -487,6 +487,20 @@ function Wait-HerdrAgentSettled {
 $script:StallMinutes   = 20
 $script:SampleSeconds  = 60
 
+# How long to wait before believing that a worker herdr did not name is really gone. A read that
+# comes back empty is "no such agent" OR "herdr could not answer", and one transient error must not
+# end a watch on a worker that is alive and working - the same null-is-not-zero discipline the CI
+# preflight applies to check counts.
+$script:GoneConfirmMs  = 1500
+
+# How many consecutive waits may come back without having consumed their slice before the watch
+# gives up. A wait built on somebody else's timeout becomes a silent spin the moment that timeout
+# stops being honoured, and only a return that was materially faster than the slice it asked for is
+# evidence of that - a wait that blocked for its full minute has cost a minute of clock and is
+# ordinary. The margin is wide because a herdr server restart or a single error envelope is not a
+# spin, and it is bounded because twenty instant failures in a row are.
+$script:MaxFastWaitReturns = 20
+
 # Durations, token counters and spinner glyphs: everything Claude Code repaints on its own while
 # nothing is happening. Each pattern is anchored on its unit so it cannot eat ordinary numbers.
 $script:VolatileScreenPatterns = @(
@@ -552,8 +566,9 @@ function Get-HerdrAgentProgressSignal {
 #
 # It is still an event rather than a poll. herdr's own wait is the blocking primitive - it returns
 # the instant the worker settles - and the sample interval is only that wait's timeout, so nothing
-# here sleeps and a finished worker still wakes the caller immediately. Sampling is unavoidable for
-# the stall half: "nothing happened" is not an event anything can push.
+# here sleeps on the ordinary path and a finished worker still wakes the caller immediately. The one
+# sleep is the second read that confirms a worker herdr did not name is really gone. Sampling is
+# unavoidable for the stall half: "nothing happened" is not an event anything can push.
 #
 # It never recovers anything. A stall is reported with its evidence and the response belongs to
 # `rally` - a wrong automatic action on a stalled worker is worse than a late human one.
@@ -561,13 +576,22 @@ function Wait-HerdrAgentProgress {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Name,
-        [int]$TimeoutMs = $script:HerdrTimeoutMs,
+        [int]$TimeoutMs = 0,
         [int]$StallMinutes = $script:StallMinutes,
         [int]$SampleSeconds = $script:SampleSeconds
     )
 
     if ($SampleSeconds -lt 1) { $SampleSeconds = 1 }
     $sliceMs = $SampleSeconds * 1000
+
+    # The default timeout is COMPUTED FROM THE STALL THRESHOLD, because a watch that ends before the
+    # threshold can never reach it. Taking herdr's own four-minute default here made the two defaults
+    # mutually exclusive: twenty minutes of silence cannot be observed inside four, so the stall
+    # branch was unreachable for every caller that did not override the timeout. A caller that passes
+    # a shorter timeout deliberately gets what it asked for - a watch for completion only.
+    if ($TimeoutMs -le 0) {
+        $TimeoutMs = [Math]::Max($script:HerdrTimeoutMs, ($StallMinutes + 1) * 60000)
+    }
 
     $started    = Get-Date
     $deadline   = $started.AddMilliseconds($TimeoutMs)
@@ -578,11 +602,11 @@ function Wait-HerdrAgentProgress {
     $lastChange = $started
     $samples    = 1
 
-    # A hard bound on iterations, set to the number of slices the timeout can legitimately hold. It
-    # costs nothing in normal use and it is what stops a herdr that is answering instantly with an
-    # error from turning this into a spin - which a wait built on someone else's timeout can
-    # otherwise become without anyone noticing.
-    $maxSamples = [Math]::Ceiling($TimeoutMs / [double]$sliceMs) + 2
+    # Consecutive waits that returned without consuming their slice. Counting every iteration
+    # instead would leave about three iterations of margin over a legitimate watch, so one herdr
+    # restart or one error envelope on a healthy worker would end the watch as `wait-failed`; only a
+    # return that cost no clock is evidence of the spin this guards against.
+    $fastReturns = 0
 
     $report = {
         param($settled, $state, $awaiting, $stalled, $reason)
@@ -607,6 +631,7 @@ function Wait-HerdrAgentProgress {
         $remaining = [int]([Math]::Min($sliceMs, ($deadline - (Get-Date)).TotalMilliseconds))
         if ($remaining -lt 1) { break }
 
+        $sliceStarted = Get-Date
         $agent = Wait-HerdrAgent -Name $Name -TimeoutMs $remaining
         if ($agent) {
             $awaiting = Test-HerdrAgentAwaitingInput -Name $Name
@@ -614,18 +639,34 @@ function Wait-HerdrAgentProgress {
             return & $report $true $state $awaiting $false 'settled'
         }
 
+        if (((Get-Date) - $sliceStarted).TotalMilliseconds -lt ($remaining / 2)) {
+            $fastReturns++
+        } else {
+            $fastReturns = 0
+        }
+
         # Null is a timeout OR a herdr error, and the two are not the same. A worker herdr has never
         # heard of is gone rather than slow, and saying so is what sends the caller to `rally`
         # instead of leaving it waiting on a process that no longer exists.
-        if (-not (Get-HerdrAgent -Name $Name)) {
-            return & $report $false $null $false $false 'gone'
+        #
+        # One empty read is not that answer, though: `Get-HerdrAgent` returns nothing for "no such
+        # agent" AND for "herdr could not answer", so a single transient error would end the watch on
+        # a worker that is alive and working. It is confirmed once, after a pause, before the watch
+        # gives up on it.
+        $live = Get-HerdrAgent -Name $Name
+        if (-not $live) {
+            Start-Sleep -Milliseconds $script:GoneConfirmMs
+            $live = Get-HerdrAgent -Name $Name
+            if (-not $live) {
+                return & $report $false $null $false $false 'gone'
+            }
         }
 
-        $samples++
-        if ($samples -gt $maxSamples) {
+        if ($fastReturns -gt $script:MaxFastWaitReturns) {
             return & $report $false $null $false $false 'wait-failed'
         }
 
+        $samples++
         $sample = Get-HerdrAgentProgressSignal -Name $Name
         if (-not $sample.readable) {
             # Fail closed. An unreadable screen is not a still one, so the clock is left where it is
@@ -643,7 +684,18 @@ function Wait-HerdrAgentProgress {
         }
 
         if (((Get-Date) - $lastChange).TotalMinutes -ge $StallMinutes) {
-            return & $report $false 'working' $false $true 'stalled'
+            # The state is READ, never assumed. A worker sitting on a dialog the screen guard did not
+            # match looks exactly like a stalled one, and reporting that as `working` would send the
+            # Hand looking for a stuck step when what is actually needed is the user's answer. The
+            # screen outranks herdr's word here for the same reason it does on every other wake.
+            $awaiting   = Test-HerdrAgentAwaitingInput -Name $Name
+            $stallState = 'working'
+            if (($live.PSObject.Properties.Name -contains 'agent_status') -and $live.agent_status) {
+                $stallState = $live.agent_status
+            }
+            if ($awaiting) { $stallState = 'blocked' }
+
+            return & $report $false $stallState $awaiting $true 'stalled'
         }
     }
 
