@@ -65,8 +65,9 @@
 
   The Hand writes the brief AND calls this script, so it is holding the list at the moment it
   dispatches. Passing that list is the whole fix, and there is nothing left to infer. The prose
-  section stays as what the WORKER reads and acts on; nothing reads it mechanically except the
-  presence check below. Do not reintroduce a parser here.
+  section stays as what the WORKER reads and acts on, and exactly two things below read it
+  mechanically: that its heading is there, and that one line states the index was checked. Neither
+  turns prose into a file name. Do not reintroduce a parser here.
 
   What survives is the one check that never needed a path: the section must EXIST. A brief with no
   `## Read first` heading names no settled file at all - the original failure verbatim rather than
@@ -332,12 +333,20 @@ if ($project) {
 }
 
 if ($gates.Count -gt 0) {
-    # The stated line, and nothing else about these lines. It has to name the index and say nothing
-    # in it applies, because that is a decision somebody made - where an empty section, or
-    # `- Nothing beyond this brief.` on its own, says only that the slot was filled in.
+    # The stated line, and nothing else about these lines. It has to name the index, say what was
+    # DONE to it, and say nothing in it applies - all three, on one line, because that is a decision
+    # somebody made, where an empty section or `- Nothing beyond this brief.` on its own says only
+    # that the slot was filled in.
+    #
+    # The act word is what makes it a statement rather than a coincidence. Without it, two ordinary
+    # words landing on one line opened the gate: `- The search index rebuild is out of scope; change
+    # nothing about it.` says nothing whatever about consulting an index, and it was accepted - on
+    # exactly the class of task most likely to write the word.
     $statesIndexChecked = $false
     foreach ($line in $sectionLines) {
-        if ($line -match '\bindex\b' -and $line -match '\b(nothing|none|no entr(y|ies))\b') {
+        if ($line -match '\bindex\b' -and
+            $line -match '\b(check|checked|consulted|read)\b' -and
+            $line -match '\b(nothing|none|no entr(y|ies))\b') {
             $statesIndexChecked = $true
             break
         }

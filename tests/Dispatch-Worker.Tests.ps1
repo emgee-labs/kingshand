@@ -1104,6 +1104,34 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 Should -Throw '*acme-web*'
         }
 
+        # The escape hatch is a statement, not a coincidence of vocabulary. A brief for a
+        # search-index task writes "index" and "nothing" in one ordinary sentence about scope and
+        # has said nothing at all about consulting anything - so the line has to name what was DONE
+        # to the index as well, or the gate switches itself off on the very class of task most
+        # likely to use the word, silently and with no error.
+        It 'refuses a line that merely mentions an index and the word nothing' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-loose-words'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- The search index rebuild is out of scope; change nothing about it.')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-8018' } |
+                Should -Throw '*neither names a file from them to read*'
+        }
+
+        # Tightened, not narrowed to one sentence. The Hand states the decision in its own words as
+        # long as the words say the index was opened and turned up nothing.
+        It 'accepts a line that says in other words that the index was read' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-paraphrase'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- I read the index and none of it touches this task.')
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-8019').id | Should -Be 'T-8019'
+        }
+
         It 'warns rather than skipping a registry entry it cannot use in silence' {
             Set-AgentStartState
             $f = New-DispatchFixture 'index-badpath-warn'
