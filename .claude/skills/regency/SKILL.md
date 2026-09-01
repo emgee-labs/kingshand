@@ -84,8 +84,14 @@ and batch it. `decree` still owns any unresolved decision and still applies.
 **A worker failed.** Record the failure and the evidence. Do not re-dispatch it with a guessed fix -
 a failure they have not seen is not a failure you understand yet.
 
-**Everything else** - progress, output, a wait timing out, a worker taking longer than expected -
-is not an event. Re-arm and stay quiet.
+**A worker has stopped advancing.** A wait reports this as `stalled`, and it is not the same as one
+taking longer than expected - nothing on that worker's screen has moved for the whole threshold.
+Load `rally`, which owns the response, and take from it only what is safe to do unwatched: read the
+screen, record what the work is parked on and how long it has been there, then batch it. A steer, a
+relaunch or a stop is a judgement they stepped away from. Its worktree stays.
+
+**Everything else** - progress, output, a wait timing out, a worker that is slow but whose screen is
+still moving - is not an event. Re-arm and stay quiet.
 
 ## The one thing that does reach them
 
