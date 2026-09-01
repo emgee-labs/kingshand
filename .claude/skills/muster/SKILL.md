@@ -293,27 +293,6 @@ Do NOT touch: <explicit exclusions>
 ## Unchanged
 - <behaviour that must not change>
 
-## Case space
-Before you write a mechanism for any requirement above whose choice would be expensive to undo - a
-storage or transport choice, something hand-written where a library exists, a guard's trigger
-condition, a public default, a data format - work this list, and record in
-`$env:KINGSHAND_HOME\data\<id>\report.md` which mechanism covers all of it and what the rejected
-ones fail on. Mark every line `covered`, `a stated gap`, or `not applicable`:
-- **Origins and hosts** it has to reach.
-- **Callers, and the arguments they actually pass** - including a default nobody overrides.
-- **Re-entry** - the thing restored, resumed, restarted or run again after reading its state once.
-- **Environments and versions** it has to run on, matching any guarded precedent already in the
-  same file.
-- **The live installation's own state** - check what is actually there rather than what this brief
-  says is there.
-- **How its inputs fail** - absent, unreadable, or an error where a value was expected.
-
-Where the list of cases has no end - anything hand-written that parses, renders or normalises an
-open-ended text format - that is the answer rather than a case to enumerate: take an existing
-library, or change the requirement so the input is not open-ended. Say which you did.
-
-A choice a later commit could reverse in minutes needs none of this. Say so in one line and move on.
-
 ## Done means
 <the block for this project's mode - see below>
 ```
@@ -453,10 +432,7 @@ this, and do not try to pass it as a command-line argument: no arguments reach a
 - what was done;
 - what was decided and why, where a decision was not simply the brief;
 - anything the worker could not do, and why;
-- anything the next session would need in order to continue without asking;
-- the `Case space` answer where the brief carried that section - either the mark against each line
-  and the mechanism chosen with what the rejected ones fail on, or the one line the section allows
-  where every choice was cheap to reverse.
+- anything the next session would need in order to continue without asking.
 
 Keep it short and tell the worker so. A report that runs to an essay is as much a failure as no
 report - the point is that a fresh session can pick the work up, not that the worker narrates.
@@ -481,29 +457,18 @@ do the obvious thing, which is exactly why they get implemented backwards.
 when the brief asked for `WORKER_PROBE.md`. If an exact filename, route, or identifier matters,
 state it exactly and say it is exact. Workers paraphrase anything left loose.
 
-**Paste the `## Case space` section unchanged, and do not tailor its list.** The list of dimensions
-is what must not change; the report path inside that section is resolved like every other path in
-the brief, by the rule above. The list is closed and fixed on purpose.
-`emgee-theme-toggle` is the cleanest evidence why: on the dimension its brief made
-salient - the choice surviving "to the other site" - the worker established that `emgeelabs.in` and
-`kingshand.emgeelabs.in` are separate origins and chose a cookie over per-origin storage, right first
-time and never reopened. On the dimension nothing mentioned it lost two review rounds, its own
-reading being "the script reads its state once and I had not asked what happens when the page comes
-back". Same worker, same task, same care: what failed was salience. So a dimension you pick out for
-the worker is a dimension you could already see, which is that failure repeating one level up. Drop
-the section only for a dispatch that writes no mechanism at all - an investigation, an audit, a
-documentation pass - and take `not applicable` lines over deleting it when in doubt.
-
-**The open-ended-input line in that section is the expensive one.** Two dispatches on two projects
-cost about 16 review rounds between them, every round in both finding real defects, and both were
-spent on something hand-written to read an open format. The `## Read first` path parser took six
-consecutive rounds, and `docs\2026-08-31-read-first-declared-not-parsed.md` says why there was no
-seventh worth having: "there is no round after which the parser is finished".
+**Never leave a worker to hand-write something that reads an open-ended text format.** Anything
+hand-written that parses, renders or normalises an open format has no last case, so it has no last
+review round either. Two dispatches on two projects cost about 16 review rounds between them, every
+round in both finding real defects, and both were spent on exactly that. The `## Read first` path
+parser took six consecutive rounds, and `docs\2026-08-31-read-first-declared-not-parsed.md` says why
+there was no seventh worth having: "there is no round after which the parser is finished".
 `emgee-agent-crawlable` took about ten, four of them inside a hand-rolled Markdown renderer before it
 was replaced by a library and the rest cleaning up after a swap made that late. Neither is an
-enumeration failure - enumerating is what ends both, by showing the list has no end. Where you
+enumeration failure - enumerating is what ends both, by showing the list has no end. So where you
 already know a requirement reads an open format, say so in `Requirements` rather than leaving the
-worker to find out at round six.
+worker to find out at round six, and say what to do about it: take an existing library, or change
+the requirement so the input is not open-ended.
 
 **A requirement that names a mechanism carries the fact it rests on.** `kh-dispatch-index-gate`'s
 brief said to gate on a project's own index. The worker built exactly that, then found that
