@@ -200,6 +200,12 @@ Describe 'Resolve-BaseRef - refusal' {
 # ---------------------------------------------------------------------------------------------
 Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
     BeforeAll {
+        # The registry and the index the dispatch gate reads. Every case below drives them through
+        # their own modules rather than writing their file formats by hand, and always inside the
+        # fixture's data root - the live $env:KINGSHAND_HOME\data\ is never read or written here.
+        Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Index.psm1')    -Force
+        Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Projects.psm1') -Force
+
         $script:DispatchScript = "$PSScriptRoot\..\bin\Dispatch-Worker.ps1"
         $script:SavedPath      = $env:PATH
         $script:SavedProfile   = $env:USERPROFILE
@@ -307,14 +313,40 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 Repo      = New-TempRepo
                 BriefPath = Join-Path $briefDir 'brief.md'
                 BriefDir  = $briefDir
+                DataPath  = Join-Path $root 'data'
                 Home      = $home_
                 CallLog   = Join-Path $root 'calls.txt'
             }
         }
 
+        # -DataPath points the index gate at this fixture's own data root, where its registry and
+        # its index live. Passed on every dispatch below, not only the gate's own cases: a suite
+        # whose default reached the real installation's data\ would pass or fail on whatever that
+        # machine happens to have registered.
         function Invoke-Dispatch {
             param([Parameter(Mandatory)]$Fixture, [Parameter(Mandatory)][string]$Name)
-            & $script:DispatchScript -RepoPath $Fixture.Repo -Name $Name -BriefPath $Fixture.BriefPath
+            & $script:DispatchScript -RepoPath $Fixture.Repo -Name $Name `
+                -BriefPath $Fixture.BriefPath -DataPath $Fixture.DataPath
+        }
+
+        # A registered project for the fixture's repo, and optionally an index holding one entry.
+        # Registering without -WithIndex is the unindexed case: a project the gate resolves and then
+        # has nothing to check for.
+        function Register-FixtureProject {
+            param(
+                [Parameter(Mandatory)]$Fixture,
+                [string]$Project = 'acme-web',
+                [switch]$WithIndex
+            )
+            Add-ProjectEntry -Name $Project -Path $Fixture.Repo -Mode 'local-only' `
+                -Description 'the fixture repo' `
+                -RegistryPath (Join-Path $Fixture.DataPath 'projects.md')
+            if ($WithIndex) {
+                Add-IndexEntry -Project $Project -Path 'data\brand.md' `
+                    -Summary 'settled brand: logo, favicon, tagline, palettes' `
+                    -DataPath $Fixture.DataPath | Out-Null
+            }
+            $Project
         }
 
         function Get-CallLines {
@@ -821,6 +853,156 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 -BriefPath $f.BriefPath -ReadPath $one
             $r.id | Should -Be 'T-6008'
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') | Should -BeTrue
+        }
+    }
+
+    # The section being there says a slot was filled in. It does not say the index behind it was
+    # ever opened, and an index of pointers nobody is obliged to follow is the settled-spec failure
+    # at a larger scale - worse, because it looks solved. So a project that has an index cannot be
+    # dispatched into without one of two deliberate acts: a file passed to -ReadPath, or a line
+    # saying the index was checked and nothing in it applies.
+    #
+    # None of this reads a path out of the brief. The staged count comes from -ReadPath, "has an
+    # index" is Index.psm1's answer, and the escape is one stated sentence.
+    Context 'the index behind that section' {
+        It 'refuses an indexed project when the brief neither names a file nor says it was checked' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-silent'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-8001' } | Should -Throw '*has an index at*'
+        }
+
+        # A refusal that says nothing was created has to have created nothing, and this one comes
+        # before the staging copy, the worktree and the spawn alike.
+        It 'creates nothing at all when it refuses over the index' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-nodebris'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-8002' } | Should -Throw '*Nothing was created*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-8002') | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+            (Get-CallLines $f).Count |
+                Should -Be 0 -Because 'no worker is spawned for a brief that ignored the index'
+        }
+
+        # The refusal is the Hand's instruction sheet: which project, where its index is, and both
+        # ways past it. A refusal that only says no is one the reader has to go and research.
+        It 'names the project, its index and both ways past it' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-message'
+            Register-FixtureProject -Fixture $f -Project 'acme-web' -WithIndex | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            $err = { Invoke-Dispatch -Fixture $f -Name 'T-8003' } | Should -Throw -PassThru
+            $msg = $err.Exception.Message
+            $msg | Should -BeLike '*acme-web*'
+            $msg.Contains((Join-Path $f.DataPath 'index\acme-web.md')) |
+                Should -BeTrue -Because 'the Hand has to be told where to look'
+            $msg | Should -BeLike '*-ReadPath*'
+            $msg | Should -BeLike '*checked and nothing in it applies*'
+        }
+
+        It 'dispatches an indexed project when a file is passed to -ReadPath' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-readpath'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            $one = Join-Path $f.DataPath 'brand.md'
+            Set-Content -Path $one -Value 'teal, not amber' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf 'brand.md' -From $one
+
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8004' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $one
+            $r.id | Should -Be 'T-8004'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') | Should -BeTrue
+        }
+
+        It 'dispatches an indexed project when the section says the index was checked' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-stated'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Nothing beyond this brief - the index was checked and nothing in it applies.')
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-8005').id | Should -Be 'T-8005'
+        }
+
+        # A project with no index has nothing to consult, so it dispatches exactly as it did before
+        # any of this existed. The gate is about an index that exists and went unread.
+        It 'dispatches a registered project that has no index at all' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-none'
+            Register-FixtureProject -Fixture $f | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-8006').id | Should -Be 'T-8006'
+        }
+
+        # The distinction the whole gate rests on: a line that says the index was checked is a
+        # decision somebody made, where a slot filled in with the template's own words says only
+        # that the slot was filled in, and an empty one says nothing at all.
+        It 'refuses an indexed project whose section is empty' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-empty-section'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            Set-Content -Path $f.BriefPath -Encoding utf8 -Value @(
+                '# Brief', '', '## Read first', '', '## Scope', 'Do the thing.')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-8007' } | Should -Throw '*has an index at*'
+        }
+
+        # A quoted template cannot make a statement on this brief's behalf, for the same reason a
+        # quoted heading does not satisfy the heading check.
+        It 'does not accept the stated line from inside a fenced block' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-fenced-line'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            Set-Content -Path $f.BriefPath -Encoding utf8 -Value @(
+                '# Brief', '', '## Read first', '- Nothing beyond this brief.', '',
+                'The line muster writes when there is nothing to read is:', '', '```markdown',
+                '- Nothing beyond this brief - the index was checked and nothing in it applies.',
+                '```', '', '## Scope', 'Do the thing.')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-8008' } | Should -Throw '*has an index at*'
+        }
+
+        # The refusal that was already there is not weakened by the one added beside it. A brief
+        # with no heading fails for every project, indexed or not, and it fails as that brief rather
+        # than as an index complaint - the two say different things and both have to keep saying it.
+        It 'still refuses a brief with no Read first heading when the project is indexed' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-noheading'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            Set-Content -Path $f.BriefPath -Encoding utf8 -Value @('# Brief', '', '## Scope', 'Do it.')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-8009' } |
+                Should -Throw "*has no '## Read first' section*"
+        }
+
+        It 'still refuses a brief with no Read first heading when nothing is indexed' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-noheading-unindexed'
+            Set-Content -Path $f.BriefPath -Encoding utf8 -Value @('# Brief', '', '## Scope', 'Do it.')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-8010' } |
+                Should -Throw "*has no '## Read first' section*"
+        }
+
+        # An unregistered repo has no project, so it has no index and dispatches as it always did.
+        # The gate resolves the project from the registry rather than taking it as an argument,
+        # precisely so a forgotten argument cannot switch it off - but an unregistered repo is a
+        # posture question the Hand answers, not something this script infers.
+        It 'dispatches a repo no registry lists' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-unregistered'
+            Register-FixtureProject -Fixture $f -Project 'someone-else' -WithIndex | Out-Null
+            $f.Repo = New-TempRepo
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-8011').id | Should -Be 'T-8011'
         }
     }
 }

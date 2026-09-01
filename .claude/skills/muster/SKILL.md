@@ -218,10 +218,20 @@ requirement that lives only in this skill reaches nobody: the worker never reads
 reads the brief, so the slot has to be in the artefact. Write one line per file - the absolute
 path, what it settles, and an instruction to read it in full - then the line that says which
 source wins where two disagree. Where the index turns up nothing this task touches, say
-`- Nothing beyond this brief.` rather than dropping the section, so a brief that names no file
-is a decision someone made rather than a slot someone forgot. Dispatch refuses a brief with no
-`## Read first` heading at all, before anything is created - so a brief written before this
-section existed needs that one line adding before it can go out.
+`- Nothing beyond this brief - the index was checked and nothing in it applies.` rather than
+dropping the section, so a brief that names no file is a decision someone made rather than a slot
+someone forgot. Dispatch refuses a brief with no `## Read first` heading at all, before anything is
+created - so a brief written before this section existed needs that one line adding before it can go
+out.
+
+**Where the project has an index, that line is not optional and no other line will do.** Dispatch
+asks the index whether this project has one, and refuses unless either a file is passed to
+`-ReadPath` at Step 4 or the section states in one line that the index was checked and nothing in it
+applies. An empty section does not pass and neither does `- Nothing beyond this brief.` on its own:
+a brief that says the index was checked is a decision, where a brief that says nothing is the
+failure this whole mechanism exists to stop - a settled spec that sat in `data\` unread while the
+site it described shipped without it. Reading the index is the first line of this step for exactly
+that reason; the refusal is what stops a busy session skipping it.
 
 **Name the copy, not the original.** A worker can reach exactly two places: its own worktree and
 the brief's own directory. A settled file at `data\<name>.md` is a sibling of `data\<id>\` rather
@@ -504,12 +514,13 @@ one pair of quotes are one string naming no file, and dispatch refuses it.
 
 Dispatch copies each one to `$env:KINGSHAND_HOME\data\<id>\read-first\`, which is the path the
 brief already names, because that directory is the only place outside its worktree a worker can
-read. Drop the parameter only when the section says `- Nothing beyond this brief.`
+read. Drop the parameter only when the section states there is nothing to read.
 
 Every refusal comes before anything at all is created, so a mistake here costs nothing to fix.
-There are four, and each is refused by name: a brief with no `## Read first` section at all, a
-path that does not exist, a directory where a file was meant, and two different files whose names
-would land on top of each other in the staging directory.
+There are five, and each is refused by name: a brief with no `## Read first` section at all, a
+brief that passes no `-ReadPath` and does not say the index was checked when the project has an
+index, a path that does not exist, a directory where a file was meant, and two different files
+whose names would land on top of each other in the staging directory.
 
 **Dispatch does not read the paths out of the brief's prose, and nothing may make it start.** An
 earlier version did, comparing what it parsed there against `-ReadPath`, and it cost six review
@@ -521,7 +532,8 @@ this call, so you already hold the list. Passing it here is the whole mechanism.
 **A brief written before the `Read first` section existed will be refused**, which is the intended
 behaviour rather than a migration problem: the un-dispatched briefs already on disk name no settled
 file, and that is the fault, not the refusal. Add the section before dispatching one - one line of
-`- Nothing beyond this brief.` where the index turns up nothing it touches.
+`- Nothing beyond this brief - the index was checked and nothing in it applies.` where it turns up
+nothing this task touches.
 
 The staged copies are not indexed, and that is deliberate rather than an oversight: each one is a
 snapshot of a file the index already lists at its own path, so `Get-IndexableFiles` excludes
