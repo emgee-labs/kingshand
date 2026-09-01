@@ -4077,11 +4077,22 @@ Describe 'a mechanism is chosen against the case space it has to cover' {
 
     # This is the line that stops the section becoming a reason to stop or a silent omission. A
     # worker cannot ask, so an uncovered case has exactly one destination: written down as a gap.
+    # The destination is named as a full path, not as a bare `report.md` the worker would resolve
+    # against its own worktree - Step 2's path rule is the single owner of resolving it.
     It 'sends an uncovered case to report.md as a stated gap rather than anywhere else' {
         Assert-Phrase -Text $script:CaseSpace -Where 'the Case space section' `
-            -Phrase 'record in `report.md` which mechanism covers all of it and what the rejected ones fail on'
+            -Phrase ('record in `$env:KINGSHAND_HOME\data\<id>\report.md` which mechanism covers ' +
+                     'all of it and what the rejected ones fail on')
         Assert-Phrase -Text $script:CaseSpace -Where 'the Case space section' `
             -Phrase 'Mark every line `covered`, `a stated gap`, or `not applicable`'
+    }
+
+    # The section is pasted verbatim, so if the no-tailoring rule does not carve out the report
+    # path the Hand has nowhere to substitute it and the bare-path defect comes straight back.
+    It 'Step 2 exempts the report path from the no-tailoring rule while pinning the dimensions' {
+        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+            -Phrase ('The list of dimensions is what must not change; the report path inside that ' +
+                     'section is resolved like every other path in the brief')
     }
 
     # The biggest block of waste in the evidence, and the only line here that pays for itself on
@@ -4106,9 +4117,12 @@ Describe 'a mechanism is chosen against the case space it has to cover' {
             -Phrase 'a dimension you pick out for the worker is a dimension you could already see'
     }
 
+    # The total is hedged because one of its two components is: the parser's six is exact, the
+    # renderer's ten is recorded as `~10`. An exact total over an approximate part is a claim the
+    # evidence does not carry.
     It 'Step 2 keeps the sixteen rounds behind the open-ended-input line' {
         Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
-            -Phrase 'cost 16 review rounds between them, every finding correct in both'
+            -Phrase 'cost about 16 review rounds between them, every finding correct in both'
         Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
             -Phrase 'there is no round after which the parser is finished'
         Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
