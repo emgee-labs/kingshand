@@ -2861,13 +2861,14 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     # The refusals are what a caller plans around, so their count and their subjects are pinned.
     # Each one knows its path exactly because the caller handed it over - that is what separates
     # this list from the parsed cross-check it replaced.
-    It 'muster states the four refusals dispatch still makes' {
+    It 'muster states the five refusals dispatch still makes' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase ('There are four, and each is refused by name: a brief with no ' +
-                     '`## Read first` section at all, a path that does not exist, a directory ' +
-                     'where a file was meant, and two different files whose names would land on ' +
-                     'top of each other in the staging directory.')
+            -Phrase ('There are five, and each is refused by name: a brief with no ' +
+                     '`## Read first` section at all, a brief that passes no `-ReadPath` and does ' +
+                     'not say the index was checked when anything at all is indexed, a path that ' +
+                     'does not exist, a directory where a file was meant, and two different files ' +
+                     'whose names would land on top of each other in the staging directory.')
     }
 
     # A single quoted placeholder is filled in with two paths in one string, which names no file
@@ -2892,7 +2893,26 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
             -Phrase '**`Read first` is a mandatory section of every brief**'
         Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
             -Phrase ('Where the index turns up nothing this task touches, say `- Nothing beyond ' +
-                     'this brief.` rather than dropping the section')
+                     'this brief - the index was checked and nothing in it applies.` rather than ' +
+                     'dropping the section')
+    }
+
+    # The index was built, written to as files are written, and nothing obliged anyone to open it.
+    # Dispatch-Worker.ps1 is what closes that, and this is where the Hand finds out before it writes
+    # a brief - a refusal discovered at the dispatch is a brief rewritten, not a rule learned.
+    It 'muster says an indexed project needs a ReadPath or the stated line' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase ('**Where anything at all is indexed, that line is not optional, and it has to ' +
+                     'state both halves: that the index was checked, and that nothing in it ' +
+                     'applies.**')
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase ('reads both indexes that could cover the work - the root `data\index.md` and ' +
+                     'the project''s own `data\index\<project>.md` - and refuses unless either a ' +
+                     'file is passed to `-ReadPath` at Step 4 or the section states in one line ' +
+                     'that the index was checked and nothing in it applies')
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase ('An empty section does not pass and neither does `- Nothing beyond this ' +
+                     'brief.` on its own')
     }
 
     # The brief was indexed above the line that wrote it, so an abandoned brief left an entry for a

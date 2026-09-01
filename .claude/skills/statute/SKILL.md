@@ -101,9 +101,9 @@ A skill exposed to the Hand and to workers alike is reachable from inside a disp
 the skill which of the two is meant to load it and when.
 
 Briefs for tasks that touch kingshand's own tracked material should tell the worker to load this
-skill. Nothing in the dispatcher detects that case - `Dispatch-Worker.ps1` takes a repo path as a
-caller-supplied string with no reliable signal that it names kingshand itself, unlike a project
-registered in `data\projects.md`. Add the instruction to kingshand-repo briefs by hand instead.
+skill. Nothing in the dispatcher acts on that case - `Dispatch-Worker.ps1` does match the repo path
+against `data\projects.md`, but only to work out which index gates the dispatch, and it never adds
+a line to a brief. Add the instruction to kingshand-repo briefs by hand instead.
 
 ## Prose rules need tests
 
