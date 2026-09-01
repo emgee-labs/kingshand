@@ -2640,6 +2640,16 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
                      'to index is the write that does not happen, and the `chronicle` drain lists it.')
     }
 
+    # The session-start line told the reader to index every unindexed file as they touched it, which
+    # is the exact mid-turn cost the exception above exists to defer. Both lines are always loaded, so
+    # the unqualified one wins by being read first. The qualifier points at the owner rather than
+    # restating it - a second copy of the reason is how the two drift apart again.
+    It 'the session-start unindexed line defers to that exception rather than overriding it' {
+        Assert-Phrase -Text $script:IndexStart -Where 'CLAUDE.md session start' `
+            -Phrase ('index each as you touch it rather than in a sweep, except ' +
+                     '`data\corrections.md`, which Knowledge routing exempts.')
+    }
+
     It 'routing indexes everything at write time rather than judging what is worth listing' {
         Assert-Phrase -Text $script:IndexRouting -Where 'CLAUDE.md knowledge routing' `
             -Phrase '**Every durable file written under `data\` is indexed as it is written**'
