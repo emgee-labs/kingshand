@@ -47,6 +47,15 @@ website worker the aegis reports, and an index nobody can scan is an index nobod
 index is a file beside the directory rather than a reserved name inside it, so no project name can
 ever collide with it.
 
+*Amended 2026-09-01.* In practice the settled files this design exists to deliver land in the ROOT
+index, not in a project one: `chronicle`, `annex` and `survey` all index with no project, so an
+unscoped `data\<topic>.md` goes to `data\index.md`, while `data\index\<project>.md` holds little
+beyond briefs and reports. One look at the live installation is the evidence - `data\index\` did
+not exist at all while `data\index.md` held real entries - so the dispatch gate added that day
+could never have fired while it consulted the project index alone, and it reads both.
+`bin\Dispatch-Worker.ps1`'s header owns that gate's rules. Nothing about how the index is written
+or scoped changed; this is a correction to the record.
+
 **Indexing is part of writing, not a separate act of virtue.** `Write-DataFile` writes the file and
 indexes it in one call, so the two cannot come apart. Where another tool owns the write -
 `tasks-axi` writing the backlog, a worker writing its own `report.md` - `Add-IndexEntry` records it
