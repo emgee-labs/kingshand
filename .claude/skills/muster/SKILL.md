@@ -448,7 +448,7 @@ because nothing could leave the machine; a project registered `no-mistakes` has 
 full pipeline. Never add them back for a `no-mistakes` project, and never remove the push
 prohibition from the `local-only` variant.
 
-Two rules about writing briefs, both learned the hard way:
+Rules about writing briefs, all learned the hard way:
 
 **`Unchanged` is mandatory whenever the ticket states it.** Those lines are instructions not to
 do the obvious thing, which is exactly why they get implemented backwards.
@@ -456,6 +456,28 @@ do the obvious thing, which is exactly why they get implemented backwards.
 **Be literal about artefacts.** A worker told to "create a marker file" produced `MARKER.md`
 when the brief asked for `WORKER_PROBE.md`. If an exact filename, route, or identifier matters,
 state it exactly and say it is exact. Workers paraphrase anything left loose.
+
+**Never leave a worker to hand-write something that reads an open-ended text format.** Anything
+hand-written that parses, renders or normalises an open format has no last case, so it has no last
+review round either. Two dispatches on two projects cost about 16 review rounds between them, every
+round in both finding real defects, and both were spent on exactly that. The `## Read first` path
+parser took six consecutive rounds, and `docs\2026-08-31-read-first-declared-not-parsed.md` says why
+there was no seventh worth having: "there is no round after which the parser is finished".
+`emgee-agent-crawlable` took about ten, four of them inside a hand-rolled Markdown renderer before
+it was replaced by a library and the rest cleaning up after a swap made that late. Neither is an
+enumeration failure - enumerating is what ends both, by showing the list has no end. So where you
+already know a requirement reads an open format, say so in `Requirements` rather than leaving the
+worker to find out at round six, and say what to do about it: take an existing library, or change
+the requirement so the input is not open-ended.
+
+**A requirement that names a mechanism carries the fact it rests on.** `kh-dispatch-index-gate`'s
+brief said to gate on a project's own index. The worker built exactly that, then found that
+`data\index\` does not exist at all while `data\index.md` holds real entries, so the gate as
+built "would have refused nothing, ever" - correct to the letter, and it had to be widened;
+`docs\2026-08-30-data-index.md` owns that record. Where the fact is yours to read - `data\`,
+`state\`, the registry - check it and write it into the brief. Where it is inside the project, hard
+rule 1 says a worker checks it, so write the requirement as a premise to verify before building to
+it rather than as a settled fact.
 
 ## Step 3 - Gate one: approve the dispatch
 

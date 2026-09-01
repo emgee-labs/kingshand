@@ -95,6 +95,26 @@ BeforeAll {
         ConvertTo-NormalisedText $hit[0]
     }
 
+    # Get-MusterStep cannot serve for Step 2. The brief template inside that step carries its own
+    # `## Goal`, `## Scope` and `## Done means` headings, so the step splitter cuts Step 2 off at
+    # the first of them and returns a fraction of it. This bounds the region by its two step
+    # headings instead, so a rule moved out of Step 2 stops matching rather than passing from
+    # wherever in the file it landed.
+    function Get-MusterRegion {
+        param(
+            [Parameter(Mandatory)][string]$FromHeading,
+            [Parameter(Mandatory)][string]$ToHeading
+        )
+        $text  = Get-Content -Path $script:MusterMd -Raw
+        $start = $text.IndexOf("`n## $FromHeading")
+        $end   = $text.IndexOf("`n## $ToHeading")
+        if ($start -lt 0) { throw "No '## $FromHeading' heading in the muster skill." }
+        if ($end -le $start) {
+            throw "'## $ToHeading' does not follow '## $FromHeading' in the muster skill."
+        }
+        ConvertTo-NormalisedText $text.Substring($start, $end - $start)
+    }
+
     # CLAUDE.md loads on every turn, so a rule that survives only as a stray sentence elsewhere in
     # the file is not the rule any more. The four ported sections are asserted at their own
     # headings, the same way a muster gate is asserted at its own step.
@@ -3997,5 +4017,61 @@ Describe 'the stall-detection record states what must not be undone' {
         Assert-Phrase -Text $script:StallDoc -Where 'the stall record' `
             -Phrase ('**`Wait-HerdrAgentSettled` keeps its behaviour.** The progress wait was added ' +
                      'beside it, not over it.')
+    }
+}
+
+# The largest measured block of review waste in this system's own history was not defects the review
+# gate should have caught earlier - it was two mechanisms hand-written to read an open-ended text
+# format, where there is no round after which the mechanism is finished. Six consecutive rounds on a
+# path parser, about ten on a hand-rolled Markdown renderer, every round in both finding real
+# defects. And one rebuild on a gate built to a brief's literal words against an installation state
+# nobody checked. The two rules below are the front end of that: they fire before a line is written,
+# and they are pinned here because they live in prose and nothing else would notice them going.
+Describe 'a brief settles the mechanism questions that have no last review round' {
+    BeforeAll {
+        # Step 2 is the only place the Hand reads while writing a brief, so these rules are
+        # asserted at that step rather than anywhere in the file.
+        $script:MusterStep2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' `
+            -ToHeading 'Step 3 - Gate one'
+    }
+
+    # The biggest block of waste in the evidence, and the one rule here that pays for itself on its
+    # own. Both instances were correct at every round; what was wrong was that the mechanism had no
+    # last round. Deleting this rule is what lets the next parser be written. The rule has to carry
+    # its answer as well as its prohibition - "do not hand-roll this" with no alternative beside it
+    # is a requirement a worker cannot deliver.
+    It 'states the open-ended-input answer as a decision, not as another case to enumerate' {
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
+            -Phrase '**Never leave a worker to hand-write something that reads an open-ended text format.**'
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
+            -Phrase ('say so in `Requirements` rather than leaving the worker to find out at round ' +
+                     'six, and say what to do about it: take an existing library, or change the ' +
+                     'requirement so the input is not open-ended')
+    }
+
+    # Both numbers are hedged to what the evidence carries: the parser's six is exact, the renderer's
+    # ten is recorded as `~10`, and the correctness claim holds per round in both records where only
+    # the parser's holds per finding. The point the clause has to keep is that the rounds were not
+    # spent on false findings - the mechanism was the problem.
+    It 'Step 2 keeps the sixteen rounds behind the open-ended-input rule' {
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
+            -Phrase 'cost about 16 review rounds between them, every round in both finding real defects'
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
+            -Phrase 'there is no round after which the parser is finished'
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
+            -Phrase 'enumerating is what ends both, by showing the list has no end'
+    }
+
+    # The index gate is the one instance that is not a thinking failure at all: the brief asserted
+    # a fact about the live installation and the fact was wrong. Hard rule 1 splits the check in
+    # two, and the split is the rule - without it this reads as licence for the Hand to go looking
+    # inside a project itself.
+    It 'Step 2 makes a requirement that names a mechanism carry the fact it rests on' {
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
+            -Phrase '**A requirement that names a mechanism carries the fact it rests on.**'
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
+            -Phrase 'would have refused nothing, ever'
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
+            -Phrase 'hard rule 1 says a worker checks it, so write the requirement as a premise to verify before building to it'
     }
 }
