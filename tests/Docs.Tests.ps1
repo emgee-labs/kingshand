@@ -2866,7 +2866,7 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase ('There are five, and each is refused by name: a brief with no ' +
                      '`## Read first` section at all, a brief that passes no `-ReadPath` and does ' +
-                     'not say the index was checked when the project has an index, a path that ' +
+                     'not say the index was checked when anything at all is indexed, a path that ' +
                      'does not exist, a directory where a file was meant, and two different files ' +
                      'whose names would land on top of each other in the staging directory.')
     }
@@ -2902,12 +2902,13 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     # a brief - a refusal discovered at the dispatch is a brief rewritten, not a rule learned.
     It 'muster says an indexed project needs a ReadPath or the stated line' {
         Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
-            -Phrase ('**Where the project has an index, that line is not optional and no other ' +
+            -Phrase ('**Where anything at all is indexed, that line is not optional and no other ' +
                      'line will do.**')
         Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
-            -Phrase ('refuses unless either a file is passed to `-ReadPath` at Step 4 or the ' +
-                     'section states in one line that the index was checked and nothing in it ' +
-                     'applies')
+            -Phrase ('reads both indexes that could cover the work - the root `data\index.md` and ' +
+                     'the project''s own `data\index\<project>.md` - and refuses unless either a ' +
+                     'file is passed to `-ReadPath` at Step 4 or the section states in one line ' +
+                     'that the index was checked and nothing in it applies')
         Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
             -Phrase ('An empty section does not pass and neither does `- Nothing beyond this ' +
                      'brief.` on its own')
