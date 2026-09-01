@@ -439,15 +439,11 @@ function Test-HerdrAgentAwaitingInput {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Name)
 
-    $agentName = ConvertTo-HerdrAgentName -Name $Name
-    $exe = Get-HerdrCommandPath
-    if (-not $exe) { throw (Get-HerdrCommandHint) }
-
-    $screen = (& $exe agent read $agentName --source visible 2>&1 | Out-String)
-    if (-not $screen) { return $false }
+    $read = Read-HerdrAgentScreen -Name $Name
+    if (-not $read.ok) { return $false }
 
     foreach ($sig in $script:AwaitingInputSignatures) {
-        if ($screen.Contains($sig)) { return $true }
+        if ($read.text.Contains($sig)) { return $true }
     }
     $false
 }
@@ -672,6 +668,16 @@ function Wait-HerdrAgentProgress {
         if ($agent) {
             $awaiting = Test-HerdrAgentAwaitingInput -Name $Name
             $state    = if ($awaiting) { 'blocked' } else { $agent.agent_status }
+
+            # The final screen, carried out with the wake. A state word cannot tell a worker that
+            # finished from one that handed its work to a background pipeline and returned to its
+            # prompt - both read `done` within seconds - so what the wake can honestly do is hand
+            # over what that worker's screen last said and let a person read it. Reporting stale
+            # activity from before the worker stopped would be worse than reporting none.
+            $final = Get-HerdrAgentProgressSignal -Name $Name
+            $readable = $final.readable
+            $activity = if ($final.readable) { $final.lastActivity } else { '' }
+
             return & $report $true $state $awaiting $false 'settled'
         }
 

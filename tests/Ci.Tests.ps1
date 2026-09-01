@@ -276,9 +276,8 @@ Describe 'Get-RepoCiStatus refuses to guess, and never converts a failed lookup 
                 Should -Be 'unknown' -Because 'discounting the file settles nothing on its own'
         }
 
-        # Both biases point the same way: keep the file. An unreadable `on:` block is not evidence
-        # of absence, and another provider's config is only in the list because that provider reads
-        # it - this can reason about GitHub's schema and nobody else's.
+        # An unreadable `on:` block is not evidence of absence, so the file is kept and the question
+        # is settled from the listing rather than deferred to GitHub.
         It 'keeps a workflow whose triggers could not be read at all' {
             Mock -ModuleName Ci Invoke-GhApi { throw 'the network must not be reached for this case' }
             $repo = New-TempRepo -Origin 'https://github.com/o/r.git'
@@ -286,11 +285,54 @@ Describe 'Get-RepoCiStatus refuses to guess, and never converts a failed lookup 
 
             (Get-RepoCiStatus -RepoPath $repo).status | Should -Be 'has-ci'
         }
+    }
 
-        It 'keeps another provider''s config, whose schema this cannot read' {
-            Mock -ModuleName Ci Invoke-GhApi { throw 'the network must not be reached for this case' }
+    # ANOTHER PROVIDER'S CONFIG IS EVIDENCE ABOUT THE FORGE THE PULL REQUEST GOES TO, OR IT IS NOT
+    # EVIDENCE AT ALL. A dormant `.travis.yml`, or a `.gitlab-ci.yml` carried over from a mirror,
+    # says nothing about whether a GitHub check will ever be posted - and it is a GitHub pull request
+    # the worker delivers, so trusting that file is the false `has-ci` that restores the hour-long
+    # wait. Where nothing can be asked, the file stays a positive signal.
+    Context 'when the only CI config belongs to another provider' {
+        It 'asks GitHub rather than trusting a foreign config file on a GitHub remote' {
             $repo = New-TempRepo -Origin 'https://github.com/o/r.git'
-            Set-Content -Path (Join-Path $repo 'azure-pipelines.yml') -Value 'schedules: []' -Encoding utf8
+            Set-Content -Path (Join-Path $repo '.travis.yml') -Value 'language: node_js' -Encoding utf8
+            Mock -ModuleName Ci Invoke-GhApi {
+                if ($Arguments[1] -eq 'repos/o/r') { return New-GhOk 'main' }
+                New-GhOk 'sha1'
+            }
+            Mock -ModuleName Ci Get-CommitCheckCount { 0 }
+
+            $r = Get-RepoCiStatus -RepoPath $repo
+            $r.status | Should -Be 'no-ci' -Because 'a travis file posts no check on a GitHub pull request'
+            $r.detail | Should -BeLike '*.travis.yml*' -Because 'the file that was discounted has to reach the reader'
+        }
+
+        It 'still answers has-ci when GitHub turns out to report checks anyway' {
+            $repo = New-TempRepo -Origin 'https://github.com/o/r.git'
+            Set-Content -Path (Join-Path $repo '.travis.yml') -Value 'language: node_js' -Encoding utf8
+            Mock -ModuleName Ci Invoke-GhApi {
+                if ($Arguments[1] -eq 'repos/o/r') { return New-GhOk 'main' }
+                New-GhOk 'sha1'
+            }
+            Mock -ModuleName Ci Get-CommitCheckCount { 2 }
+
+            (Get-RepoCiStatus -RepoPath $repo).signal | Should -Be 'checks-reported'
+        }
+
+        # The other side of the same rule. On a remote this cannot query, discarding the file would
+        # be guessing in the expensive direction - it is in the list because some provider reads it.
+        It 'keeps a foreign config file where there is no GitHub to ask' {
+            Mock -ModuleName Ci Invoke-GhApi { throw 'the network must not be reached for this case' }
+            $repo = New-TempRepo -Origin 'https://gitlab.com/someone/elsewhere.git'
+            Set-Content -Path (Join-Path $repo '.gitlab-ci.yml') -Value 'stages: [test]' -Encoding utf8
+
+            (Get-RepoCiStatus -RepoPath $repo).status | Should -Be 'has-ci'
+        }
+
+        It 'keeps a foreign config file where there is no remote at all' {
+            Mock -ModuleName Ci Invoke-GhApi { throw 'the network must not be reached for this case' }
+            $repo = New-TempRepo
+            Set-Content -Path (Join-Path $repo 'Jenkinsfile') -Value 'pipeline {}' -Encoding utf8
 
             (Get-RepoCiStatus -RepoPath $repo).status | Should -Be 'has-ci'
         }

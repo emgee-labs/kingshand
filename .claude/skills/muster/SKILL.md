@@ -566,10 +566,17 @@ worker looks like, but only this wait's completion brings you back to look:
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
 $w = Wait-HerdrAgentProgress -Name "<worker id>" -TimeoutMs 2700000
-if ($w.settled) { "WAKE <worker id> state=$($w.state) awaitingInput=$($w.awaitingInput)" }
+if ($w.settled) { "WAKE <worker id> state=$($w.state) awaitingInput=$($w.awaitingInput) readable=$($w.signalReadable) last: $($w.lastActivity)" }
 elseif ($w.stalled) { "STALLED <worker id> $($w.quietMinutes)m with no movement - last seen: $($w.lastActivity)" }
-else { "NOT SETTLED <worker id> reason=$($w.reason)" }
+else { "NOT SETTLED <worker id> reason=$($w.reason) readable=$($w.signalReadable)" }
 ```
+
+**Print every field you will need, because the printed line is all that survives.** The wait runs as
+a background job and its result object dies with the job - what reaches you is stdout and nothing
+else. `readable` is on both lines for that reason: a worker whose pane is too narrow to render is
+unreadable for every sample, so no stall is ever claimed and the watch ends at `reason=timeout`,
+which without that field is indistinguishable from a healthy worker that simply took longer than the
+watch.
 
 **Use a guarded wake - `Wait-HerdrAgentProgress` here, or `Wait-HerdrAgentSettled` where only
 completion matters - and never `Wait-HerdrAgent` directly.** The raw
@@ -588,6 +595,15 @@ a worker whose work was genuinely finished read `working` because stray text sat
 The signal it watches instead is the worker's own screen with the elapsed timer and token counter
 normalised out - which needs no knowledge of what the worker was sent to do, and still catches a
 review gate parked on one step, because a gate prints its own step transitions onto that screen.
+
+**That fixes the second failure and not the first, so read the wake rather than trusting it.** A
+worker that stops advancing is now reported, whatever state word it carries. A worker that has
+genuinely stopped and one that has handed its work away and gone quiet look identical to anything
+watching from outside, and no wait can tell them apart - so this one carries the worker's final
+screen out with the wake instead of pretending to. **`state=done` is a state word, not a delivery.**
+Read `last:` before you report anything as finished, and where it does not show the work actually
+done, read the screen with `Read-HerdrAgent` and check `report.md` on disk. Step 6 is where that
+check belongs and it is not optional.
 
 This is an event, not a poll. Both wakes block inside herdr until the worker stops,
 and return the moment it does. Nothing here sleeps in a loop and nothing re-reads state on a

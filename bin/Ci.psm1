@@ -28,13 +28,15 @@ Set-StrictMode -Version Latest
 # signal is the checks GitHub actually reported on recent commits of the default branch, which is
 # the stronger one precisely because it survives CI that lives outside the repository.
 #
-# The other direction is handled twice, because a file existing is not a check arriving. An empty
-# workflows directory is not CI - a repository that deleted its last workflow keeps the directory -
-# and neither is a workflow that cannot run on a pull request. A workflow triggered only by
-# `schedule` or `workflow_dispatch` will never put a check on one, so counting it as `has-ci`
+# The other direction is handled three times, because a file existing is not a check arriving. An
+# empty workflows directory is not CI - a repository that deleted its last workflow keeps the
+# directory - and neither is a workflow that cannot run on a pull request. A workflow triggered only
+# by `schedule` or `workflow_dispatch` will never put a check on one, so counting it as `has-ci`
 # restores the hour-long wait exactly as an empty directory would. Workflows are therefore read for
-# their triggers, and a repository whose configuration cannot report falls through to the check-runs
-# lookup rather than being answered from the file listing.
+# their triggers. And on a GitHub remote, another provider's config file - a dormant `.travis.yml`, a
+# `.gitlab-ci.yml` carried over from a mirror - is not evidence about the GitHub pull request the
+# worker will open, so it does not answer the question either. In every one of those cases the
+# repository falls through to the check-runs lookup rather than being answered from the file listing.
 
 $script:DefaultCommitsToCheck = 5
 
@@ -208,23 +210,34 @@ function Get-WorkflowTriggers {
 # restores the hour-long wait this module exists to remove - so its triggers decide, not its
 # presence.
 #
-# Two deliberate biases, both toward keeping a file. A workflow whose `on:` could not be read is
-# kept, because an unreadable file is not evidence of absence. Another provider's config is kept
-# whole, because this can only reason about GitHub's schema and that file is in the list precisely
-# because some provider reads it. Dropping either would be guessing, and the check-runs lookup that
-# follows is the honest way to settle what the files could not.
+# A workflow whose `on:` could not be read is kept, because an unreadable file is not evidence of
+# absence, and the check-runs lookup that follows is the honest way to settle what the files could
+# not.
+#
+# ANOTHER PROVIDER'S CONFIG DEPENDS ON WHERE THE REPOSITORY LIVES, which is what -GitHubRemote says.
+# On a GitHub remote, a dormant `.travis.yml` or a `.gitlab-ci.yml` carried over from a mirror is not
+# evidence that a GitHub check will ever be posted - and the pull request the worker opens is on
+# GitHub, so answering `has-ci` from that file is the false `has-ci` that restores the hour-long
+# wait. GitHub can be asked what actually reported there, so it is asked. Where the remote is not
+# GitHub, or there is no remote at all, nothing can be asked and the file stays a positive signal:
+# it is in the list precisely because some provider reads it, and discarding it would be guessing in
+# the expensive direction.
 function Get-ReportingCiConfigFiles {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$RepoPath,
-        [string[]]$ConfigFiles
+        [string[]]$ConfigFiles,
+        [switch]$GitHubRemote
     )
 
     $hits = [System.Collections.Generic.List[string]]::new()
 
     foreach ($rel in @($ConfigFiles)) {
         if (-not $rel) { continue }
-        if ($rel -notlike '.github\workflows\*') { $hits.Add($rel); continue }
+        if ($rel -notlike '.github\workflows\*') {
+            if (-not $GitHubRemote) { $hits.Add($rel) }
+            continue
+        }
 
         # Tested against $null before it is wrapped, because @($null) is an array of one and would
         # turn "not established" into a trigger nothing recognises.
@@ -329,21 +342,27 @@ function Get-RepoCiStatus {
     $config = @(Get-RepoCiConfigFiles -RepoPath $RepoPath)
     $result.configFiles = $config
 
-    $reporting = @(Get-ReportingCiConfigFiles -RepoPath $RepoPath -ConfigFiles $config)
+    # The remote is resolved BEFORE the files are judged, because which files count depends on it.
+    # A pull request opened here is a GitHub pull request, so on a GitHub remote only GitHub's own
+    # workflows are evidence that a check will be posted on it - and GitHub can be asked about the
+    # rest. Where nothing can be asked, every provider's file counts.
+    $slug = Get-RepoGitHubSlug -RepoPath $RepoPath
+
+    $reporting = @(Get-ReportingCiConfigFiles -RepoPath $RepoPath -ConfigFiles $config -GitHubRemote:([bool]$slug))
     if ($reporting.Count -gt 0) {
         return & $finish 'has-ci' 'ci-config' ("CI is configured in the repository: " + ($reporting -join ', ') + '.')
     }
 
     # What the file listing settled, for the lines below that have to say it out loud. Configuration
-    # that cannot run on a pull request is worth naming rather than reporting as an absence: the
-    # reader can then see the workflow themselves and judge whether that is what they meant.
+    # that cannot report here is worth naming rather than reporting as an absence: the reader can
+    # then see the file themselves and judge whether that is what they meant.
     $configNote = if ($config.Count -gt 0) {
-        'holds only CI configuration that cannot run on a pull request (' + ($config -join ', ') + ')'
+        'holds only CI configuration that cannot report a check on a pull request here (' +
+        ($config -join ', ') + ')'
     } else {
         'holds no CI configuration'
     }
 
-    $slug = Get-RepoGitHubSlug -RepoPath $RepoPath
     if (-not $slug) {
         $url = (& git -C $RepoPath remote get-url origin 2>$null | Out-String).Trim()
         if (-not $url) {

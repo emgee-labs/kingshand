@@ -511,6 +511,15 @@ Describe 'Test-HerdrAgentAwaitingInput reads the live viewport and nothing else'
         Test-HerdrAgentAwaitingInput -Name 'T-9001' |
             Should -BeFalse -Because 'a screen that could not be read is not evidence of a prompt'
     }
+
+    # Text from a read that failed is not the worker's screen, whatever it happens to contain, and
+    # this guard classifies on phrases - so it must not classify on text it never successfully read.
+    # Every viewport reader here shares that one rule rather than each remembering it.
+    It 'classifies nothing from a read that failed, whatever the error text says' {
+        Set-HerdrScreenFailure -Text '{"error":{"code":"pane_not_found","message":"nothing to navigate to"}}'
+        Test-HerdrAgentAwaitingInput -Name 'T-9001' |
+            Should -BeFalse -Because 'herdr''s own error is not the worker''s screen'
+    }
 }
 
 Describe 'Get-HerdrAgentState corrects herdr with the worker''s own screen' {
@@ -787,6 +796,39 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         $r.stalled       | Should -BeFalse
         $r.reason        | Should -Be 'settled'
         $r.awaitingInput | Should -BeFalse
+    }
+
+    # A state word cannot tell a worker that finished from one that handed its work to a background
+    # pipeline and went quiet - both read `done` - so the wake carries the screen the worker stopped
+    # on and lets a person read it. Reporting the screen from before the wait would be worse than
+    # reporting none: it is evidence about a moment nobody is asking about.
+    It 'carries the final screen out with a settled wake, not the one from before the wait' {
+        Mock -ModuleName Herdr Wait-HerdrAgent {
+            [pscustomobject]@{ name = 't-9001'; agent_status = 'idle'; pane_id = 'p1' }
+        }
+        $script:sample = 0
+        Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
+            $script:sample++
+            [pscustomobject]@{ readable = $true; signal = "s$script:sample"; lastActivity = "screen $script:sample" }
+        }
+
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 5000 -SampleSeconds 1
+        $r.settled      | Should -BeTrue
+        $r.lastActivity | Should -Be 'screen 2' -Because 'the wake reports what the worker was doing when it stopped'
+    }
+
+    It 'says the watch was blind when the screen a settled worker stopped on could not be read' {
+        Mock -ModuleName Herdr Wait-HerdrAgent {
+            [pscustomobject]@{ name = 't-9001'; agent_status = 'done'; pane_id = 'p1' }
+        }
+        Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
+            [pscustomobject]@{ readable = $false; signal = ''; lastActivity = '' }
+        }
+
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 5000 -SampleSeconds 1
+        $r.settled        | Should -BeTrue
+        $r.signalReadable | Should -BeFalse -Because 'a completion nobody could see is not a completion anybody checked'
+        $r.lastActivity   | Should -BeNullOrEmpty
     }
 
     It 'still lets the screen outrank the state word for a settled worker on a prompt' {

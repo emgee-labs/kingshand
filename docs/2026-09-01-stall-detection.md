@@ -38,8 +38,12 @@ checks GitHub actually reported on recent commits of the default branch, and it 
 whenever nothing the repository itself configures could report on a pull request. That last clause
 is the third way a file listing lies: a workflow triggered only by `schedule` or `workflow_dispatch`
 exists, runs, and still never puts a check on a pull request, so its triggers are read rather than
-its presence counted. A workflow whose `on:` block cannot be read is kept, and so is another
-provider's config file, because neither is evidence of absence. Both were verified against the three real cases
+its presence counted. It is also the fourth: on a GitHub remote, another provider's config file - a
+dormant `.travis.yml`, a `.gitlab-ci.yml` from a mirror - says nothing about the GitHub pull request
+the worker will actually open, so GitHub is asked instead of the file being believed. Where there is
+no GitHub to ask, that same file stays a positive signal, because discarding it would be guessing in
+the expensive direction. A workflow whose `on:` block cannot be read is kept for that reason
+too. Both were verified against the three real cases
 on this machine: kingshand answers `no-ci`, emgeelabs-site answers `has-ci` from check runs alone,
 and a repository that cannot be reached answers `unknown` with the HTTP error in the detail.
 
@@ -86,6 +90,20 @@ A review pass on this project has legitimately taken 38 minutes, though it print
 throughout. Under about fifteen minutes, slow steps start reporting as stalls; an hour is plainly too
 long, since that is roughly what the incident cost. Twenty minutes is the default on
 `Wait-HerdrAgentProgress` and `-StallMinutes` overrides it per call.
+
+### What the wake can and cannot promise
+
+The stall half answers the second failure: a worker that has stopped advancing is reported whatever
+state word it carries. The first failure has no watcher's answer at all. A worker that has genuinely
+finished and one that handed its work to a background pipeline and went quiet are indistinguishable
+from outside - both read `done` within seconds, and no amount of screen reading separates them,
+because both screens show a prompt.
+
+So the wake does not claim to. It carries the worker's final screen out with the settled answer, and
+`muster` says in as many words that `state=done` is a state word rather than a delivery: read what
+the screen last said, then check `report.md`. Reporting the screen from before the wait would have
+been worse than reporting none, so an unreadable final screen answers `signalReadable = $false`
+rather than falling back to a stale line.
 
 ### Reporting is the whole deliverable
 
