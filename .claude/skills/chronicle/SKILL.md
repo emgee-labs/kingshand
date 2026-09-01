@@ -184,10 +184,17 @@ than compact.
 Each archived entry keeps its provenance under a dated pass heading: source file, tier,
 last-reinforced date, and the reason it left.
 
+**A correction drained from the inbox keeps its own provenance shape**, because it has no source
+memory file, no tier and no last-reinforced date to record: source `corrections.md`, the date
+recorded in the entry itself, and what superseded it. Inventing a tier or a reinforced date for it
+would put a value in the archive that nothing ever measured.
+
 ```markdown
 ## 2026-08-28 chronicle
 - (from learnings.md, tier: perishable, reinforced: 2026-07-14) Worker acme-low-med-email is
   mid-flight on the severity split... [archived: unreinforced 45d]
+- (from corrections.md, recorded: 2026-08-14) Summarised a landing decision into chat instead of
+  rendering it. [archived: superseded by the 2026-08-27 correction]
 ```
 
 Reasons include `unreinforced <N>d`, `budget oldest-first`, and `legacy-unvalidated`. Archiving is a
@@ -239,15 +246,27 @@ re-derive or duplicate that mapping here. Two consequences bind this pass in par
   entry before the memory line goes. The two destinations above cannot do that - each needs work by
   somebody else first - so a sweep with only those two can never actually offload anything.
 
+**`<topic>` is a new name of its own, and the pass checks the path is free before it writes.**
+`Write-DataFile` overwrites whatever sits at that path without reading it first, so a topic name that
+collides with a file `data\` already uses destroys that file silently and the after-the-write check
+that the destination holds the entry passes on the wreckage. Test the path before writing and pick
+another name when it is taken. **Kingshand's own operational files are never a topic name** -
+`backlog.md`, `king.md`, `learnings.md`, `corrections.md`, `memory-archive.md`, `done-archive.md`,
+`projects.md` and `index.md` - and neither is any other name already in use under `data\`. Where the
+check finds a topic file an earlier pass wrote under the name still wanted, read it whole and rewrite
+it in place, then index it with `Add-IndexEntry`; never aim `Write-DataFile` at a path that exists.
+
 Index the topic file through `bin\Index.psm1`, which is the one place that knows the entry format,
 and never by hand - a detail file no index lists is a file the next session cannot find, which is
 the failure the index exists to prevent:
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
-# A new topic file: written and indexed in one call, so the two cannot come apart.
+# The free-path check first, because Write-DataFile overwrites without reading.
+Test-Path -LiteralPath (Join-Path $env:KINGSHAND_HOME "data\<topic>.md")
+# A new topic name the check found free: written and indexed in one call, so the two cannot come apart.
 Write-DataFile -Path "data\<topic>.md" -Content $text -Summary "<what it holds, in one line>"
-# A topic file that already existed and was rewritten in place: index it in the same pass.
+# A topic file that already existed, read whole and rewritten in place: index it in the same pass.
 Add-IndexEntry -Path "data\<topic>.md" -Summary "<what it now holds, in one line>"
 ```
 
@@ -287,18 +306,25 @@ makes one, under the obligation `CLAUDE.md` owns. **It is an inbox and not a thi
 append-only, never loaded at session start, never counted by `Get-MemoryReport`, and emptied by this
 pass rather than curated in place. An absent or empty inbox means no correction has been recorded
 since the last pass, which is an ordinary state and never an error. It is a durable file under
-`data\` like any other, so list it in the index the first time the digest reports it unindexed.
+`data\` like any other, and **this pass is what lists it** - index it in the knowledge sweep's index
+step below, alongside the memory files this pass touched. The obligation in `CLAUDE.md` defers the
+listing here on purpose: a mid-turn correction write that also has to index is the cost that stops
+the write happening at all, which is the whole reason the inbox exists.
 
-**Every invocation drains it, before the knowledge sweep below** and before step 8 measures again - a
-drained entry is new material in a memory file, and the pass has to end within budget with it
-counted.
+**Every invocation drains it, before the knowledge sweep below** and before step 3 builds the
+retention plan - a drained entry is new material in a memory file, so it has to be planned,
+consolidated, reduced and measured with everything else. A drain that lands after step 7 has spent
+archival, consolidation, offload and eviction pushes the total over budget with every reduction rung
+already gone, and step 8 then opens a decision with the user over material a reduction pass could
+have absorbed.
 
 1. **Read the whole file and take each entry separately.** An entry is the date, what the Hand did,
    what the King said, and the rule that follows; the rule is the part that has an owner.
 2. **Route each entry to its most specific owner**, using `CLAUDE.md`'s Knowledge routing section,
    which owns that mapping: `data\king.md` for a preference, `data\learnings.md` for an operational
-   fact, that project's own memory file for a project fact, and `data\memory-archive.md` with its
-   provenance for an entry already superseded by a later correction.
+   fact, that project's own memory file for a project fact, and `data\memory-archive.md` for an entry
+   a later correction already superseded, under the drained-correction provenance shape the cold tier
+   section above owns.
 3. **Draining is inspect-then-update, never an append.** Read the destination first, decide which
    current statement the entry supersedes, and rewrite that statement rather than adding a second one
    beside it. An entry that arrived as an append-log line still leaves as a curated one, and a drain
@@ -337,16 +363,17 @@ counted.
    stronger existing owner. **A stale unique fact is never deleted, only archived.** Do not invent
    another exit.
 5. **Index every memory file this pass wrote or rewrote**, in the pass that wrote it. `king.md`,
-   `learnings.md` and `memory-archive.md` are durable files under `data\` like any other, and a
-   file no index lists is drift the session-start digest counts. An existing entry is rewritten in
-   place and keeps the date the file first entered the index, so re-indexing a curated file does
-   not make it look new. Index only what this pass actually touched:
+   `learnings.md`, `memory-archive.md` and the drained `corrections.md` are durable files under
+   `data\` like any other, and a file no index lists is drift the session-start digest counts. An
+   existing entry is rewritten in place and keeps the date the file first entered the index, so
+   re-indexing a curated file does not make it look new. Index only what this pass actually touched:
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
 Add-IndexEntry -Path "data\king.md"           -Summary "<one line of what it now holds>"
 Add-IndexEntry -Path "data\learnings.md"      -Summary "<one line of what it now holds>"
 Add-IndexEntry -Path "data\memory-archive.md" -Summary "<one line of what it now holds>"
+Add-IndexEntry -Path "data\corrections.md"    -Summary "<one line of what it now holds>"
 ```
 
 ## One-time migration of unmarked entries

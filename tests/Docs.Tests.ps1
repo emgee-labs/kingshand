@@ -1815,6 +1815,54 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
                      'routing section, which owns that mapping')
     }
 
+    # Pinned before step 3, not merely before the sweep. A drain landing between steps 7 and 8
+    # arrives with archival, consolidation, offload and eviction already spent, so the pass ends
+    # over budget and step 8 opens a decision the reduction rungs could have absorbed.
+    It 'the drain runs before the retention plan, not after the reduction rungs' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase ('**Every invocation drains it, before the knowledge sweep below** and before ' +
+                     'step 3 builds the retention plan')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase ('A drain that lands after step 7 has spent archival, consolidation, offload ' +
+                     'and eviction pushes the total over budget with every reduction rung already ' +
+                     'gone')
+    }
+
+    # CLAUDE.md indexes a durable data\ file as it is written, and the correction obligation is the
+    # one deliberate deferral - an obligation that also has to index is the one skipped mid-turn. So
+    # the deferral has to name the pass that pays the debt, or the inbox stays drift until some later
+    # session happens to chronicle.
+    It 'the drain itself indexes the inbox, and says why the write defers it' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase ('**this pass is what lists it** - index it in the knowledge sweep''s index ' +
+                     'step below, alongside the memory files this pass touched')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase ('a mid-turn correction write that also has to index is the cost that stops ' +
+                     'the write happening at all')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle index step' `
+            -Phrase ('`learnings.md`, `memory-archive.md` and the drained `corrections.md` are ' +
+                     'durable files under `data\` like any other')
+    }
+
+    # The archive schema is source file, tier and last-reinforced date, and an inbox entry has none
+    # of the three. With no shape of its own the drain either invents a tier nothing ever measured
+    # or writes a malformed archive line.
+    It 'a drained correction archives under its own provenance shape' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle cold tier' `
+            -Phrase ('**A correction drained from the inbox keeps its own provenance shape**, ' +
+                     'because it has no source memory file, no tier and no last-reinforced date to ' +
+                     'record: source `corrections.md`, the date recorded in the entry itself, and ' +
+                     'what superseded it')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase ('`data\memory-archive.md` for an entry a later correction already superseded, ' +
+                     'under the drained-correction provenance shape the cold tier section above owns')
+        $shape = @(Get-CodeFence $script:ChronicleMd |
+            Where-Object { $_.Contains('(from corrections.md, recorded:') })
+        $shape.Count | Should -Be 1 -Because 'the drained shape is shown where the archive shape lives'
+        $shape[0].Contains('[archived: superseded by the 2026-08-27 correction]') |
+            Should -BeTrue -Because 'the reason still names what superseded the entry'
+    }
+
     It 'the drain curates rather than appending, and empties only once the routing is written' {
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
             -Phrase '**Draining is inspect-then-update, never an append.**'
@@ -1851,6 +1899,34 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
             Should -BeTrue -Because 'the module is the one place that knows the index format'
         $fences[0].Contains('Add-IndexEntry -Path "data\<topic>.md"') |
             Should -BeTrue -Because 'an offloaded detail file no index lists cannot be found again'
+    }
+
+    # Write-DataFile is an unconditional Set-Content, so an unconstrained topic name silently
+    # overwrites whatever already sits at that path - backlog.md among the candidates a pass would
+    # plausibly name - and the flow's "does the destination hold the entry" check runs after the
+    # write and passes on the clobbered file. The name is the only thing standing in front of that.
+    It 'the topic name must be free, and never one of kingshand''s own files' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase ('**`<topic>` is a new name of its own, and the pass checks the path is free ' +
+                     'before it writes.**')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase '`Write-DataFile` overwrites whatever sits at that path without reading it first'
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase ('**Kingshand''s own operational files are never a topic name** - `backlog.md`, ' +
+                     '`king.md`, `learnings.md`, `corrections.md`, `memory-archive.md`, ' +
+                     '`done-archive.md`, `projects.md` and `index.md`')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase ('read it whole and rewrite it in place, then index it with `Add-IndexEntry`; ' +
+                     'never aim `Write-DataFile` at a path that exists')
+    }
+
+    It 'the free-path check is in the fence, ahead of the write that overwrites' {
+        $fences = @(Get-CodeFence $script:ChronicleMd | Where-Object { $_.Contains('data\<topic>.md') })
+        $fences.Count | Should -Be 1 -Because 'the offload destination is written in one stated place'
+        $check = $fences[0].IndexOf('Test-Path -LiteralPath (Join-Path $env:KINGSHAND_HOME "data\<topic>.md")')
+        $write = $fences[0].IndexOf('Write-DataFile -Path "data\<topic>.md"')
+        $check | Should -BeGreaterThan -1 -Because 'a copied fence with no check is the clobber itself'
+        $write | Should -BeGreaterThan $check -Because 'checking after the write reads the file it destroyed'
     }
 
     # The sweep's refusals are what keep an offload honest, and the new destination has to pass them
@@ -2481,7 +2557,8 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
         @{ skill = 'survey';    file = '.claude\skills\survey\SKILL.md'
            paths = @('data\status-report-<YYYY-MM-DD>.md') }
         @{ skill = 'chronicle'; file = '.claude\skills\chronicle\SKILL.md'
-           paths = @('data\king.md', 'data\learnings.md', 'data\memory-archive.md') }
+           paths = @('data\king.md', 'data\learnings.md', 'data\memory-archive.md',
+                     'data\corrections.md') }
         @{ skill = 'annex';     file = '.claude\skills\annex\SKILL.md'
            paths = @('data\projects.md') }
     ) {
