@@ -4129,6 +4129,15 @@ Describe 'a mechanism is chosen against the case space it has to cover' {
                      'so the input is not open-ended.')
     }
 
+    # Without this the section is unfalsifiable: a worker that skipped the list reads exactly like
+    # one that worked it. The brief's own report contract is where that gets asked for, so a report
+    # with no marks is visibly incomplete against the brief that commissioned it.
+    It 'the brief demands the Case space answer as part of the report' {
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
+            -Phrase ('the `Case space` answer where the brief carried that section - the mark ' +
+                     'against each line, and the mechanism chosen with what the rejected ones fail on')
+    }
+
     # If the list can be tailored per dispatch, the Hand supplies the dimensions it can already see
     # and the one nobody thought of stays missing - the same failure one level up.
     It 'Step 2 forbids tailoring the list, and keeps the instance that shows why' {
