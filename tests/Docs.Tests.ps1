@@ -1879,6 +1879,42 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
             -Phrase 'Hard rule 1 is not suspended here'
     }
 
+    # The routing section this step defers to has five owners and the enumeration listed four. The
+    # missing one is the likeliest correction there is - the King correcting a standing behaviour of
+    # kingshand's own - and with no route for it the entry gets forced into learnings.md, where a
+    # curated line quietly competes with the tracked contract that actually governs.
+    It 'a correction about kingshand''s own rules routes to statute, as a work item' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase ('kingshand''s own tracked material under `statute` for a rule about how ' +
+                     'kingshand itself behaves')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase ('**A correction about kingshand''s own rules is not filed into `learnings.md` ' +
+                     'for want of a route**')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase ('**A rule about kingshand itself is the same case** - tracked material under ' +
+                     '`statute` is a deliberate scoped change with its own test obligation, and ' +
+                     'this pass never makes one - so it becomes a work item too')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase 'intending to file a work item is not the same as having filed it'
+    }
+
+    # Add-IndexEntry does no existence check, so the same pass that indexes the inbox and then deletes
+    # it writes a line for a file that is gone - the STALE drift the digest counts, and nothing but
+    # Remove-IndexEntry -Missing clears it.
+    It 'the drained inbox stays on disk so its index line stays true' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase ('The drained inbox itself stays on disk, emptied of entries rather than ' +
+                     'deleted, so the index line this pass writes for it never becomes stale drift')
+    }
+
+    # The drain pins itself before step 3, but the section sits after step 8 in the document. A
+    # reader working top-down met the plan with no idea the drain was its input.
+    It 'step 3 names the drain as its input, where a top-down reader meets it' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle retention plan' `
+            -Phrase ('**The drained correction inbox is an input to this plan**, so run the drain ' +
+                     'under Draining the correction inbox below before building it')
+    }
+
     It 'the offload sweep has a destination the Hand can actually write' {
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
             -Phrase ('belongs in a topic file of its own, `$env:KINGSHAND_HOME\data\<topic>.md`, ' +
@@ -1907,8 +1943,8 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
     # write and passes on the clobbered file. The name is the only thing standing in front of that.
     It 'the topic name must be free, and never one of kingshand''s own files' {
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
-            -Phrase ('**`<topic>` is a new name of its own, and the pass checks the path is free ' +
-                     'before it writes.**')
+            -Phrase ('**Test the path first, and what the check finds decides the branch: ' +
+                     '`Write-DataFile` never runs against a path that exists.**')
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
             -Phrase '`Write-DataFile` overwrites whatever sits at that path without reading it first'
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
@@ -1916,17 +1952,72 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
                      '`king.md`, `learnings.md`, `corrections.md`, `memory-archive.md`, ' +
                      '`done-archive.md`, `projects.md` and `index.md`')
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
-            -Phrase ('read it whole and rewrite it in place, then index it with `Add-IndexEntry`; ' +
-                     'never aim `Write-DataFile` at a path that exists')
+            -Phrase ('and neither is any other name already in use for something else under `data\`')
     }
 
-    It 'the free-path check is in the fence, ahead of the write that overwrites' {
+    # Two rules for a taken path in one paragraph, in the wrong order, sent a second pass on the same
+    # topic off to a fresh name - one topic split across two files with two index entries, which is
+    # the opposite of accumulating detail where the reader already looks for it. So the precedence is
+    # stated rather than implied: reuse for this topic's own file, a new name only for anything else.
+    It 'reuse beats renaming when the path holds this topic''s own earlier file' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase ('**The path holds this same topic''s file from an earlier pass** - **reuse it ' +
+                     'rather than renaming around it**: read it whole, rewrite it in place with the ' +
+                     'new detail folded in, and index it with `Add-IndexEntry`')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase ('a fresh name for a topic that already has a file fragments one topic across ' +
+                     'two files with two index entries')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase ('**The path holds anything that is not this topic** - pick another topic name ' +
+                     'and check that path in turn')
+    }
+
+    # The fence is framed as the runnable text an agent copies, and it read as three consecutive
+    # statements: a Test-Path whose result nothing consumed, then an unconditional Write-DataFile -
+    # the exact clobber the paragraph above exists to prevent. Substring order cannot tell that fence
+    # from a branching one, so this parses the fence and asserts the shape instead: the overwriting
+    # write has to be unreachable on the branch where the path already exists.
+    It 'the fence branches on the check, so the overwriting write cannot reach a taken path' {
         $fences = @(Get-CodeFence $script:ChronicleMd | Where-Object { $_.Contains('data\<topic>.md') })
         $fences.Count | Should -Be 1 -Because 'the offload destination is written in one stated place'
-        $check = $fences[0].IndexOf('Test-Path -LiteralPath (Join-Path $env:KINGSHAND_HOME "data\<topic>.md")')
-        $write = $fences[0].IndexOf('Write-DataFile -Path "data\<topic>.md"')
-        $check | Should -BeGreaterThan -1 -Because 'a copied fence with no check is the clobber itself'
-        $write | Should -BeGreaterThan $check -Because 'checking after the write reads the file it destroyed'
+
+        $tokens = $null
+        $errors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput(
+            $fences[0], [ref]$tokens, [ref]$errors)
+        @($errors).Count | Should -Be 0 -Because 'a fence framed as runnable text has to parse'
+
+        $ifs = @($ast.FindAll(
+            { $args[0] -is [System.Management.Automation.Language.IfStatementAst] }, $true))
+        $ifs.Count | Should -Be 1 -Because 'one check decides which of the two branches writes'
+
+        $branch    = $ifs[0]
+        $condition = $branch.Clauses[0].Item1.Extent.Text
+        $condition | Should -Match 'Test-Path' -Because 'the path check is what the branch turns on'
+
+        $commandsIn = {
+            param($node)
+            if (-not $node) { return @() }
+            @($node.FindAll(
+                { $args[0] -is [System.Management.Automation.Language.CommandAst] }, $true) |
+                ForEach-Object { $_.GetCommandName() })
+        }
+        $whenTaken = & $commandsIn $branch.Clauses[0].Item2
+        $whenFree  = & $commandsIn $branch.ElseClause
+
+        $whenTaken | Should -Contain 'Add-IndexEntry' `
+            -Because 'an existing topic file is rewritten in place and re-indexed'
+        $whenTaken | Should -Not -Contain 'Write-DataFile' `
+            -Because 'Write-DataFile is an unconditional overwrite of whatever is there'
+        $whenFree | Should -Contain 'Write-DataFile' `
+            -Because 'a free path is written and indexed in one call'
+
+        $everyWrite = @($ast.FindAll({
+            $args[0] -is [System.Management.Automation.Language.CommandAst] -and
+            $args[0].GetCommandName() -eq 'Write-DataFile'
+        }, $true))
+        $everyWrite.Count | Should -Be 1 `
+            -Because 'a second unguarded Write-DataFile anywhere in the fence reopens the clobber'
     }
 
     # The sweep's refusals are what keep an offload honest, and the new destination has to pass them

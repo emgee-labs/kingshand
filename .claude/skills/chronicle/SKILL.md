@@ -118,6 +118,9 @@ authority boundaries, recurring working style, operating facts that are relevant
 pointers that are expensive to rediscover. Prefer offloading current but conditional, narrow or
 project-specific material to an owner that is loaded on demand, and archive stale, superseded or
 low-recurrence material to the cold tier. Retain lower-utility material only while budget remains.
+**The drained correction inbox is an input to this plan**, so run the drain under Draining the
+correction inbox below before building it - a correction planned here is reduced and measured with
+everything else, while one arriving later lands after every reduction rung is spent.
 
 **4. Reinforce and stamp.** Refresh an entry's last-reinforced date to today only when this session
 actually exercised, confirmed or re-derived it. **Reinforcement requires independent evidence from
@@ -230,7 +233,7 @@ routine passes never move entries speculatively. Every test must hold for a cand
 ### Destinations
 
 `CLAUDE.md`'s Knowledge routing section is the source of truth for where a fact belongs. Do not
-re-derive or duplicate that mapping here. Two consequences bind this pass in particular:
+re-derive or duplicate that mapping here. Three destinations bind this pass in particular:
 
 - **Knowledge useful to every contributor to one project** belongs in that project's own memory file,
   and only a worker may write it, through that project's delivery path under `muster`. The Hand
@@ -246,15 +249,22 @@ re-derive or duplicate that mapping here. Two consequences bind this pass in par
   entry before the memory line goes. The two destinations above cannot do that - each needs work by
   somebody else first - so a sweep with only those two can never actually offload anything.
 
-**`<topic>` is a new name of its own, and the pass checks the path is free before it writes.**
-`Write-DataFile` overwrites whatever sits at that path without reading it first, so a topic name that
-collides with a file `data\` already uses destroys that file silently and the after-the-write check
-that the destination holds the entry passes on the wreckage. Test the path before writing and pick
-another name when it is taken. **Kingshand's own operational files are never a topic name** -
-`backlog.md`, `king.md`, `learnings.md`, `corrections.md`, `memory-archive.md`, `done-archive.md`,
-`projects.md` and `index.md` - and neither is any other name already in use under `data\`. Where the
-check finds a topic file an earlier pass wrote under the name still wanted, read it whole and rewrite
-it in place, then index it with `Add-IndexEntry`; never aim `Write-DataFile` at a path that exists.
+**Test the path first, and what the check finds decides the branch: `Write-DataFile` never runs
+against a path that exists.** `Write-DataFile` overwrites whatever sits at that path without reading
+it first, so a topic name that collides with a file `data\` already uses destroys that file silently
+and the after-the-write check that the destination holds the entry passes on the wreckage. There are
+exactly three cases, and the precedence between them is fixed:
+
+- **The path is free** - write it with `Write-DataFile`, which writes and indexes in one call.
+- **The path holds this same topic's file from an earlier pass** - **reuse it rather than renaming
+  around it**: read it whole, rewrite it in place with the new detail folded in, and index it with
+  `Add-IndexEntry`. Reuse wins here, because a fresh name for a topic that already has a file
+  fragments one topic across two files with two index entries, which is the opposite of what
+  offloading to a topic file is for.
+- **The path holds anything that is not this topic** - pick another topic name and check that path in
+  turn. **Kingshand's own operational files are never a topic name** - `backlog.md`, `king.md`,
+  `learnings.md`, `corrections.md`, `memory-archive.md`, `done-archive.md`, `projects.md` and
+  `index.md` - and neither is any other name already in use for something else under `data\`.
 
 Index the topic file through `bin\Index.psm1`, which is the one place that knows the entry format,
 and never by hand - a detail file no index lists is a file the next session cannot find, which is
@@ -262,12 +272,15 @@ the failure the index exists to prevent:
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
-# The free-path check first, because Write-DataFile overwrites without reading.
-Test-Path -LiteralPath (Join-Path $env:KINGSHAND_HOME "data\<topic>.md")
-# A new topic name the check found free: written and indexed in one call, so the two cannot come apart.
-Write-DataFile -Path "data\<topic>.md" -Content $text -Summary "<what it holds, in one line>"
-# A topic file that already existed, read whole and rewritten in place: index it in the same pass.
-Add-IndexEntry -Path "data\<topic>.md" -Summary "<what it now holds, in one line>"
+$topicPath = Join-Path $env:KINGSHAND_HOME "data\<topic>.md"
+if (Test-Path -LiteralPath $topicPath) {
+    # This topic's own file from an earlier pass, read whole and rewritten in place. Any other file
+    # here means the topic name is wrong: pick another name and check that path instead.
+    Add-IndexEntry -Path "data\<topic>.md" -Summary "<what it now holds, in one line>"
+} else {
+    # A free path: written and indexed in one call, so the two cannot come apart.
+    Write-DataFile -Path "data\<topic>.md" -Content $text -Summary "<what it holds, in one line>"
+}
 ```
 
 Forbidden as offload destinations: `CLAUDE.md` itself, which is always loaded for every session and
@@ -322,9 +335,12 @@ have absorbed.
    what the King said, and the rule that follows; the rule is the part that has an owner.
 2. **Route each entry to its most specific owner**, using `CLAUDE.md`'s Knowledge routing section,
    which owns that mapping: `data\king.md` for a preference, `data\learnings.md` for an operational
-   fact, that project's own memory file for a project fact, and `data\memory-archive.md` for an entry
+   fact, that project's own memory file for a project fact, kingshand's own tracked material under
+   `statute` for a rule about how kingshand itself behaves, and `data\memory-archive.md` for an entry
    a later correction already superseded, under the drained-correction provenance shape the cold tier
-   section above owns.
+   section above owns. **A correction about kingshand's own rules is not filed into `learnings.md`
+   for want of a route** - that leaves a curated entry competing with the tracked contract that
+   actually governs, and the tracked contract wins.
 3. **Draining is inspect-then-update, never an append.** Read the destination first, decide which
    current statement the entry supersedes, and rewrite that statement rather than adding a second one
    beside it. An entry that arrived as an append-log line still leaves as a curated one, and a drain
@@ -332,12 +348,16 @@ have absorbed.
    inbox exists to keep out of it.
 4. **An entry whose destination is a project's memory file cannot be written by the Hand**, so it
    becomes a work item instead: file it with `tasks-axi`, naming the project and the fact, and let a
-   worker write it through that project's delivery path. Hard rule 1 is not suspended here, and the
-   work item is that entry's routing.
+   worker write it through that project's delivery path. **A rule about kingshand itself is the same
+   case** - tracked material under `statute` is a deliberate scoped change with its own test
+   obligation, and this pass never makes one - so it becomes a work item too, naming the rule and the
+   file it belongs in. Hard rule 1 is not suspended here, and the work item is that entry's routing.
 5. **Empty the inbox only once the routing is actually written.** An entry leaves the file after its
    destination holds it, or after its work item exists; anything that could not be written stays in
-   the inbox for the next pass. Truncating the file with entries unrouted loses the correction
-   silently, which is the failure the obligation exists to prevent.
+   the inbox for the next pass, and intending to file a work item is not the same as having filed it.
+   Truncating the file with entries unrouted loses the correction silently, which is the failure the
+   obligation exists to prevent. The drained inbox itself stays on disk, emptied of entries rather
+   than deleted, so the index line this pass writes for it never becomes stale drift.
 
 ## Knowledge sweep and routing
 
