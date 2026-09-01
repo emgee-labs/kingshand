@@ -87,13 +87,13 @@ means nothing has been recorded there yet, which is not the same as a file that 
 nothing, and neither is a reason to write a placeholder. An empty registry means nothing can be
 dispatched until `/annex` runs. No `INDEX` section means there is nothing indexed and nothing to
 index yet, while an `UNINDEXED:` count means durable files exist that no index lists - index each
-as you touch it rather than in a sweep. A `STALE:` count is the same drift from the other end,
-entries whose file is gone: clear it with `Remove-IndexEntry -Missing -All` from `bin\Index.psm1`,
-because a count nothing can take to zero stops being read. A `STARTUP_MEMORY_BUDGET:` line means
-the two memory files have outgrown their budget - invoke `chronicle` to curate them back down, and
-read them anyway, because the budget is a signal and not a gate. `ABSENT` against
-`instructions.md` reads the same way: the King has stated no standing instructions, which is an
-ordinary state and not a prompt to create the file.
+as you touch it rather than in a sweep, except `data\corrections.md`, which Knowledge routing
+exempts. A `STALE:` count is the same drift from the other end, entries whose file is gone: clear
+it with `Remove-IndexEntry -Missing -All` from `bin\Index.psm1`, because a count nothing can take
+to zero stops being read. A `STARTUP_MEMORY_BUDGET:` line means the two memory files have outgrown
+their budget - invoke `chronicle` to curate them back down, and read them anyway, because the
+budget is a signal and not a gate. `ABSENT` against `instructions.md` reads the same way: the King
+has stated no standing instructions, which is an ordinary state and not a prompt to create the file.
 
 The digest is not `survey` and neither runs the other. This is mechanical startup input nobody
 asked for; `survey` is a curated answer to "what needs me" that only the user ever asks for.
@@ -114,6 +114,8 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
   until there is something to store, and curated by `chronicle` rather than appended to.
 - `data\learnings.md` - kingshand's own operational facts and gotchas, dated and evidence-backed.
   Absent until there is a learning to store, and curated the same way.
+- `data\corrections.md` - the correction inbox, appended to the moment the King corrects you and
+  drained by the next `chronicle` pass. An inbox, not a third memory file: see the section below.
 - `data\index\<project>.md`, and `data\index.md` for kingshand's own operational files - one line
   per durable file so a later session can find it. Written through `bin\Index.psm1` as the file
   itself is written, never as a separate act of remembering.
@@ -128,6 +130,15 @@ there, say so and let the King write it.
 
 Liveness is never yours: read it from herdr, through `bin\Herdr.psm1`. Where the two disagree,
 herdr wins for liveness and `crew.json` wins for intent.
+
+## When the King corrects you
+
+**When the King corrects something you got wrong, append one entry to `data\corrections.md` in that
+same turn** - the date, what you did, what they said, and the rule that follows from it. That file is
+an append-only inbox, created on its first entry, never loaded at session start and never budgeted,
+and the next `chronicle` pass drains each entry to its owner. Write it and carry on: curating it now
+is the cost that stops the write happening at all, and leaving it for whenever somebody remembers to
+chronicle is how the correction is lost.
 
 ## Tooling
 
@@ -251,6 +262,9 @@ That holds for a file another tool wrote as much as one you wrote: `data\backlog
 unindexed. `data\done-archive.md` is the same file in slower motion - `tasks-axi` starts writing it
 once more items have closed than `.tasks.toml` keeps - so it is listed the same way rather than
 excluded, and the drift count returns to zero instead of sitting at one forever.
+**`data\corrections.md` is the one exception, and it is deliberate:** it is appended mid-turn and not
+indexed in that turn, because a write that also has to index is the write that does not happen, and
+the `chronicle` drain lists it.
 **Where two sources disagree the brief says which one wins**, and a settled file beats
 an older backlog line, ticket text or report - a worker left to choose picks wrong half the time.
 
