@@ -1132,6 +1132,43 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             (Invoke-Dispatch -Fixture $f -Name 'T-8019').id | Should -Be 'T-8019'
         }
 
+        # `index` inside a hyphenated compound is a different noun, not a mention of the index. The
+        # word boundary in `\bindex\b` sits at the hyphen, so this sentence - an ordinary scope note
+        # on a search-index task, with `read` supplied by the section's own title - satisfied all
+        # three conditions and dispatched without the index ever being opened.
+        It 'refuses a line whose only index is inside a hyphenated compound' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-hyphenated'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Nothing in the search-index module changes; read only the API layer.')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-8020' } |
+                Should -Throw '*neither names a file from them to read*'
+        }
+
+        # The plural is what the Hand actually writes, because muster sends it to two indexes.
+        It 'accepts a line that says both indexes were checked' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-plural'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            Add-FixtureRootEntry -Fixture $f
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Nothing beyond this brief - both indexes were checked and none apply.')
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-8021').id | Should -Be 'T-8021'
+        }
+
+        It 'accepts a line that says the index was reviewed' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-reviewed'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Nothing beyond this brief - the index was reviewed and nothing in it applies.')
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-8022').id | Should -Be 'T-8022'
+        }
+
         It 'warns rather than skipping a registry entry it cannot use in silence' {
             Set-AgentStartState
             $f = New-DispatchFixture 'index-badpath-warn'

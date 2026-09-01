@@ -338,14 +338,24 @@ if ($gates.Count -gt 0) {
     # somebody made, where an empty section or `- Nothing beyond this brief.` on its own says only
     # that the slot was filled in.
     #
-    # The act word is what makes it a statement rather than a coincidence. Without it, two ordinary
-    # words landing on one line opened the gate: `- The search index rebuild is out of scope; change
-    # nothing about it.` says nothing whatever about consulting an index, and it was accepted - on
-    # exactly the class of task most likely to write the word.
+    # First condition - the line is ABOUT an index. The token refuses a word character or a hyphen
+    # on either side, because a hyphenated compound is a different noun rather than a mention: a
+    # plain \bindex\b treats the hyphen as a word boundary, so `- Nothing in the search-index module
+    # changes; read only the API layer.` satisfied it and went out having never had an index opened.
+    # The plural counts, because muster sends the Hand to two indexes and "both indexes were checked"
+    # is the sentence that writes itself.
+    #
+    # Second condition - what was DONE to it, which is what makes the line a statement rather than a
+    # coincidence. Without it, two ordinary words landing on one line opened the gate: `- The search
+    # index rebuild is out of scope; change nothing about it.` says nothing whatever about consulting
+    # an index, and it was accepted - on exactly the class of task most likely to write the word.
+    #
+    # Third condition - that nothing in it applies, which is the decision itself. A line saying only
+    # that an index was read has not said what reading it settled.
     $statesIndexChecked = $false
     foreach ($line in $sectionLines) {
-        if ($line -match '\bindex\b' -and
-            $line -match '\b(check|checked|consulted|read)\b' -and
+        if ($line -match '(?<![\w-])index(es)?(?![\w-])' -and
+            $line -match '\b(check|checked|consulted|read|reviewed)\b' -and
             $line -match '\b(nothing|none|no entr(y|ies))\b') {
             $statesIndexChecked = $true
             break

@@ -41,7 +41,7 @@ the dispatcher should start reading English again.
 
 ## What still refuses, and why each one needs no prose
 
-Four checks, all before a worktree or a branch exists, so a refused dispatch leaves no debris.
+Five checks, all before a worktree or a branch exists, so a refused dispatch leaves no debris.
 
 **The `## Read first` section must exist.** This is the check that closes the originating failure
 described in `2026-08-30-data-index.md`: a brief that names no settled file at all, which passed
@@ -50,6 +50,15 @@ line; a brief missing the slot says nothing, and only the first is a decision so
 a regex against a heading - no path, no ambiguity. Fenced blocks are skipped, because a brief for a
 task on muster's own template quotes that template and the quoted heading satisfied the check for a
 brief that had no section of its own.
+
+**An indexed dispatch was either handed a file or says the index was checked.** Added 2026-09-01,
+because the section being present says a slot was filled in and says nothing about the index behind
+it - an index of pointers nobody is obliged to follow is the same settled-spec failure at a larger
+scale, and worse for looking solved. When any index that could cover the dispatch lists something,
+it is refused unless at least one `-ReadPath` was passed or one line of the section states the index
+was checked and nothing in it applies. Reading that one stated line is not the parser this document
+forbids: it counts `-ReadPath` entries that arrived structurally, asks `Index.psm1` what each index
+lists, and looks for a statement - never a file name - in the prose.
 
 **Every `-ReadPath` entry exists on disk.** A brief naming a file that is not there is a brief the
 worker cannot carry out.
