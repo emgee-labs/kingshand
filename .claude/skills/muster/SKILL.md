@@ -246,10 +246,11 @@ Step 4.
 
 **Nothing checks that those two agree, so you are the one who has to.** Dispatch reads this section
 for its heading and for the one line stating the index was checked, and for no path at all: the
-paths reach it through `-ReadPath`, from you, in the same call. Write the section and the parameter together, in one go, and the pair cannot come apart. A
-line naming the original at `data\<name>.md` instead of the copy sends the worker to a sibling of
-the one directory it can read, and a copy no line names reaches nobody - both are yours to get
-right at the moment you write them.
+paths reach it through `-ReadPath`, from you, in the same call. Write the section and the
+parameter together, in one go, and the pair cannot come apart. A line naming the original at
+`data\<name>.md` instead of the copy sends the worker to a sibling of the one directory it can
+read, and a copy no line names reaches nobody - both are yours to get right at the moment you
+write them.
 
 **Substitute this work's own id, every time.** Briefs get written several at a time from one
 template, and a `Read first` block carried over from the brief above it keeps the other unit's id -
