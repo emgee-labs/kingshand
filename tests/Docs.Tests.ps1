@@ -1767,6 +1767,115 @@ Describe 'chronicle curates memory rather than accumulating it' {
     }
 }
 
+Describe 'a correction is written the moment it happens, into an inbox chronicle drains' {
+    # Two halves of one mechanism, and neither works alone. Nothing made a learning get written when
+    # it was learned - chronicle only ever runs when the King asks for it, which is the "if someone
+    # remembers" they rejected - and the offload sweep had no destination the Hand could write, so a
+    # sweep that ran could never actually offload anything. The obligation is prose in an
+    # always-loaded file and the drain is prose in a skill, so the text IS the mechanism here.
+    BeforeAll {
+        $script:CorrectionOwned    = Get-HandSection 'What you own'
+        $script:CorrectionRule     = Get-HandSection 'When the King corrects you'
+        $script:ChronicleText      = Get-DocText $script:ChronicleMd
+    }
+
+    It 'CLAUDE.md obliges the write in the same turn as the correction' {
+        Assert-Phrase -Text $script:CorrectionRule -Where 'CLAUDE.md When the King corrects you' `
+            -Phrase ('**When the King corrects something you got wrong, append one entry to ' +
+                     '`data\corrections.md` in that same turn**')
+        Assert-Phrase -Text $script:CorrectionRule -Where 'CLAUDE.md When the King corrects you' `
+            -Phrase 'the date, what you did, what they said, and the rule that follows from it'
+    }
+
+    It 'CLAUDE.md defines it as an inbox rather than a third memory file' {
+        Assert-Phrase -Text $script:CorrectionRule -Where 'CLAUDE.md When the King corrects you' `
+            -Phrase ('an append-only inbox, created on its first entry, never loaded at session ' +
+                     'start and never budgeted, and the next `chronicle` pass drains each entry to ' +
+                     'its owner')
+        Assert-Phrase -Text $script:CorrectionRule -Where 'CLAUDE.md When the King corrects you' `
+            -Phrase ('curating it now is the cost that stops the write happening at all, and ' +
+                     'leaving it for whenever somebody remembers to chronicle is how the ' +
+                     'correction is lost')
+    }
+
+    It 'CLAUDE.md names the inbox among what the Hand owns' {
+        Assert-Phrase -Text $script:CorrectionOwned -Where 'CLAUDE.md What you own' `
+            -Phrase ('`data\corrections.md` - the correction inbox, appended to the moment the King ' +
+                     'corrects you and drained by the next `chronicle` pass. An inbox, not a third ' +
+                     'memory file')
+    }
+
+    It 'chronicle drains that inbox on every invocation' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase '**It is an inbox and not a third memory file:**'
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase '**Every invocation drains it, before the knowledge sweep below**'
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase ('Route each entry to its most specific owner**, using `CLAUDE.md`''s Knowledge ' +
+                     'routing section, which owns that mapping')
+    }
+
+    It 'the drain curates rather than appending, and empties only once the routing is written' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase '**Draining is inspect-then-update, never an append.**'
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase ('**Empty the inbox only once the routing is actually written.** An entry ' +
+                     'leaves the file after its destination holds it, or after its work item exists')
+    }
+
+    It 'an entry belonging to a project becomes a work item rather than a write' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase ("**An entry whose destination is a project's memory file cannot be written by " +
+                     'the Hand**, so it becomes a work item instead')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase 'Hard rule 1 is not suspended here'
+    }
+
+    It 'the offload sweep has a destination the Hand can actually write' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase ('belongs in a topic file of its own, `$env:KINGSHAND_HOME\data\<topic>.md`, ' +
+                     'indexed on write in the same pass that offloads to it')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase '**This is the destination that is live at the moment it is proposed**'
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase ("it sits inside the Hand's own write boundary, so it needs no worker and no " +
+                     '`statute` change')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase 'a sweep with only those two can never actually offload anything'
+    }
+
+    It 'the topic file is indexed through the module, as runnable text' {
+        $fences = @(Get-CodeFence $script:ChronicleMd | Where-Object { $_.Contains('data\<topic>.md') })
+        $fences.Count | Should -Be 1 -Because 'the offload destination is indexed in one stated place'
+        $fences[0].Contains('Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force') |
+            Should -BeTrue -Because 'the module is the one place that knows the index format'
+        $fences[0].Contains('Add-IndexEntry -Path "data\<topic>.md"') |
+            Should -BeTrue -Because 'an offloaded detail file no index lists cannot be found again'
+    }
+
+    # The sweep's refusals are what keep an offload honest, and the new destination has to pass them
+    # rather than be excused from them. Softening this back into "creation is fine" would let a pass
+    # count a file it never wrote as budget relief.
+    It 'the sweep still refuses a destination whose write belongs to somebody else' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload flow' `
+            -Phrase ('A destination whose write belongs to somebody else - an undelivered project ' +
+                     'change, a `statute` change, or any other future work - is not live and cannot ' +
+                     'count as relief')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload flow' `
+            -Phrase ('Writing a `data\<topic>.md` in this pass is not future work and is no ' +
+                     'exception to that rule')
+    }
+
+    It 'the ordered outcome and the eligibility filter are unchanged' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload sweep' `
+            -Phrase '**Archive** - the time outcome, always evaluated first.'
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload sweep' `
+            -Phrase '**Offload** - the scope outcome, asked only of current durable entries'
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload sweep' `
+            -Phrase '**Fat enough to matter** - roughly 50 estimated tokens or more'
+    }
+}
+
 Describe 'the ADO organization and project are configuration, and absence asks' {
     # These were two hardcoded names belonging to one employer. Any default at all is the wrong
     # shape here: a wrong organization does not fail loudly, it returns "work item not found" -

@@ -114,6 +114,8 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
   until there is something to store, and curated by `chronicle` rather than appended to.
 - `data\learnings.md` - kingshand's own operational facts and gotchas, dated and evidence-backed.
   Absent until there is a learning to store, and curated the same way.
+- `data\corrections.md` - the correction inbox, appended to the moment the King corrects you and
+  drained by the next `chronicle` pass. An inbox, not a third memory file: see the section below.
 - `data\index\<project>.md`, and `data\index.md` for kingshand's own operational files - one line
   per durable file so a later session can find it. Written through `bin\Index.psm1` as the file
   itself is written, never as a separate act of remembering.
@@ -128,6 +130,15 @@ there, say so and let the King write it.
 
 Liveness is never yours: read it from herdr, through `bin\Herdr.psm1`. Where the two disagree,
 herdr wins for liveness and `crew.json` wins for intent.
+
+## When the King corrects you
+
+**When the King corrects something you got wrong, append one entry to `data\corrections.md` in that
+same turn** - the date, what you did, what they said, and the rule that follows from it. That file is
+an append-only inbox, created on its first entry, never loaded at session start and never budgeted,
+and the next `chronicle` pass drains each entry to its owner. Write it and carry on: curating it now
+is the cost that stops the write happening at all, and leaving it for whenever somebody remembers to
+chronicle is how the correction is lost.
 
 ## Tooling
 

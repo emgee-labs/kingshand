@@ -231,6 +231,25 @@ re-derive or duplicate that mapping here. Two consequences bind this pass in par
 - **Knowledge general to kingshand itself** belongs in kingshand's tracked material under
   `statute`, which is a deliberate scoped change with its own test obligation - never an
   automatic product of a chronicle pass.
+- **Detail that is current and durable but needed only in a nameable context** belongs in a topic
+  file of its own, `$env:KINGSHAND_HOME\data\<topic>.md`, indexed on write in the same pass that
+  offloads to it. **This is the destination that is live at the moment it is proposed**, and that
+  property is the whole reason it works: it sits inside the Hand's own write boundary, so it needs
+  no worker and no `statute` change, and this pass can write it, index it and confirm it holds the
+  entry before the memory line goes. The two destinations above cannot do that - each needs work by
+  somebody else first - so a sweep with only those two can never actually offload anything.
+
+Index the topic file through `bin\Index.psm1`, which is the one place that knows the entry format,
+and never by hand - a detail file no index lists is a file the next session cannot find, which is
+the failure the index exists to prevent:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
+# A new topic file: written and indexed in one call, so the two cannot come apart.
+Write-DataFile -Path "data\<topic>.md" -Content $text -Summary "<what it holds, in one line>"
+# A topic file that already existed and was rewritten in place: index it in the same pass.
+Add-IndexEntry -Path "data\<topic>.md" -Summary "<what it now holds, in one line>"
+```
 
 Forbidden as offload destinations: `CLAUDE.md` itself, which is always loaded for every session and
 so relieves nothing; and any project file written by the Hand rather than by a worker.
@@ -240,10 +259,13 @@ so relieves nothing; and any project file written by the Hand rather than by a w
 1. **Reduce non-pinned material now.** For each eligible candidate record its first line, source
    file, estimated tokens, one-line trigger, live destination and actual budget relief in the
    receipt. Relocate it only by adding it to an owner that already exists, then confirm that
-   destination holds the quoted entry before removing the memory entry. A destination needing
-   creation, an undelivered project change, or any other future work is not live and cannot count as
-   relief - continue to the next archival or eviction rung instead of leaving an over-budget proposal
-   pending.
+   destination holds the quoted entry before removing the memory entry. A destination whose write
+   belongs to somebody else - an undelivered project change, a `statute` change, or any other future
+   work - is not live and cannot count as relief, so continue to the next archival or eviction rung
+   instead of leaving an over-budget proposal pending. Writing a `data\<topic>.md` in this pass is
+   not future work and is no exception to that rule: this pass writes the file, indexes it, and
+   confirms it holds the quoted entry before the memory line goes, which is the same test every
+   other destination has to pass and the only one that passes it unaided.
 2. **Propose a pinned relocation only.** For a pinned candidate, record a `proposed-offload` section
    with the same fields in the receipt and file a held backlog item with
    `tasks-axi hold <id> --reason "<reason>" --kind captain`, preserving the candidate's approval
@@ -257,6 +279,39 @@ so relieves nothing; and any project file written by the Hand rather than by a w
    holds it. Until then the entry stays, so knowledge is never in limbo between owners. Leave no
    pointer behind by default, and at most one line where the destination's discoverability is
    genuinely doubtful.
+
+## Draining the correction inbox
+
+`$env:KINGSHAND_HOME\data\corrections.md` is where the Hand appends a correction the moment the King
+makes one, under the obligation `CLAUDE.md` owns. **It is an inbox and not a third memory file:**
+append-only, never loaded at session start, never counted by `Get-MemoryReport`, and emptied by this
+pass rather than curated in place. An absent or empty inbox means no correction has been recorded
+since the last pass, which is an ordinary state and never an error. It is a durable file under
+`data\` like any other, so list it in the index the first time the digest reports it unindexed.
+
+**Every invocation drains it, before the knowledge sweep below** and before step 8 measures again - a
+drained entry is new material in a memory file, and the pass has to end within budget with it
+counted.
+
+1. **Read the whole file and take each entry separately.** An entry is the date, what the Hand did,
+   what the King said, and the rule that follows; the rule is the part that has an owner.
+2. **Route each entry to its most specific owner**, using `CLAUDE.md`'s Knowledge routing section,
+   which owns that mapping: `data\king.md` for a preference, `data\learnings.md` for an operational
+   fact, that project's own memory file for a project fact, and `data\memory-archive.md` with its
+   provenance for an entry already superseded by a later correction.
+3. **Draining is inspect-then-update, never an append.** Read the destination first, decide which
+   current statement the entry supersedes, and rewrite that statement rather than adding a second one
+   beside it. An entry that arrived as an append-log line still leaves as a curated one, and a drain
+   that pastes entries onto the end of `learnings.md` has turned a curated file into the log the
+   inbox exists to keep out of it.
+4. **An entry whose destination is a project's memory file cannot be written by the Hand**, so it
+   becomes a work item instead: file it with `tasks-axi`, naming the project and the fact, and let a
+   worker write it through that project's delivery path. Hard rule 1 is not suspended here, and the
+   work item is that entry's routing.
+5. **Empty the inbox only once the routing is actually written.** An entry leaves the file after its
+   destination holds it, or after its work item exists; anything that could not be written stays in
+   the inbox for the next pass. Truncating the file with entries unrouted loses the correction
+   silently, which is the failure the obligation exists to prevent.
 
 ## Knowledge sweep and routing
 
@@ -324,6 +379,7 @@ Report the outcome to the user in plain language, with all of these facts:
 - one or more actions for each of `data\king.md` and `data\learnings.md`, using only `unchanged`,
   `added`, `rewritten`, `pruned`, `archived` or `proposed-offload`. Adding or replacing a migration
   marker is `rewritten`, never a new verb such as `migrated`;
+- each correction drained from the inbox and where it went, or that the inbox was absent or empty;
 - each durable finding filed outside memory, and its owner;
 - each archived entry's reason, each offload's live destination and actual relief, and, where a
   pinned candidate was proposed, the `proposed-offload` section with every field;
