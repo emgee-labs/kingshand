@@ -266,6 +266,49 @@ $script:PromptBoxCaret = [char]0x276F
 $script:PromptBoxSpace = [char]0x00A0
 $script:PromptBoxRule  = [char]0x2502   # the │ the box is drawn inside
 
+# The harness's own placeholder text, which is dim-styled and drawn into an EMPTY box at exactly the
+# position box content occupies - so on a rendered screen it is indistinguishable from a suggestion
+# by position alone. It is not text an Enter would submit: the underlying value is the empty string,
+# so an Enter at one submits nothing. Refusing on one makes a worker unsteerable on a hint the
+# harness printed itself, which is the outcome the fail-open reasoning below exists to prevent.
+#
+# Quoted as Claude Code 2.1.200 emits them, read out of the shipped binary rather than paraphrased.
+# THE LIST IS BOUND TO A HARNESS VERSION: a placeholder a later version adds is not on it, falls
+# through to the refusal, and `-AllowNonEmptyBox` is the escape hatch until it is added here.
+# Refusing an unknown string is the safe direction; letting one through is not.
+#
+# This is NOT the general rule "the value is empty, so Enter submits nothing". That is false for the
+# generated prompt suggestion, which is the whole hazard the guard exists for - its value is empty
+# too, and a submission whose text equals it is recorded by the harness as accepted by `enter`. Only
+# the three named placeholders are excluded.
+$script:PromptBoxPlaceholders = @(
+    'Press up to edit queued messages'      # queued commands exist and the hint has shown < 3 times
+)
+
+# The two with a variable part: `Message @<name>…` while viewing a teammate, and `Try "<example>"`
+# on a fresh session. Anchored on the invariant prefix and suffix, with the variable part required
+# to be non-empty so the anchor cannot swallow an arbitrary line that merely opens the same way.
+$script:PromptBoxPlaceholderAnchors = @(
+    @{ Prefix = 'Message @'; Suffix = [string][char]0x2026 }
+    @{ Prefix = 'Try "';     Suffix = '"' }
+)
+
+function Test-HerdrPromptBoxPlaceholder {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+
+    if ($script:PromptBoxPlaceholders -contains $Text) { return $true }
+
+    foreach ($a in $script:PromptBoxPlaceholderAnchors) {
+        if (-not $Text.StartsWith($a.Prefix)) { continue }
+        if (-not $Text.EndsWith($a.Suffix)) { continue }
+        if ($Text.Length -le ($a.Prefix.Length + $a.Suffix.Length)) { continue }
+        return $true
+    }
+
+    $false
+}
+
 # What the prompt box on this screen holds, or '' when it is empty or there is no box on it.
 #
 # ONLY `❯` COUNTS. A worker's own output lines start with a plain `>`, and treating one of those as
@@ -278,6 +321,10 @@ $script:PromptBoxRule  = [char]0x2502   # the │ the box is drawn inside
 # thing that separates them on a rendered screen. Anchoring on the pair is what keeps a worker
 # blocked on a menu answerable: a bare Enter there is the one route to it, and refusing that Enter
 # would leave the worker stuck with nobody able to deliver the answer the King already gave.
+#
+# AND A KNOWN PLACEHOLDER IS AN EMPTY BOX. The harness draws its own dim placeholder into the empty
+# box in the same place, so position alone cannot tell one from box content - the named list above
+# does, and a match returns '' so the send proceeds and the reported box reads empty.
 function Get-HerdrPromptBoxText {
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
@@ -287,7 +334,9 @@ function Get-HerdrPromptBoxText {
     foreach ($line in ($Text -split "`r?`n")) {
         $inner = $line.Trim().Trim($script:PromptBoxRule).TrimStart()
         if (-not $inner.StartsWith($anchor)) { continue }
-        return $inner.Substring($anchor.Length).Trim($script:PromptBoxRule).Trim()
+        $box = $inner.Substring($anchor.Length).Trim($script:PromptBoxRule).Trim()
+        if (Test-HerdrPromptBoxPlaceholder -Text $box) { return '' }
+        return $box
     }
     ''
 }

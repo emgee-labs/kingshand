@@ -173,6 +173,29 @@ exit $code
 
   Enter to select, up/down to navigate
 "@
+
+    # The same box shape as SuggestionScreen and EmptyBoxScreen, with whatever line the case needs
+    # sitting in the box. The placeholder cases below all differ only in that one line.
+    function New-BoxScreen {
+        param([string]$Box = '')
+        $rule = ([string][char]0x2500) * 92
+        @"
+  Done. Committed 3 files and wrote report.md.
+
+$rule
+`u{276F}`u{00A0}$Box
+$rule
+    ? for shortcuts
+"@
+    }
+
+    # Claude Code's own placeholder text, quoted as the shipped 2.1.200 binary emits it rather than
+    # paraphrased. It is dim-styled and drawn into the EMPTY box in exactly the position box content
+    # occupies, so a detector working on position alone reads it as text the Hand must explain -
+    # which would refuse every send to a worker the harness happened to print a hint at.
+    $script:QueuedHintBox = 'Press up to edit queued messages'
+    $script:TeammateBox   = "Message @reviewer`u{2026}"
+    $script:TryBox        = 'Try "how do I log an error?"'
 }
 
 AfterAll {
@@ -524,6 +547,51 @@ Describe 'the send paths refuse to write into a box the caller did not fill' {
         Set-HerdrScreen $script:EmptyBoxScreen
         Send-HerdrKeys -Name 'T-9001' -Keys @('enter') -DelayMs 0
         ($script:reached -join ' ') | Should -BeLike '*send-keys t-9001 enter*'
+    }
+
+    # THE OTHER FALSE POSITIVE THAT WOULD STRAND A WORKER. An empty box is not blank on screen: the
+    # harness draws its own dim placeholder into it, in the same position box content occupies. The
+    # queued-messages hint is the one that bites - it appears the moment a corrective steer is
+    # queued at a worker that is still working, which is precisely when `rally` sends the next one,
+    # so a wedged worker would become unsteerable on a hint the harness printed itself.
+    It 'sends a prompt through the placeholder <case>' -ForEach @(
+        @{ case = 'on queued messages'; box = { $script:QueuedHintBox } }
+        @{ case = 'for a teammate';     box = { $script:TeammateBox } }
+        @{ case = 'on a fresh session'; box = { $script:TryBox } }
+    ) {
+        Set-HerdrScreen (New-BoxScreen -Box (& $box))
+        $null = Send-HerdrPrompt -Name 'T-9001' -Text 'do the thing'
+        ($script:reached -join ' ') |
+            Should -BeLike '*do the thing*' -Because 'the harness''s own hint is not text the Hand has to explain'
+    }
+
+    It 'sends a bare enter through the placeholder <case>' -ForEach @(
+        @{ case = 'on queued messages'; box = { $script:QueuedHintBox } }
+        @{ case = 'for a teammate';     box = { $script:TeammateBox } }
+        @{ case = 'on a fresh session'; box = { $script:TryBox } }
+    ) {
+        Set-HerdrScreen (New-BoxScreen -Box (& $box))
+        Send-HerdrKeys -Name 'T-9001' -Keys @('enter') -DelayMs 0
+        ($script:reached -join ' ') | Should -BeLike '*send-keys t-9001 enter*'
+    }
+
+    # And the exclusion has to stay narrow, because a generated suggestion sits in an empty box too -
+    # its value is empty and an Enter still submits it as though the Hand had written it. Only the
+    # three named placeholders are excluded; anything that merely opens like one is still refused.
+    It 'still refuses <case>' -ForEach @(
+        @{ case = 'a real generated suggestion'
+           box  = 'show me the getting started section rendered' }
+        @{ case = 'a line that only opens like the queued hint'
+           box  = 'Press up to edit queued messages, then land it' }
+        @{ case = 'a line that only opens like the teammate placeholder'
+           box  = 'Message @reviewer about the failing test' }
+        @{ case = 'a line that only opens like the try example'
+           box  = 'Try "how do I log an error?" and report back' }
+    ) {
+        Set-HerdrScreen (New-BoxScreen -Box $box)
+        { Send-HerdrPrompt -Name 'T-9001' -Text 'do the thing' } | Should -Throw
+        $script:reached.Count |
+            Should -Be 0 -Because 'an unlisted string falls back to refusing, which is the safe direction'
     }
 
     # A worker's own output lines open with a plain `>`. Treating one of those as a prompt box
@@ -979,6 +1047,19 @@ Describe 'Get-HerdrAgentProgressSignal ignores what Claude Code repaints on its 
         Set-HerdrScreen $script:MenuScreen
         (Get-HerdrAgentProgressSignal -Name 'T-9001').promptBox |
             Should -Be '' -Because 'the caret on a menu row is a selection cursor, not a prompt box'
+    }
+
+    # Same again for the harness's own placeholder, which is drawn into an empty box in the same
+    # position box content occupies. Reporting one as content puts a wrong value on every report the
+    # Hand reads, with no error to say so, and sends it escalating a hint the harness printed itself.
+    It 'reports no box for the placeholder <case>' -ForEach @(
+        @{ case = 'on queued messages'; box = { $script:QueuedHintBox } }
+        @{ case = 'for a teammate';     box = { $script:TeammateBox } }
+        @{ case = 'on a fresh session'; box = { $script:TryBox } }
+    ) {
+        Set-HerdrScreen (New-BoxScreen -Box (& $box))
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').promptBox |
+            Should -Be '' -Because 'a placeholder means the box is empty, not that it holds text'
     }
 
     It 'reports no box at all when the screen could not be read' {
