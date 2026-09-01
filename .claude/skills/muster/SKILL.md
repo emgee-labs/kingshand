@@ -489,18 +489,19 @@ the worker is a dimension you could already see, which is that failure repeating
 the section only for a dispatch that writes no mechanism at all - an investigation, an audit, a
 documentation pass - and take `not applicable` lines over deleting it when in doubt.
 
-**The open-ended-input line in that section is the expensive one.** Two runs in this repository's own
-history cost 16 review rounds between them, every finding correct in both, both spent hand-writing
-something that reads an open format: the `## Read first` path parser, where
-`docs\2026-08-31-read-first-declared-not-parsed.md` concludes "there is no round after which the
-parser is finished", and a hand-rolled Markdown renderer that took ten rounds before it was replaced
-by a library. Neither is an enumeration failure - enumerating is what ends both, by showing the list
-has no end. Where you already know a requirement reads an open format, say so in `Requirements`
-rather than leaving the worker to find out at round six.
+**The open-ended-input line in that section is the expensive one.** Two dispatches on two projects
+cost 16 review rounds between them, every finding correct in both, and both were spent on something
+hand-written to read an open format. The `## Read first` path parser took six consecutive rounds, and
+`docs\2026-08-31-read-first-declared-not-parsed.md` says why there was no seventh worth having:
+"there is no round after which the parser is finished". `emgee-agent-crawlable` took about ten, four
+of them inside a hand-rolled Markdown renderer before it was replaced by a library and the rest
+cleaning up after a swap made that late. Neither is an enumeration failure - enumerating is what ends
+both, by showing the list has no end. Where you already know a requirement reads an open format, say
+so in `Requirements` rather than leaving the worker to find out at round six.
 
 **A requirement that names a mechanism carries the fact it rests on.** `kh-dispatch-index-gate`'s
 brief said to gate on a project's own index. The worker built exactly that, then found that
-`data\index\` does not exist at all while `data\index.md` holds every real entry, so the gate as
+`data\index\` does not exist at all while `data\index.md` holds real entries, so the gate as
 built "would have refused nothing, ever" - correct to the letter, and it had to be widened. Where the
 fact is yours to read - `data\`, `state\`, the registry - check it and write it into the brief. Where
 it is inside the project, hard rule 1 says a worker checks it, so write the requirement as a premise
