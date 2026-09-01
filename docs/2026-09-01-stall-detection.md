@@ -112,10 +112,17 @@ action on a stalled worker is worse than a late human one.
   bound counts only returns that came back without consuming their slice: counting every iteration
   left about three of margin, so one server restart on a healthy worker ended the watch.
 - **Nothing on a wake is assumed.** A worker herdr does not name is read twice before it is called
-  gone, because one empty read is also what a transient error looks like. A stall reports the state
-  and `awaitingInput` it read, because a worker sitting on an unmatched dialog looks exactly like a
-  stalled one and needs the user rather than a hunt for a stuck step. And the default timeout is
-  computed from the stall threshold, since a watch that ends first can never reach it.
+  gone, and the server is checked before that answer is given at all - a server that is down answers
+  nothing for every worker, so reporting it as `gone` would send the Hand to reconcile a worktree
+  still being written to. A stall reports the state and `awaitingInput` it read, because a worker
+  sitting on an unmatched dialog looks exactly like a stalled one and needs the user rather than a
+  hunt for a stuck step. And the default timeout is computed from the stall threshold, since a watch
+  that ends first can never reach it.
+- **A read that failed is not a screen.** `agent read` is invoked with `2>&1`, so herdr's own error
+  arrives as ordinary text: non-empty, constant, and therefore a stable fingerprint that reports a
+  stall twenty minutes later with the error message as evidence of what the worker was last seen
+  doing. One function owns that read and the question of whether it succeeded, because the pane
+  guard `rally` cross-checks with reads the same viewport and would otherwise confirm the story.
 
 ## Revisit when
 

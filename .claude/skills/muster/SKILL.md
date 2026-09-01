@@ -620,13 +620,14 @@ because "nothing happened" is not an event anything can push at you.
   `Test-HerdrAgentReadable` and say plainly that you cannot see the worker rather than reporting it
   healthy.
 - **`reason` of `gone` means herdr has no such worker any more.** That is not a timeout and not a
-  stall: the process is not there. It is confirmed by a second read before it is reported, so one
-  transient error does not produce it. Load `rally` and reconcile before anything else, and never
-  remove its worktree first.
-- **`reason` of `wait-failed` is the watch failing, not the worker.** herdr kept answering
-  instantly instead of blocking for its slice, so the wait gave up rather than spinning silently.
-  The worker is still alive and now unwatched: check the server with `Test-HerdrServer`, re-arm the
-  wait, and say in one line that you lost sight of it rather than reporting it healthy.
+  stall: the process is not there. It is confirmed by a second read and by the server still
+  answering, so neither one transient error nor a server that is down produces it. Load `rally` and
+  reconcile before anything else, and never remove its worktree first.
+- **`reason` of `wait-failed` is the watch failing, not the worker.** Either herdr kept answering
+  instantly instead of blocking for its slice, or the server stopped answering at all, so the wait
+  gave up rather than spinning silently or claiming the worker had vanished. The worker is probably
+  still alive and now unwatched: check the server with `Test-HerdrServer`, re-arm the wait, and say
+  in one line that you lost sight of it rather than reporting it healthy.
 - **Never arm the wait immediately after submitting a prompt without accounting for stale state.**
   A worker reads `idle` for a moment after its prompt is submitted, so a wait armed on `idle`
   alone can return instantly and report a completion that never happened. The dispatcher hands

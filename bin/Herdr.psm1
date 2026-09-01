@@ -197,12 +197,56 @@ function New-HerdrPane {
     $r.root_pane.pane_id
 }
 
+# One read of a worker's LIVE screen, and whether that read actually succeeded.
+#
+# The success half is the whole reason this exists. `agent read` is invoked with `2>&1`, so herdr's
+# own failure - a pane that has gone, a name it no longer knows - arrives as ordinary text on the
+# success path. Every caller here then treats that error payload as the worker's screen: it is
+# non-empty, so it reads as readable; it is constant, so it fingerprints identically every sample;
+# and twenty minutes later the watch reports a stall whose evidence is herdr's error message dressed
+# up as what the worker was last seen doing. A failed read is not a screen, and this is the one place
+# that says so, because three functions read the same viewport and each would have to remember.
+#
+# .ok is false for an empty read, a non-zero exit and an error envelope. `$LASTEXITCODE` is unset
+# rather than zero when nothing has run in the session, which is not a failure and must not be read
+# as one.
+function Read-HerdrAgentScreen {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Name)
+
+    $agentName = ConvertTo-HerdrAgentName -Name $Name
+    $exe = Get-HerdrCommandPath
+    if (-not $exe) { throw (Get-HerdrCommandHint) }
+
+    $raw  = & $exe agent read $agentName --source visible 2>&1
+    $code = $LASTEXITCODE
+    $text = ($raw | Out-String)
+
+    $failed = [pscustomobject]@{ ok = $false; text = '' }
+
+    if ($code) { return $failed }
+    if (-not $text -or -not $text.Trim()) { return $failed }
+
+    # herdr answers errors as JSON on stderr, which `2>&1` folds into the text above. A rendered
+    # terminal does not parse as an object carrying an `error`, so this discriminates without
+    # needing to know herdr's error codes.
+    $parsed = $null
+    try { $parsed = $text | ConvertFrom-Json } catch { }
+    if ($parsed -and $parsed.PSObject.Properties.Name -contains 'error') { return $failed }
+
+    [pscustomobject]@{ ok = $true; text = $text }
+}
+
 # True when a worker's terminal is wide enough for the screen guard to work on it.
 #
 # The guard matches phrases like "Enter to select". A pane too narrow to render one of them cannot
 # be read, and a read that cannot succeed must not be reported as "no prompt found" - that is the
 # difference between "this worker is fine" and "I cannot tell". Callers that treat a false from
 # Test-HerdrAgentAwaitingInput as proof of health need to know which one they have.
+#
+# A read that failed answers false here for the same reason, and it is not a nicety: this is the
+# cross-check `rally` sends the Hand to when a stall is reported, so a wide error payload reading as
+# a healthy pane is the one answer that would confirm the wrong story.
 function Test-HerdrAgentReadable {
     [CmdletBinding()]
     param(
@@ -210,15 +254,11 @@ function Test-HerdrAgentReadable {
         [int]$MinimumColumns = 40
     )
 
-    $agentName = ConvertTo-HerdrAgentName -Name $Name
-    $exe = Get-HerdrCommandPath
-    if (-not $exe) { throw (Get-HerdrCommandHint) }
-
-    $screen = (& $exe agent read $agentName --source visible 2>&1 | Out-String)
-    if (-not $screen) { return $false }
+    $read = Read-HerdrAgentScreen -Name $Name
+    if (-not $read.ok) { return $false }
 
     $widest = 0
-    foreach ($line in ($screen -split "`n")) {
+    foreach ($line in ($read.text -split "`n")) {
         $len = $line.TrimEnd().Length
         if ($len -gt $widest) { $widest = $len }
     }
@@ -522,18 +562,14 @@ function Get-HerdrAgentProgressSignal {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Name)
 
-    $agentName = ConvertTo-HerdrAgentName -Name $Name
-    $exe = Get-HerdrCommandPath
-    if (-not $exe) { throw (Get-HerdrCommandHint) }
-
     # The live viewport, for the same reason the blocked guard reads it: scrollback never changes,
     # so a signal taken over `recent` would look static on a worker that is working perfectly.
-    $screen = (& $exe agent read $agentName --source visible 2>&1 | Out-String)
-    if (-not $screen -or -not $screen.Trim()) {
+    $read = Read-HerdrAgentScreen -Name $Name
+    if (-not $read.ok) {
         return [pscustomobject]@{ readable = $false; signal = ''; lastActivity = '' }
     }
 
-    $text = $screen
+    $text = $read.text
     foreach ($p in $script:VolatileScreenPatterns) { $text = $text -replace $p, ' ' }
 
     $lines = @($text -split "`r?`n" |
@@ -658,6 +694,14 @@ function Wait-HerdrAgentProgress {
             Start-Sleep -Milliseconds $script:GoneConfirmMs
             $live = Get-HerdrAgent -Name $Name
             if (-not $live) {
+                # A server that is down answers nothing for every agent, exactly as it does for one
+                # that was never registered, and the confirm pause above is far shorter than the
+                # thirty seconds a server takes to come back up. The difference matters to whoever
+                # reads this: `gone` sends them to reconcile a worktree that may still be being
+                # written to, while `wait-failed` sends them to the server and a re-armed wait.
+                if (-not (Test-HerdrServer)) {
+                    return & $report $false $null $false $false 'wait-failed'
+                }
                 return & $report $false $null $false $false 'gone'
             }
         }

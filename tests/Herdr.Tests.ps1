@@ -58,26 +58,47 @@ BeforeAll {
     #
     # The paths travel in environment variables rather than script variables because the stub is a
     # separate process and the Get-HerdrCommandPath mock runs inside the module.
+    #
+    # It always exits explicitly, so the exit status a caller reads belongs to the call it just made
+    # rather than to whatever ran before it - which is how the real binary behaves and what the
+    # failure cases below depend on.
     function Initialize-HerdrScreenStub {
         $dir = New-TempFixtureDir -Prefix 'herdr-screen-'
         $env:KINGSHAND_TEST_HERDR_EXE    = Join-Path $dir 'herdr-stub.ps1'
         $env:KINGSHAND_TEST_HERDR_ARGS   = Join-Path $dir 'args.txt'
         $env:KINGSHAND_TEST_HERDR_SCREEN = Join-Path $dir 'screen.txt'
+        $env:KINGSHAND_TEST_HERDR_EXIT   = ''
         Set-Content -LiteralPath $env:KINGSHAND_TEST_HERDR_EXE -Encoding utf8 -Value @'
 Add-Content -LiteralPath $env:KINGSHAND_TEST_HERDR_ARGS -Value ($args -join ' ')
 if (Test-Path -LiteralPath $env:KINGSHAND_TEST_HERDR_SCREEN) {
     Get-Content -LiteralPath $env:KINGSHAND_TEST_HERDR_SCREEN -Raw
 }
+$code = 0
+if ($env:KINGSHAND_TEST_HERDR_EXIT) { $code = [int]$env:KINGSHAND_TEST_HERDR_EXIT }
+exit $code
 '@
         $dir
     }
 
     function Set-HerdrScreen {
         param([string]$Text = '')
+        $env:KINGSHAND_TEST_HERDR_EXIT = ''
         Set-Content -LiteralPath $env:KINGSHAND_TEST_HERDR_SCREEN -Value $Text -Encoding utf8
         if (Test-Path -LiteralPath $env:KINGSHAND_TEST_HERDR_ARGS) {
             Remove-Item -LiteralPath $env:KINGSHAND_TEST_HERDR_ARGS -Force
         }
+    }
+
+    # herdr failing to read a pane: its own error, on the success path, because the read folds
+    # stderr into stdout. The text is deliberately wide - the whole point is that it is not empty
+    # and does not look narrow, so nothing about its shape gives it away.
+    function Set-HerdrScreenFailure {
+        param(
+            [string]$Text = '{"error":{"code":"pane_not_found","message":"there is no pane for agent t-9001 any more"}}',
+            [int]$ExitCode = 1
+        )
+        Set-HerdrScreen $Text
+        $env:KINGSHAND_TEST_HERDR_EXIT = "$ExitCode"
     }
 
     function Get-HerdrStubArgs {
@@ -693,6 +714,49 @@ Describe 'Get-HerdrAgentProgressSignal ignores what Claude Code repaints on its 
         (Get-HerdrAgentProgressSignal -Name 'T-9001').lastActivity |
             Should -BeLike '*no-mistakes axi status*' -Because 'evidence a person can act on is the deliverable'
     }
+
+    # The read folds stderr into stdout, so herdr's own failure arrives looking like a screen: not
+    # empty, not narrow, and identical on every sample. Fingerprinted as one it produces a stall
+    # twenty minutes later whose evidence is an error message dressed up as what the worker was last
+    # seen doing.
+    It 'reports a read herdr failed as unreadable, not as a screen that never changed' {
+        Set-HerdrScreenFailure
+        $r = Get-HerdrAgentProgressSignal -Name 'T-9001'
+
+        $r.readable     | Should -BeFalse -Because 'a read that failed is not a screen'
+        $r.signal       | Should -BeNullOrEmpty
+        $r.lastActivity | Should -BeNullOrEmpty -Because 'an error payload is not what the worker was last doing'
+    }
+
+    It 'reports an error envelope as unreadable even when the command exited zero' {
+        Set-HerdrScreen '{"error":{"code":"agent_not_found","message":"no agent named t-9001 in this workspace"}}'
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').readable |
+            Should -BeFalse -Because 'herdr answers its failures as JSON, whatever it exits with'
+    }
+}
+
+Describe 'Test-HerdrAgentReadable never confirms a pane out of herdr''s own error text' {
+    # This is the cross-check `rally` sends the Hand to when a stall is reported, so it is the one
+    # answer that must not agree with a false stall.
+
+    BeforeAll { $script:ReadableDir = Initialize-HerdrScreenStub }
+    BeforeEach { Mock -ModuleName Herdr Get-HerdrCommandPath { $env:KINGSHAND_TEST_HERDR_EXE } }
+
+    It 'is true for a pane wide enough to render the phrases the guard matches' {
+        Set-HerdrScreen "  Which approach should I take, given the parser rewrite?`n  Enter to select, up/down to navigate"
+        Test-HerdrAgentReadable -Name 'T-9001' | Should -BeTrue
+    }
+
+    It 'is false for a pane too narrow to render them' {
+        Set-HerdrScreen "a`nb`nc"
+        Test-HerdrAgentReadable -Name 'T-9001' | Should -BeFalse
+    }
+
+    It 'is false when the read itself failed, however wide the error text is' {
+        Set-HerdrScreenFailure
+        Test-HerdrAgentReadable -Name 'T-9001' |
+            Should -BeFalse -Because 'wide error text is not evidence that the pane can be read'
+    }
 }
 
 Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and never acts on it' {
@@ -702,6 +766,7 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
 
     BeforeEach {
         Mock -ModuleName Herdr Get-HerdrAgent { [pscustomobject]@{ name = 't-9001'; agent_status = 'working'; pane_id = 'p1' } }
+        Mock -ModuleName Herdr Test-HerdrServer { $true }
         Mock -ModuleName Herdr Test-HerdrAgentAwaitingInput { $false }
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
             [pscustomobject]@{ readable = $true; signal = 'aaaa'; lastActivity = 'Bash(no-mistakes axi status) | waiting for checks' }
@@ -795,6 +860,20 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 2000 -SampleSeconds 1 -StallMinutes 120
         $r.reason | Should -Be 'timeout' -Because 'one unanswered read is not a worker that has gone'
         $script:reads | Should -BeGreaterThan 1 -Because 'the read is retried rather than trusted once'
+    }
+
+    # A server that is down answers nothing for every worker, exactly as it does for one it never
+    # registered, and it takes far longer to come back than the confirm pause waits. Calling that
+    # `gone` sends the Hand to reconcile a worktree that may still be being written to; the watch is
+    # what broke, and `wait-failed` is the reason that says so.
+    It 'says the watch failed, rather than that the worker vanished, when herdr is not answering' {
+        Mock -ModuleName Herdr Get-HerdrAgent { $null }
+        Mock -ModuleName Herdr Test-HerdrServer { $false }
+
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 4000 -SampleSeconds 1
+        $r.reason  | Should -Be 'wait-failed'
+        $r.settled | Should -BeFalse
+        $r.stalled | Should -BeFalse
     }
 
     # A worker sitting on a dialog the screen guard did not match looks exactly like a stalled one.
