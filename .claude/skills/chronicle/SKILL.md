@@ -110,7 +110,9 @@ session reset-safe.
 
 **2. Read every current memory file completely** - `data\king.md` and `data\learnings.md` - before
 changing either. Treat an absent file as absent. Read-before-write is not optional: a rewrite
-decided without the current text is an append in disguise.
+decided without the current text is an append in disguise. **Drain the correction inbox before this
+read**, under Draining the correction inbox below, so what you read here is already the text every
+routed correction has landed in.
 
 **3. Build one whole-file retention plan before editing**, ordered by how likely each entry is to
 inform a future session. Keep in always-loaded memory only current user preferences, safety and
@@ -118,9 +120,9 @@ authority boundaries, recurring working style, operating facts that are relevant
 pointers that are expensive to rediscover. Prefer offloading current but conditional, narrow or
 project-specific material to an owner that is loaded on demand, and archive stale, superseded or
 low-recurrence material to the cold tier. Retain lower-utility material only while budget remains.
-**The drained correction inbox is an input to this plan**, so run the drain under Draining the
-correction inbox below before building it - a correction planned here is reduced and measured with
-everything else, while one arriving later lands after every reduction rung is spent.
+**The drained correction inbox is an input to this plan**, and the drain has already run under step 2
+- so this plan covers every routed correction alongside everything else, while one arriving later
+lands after every reduction rung is spent.
 
 **4. Reinforce and stamp.** Refresh an entry's last-reinforced date to today only when this session
 actually exercised, confirmed or re-derived it. **Reinforcement requires independent evidence from
@@ -149,7 +151,7 @@ a consolidation that preserves the fact.
 **7. When the total is still over budget after decay and consolidation, make aggressive reduction
 the default**, in this order: archive every stale, superseded or low-utility entry eligible for
 archival; consolidate tighter; run the offload sweep below and relocate every eligible non-pinned
-conditional entry into an already-existing owner, but only after that owner actually holds it; then,
+conditional entry to a destination that is live in this pass, but only after it actually holds it; then,
 only when the convergence precondition holds, archive eligible `aging` entries oldest-reinforced
 first until within budget. A proposal, a future migration or an accepted exception is never budget
 relief in this pass. Eviction considers only `aging` entries that carry a last-reinforced date and
@@ -259,7 +261,9 @@ it first, so a topic name that collides with a file `data\` already uses destroy
 and the after-the-write check that the destination holds the entry passes on the wreckage. There are
 exactly three cases, and the precedence between them is fixed:
 
-- **The path is free** - write it with `Write-DataFile`, which writes and indexes in one call.
+- **The path is free**, meaning nothing is there at all - write it with `Write-DataFile`, which writes
+  and indexes in one call. A file that exists but reads empty is not a free path: it is one of the two
+  cases below, because `Write-DataFile` would overwrite it either way.
 - **The path holds this same topic's file from an earlier pass** - **reuse it rather than renaming
   around it**: read it whole, rewrite it in place with the new detail folded in, and index it with
   `Add-IndexEntry`. Reuse wins here, because a fresh name for a topic that already has a file
@@ -284,13 +288,12 @@ the failure the index exists to prevent:
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
 $topicPath = Join-Path $env:KINGSHAND_HOME "data\<topic>.md"
-$existing  = if (Test-Path -LiteralPath $topicPath) {
-    Get-Content -LiteralPath $topicPath -Raw
-} else { $null }
+$onDisk    = Test-Path -LiteralPath $topicPath
+$existing  = if ($onDisk) { Get-Content -LiteralPath $topicPath -Raw } else { $null }
 # Set from reading $existing, never from the path alone: is this file this topic's own?
 $isThisTopic = $false
 
-if (-not $existing) {
+if (-not $onDisk) {
     # Case 1, a free path: written and indexed in one call, so the two cannot come apart.
     Write-DataFile -Path "data\<topic>.md" -Content $text -Summary "<what it holds, in one line>"
 } elseif ($isThisTopic) {
@@ -311,8 +314,11 @@ so relieves nothing; and any project file written by the Hand rather than by a w
 
 1. **Reduce non-pinned material now.** For each eligible candidate record its first line, source
    file, estimated tokens, one-line trigger, live destination and actual budget relief in the
-   receipt. Relocate it only by adding it to an owner that already exists, then confirm that
-   destination holds the quoted entry before removing the memory entry. A destination whose write
+   receipt. Relocate it only to a destination that is live in this pass, then confirm that
+   destination holds the quoted entry before removing the memory entry. **What makes a destination
+   live is that this pass can write it and confirm it holds the entry before the memory line goes,
+   never that the file already exists** - a free `data\<topic>.md` path this pass creates qualifies,
+   and an existing file somebody else has to write does not. A destination whose write
    belongs to somebody else - an undelivered project change, a `statute` change, or any other future
    work - is not live and cannot count as relief, so continue to the next archival or eviction rung
    instead of leaving an over-budget proposal pending. Writing a `data\<topic>.md` in this pass is
@@ -340,14 +346,19 @@ makes one, under the obligation `CLAUDE.md` owns. **It is an inbox and not a thi
 append-only, never loaded at session start, never counted by `Get-MemoryReport`, and emptied by this
 pass rather than curated in place. An absent or empty inbox means no correction has been recorded
 since the last pass, which is an ordinary state and never an error. It is a durable file under
-`data\` like any other, and **this pass is what lists it** - index it in the knowledge sweep's index
-step below, alongside the memory files this pass touched. The obligation in `CLAUDE.md` defers the
+`data\` like any other, and **this pass is what lists it - but only when the drain found an inbox and
+it is still on disk afterwards**, in the knowledge sweep's index step below alongside the memory files
+this pass touched. An inbox that never existed is indexed by nothing: `Add-IndexEntry` checks no
+target, so a line for a file that is not there is the stale drift the digest counts on every session
+until somebody clears it. The obligation in `CLAUDE.md` defers the
 listing here on purpose: a mid-turn correction write that also has to index is the cost that stops
 the write happening at all, which is the whole reason the inbox exists.
 
-**Every invocation drains it, before the knowledge sweep below** and before step 3 builds the
-retention plan - a drained entry is new material in a memory file, so it has to be planned,
-consolidated, reduced and measured with everything else. A drain that lands after step 7 has spent
+**Every invocation drains it, before the knowledge sweep below** and before step 2 reads the memory
+files - a drained entry is new material in a memory file, so it has to be planned, consolidated,
+reduced and measured with everything else. Draining ahead of that read is what keeps the order honest:
+step 3 plans before editing, and it plans against text that already holds every routed correction
+rather than against a read the drain has since made stale. A drain that lands after step 7 has spent
 archival, consolidation, offload and eviction pushes the total over budget with every reduction rung
 already gone, and step 8 then opens a decision with the user over material a reduction pass could
 have absorbed.
@@ -414,7 +425,11 @@ Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
 Add-IndexEntry -Path "data\king.md"           -Summary "<one line of what it now holds>"
 Add-IndexEntry -Path "data\learnings.md"      -Summary "<one line of what it now holds>"
 Add-IndexEntry -Path "data\memory-archive.md" -Summary "<one line of what it now holds>"
-Add-IndexEntry -Path "data\corrections.md"    -Summary "<one line of what it now holds>"
+# Only when the drain found an inbox and it is still there: a line for a file that never existed is
+# the stale drift the digest counts, and nothing but Remove-IndexEntry -Missing clears it.
+if (Test-Path -LiteralPath "$env:KINGSHAND_HOME\data\corrections.md") {
+    Add-IndexEntry -Path "data\corrections.md" -Summary "<one line of what it now holds>"
+}
 ```
 
 ## One-time migration of unmarked entries

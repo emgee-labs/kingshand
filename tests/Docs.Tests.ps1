@@ -1815,17 +1815,35 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
                      'routing section, which owns that mapping')
     }
 
-    # Pinned before step 3, not merely before the sweep. A drain landing between steps 7 and 8
-    # arrives with archival, consolidation, offload and eviction already spent, so the pass ends
-    # over budget and step 8 opens a decision the reduction rungs could have absorbed.
-    It 'the drain runs before the retention plan, not after the reduction rungs' {
+    # Pinned before step 2's read, not merely before the sweep. A drain landing between steps 7 and 8
+    # arrives with archival, consolidation, offload and eviction already spent, so the pass ends over
+    # budget and step 8 opens a decision the reduction rungs could have absorbed. And a drain between
+    # step 2 and step 3 is the other end of the same problem: step 3 plans "before editing" against a
+    # read the drain's own writes have already made stale.
+    It 'the drain runs before the mandatory read, not after the reduction rungs' {
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
             -Phrase ('**Every invocation drains it, before the knowledge sweep below** and before ' +
-                     'step 3 builds the retention plan')
+                     'step 2 reads the memory files')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase ('step 3 plans before editing, and it plans against text that already holds ' +
+                     'every routed correction rather than against a read the drain has since made ' +
+                     'stale')
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
             -Phrase ('A drain that lands after step 7 has spent archival, consolidation, offload ' +
                      'and eviction pushes the total over budget with every reduction rung already ' +
                      'gone')
+    }
+
+    # Both the step that must act on it and the step that consumes its output name the same order, so
+    # a reader working top-down drains at the right moment rather than learning about it afterwards.
+    It 'steps 2 and 3 agree on when the drain runs' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle mandatory read' `
+            -Phrase ('**Drain the correction inbox before this read**, under Draining the ' +
+                     'correction inbox below, so what you read here is already the text every ' +
+                     'routed correction has landed in')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle retention plan' `
+            -Phrase ('**The drained correction inbox is an input to this plan**, and the drain has ' +
+                     'already run under step 2')
     }
 
     # CLAUDE.md indexes a durable data\ file as it is written, and the correction obligation is the
@@ -1834,8 +1852,8 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
     # session happens to chronicle.
     It 'the drain itself indexes the inbox, and says why the write defers it' {
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
-            -Phrase ('**this pass is what lists it** - index it in the knowledge sweep''s index ' +
-                     'step below, alongside the memory files this pass touched')
+            -Phrase ('in the knowledge sweep''s index step below alongside the memory files this ' +
+                     'pass touched')
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
             -Phrase ('a mid-turn correction write that also has to index is the cost that stops ' +
                      'the write happening at all')
@@ -1898,21 +1916,60 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
             -Phrase 'intending to file a work item is not the same as having filed it'
     }
 
-    # Add-IndexEntry does no existence check, so the same pass that indexes the inbox and then deletes
-    # it writes a line for a file that is gone - the STALE drift the digest counts, and nothing but
-    # Remove-IndexEntry -Missing clears it.
-    It 'the drained inbox stays on disk so its index line stays true' {
+    # Add-IndexEntry does no existence check on its target, so both ends of the inbox's life can
+    # produce a line for a file that is not there: deleting the drained file, and indexing an inbox
+    # kingshand was never corrected into having. Either way the digest prints STALE on every session
+    # until somebody runs Remove-IndexEntry -Missing, which is what stops a drift count being read.
+    It 'the inbox is indexed only when it is actually on disk' {
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
             -Phrase ('The drained inbox itself stays on disk, emptied of entries rather than ' +
                      'deleted, so the index line this pass writes for it never becomes stale drift')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase ('**this pass is what lists it - but only when the drain found an inbox and it ' +
+                     'is still on disk afterwards**')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle drain step' `
+            -Phrase ('An inbox that never existed is indexed by nothing: `Add-IndexEntry` checks no ' +
+                     'target, so a line for a file that is not there is the stale drift the digest ' +
+                     'counts')
     }
 
-    # The drain pins itself before step 3, but the section sits after step 8 in the document. A
-    # reader working top-down met the plan with no idea the drain was its input.
-    It 'step 3 names the drain as its input, where a top-down reader meets it' {
-        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle retention plan' `
-            -Phrase ('**The drained correction inbox is an input to this plan**, so run the drain ' +
-                     'under Draining the correction inbox below before building it')
+    # The unconditional call in the index fence was the live hazard: a routine pass on a kingshand
+    # that has never been corrected would index a file that does not exist. The guard has to be in
+    # the runnable text, not only in the prose, so this parses the fence and checks the call sits
+    # inside a Test-Path branch.
+    It 'the index fence guards the inbox call behind an existence check' {
+        $fences = @(Get-CodeFence $script:ChronicleMd |
+            Where-Object { $_.Contains('Add-IndexEntry -Path "data\corrections.md"') })
+        $fences.Count | Should -Be 1 -Because 'the inbox is indexed in one stated place'
+
+        $tokens = $null
+        $errors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput(
+            $fences[0], [ref]$tokens, [ref]$errors)
+        @($errors).Count | Should -Be 0 -Because 'a fence framed as runnable text has to parse'
+
+        $guarded = @($ast.FindAll({
+            $args[0] -is [System.Management.Automation.Language.IfStatementAst] -and
+            $args[0].Clauses[0].Item1.Extent.Text -match 'Test-Path' -and
+            $args[0].Clauses[0].Item1.Extent.Text -match 'corrections\.md'
+        }, $true))
+        $guarded.Count | Should -Be 1 -Because 'the inbox call needs its own existence check'
+
+        $inside = @($guarded[0].Clauses[0].Item2.FindAll({
+            $args[0] -is [System.Management.Automation.Language.CommandAst] -and
+            $args[0].GetCommandName() -eq 'Add-IndexEntry'
+        }, $true))
+        $inside.Count | Should -Be 1 -Because 'the guarded branch is where the inbox is listed'
+        $inside[0].Extent.Text | Should -Match 'corrections\.md' `
+            -Because 'the guard has to cover the inbox call, not one of the memory files'
+
+        $unguarded = @($ast.FindAll({
+            $args[0] -is [System.Management.Automation.Language.CommandAst] -and
+            $args[0].GetCommandName() -eq 'Add-IndexEntry' -and
+            $args[0].Extent.Text -match 'corrections\.md'
+        }, $true))
+        $unguarded.Count | Should -Be 1 `
+            -Because 'a second unconditional inbox call anywhere in the fence reopens the drift'
     }
 
     It 'the offload sweep has a destination the Hand can actually write' {
@@ -1960,6 +2017,10 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
     # the opposite of accumulating detail where the reader already looks for it. So the precedence is
     # stated rather than implied: reuse for this topic's own file, a new name only for anything else.
     It 'reuse beats renaming when the path holds this topic''s own earlier file' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase ('**The path is free**, meaning nothing is there at all - write it with ' +
+                     '`Write-DataFile`, which writes and indexes in one call. A file that exists but ' +
+                     'reads empty is not a free path')
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
             -Phrase ('**The path holds this same topic''s file from an earlier pass** - **reuse it ' +
                      'rather than renaming around it**: read it whole, rewrite it in place with the ' +
@@ -2069,6 +2130,24 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
         $free | Should -Contain 'Write-DataFile' `
             -Because 'the free path is the one case Write-DataFile may run in'
 
+        # And "free" has to mean the path is absent, not that the file reads empty. Gating case 1 on
+        # the content read let Get-Content -Raw on a zero-length file look identical to no file at
+        # all, so Write-DataFile's unconditional Set-Content would overwrite a file that exists -
+        # the precise call the sentence above the fence forbids.
+        $assignments = @($ast.FindAll(
+            { $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true))
+        $existence = @($assignments | Where-Object {
+            $_.Right.Extent.Text -match 'Test-Path' -and $_.Right.Extent.Text -notmatch 'Get-Content' })
+        $content = @($assignments | Where-Object { $_.Right.Extent.Text -match 'Get-Content' })
+        $existence.Count | Should -Be 1 -Because 'one variable records whether the path exists'
+        $content.Count | Should -Be 1 -Because 'one variable holds the read that decides identity'
+
+        $freeCondition = $branch.Clauses[0].Item1.Extent.Text
+        $freeCondition | Should -Match ([regex]::Escape($existence[0].Left.Extent.Text)) `
+            -Because 'the free case is decided by the path being absent'
+        $freeCondition | Should -Not -Match ([regex]::Escape($content[0].Left.Extent.Text)) `
+            -Because 'an existing but empty file must not read as a free path'
+
         # Case 2, this topic's own file: gated on what the file is, and it writes before it indexes.
         $branch.Clauses[1].Item1.Extent.Text | Should -Not -Match 'Test-Path' `
             -Because 'existence cannot tell this topic''s file from an unrelated one'
@@ -2089,6 +2168,27 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
             $args[0].GetCommandName() -eq 'Write-DataFile'
         }, $true)).Count | Should -Be 1 `
             -Because 'a second unguarded Write-DataFile anywhere in the fence reopens the clobber'
+    }
+
+    # Two clauses survived from the rule this change replaced - "an already-existing owner" and "an
+    # owner that already exists" - which between them forbade the one destination the change adds,
+    # since case 1 of the fence creates the file. A pass reading them skips the offload rung entirely
+    # and lands on eviction or a user decision, which is the outcome the change exists to remove.
+    It 'liveness is what this pass can write, never that the file already exists' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload flow' `
+            -Phrase ('Relocate it only to a destination that is live in this pass, then confirm ' +
+                     'that destination holds the quoted entry before removing the memory entry.')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload flow' `
+            -Phrase ('**What makes a destination live is that this pass can write it and confirm it ' +
+                     'holds the entry before the memory line goes, never that the file already ' +
+                     'exists** - a free `data\<topic>.md` path this pass creates qualifies')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle reduction rungs' `
+            -Phrase ('relocate every eligible non-pinned conditional entry to a destination that ' +
+                     'is live in this pass, but only after it actually holds it')
+        $script:ChronicleText | Should -Not -Match 'already-existing owner' `
+            -Because 'that phrasing forbids the one destination this pass can write'
+        $script:ChronicleText | Should -Not -Match 'owner that already exists' `
+            -Because 'liveness is about who writes it, not about the file pre-existing'
     }
 
     # The sweep's refusals are what keep an offload honest, and the new destination has to pass them
