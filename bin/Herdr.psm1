@@ -148,6 +148,12 @@ function Start-HerdrServer {
     $psi.CreateNoWindow  = $true
     $null = $psi.ArgumentList.Add('server')
     $psi.Environment['CLAUDE_CODE_CHILD_SESSION'] = ''
+    # A worker has no human at its prompt, so a suggestion of what that human should type next has
+    # no purpose and only creates the hazard the prompt-box guards above defend against. The
+    # environment check is the FIRST branch of the harness's resolver, so this wins over the remote
+    # flag and over any setting - and it is preferred to the settings key because that key is
+    # written at user scope, so putting it in a worktree's settings.local.json may do nothing at all.
+    $psi.Environment['CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION'] = '0'
     $null = [Diagnostics.Process]::Start($psi)
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -182,7 +188,8 @@ function Start-HerdrServer {
 #
 # --env is passed here as well as at server start. The server scrub covers panes it launches, but a
 # user may already have a herdr server running that kingshand did not start, and that one carries
-# whatever environment it inherited.
+# whatever environment it inherited. The prompt-suggestion variable rides the same route and for
+# the same reason; the prompt-box section above owns why it is set at all.
 function New-HerdrPane {
     [CmdletBinding()]
     param(
@@ -192,7 +199,8 @@ function New-HerdrPane {
 
     $r = Invoke-Herdr -Arguments @(
         'workspace', 'create', '--cwd', $Cwd, '--label', $Label, '--no-focus',
-        '--env', 'CLAUDE_CODE_CHILD_SESSION='
+        '--env', 'CLAUDE_CODE_CHILD_SESSION=',
+        '--env', 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=0'
     )
     $r.root_pane.pane_id
 }
@@ -235,6 +243,78 @@ function Read-HerdrAgentScreen {
     if ($parsed -and $parsed.PSObject.Properties.Name -contains 'error') { return $failed }
 
     [pscustomobject]@{ ok = $true; text = $text }
+}
+
+# ---------------------------------------------------------------------------------------------
+# The prompt box, which is the one part of a worker's screen that can hold text nobody here wrote.
+#
+# Claude Code renders a generated *prompt suggestion* into an idle worker's empty input box between
+# turns. It is app state rather than input, so it cannot concatenate onto anything - the first typed
+# character displaces it - but a bare Enter ACCEPTS it, and a submission whose text equals the
+# suggestion is recorded by the harness as accepted by `enter`. So `Send-HerdrKeys -Keys @('enter')`
+# at an idle worker submits a model-generated instruction as though the Hand had written it. The
+# evidence, down to the resolver in the binary, is in data\kh-stray-input\report.md.
+#
+# CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=0 on the pane removes the cause and is set at both places
+# below. The guards stay anyway: they also cover a herdr server kingshand did not start, and typing
+# over a box the Hand did not fill was a defect before that feature existed.
+# ---------------------------------------------------------------------------------------------
+
+# `❯` followed by U+00A0 - a NO-BREAK space, not a plain one - is how the box line is drawn,
+# measured off captured screens rather than guessed.
+$script:PromptBoxCaret = [char]0x276F
+$script:PromptBoxRule  = [char]0x2502   # the │ the box is drawn inside
+
+# What the prompt box on this screen holds, or '' when it is empty or there is no box on it.
+#
+# ONLY `❯` COUNTS. A worker's own output lines start with a plain `>`, and treating one of those as
+# a prompt box would refuse every send to a perfectly healthy worker.
+function Get-HerdrPromptBoxText {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+
+    foreach ($line in ($Text -split "`r?`n")) {
+        $inner = $line.Trim().Trim($script:PromptBoxRule).Trim()
+        if (-not $inner.StartsWith($script:PromptBoxCaret)) { continue }
+        # .Trim() takes U+00A0 with it: .NET counts a no-break space as whitespace.
+        return $inner.Substring(1).Trim()
+    }
+    ''
+}
+
+# What is sitting in a worker's prompt box right now, or '' when it is empty or could not be read.
+#
+# FAILS OPEN, and that is the opposite of Get-HerdrAgentProgressSignal below on purpose. There the
+# cost of guessing is a false stall report; here it is a teardown or a corrective steer that cannot
+# be delivered to a worker that may be wedged. A narrow pane must not make a worker unsteerable.
+function Get-HerdrAgentPromptBox {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Name)
+
+    $read = Read-HerdrAgentScreen -Name $Name
+    if (-not $read.ok) { return '' }
+    Get-HerdrPromptBoxText -Text $read.text
+}
+
+# Refuses to write into a box this call did not fill, and quotes what is in it.
+#
+# REFUSE, NEVER CLEAR. Clearing destroys the evidence of the very event worth noticing, and the
+# caller may be about to send something that must not be mixed with whatever is already there. The
+# exception IS the escalation: `rally` reports the quoted text and lets the King decide.
+function Assert-HerdrPromptBoxWritable {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Action
+    )
+
+    $box = Get-HerdrAgentPromptBox -Name $Name
+    if (-not $box) { return }
+
+    throw ("Refusing to $Action at worker '$Name': its prompt box already holds text this call " +
+           "did not write - '$box'. Enter would submit that as though the Hand had written it. " +
+           'Read it, decide what it is, then either re-send with -AllowNonEmptyBox or send ' +
+           'escape first to dismiss it.')
 }
 
 # True when a worker's terminal is wide enough for the screen guard to work on it.
@@ -331,14 +411,22 @@ function Get-HerdrAgents {
 # returns before the state machine has moved, so an agent that is about to work still reports
 # `idle` for a moment afterwards. A caller that submits and then immediately waits for `idle`
 # gets an instant false completion. Either use -Wait, or wait for `working` first.
+#
+# -AllowNonEmptyBox is the deliberate override for a box the caller has already read and decided
+# about. Without it a non-empty box is refused rather than typed over; see the prompt-box section.
 function Send-HerdrPrompt {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string]$Text,
         [switch]$Wait,
+        [switch]$AllowNonEmptyBox,
         [int]$TimeoutMs = $script:HerdrTimeoutMs
     )
+
+    if (-not $AllowNonEmptyBox) {
+        Assert-HerdrPromptBoxWritable -Name $Name -Action 'submit a prompt'
+    }
 
     $agentName = ConvertTo-HerdrAgentName -Name $Name
     $args = @('agent', 'prompt', $agentName, $Text)
@@ -554,6 +642,13 @@ $script:VolatileScreenPatterns = @(
 # evidence of anything, and a caller that treats an unreadable screen as "unchanged" reports a
 # healthy worker as stalled. A pane too narrow to render is the case that produced this - the same
 # width defect that blinded the blocked-worker guard.
+#
+# .promptBox is here rather than anywhere else because this already reads the live viewport once per
+# sample on every watched worker, so reporting the box costs one regex over text that is already in
+# memory - no extra herdr call and no extra latency. It is an added FIELD and not a new state: a box
+# with text in it is not an interactive prompt, and folding it into Test-HerdrAgentAwaitingInput
+# would make every finished worker read `blocked`. All three sightings of an unexplained box were
+# found by chance, which is what this exists to stop.
 function Get-HerdrAgentProgressSignal {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Name)
@@ -562,8 +657,11 @@ function Get-HerdrAgentProgressSignal {
     # so a signal taken over `recent` would look static on a worker that is working perfectly.
     $read = Read-HerdrAgentScreen -Name $Name
     if (-not $read.ok) {
-        return [pscustomobject]@{ readable = $false; signal = ''; lastActivity = '' }
+        return [pscustomobject]@{ readable = $false; signal = ''; lastActivity = ''; promptBox = '' }
     }
+
+    # Read off the RAW screen, before the normalisation below folds the lines together.
+    $promptBox = Get-HerdrPromptBoxText -Text $read.text
 
     $text = $read.text
     foreach ($p in $script:VolatileScreenPatterns) { $text = $text -replace $p, ' ' }
@@ -588,6 +686,7 @@ function Get-HerdrAgentProgressSignal {
         readable     = [bool]$digest
         signal       = $digest
         lastActivity = ($tail -join ' | ')
+        promptBox    = $promptBox
     }
 }
 
@@ -630,6 +729,7 @@ function Wait-HerdrAgentProgress {
     $first      = Get-HerdrAgentProgressSignal -Name $Name
     $signal     = $first.signal
     $activity   = $first.lastActivity
+    $promptBox  = $first.promptBox
     $readable   = $first.readable
     $lastChange = $started
     $samples    = 1
@@ -653,6 +753,10 @@ function Wait-HerdrAgentProgress {
             waitedMinutes  = [Math]::Round(($now - $started).TotalMinutes, 1)
             lastChangeUtc  = $lastChange.ToUniversalTime()
             lastActivity   = $activity
+            # Sampled at the same moment as lastActivity, on every report this makes - settled,
+            # stalled, gone and timeout alike - so an unexplained box is seen on the wake the Hand
+            # already handles rather than stumbled on later.
+            promptBox      = $promptBox
             signalReadable = $readable
             samples        = $samples
             stallMinutes   = $StallMinutes
@@ -675,8 +779,9 @@ function Wait-HerdrAgentProgress {
             # over what that worker's screen last said and let a person read it. Reporting stale
             # activity from before the worker stopped would be worse than reporting none.
             $final = Get-HerdrAgentProgressSignal -Name $Name
-            $readable = $final.readable
-            $activity = if ($final.readable) { $final.lastActivity } else { '' }
+            $readable  = $final.readable
+            $activity  = if ($final.readable) { $final.lastActivity } else { '' }
+            $promptBox = if ($final.readable) { $final.promptBox }    else { '' }
 
             return & $report $true $state $awaiting $false 'settled'
         }
@@ -725,8 +830,9 @@ function Wait-HerdrAgentProgress {
             continue
         }
 
-        $readable = $true
-        $activity = $sample.lastActivity
+        $readable  = $true
+        $activity  = $sample.lastActivity
+        $promptBox = $sample.promptBox
         if ($sample.signal -ne $signal) {
             $signal     = $sample.signal
             $lastChange = Get-Date
@@ -759,13 +865,24 @@ function Wait-HerdrAgentProgress {
 # has processed the arrow - and it returns success while doing it. That is a wrong answer with no
 # error, which is the worst failure shape available, so the batched form is not offered here at
 # all.
+#
+# AN ENTER THAT OPENS THE CALL IS THE DANGEROUS ONE, and it is refused when the box is not empty.
+# There is no menu on the screen at that point, so the Enter goes to the input box and submits
+# whatever is rendered there - which may be a suggestion the harness generated rather than anything
+# the Hand wrote. A later Enter in the same call is answering the menu the earlier keys are moving
+# through, and a menu has no prompt box, so only the first key is checked.
 function Send-HerdrKeys {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string[]]$Keys,
+        [switch]$AllowNonEmptyBox,
         [int]$DelayMs = 400
     )
+
+    if (-not $AllowNonEmptyBox -and $Keys.Count -gt 0 -and $Keys[0] -eq 'enter') {
+        Assert-HerdrPromptBoxWritable -Name $Name -Action 'send a bare Enter'
+    }
 
     $agentName = ConvertTo-HerdrAgentName -Name $Name
     foreach ($k in $Keys) {
@@ -807,7 +924,15 @@ function Stop-HerdrAgent {
         Start-Sleep -Milliseconds 800
     }
 
-    $null = Invoke-Herdr -AllowError -Arguments @('agent', 'prompt', $agentName, '/exit')
+    # -AllowNonEmptyBox, always. TEARDOWN MUST NEVER BE BLOCKED BY A SUGGESTION: `/exit` displaces
+    # whatever is rendered in the box harmlessly, and a worker that cannot be stopped because of a
+    # cosmetic render is a worse failure than the one the guard exists to prevent. It still goes
+    # through the guarded path rather than round the side of it, so the exemption is stated once
+    # here instead of being an accident of which function this happened to call.
+    #
+    # A herdr error on the way out is not the end of the teardown either - the agent may already
+    # have gone - so the confirm loop below is what decides, not this call's outcome.
+    try { $null = Send-HerdrPrompt -Name $agentName -Text '/exit' -AllowNonEmptyBox } catch { }
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
@@ -831,4 +956,5 @@ Export-ModuleMember -Function Get-HerdrCommandPath, Get-HerdrCommandHint, Conver
                               Wait-HerdrAgent, Read-HerdrAgent, Send-HerdrKeys, Stop-HerdrAgent,
                               Remove-HerdrPane, Test-HerdrAgentAwaitingInput, Get-HerdrAgentState,
                               Wait-HerdrAgentSettled, Test-HerdrAgentReadable,
-                              Get-HerdrAgentProgressSignal, Wait-HerdrAgentProgress
+                              Get-HerdrAgentProgressSignal, Wait-HerdrAgentProgress,
+                              Get-HerdrAgentPromptBox
