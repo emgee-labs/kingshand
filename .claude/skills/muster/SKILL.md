@@ -492,14 +492,15 @@ the section only for a dispatch that writes no mechanism at all - an investigati
 documentation pass - and take `not applicable` lines over deleting it when in doubt.
 
 **The open-ended-input line in that section is the expensive one.** Two dispatches on two projects
-cost about 16 review rounds between them, every finding correct in both, and both were spent on
-something hand-written to read an open format. The `## Read first` path parser took six consecutive
-rounds, and `docs\2026-08-31-read-first-declared-not-parsed.md` says why there was no seventh worth
-having: "there is no round after which the parser is finished". `emgee-agent-crawlable` took about
-ten, four of them inside a hand-rolled Markdown renderer before it was replaced by a library and the
-rest cleaning up after a swap made that late. Neither is an enumeration failure - enumerating is what
-ends both, by showing the list has no end. Where you already know a requirement reads an open format,
-say so in `Requirements` rather than leaving the worker to find out at round six.
+cost about 16 review rounds between them, every round in both finding real defects, and both were
+spent on something hand-written to read an open format. The `## Read first` path parser took six
+consecutive rounds, and `docs\2026-08-31-read-first-declared-not-parsed.md` says why there was no
+seventh worth having: "there is no round after which the parser is finished".
+`emgee-agent-crawlable` took about ten, four of them inside a hand-rolled Markdown renderer before it
+was replaced by a library and the rest cleaning up after a swap made that late. Neither is an
+enumeration failure - enumerating is what ends both, by showing the list has no end. Where you
+already know a requirement reads an open format, say so in `Requirements` rather than leaving the
+worker to find out at round six.
 
 **A requirement that names a mechanism carries the fact it rests on.** `kh-dispatch-index-gate`'s
 brief said to gate on a project's own index. The worker built exactly that, then found that

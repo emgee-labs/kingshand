@@ -95,6 +95,26 @@ BeforeAll {
         ConvertTo-NormalisedText $hit[0]
     }
 
+    # Get-MusterStep cannot serve for Step 2. The brief template inside that step carries its own
+    # `## Goal`, `## Scope` and `## Done means` headings, so the step splitter cuts Step 2 off at
+    # the first of them and returns a fraction of it. This bounds the region by its two step
+    # headings instead, so a rule moved out of Step 2 stops matching rather than passing from
+    # wherever in the file it landed.
+    function Get-MusterRegion {
+        param(
+            [Parameter(Mandatory)][string]$FromHeading,
+            [Parameter(Mandatory)][string]$ToHeading
+        )
+        $text  = Get-Content -Path $script:MusterMd -Raw
+        $start = $text.IndexOf("`n## $FromHeading")
+        $end   = $text.IndexOf("`n## $ToHeading")
+        if ($start -lt 0) { throw "No '## $FromHeading' heading in the muster skill." }
+        if ($end -le $start) {
+            throw "'## $ToHeading' does not follow '## $FromHeading' in the muster skill."
+        }
+        ConvertTo-NormalisedText $text.Substring($start, $end - $start)
+    }
+
     # CLAUDE.md loads on every turn, so a rule that survives only as a stray sentence elsewhere in
     # the file is not the rule any more. The four ported sections are asserted at their own
     # headings, the same way a muster gate is asserted at its own step.
@@ -4002,12 +4022,12 @@ Describe 'the stall-detection record states what must not be undone' {
 
 # The largest measured blocks of review waste in this system's own history were not defects the
 # review gate should have caught earlier - they were mechanisms chosen before anybody listed the
-# cases they had to hold over. Six consecutive rounds on a path parser, ten on a hand-rolled
-# Markdown renderer, every finding in both correct. Two rounds in `emgee-theme-toggle` on lifecycle
-# re-entry, where the same worker got the origin question right first time because its brief named
-# that dimension and nothing named the other one. The rules below are the front end of that: they
-# fire before a line is written, and they are pinned here because they live in prose and nothing
-# else would notice them going.
+# cases they had to hold over. Six consecutive rounds on a path parser, about ten on a hand-rolled
+# Markdown renderer, every round in both finding real defects. Two rounds in `emgee-theme-toggle`
+# on lifecycle re-entry, where the same worker got the origin question right first time because its
+# brief named that dimension and nothing named the other one. The rules below are the front end of
+# that: they fire before a line is written, and they are pinned here because they live in prose and
+# nothing else would notice them going.
 Describe 'a mechanism is chosen against the case space it has to cover' {
     BeforeAll {
         # The brief template is the one fence carrying both the Goal and the Done-means headings,
@@ -4017,7 +4037,10 @@ Describe 'a mechanism is chosen against the case space it has to cover' {
         $script:CaseSpace = if ($script:Template.Count -eq 1) {
             ConvertTo-NormalisedText $script:Template[0]
         } else { '' }
-        $script:MusterAll = Get-DocText $script:MusterMd
+        # Step 2 is the only place the Hand reads while writing a brief, so these rules are
+        # asserted at that step rather than anywhere in the file.
+        $script:MusterStep2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' `
+            -ToHeading 'Step 3 - Gate one'
         # The Done-means blocks, so the section can be shown NOT to have been folded into them.
         $script:DoneFences = @(Get-CodeFence $script:MusterMd |
             Where-Object { $_.Contains("Implemented and committed on this worktree's branch.") })
@@ -4090,7 +4113,7 @@ Describe 'a mechanism is chosen against the case space it has to cover' {
     # The section is pasted verbatim, so if the no-tailoring rule does not carve out the report
     # path the Hand has nowhere to substitute it and the bare-path defect comes straight back.
     It 'Step 2 exempts the report path from the no-tailoring rule while pinning the dimensions' {
-        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
             -Phrase ('The list of dimensions is what must not change; the report path inside that ' +
                      'section is resolved like every other path in the brief')
     }
@@ -4109,23 +4132,24 @@ Describe 'a mechanism is chosen against the case space it has to cover' {
     # If the list can be tailored per dispatch, the Hand supplies the dimensions it can already see
     # and the one nobody thought of stays missing - the same failure one level up.
     It 'Step 2 forbids tailoring the list, and keeps the instance that shows why' {
-        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
             -Phrase '**Paste the `## Case space` section unchanged, and do not tailor its list.**'
-        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
             -Phrase 'the script reads its state once and I had not asked what happens when the page comes back'
-        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
             -Phrase 'a dimension you pick out for the worker is a dimension you could already see'
     }
 
-    # The total is hedged because one of its two components is: the parser's six is exact, the
-    # renderer's ten is recorded as `~10`. An exact total over an approximate part is a claim the
-    # evidence does not carry.
+    # Both numbers are hedged to what the evidence carries: the parser's six is exact, the renderer's
+    # ten is recorded as `~10`, and the correctness claim holds per round in both records where only
+    # the parser's holds per finding. The point the clause has to keep is that the rounds were not
+    # spent on false findings - the mechanism was the problem.
     It 'Step 2 keeps the sixteen rounds behind the open-ended-input line' {
-        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
-            -Phrase 'cost about 16 review rounds between them, every finding correct in both'
-        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
+            -Phrase 'cost about 16 review rounds between them, every round in both finding real defects'
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
             -Phrase 'there is no round after which the parser is finished'
-        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
             -Phrase 'enumerating is what ends both, by showing the list has no end'
     }
 
@@ -4134,16 +4158,16 @@ Describe 'a mechanism is chosen against the case space it has to cover' {
     # two, and the split is the rule - without it this reads as licence for the Hand to go looking
     # inside a project itself.
     It 'Step 2 makes a requirement that names a mechanism carry the fact it rests on' {
-        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
             -Phrase '**A requirement that names a mechanism carries the fact it rests on.**'
-        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
             -Phrase 'would have refused nothing, ever'
-        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
             -Phrase 'hard rule 1 says a worker checks it, so write the requirement as a premise to verify before building to it'
     }
 
     It 'the section is dropped only where the dispatch writes no mechanism at all' {
-        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+        Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
             -Phrase ('Drop the section only for a dispatch that writes no mechanism at all - an ' +
                      'investigation, an audit, a documentation pass')
     }
