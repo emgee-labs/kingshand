@@ -261,6 +261,9 @@ That holds for a file another tool wrote as much as one you wrote: `data\backlog
 unindexed. `data\done-archive.md` is the same file in slower motion - `tasks-axi` starts writing it
 once more items have closed than `.tasks.toml` keeps - so it is listed the same way rather than
 excluded, and the drift count returns to zero instead of sitting at one forever.
+**`data\corrections.md` is the one exception, and it is deliberate:** it is appended mid-turn and not
+indexed in that turn, because a write that also has to index is the write that does not happen, and
+the `chronicle` drain lists it.
 **Where two sources disagree the brief says which one wins**, and a settled file beats
 an older backlog line, ticket text or report - a worker left to choose picks wrong half the time.
 

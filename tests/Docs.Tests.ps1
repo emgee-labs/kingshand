@@ -1917,8 +1917,8 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
 
     It 'the offload sweep has a destination the Hand can actually write' {
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
-            -Phrase ('belongs in a topic file of its own, `$env:KINGSHAND_HOME\data\<topic>.md`, ' +
-                     'indexed on write in the same pass that offloads to it')
+            -Phrase ('into a topic file of its own, `$env:KINGSHAND_HOME\data\<topic>.md`, indexed ' +
+                     'on write in the same pass that offloads to it so the index points at it')
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
             -Phrase '**This is the destination that is live at the moment it is proposed**'
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
@@ -1968,16 +1968,51 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
             -Phrase ('a fresh name for a topic that already has a file fragments one topic across ' +
                      'two files with two index entries')
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
-            -Phrase ('**The path holds anything that is not this topic** - pick another topic name ' +
-                     'and check that path in turn')
+            -Phrase ('**The path holds anything that is not this topic** - **write nothing and ' +
+                     'index nothing**: pick another topic name and check that path in turn')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase ('Indexing here rewrites another file''s index line to describe this topic, so ' +
+                     'the table of contents starts lying about a file nobody edited')
     }
 
-    # The fence is framed as the runnable text an agent copies, and it read as three consecutive
-    # statements: a Test-Path whose result nothing consumed, then an unconditional Write-DataFile -
-    # the exact clobber the paragraph above exists to prevent. Substring order cannot tell that fence
-    # from a branching one, so this parses the fence and asserts the shape instead: the overwriting
-    # write has to be unreachable on the branch where the path already exists.
-    It 'the fence branches on the check, so the overwriting write cannot reach a taken path' {
+    # Add-IndexEntry does no content check, so an index line written ahead of the file's own rewrite
+    # claims detail that is not there yet - and the index is what a later session reads to decide
+    # whether the file is worth opening at all.
+    It 'the reuse case writes the file before the index line describes it' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase ('**The write comes first and the index line last**: an index entry claiming ' +
+                     'what the file now holds, written before the file holds it, points a later ' +
+                     'session at content that is not there')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase ('**Existence alone does not tell the second case from the third**, so read ' +
+                     'what is already at the path and decide which of the two it is before writing ' +
+                     'or indexing anything')
+    }
+
+    # The topic file is a live destination for a fact CLAUDE.md's map already routes to kingshand's
+    # own memory, not a sixth owner in that map. Saying otherwise would put this skill in the
+    # business of extending a mapping it also declares it does not duplicate.
+    It 'the topic file is a move within one owner, not a new entry in the routing map' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase ('is the source of truth for where a fact belongs, and nothing here re-derives ' +
+                     'or duplicates that mapping. Two of its owners bind this pass in particular, ' +
+                     'and the third item below adds no owner at all - it is the form one of them takes')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase ('**Detail that is current and durable but needed only in a nameable context ' +
+                     'stays kingshand''s own knowledge, and offloading changes only where it lives**')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase ('this is a move within one owner rather than a sixth entry in the mapping - ' +
+                     'which is why nothing has to be added to `CLAUDE.md` for it')
+    }
+
+    # The fence is framed as the runnable text an agent copies, and it kept drifting from the prose in
+    # ways no substring check could see. First it was three consecutive statements with a Test-Path
+    # whose result nothing consumed. Then it branched, but on existence alone - so "a file that is not
+    # this topic" fell into the reuse branch and reached Add-IndexEntry, rewriting an unrelated file's
+    # index line to describe this topic, silently. And that branch indexed without writing, so the
+    # index claimed detail the file did not hold. So the fence is parsed and each of the three prose
+    # cases asserted as reachability: what runs, what cannot run, and in which order.
+    It 'the fence carries the three exclusive cases the prose states' {
         $fences = @(Get-CodeFence $script:ChronicleMd | Where-Object { $_.Contains('data\<topic>.md') })
         $fences.Count | Should -Be 1 -Because 'the offload destination is written in one stated place'
 
@@ -1987,36 +2022,72 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
             $fences[0], [ref]$tokens, [ref]$errors)
         @($errors).Count | Should -Be 0 -Because 'a fence framed as runnable text has to parse'
 
-        $ifs = @($ast.FindAll(
-            { $args[0] -is [System.Management.Automation.Language.IfStatementAst] }, $true))
-        $ifs.Count | Should -Be 1 -Because 'one check decides which of the two branches writes'
+        $dispatch = @($ast.FindAll({
+            $args[0] -is [System.Management.Automation.Language.IfStatementAst] -and
+            $args[0].Clauses.Count -eq 2
+        }, $true))
+        $dispatch.Count | Should -Be 1 -Because 'three exclusive cases need one two-clause dispatch'
 
-        $branch    = $ifs[0]
-        $condition = $branch.Clauses[0].Item1.Extent.Text
-        $condition | Should -Match 'Test-Path' -Because 'the path check is what the branch turns on'
+        $branch = $dispatch[0]
+        $branch.ElseClause | Should -Not -BeNullOrEmpty -Because 'the third case is the else branch'
 
-        $commandsIn = {
+        $namesIn = {
             param($node)
             if (-not $node) { return @() }
             @($node.FindAll(
                 { $args[0] -is [System.Management.Automation.Language.CommandAst] }, $true) |
                 ForEach-Object { $_.GetCommandName() })
         }
-        $whenTaken = & $commandsIn $branch.Clauses[0].Item2
-        $whenFree  = & $commandsIn $branch.ElseClause
+        $writesIn = {
+            param($node)
+            if (-not $node) { return @() }
+            @($node.FindAll({
+                $args[0] -is [System.Management.Automation.Language.CommandAst] -and
+                $args[0].GetCommandName() -in @('Set-Content', 'Write-DataFile', 'Out-File')
+            }, $true))
+        }
+        $indexesIn = {
+            param($node)
+            if (-not $node) { return @() }
+            @($node.FindAll({
+                $args[0] -is [System.Management.Automation.Language.CommandAst] -and
+                $args[0].GetCommandName() -eq 'Add-IndexEntry'
+            }, $true))
+        }
 
-        $whenTaken | Should -Contain 'Add-IndexEntry' `
-            -Because 'an existing topic file is rewritten in place and re-indexed'
-        $whenTaken | Should -Not -Contain 'Write-DataFile' `
-            -Because 'Write-DataFile is an unconditional overwrite of whatever is there'
-        $whenFree | Should -Contain 'Write-DataFile' `
-            -Because 'a free path is written and indexed in one call'
+        # The file is read before the dispatch, because nothing else can tell case 2 from case 3.
+        $read = @($ast.FindAll({
+            $args[0] -is [System.Management.Automation.Language.CommandAst] -and
+            $args[0].GetCommandName() -eq 'Get-Content'
+        }, $true))
+        $read.Count | Should -BeGreaterThan 0 -Because 'the identity check needs the file read first'
+        $read[0].Extent.StartOffset | Should -BeLessThan $branch.Extent.StartOffset `
+            -Because 'a read after the branch cannot inform it'
 
-        $everyWrite = @($ast.FindAll({
+        # Case 1, the free path: written and indexed in one call.
+        $free = & $namesIn $branch.Clauses[0].Item2
+        $free | Should -Contain 'Write-DataFile' `
+            -Because 'the free path is the one case Write-DataFile may run in'
+
+        # Case 2, this topic's own file: gated on what the file is, and it writes before it indexes.
+        $branch.Clauses[1].Item1.Extent.Text | Should -Not -Match 'Test-Path' `
+            -Because 'existence cannot tell this topic''s file from an unrelated one'
+        $reuseWrites  = & $writesIn $branch.Clauses[1].Item2
+        $reuseIndexes = & $indexesIn $branch.Clauses[1].Item2
+        $reuseWrites.Count | Should -BeGreaterThan 0 `
+            -Because 'the reuse branch has to write the folded detail, never index alone'
+        $reuseIndexes.Count | Should -BeGreaterThan 0 -Because 'a reused topic file is re-indexed'
+        $reuseWrites[0].Extent.StartOffset | Should -BeLessThan $reuseIndexes[0].Extent.StartOffset `
+            -Because 'an index line ahead of the write describes content the file does not hold'
+
+        # Case 3, somebody else's file: nothing is written and nothing is indexed.
+        @(& $namesIn $branch.ElseClause).Count | Should -Be 0 `
+            -Because 'a file that is not this topic is left alone, its index line included'
+
+        @($ast.FindAll({
             $args[0] -is [System.Management.Automation.Language.CommandAst] -and
             $args[0].GetCommandName() -eq 'Write-DataFile'
-        }, $true))
-        $everyWrite.Count | Should -Be 1 `
+        }, $true)).Count | Should -Be 1 `
             -Because 'a second unguarded Write-DataFile anywhere in the fence reopens the clobber'
     }
 
@@ -2456,6 +2527,17 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
         Assert-Phrase -Text $script:IndexOwned -Where 'CLAUDE.md What you own' `
             -Phrase ('Written through `bin\Index.psm1` as the file itself is written, never as a ' +
                      'separate act of remembering.')
+    }
+
+    # The index-on-write rule is stated as absolute, and the correction obligation breaks it on
+    # purpose. With the reason living only in the chronicle skill - which an ordinary turn never loads
+    # - the Hand follows the rule it can see, pays the mid-turn cost the design exists to avoid, and
+    # the deferral never happens. So the exception is declared next to the rule it excepts.
+    It 'the one index-on-write exception is declared where the rule is' {
+        Assert-Phrase -Text $script:IndexRouting -Where 'CLAUDE.md knowledge routing' `
+            -Phrase ('**`data\corrections.md` is the one exception, and it is deliberate:** it is ' +
+                     'appended mid-turn and not indexed in that turn, because a write that also has ' +
+                     'to index is the write that does not happen, and the `chronicle` drain lists it.')
     }
 
     It 'routing indexes everything at write time rather than judging what is worth listing' {

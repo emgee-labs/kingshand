@@ -232,8 +232,9 @@ routine passes never move entries speculatively. Every test must hold for a cand
 
 ### Destinations
 
-`CLAUDE.md`'s Knowledge routing section is the source of truth for where a fact belongs. Do not
-re-derive or duplicate that mapping here. Three destinations bind this pass in particular:
+`CLAUDE.md`'s Knowledge routing section is the source of truth for where a fact belongs, and nothing
+here re-derives or duplicates that mapping. Two of its owners bind this pass in particular, and the
+third item below adds no owner at all - it is the form one of them takes:
 
 - **Knowledge useful to every contributor to one project** belongs in that project's own memory file,
   and only a worker may write it, through that project's delivery path under `muster`. The Hand
@@ -241,12 +242,15 @@ re-derive or duplicate that mapping here. Three destinations bind this pass in p
 - **Knowledge general to kingshand itself** belongs in kingshand's tracked material under
   `statute`, which is a deliberate scoped change with its own test obligation - never an
   automatic product of a chronicle pass.
-- **Detail that is current and durable but needed only in a nameable context** belongs in a topic
-  file of its own, `$env:KINGSHAND_HOME\data\<topic>.md`, indexed on write in the same pass that
-  offloads to it. **This is the destination that is live at the moment it is proposed**, and that
-  property is the whole reason it works: it sits inside the Hand's own write boundary, so it needs
-  no worker and no `statute` change, and this pass can write it, index it and confirm it holds the
-  entry before the memory line goes. The two destinations above cannot do that - each needs work by
+- **Detail that is current and durable but needed only in a nameable context stays kingshand's own
+  knowledge, and offloading changes only where it lives** - out of an always-loaded memory file and
+  into a topic file of its own, `$env:KINGSHAND_HOME\data\<topic>.md`, indexed on write in the same
+  pass that offloads to it so the index points at it. The routing map already owns that fact, so this
+  is a move within one owner rather than a sixth entry in the mapping - which is why nothing has to be
+  added to `CLAUDE.md` for it. **This is the destination that is live at the moment it is proposed**,
+  and that property is the whole reason it works: it sits inside the Hand's own write boundary, so it
+  needs no worker and no `statute` change, and this pass can write it, index it and confirm it holds
+  the entry before the memory line goes. The two owners above cannot do that - each needs work by
   somebody else first - so a sweep with only those two can never actually offload anything.
 
 **Test the path first, and what the check finds decides the branch: `Write-DataFile` never runs
@@ -260,11 +264,18 @@ exactly three cases, and the precedence between them is fixed:
   around it**: read it whole, rewrite it in place with the new detail folded in, and index it with
   `Add-IndexEntry`. Reuse wins here, because a fresh name for a topic that already has a file
   fragments one topic across two files with two index entries, which is the opposite of what
-  offloading to a topic file is for.
-- **The path holds anything that is not this topic** - pick another topic name and check that path in
-  turn. **Kingshand's own operational files are never a topic name** - `backlog.md`, `king.md`,
+  offloading to a topic file is for. **The write comes first and the index line last**: an index
+  entry claiming what the file now holds, written before the file holds it, points a later session at
+  content that is not there.
+- **The path holds anything that is not this topic** - **write nothing and index nothing**: pick
+  another topic name and check that path in turn. Indexing here rewrites another file's index line to
+  describe this topic, so the table of contents starts lying about a file nobody edited.
+  **Kingshand's own operational files are never a topic name** - `backlog.md`, `king.md`,
   `learnings.md`, `corrections.md`, `memory-archive.md`, `done-archive.md`, `projects.md` and
   `index.md` - and neither is any other name already in use for something else under `data\`.
+
+**Existence alone does not tell the second case from the third**, so read what is already at the path
+and decide which of the two it is before writing or indexing anything.
 
 Index the topic file through `bin\Index.psm1`, which is the one place that knows the entry format,
 and never by hand - a detail file no index lists is a file the next session cannot find, which is
@@ -273,13 +284,23 @@ the failure the index exists to prevent:
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
 $topicPath = Join-Path $env:KINGSHAND_HOME "data\<topic>.md"
-if (Test-Path -LiteralPath $topicPath) {
-    # This topic's own file from an earlier pass, read whole and rewritten in place. Any other file
-    # here means the topic name is wrong: pick another name and check that path instead.
+$existing  = if (Test-Path -LiteralPath $topicPath) {
+    Get-Content -LiteralPath $topicPath -Raw
+} else { $null }
+# Set from reading $existing, never from the path alone: is this file this topic's own?
+$isThisTopic = $false
+
+if (-not $existing) {
+    # Case 1, a free path: written and indexed in one call, so the two cannot come apart.
+    Write-DataFile -Path "data\<topic>.md" -Content $text -Summary "<what it holds, in one line>"
+} elseif ($isThisTopic) {
+    # Case 2, this topic's file from an earlier pass. $existing above is the whole of it and $merged
+    # folds the new detail into it; the file is on disk before the index line describes it.
+    Set-Content -LiteralPath $topicPath -Value $merged -Encoding utf8
     Add-IndexEntry -Path "data\<topic>.md" -Summary "<what it now holds, in one line>"
 } else {
-    # A free path: written and indexed in one call, so the two cannot come apart.
-    Write-DataFile -Path "data\<topic>.md" -Content $text -Summary "<what it holds, in one line>"
+    # Case 3, a file that is not this topic's: nothing is written and nothing is indexed. Pick
+    # another topic name and run this again against that path.
 }
 ```
 
