@@ -454,8 +454,9 @@ this, and do not try to pass it as a command-line argument: no arguments reach a
 - what was decided and why, where a decision was not simply the brief;
 - anything the worker could not do, and why;
 - anything the next session would need in order to continue without asking;
-- the `Case space` answer where the brief carried that section - the mark against each line, and the
-  mechanism chosen with what the rejected ones fail on.
+- the `Case space` answer where the brief carried that section - either the mark against each line
+  and the mechanism chosen with what the rejected ones fail on, or the one line the section allows
+  where every choice was cheap to reverse.
 
 Keep it short and tell the worker so. A report that runs to an essay is as much a failure as no
 report - the point is that a fresh session can pick the work up, not that the worker narrates.

@@ -4131,11 +4131,14 @@ Describe 'a mechanism is chosen against the case space it has to cover' {
 
     # Without this the section is unfalsifiable: a worker that skipped the list reads exactly like
     # one that worked it. The brief's own report contract is where that gets asked for, so a report
-    # with no marks is visibly incomplete against the brief that commissioned it.
+    # saying nothing about the section is visibly incomplete against the brief that commissioned it.
+    # Both branches are named, and the second is the one the section's reversibility limiter allows -
+    # a bullet demanding the marks unconditionally would fire on a correct report.
     It 'the brief demands the Case space answer as part of the report' {
         Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
-            -Phrase ('the `Case space` answer where the brief carried that section - the mark ' +
-                     'against each line, and the mechanism chosen with what the rejected ones fail on')
+            -Phrase ('the `Case space` answer where the brief carried that section - either the ' +
+                     'mark against each line and the mechanism chosen with what the rejected ones ' +
+                     'fail on, or the one line the section allows where every choice was cheap to reverse')
     }
 
     # If the list can be tailored per dispatch, the Hand supplies the dimensions it can already see
