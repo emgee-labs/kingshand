@@ -585,6 +585,253 @@ Describe 'Wait-HerdrAgentSettled reports not settled rather than inventing an ou
 
 
 # ---------------------------------------------------------------------------------------------
+# Progress, which is a different question from liveness.
+#
+# Both failure directions were observed here on 2026-08-31 and 2026-09-01. A worker that handed its
+# work to a background pipeline and returned to its prompt read `done` within seconds, so the wait
+# fired and reported a completion that had not happened. The same night, a worker whose work was
+# genuinely finished read `working` because stray text was sitting in its input box. Neither state
+# word says anything about whether the work is advancing, which is what the Hand actually waits on.
+#
+# The whole watcher rests on one property: a screen that is only repainting its own timer must
+# fingerprint the same twice. Without that, a worker frozen for an hour looks like steady progress
+# and nothing here would ever fire. That is the first case below, and it is the one to keep.
+# ---------------------------------------------------------------------------------------------
+Describe 'Get-HerdrAgentProgressSignal ignores what Claude Code repaints on its own' {
+    BeforeAll {
+        $script:ProgressDir = Initialize-HerdrScreenStub
+
+        # The same worker, mid-tool-call, eleven minutes apart. Every difference between these two
+        # screens is Claude Code redrawing its own status line: the spinner glyph, the elapsed
+        # timer, the token counter. Nothing about the work has moved.
+        $script:BusyEarly = @'
+> Waiting for checks to report
+  Bash(no-mistakes axi status)
+  * Herding... (esc to interrupt * 1m 23s * 1.2k tokens)
+'@
+        $script:BusyLater = @'
+> Waiting for checks to report
+  Bash(no-mistakes axi status)
+  * Herding... (esc to interrupt * 12m 4s * 3.1k tokens)
+'@
+        # A different tool call. This is work advancing, and it must read as a change.
+        $script:BusyMoved = @'
+> Opening the pull request
+  Bash(gh pr create)
+  * Herding... (esc to interrupt * 1m 23s * 1.2k tokens)
+'@
+    }
+
+    BeforeEach { Mock -ModuleName Herdr Get-HerdrCommandPath { $env:KINGSHAND_TEST_HERDR_EXE } }
+
+    It 'asks herdr for --source visible, never the scrollback' {
+        Set-HerdrScreen $script:BusyEarly
+        $null = Get-HerdrAgentProgressSignal -Name 'T-9001'
+
+        $calls = @(Get-HerdrStubArgs)
+        $calls.Count | Should -Be 1 -Because 'one screen read per sample, and the stub must really have run'
+        $calls[0] | Should -BeLike '*--source visible*'
+        $calls[0].Contains('recent') |
+            Should -BeFalse -Because 'scrollback never changes, so a signal taken over it looks static on a healthy worker'
+    }
+
+    # THE CASE THE WHOLE WATCHER RESTS ON. Delete the normalisation and this fails, and with it the
+    # detector silently reports every frozen worker as making progress.
+    It 'gives the same signal for a screen that only repainted its timer and token count' {
+        Set-HerdrScreen $script:BusyEarly
+        $early = Get-HerdrAgentProgressSignal -Name 'T-9001'
+        Set-HerdrScreen $script:BusyLater
+        $later = Get-HerdrAgentProgressSignal -Name 'T-9001'
+
+        $early.readable | Should -BeTrue
+        $later.signal   | Should -Be $early.signal -Because 'an elapsed timer moving is not the work moving'
+    }
+
+    It 'gives a different signal when the worker is actually doing something else' {
+        Set-HerdrScreen $script:BusyEarly
+        $before = Get-HerdrAgentProgressSignal -Name 'T-9001'
+        Set-HerdrScreen $script:BusyMoved
+        $after  = Get-HerdrAgentProgressSignal -Name 'T-9001'
+
+        $after.signal | Should -Not -Be $before.signal
+    }
+
+    # The guard against over-normalising. Stripping digits wholesale would be the easy way to kill
+    # the timer, and it would also kill every counter a worker prints - so a job that is genuinely
+    # grinding through files would be reported stalled. A false alarm reaching the King is worse
+    # than a silent one, so the bias is deliberately toward missing a stall.
+    It 'treats a counter moving as progress, because only timers and token counts are volatile' {
+        Set-HerdrScreen "  Formatting 142/300 files"
+        $before = Get-HerdrAgentProgressSignal -Name 'T-9001'
+        Set-HerdrScreen "  Formatting 143/300 files"
+        $after  = Get-HerdrAgentProgressSignal -Name 'T-9001'
+
+        $after.signal | Should -Not -Be $before.signal
+    }
+
+    It 'ignores trailing whitespace and blank lines, which a terminal repaints freely' {
+        Set-HerdrScreen "> Reading the brief`n`n  Bash(git status)   "
+        $a = Get-HerdrAgentProgressSignal -Name 'T-9001'
+        Set-HerdrScreen "> Reading the brief`n  Bash(git status)"
+        $b = Get-HerdrAgentProgressSignal -Name 'T-9001'
+
+        $b.signal | Should -Be $a.signal
+    }
+
+    # Fail closed. A screen that could not be read is not evidence of anything, and a caller that
+    # reads it as "unchanged" reports a healthy worker as stalled. This is the same width defect
+    # that blinded the blocked-worker guard, arriving at a different function.
+    It 'reports a screen it could not read as unreadable rather than as unchanged' {
+        Set-HerdrScreen ''
+        $r = Get-HerdrAgentProgressSignal -Name 'T-9001'
+        $r.readable | Should -BeFalse
+        $r.signal   | Should -BeNullOrEmpty -Because 'no screen is not a fingerprint of an idle screen'
+    }
+
+    It 'carries the last few lines, so an escalation can say what the worker was last seen doing' {
+        Set-HerdrScreen $script:BusyEarly
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').lastActivity |
+            Should -BeLike '*no-mistakes axi status*' -Because 'evidence a person can act on is the deliverable'
+    }
+}
+
+Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and never acts on it' {
+    # `Wait-HerdrAgentSettled` asks whether a worker stopped. This asks whether it is getting
+    # anywhere, and the two answers differ exactly when it matters: a worker parked on a wait that
+    # can never end is alive, busy by every state word herdr has, and finished with nothing.
+
+    BeforeEach {
+        Mock -ModuleName Herdr Get-HerdrAgent { [pscustomobject]@{ name = 't-9001'; agent_status = 'working'; pane_id = 'p1' } }
+        Mock -ModuleName Herdr Test-HerdrAgentAwaitingInput { $false }
+        Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
+            [pscustomobject]@{ readable = $true; signal = 'aaaa'; lastActivity = 'Bash(no-mistakes axi status) | waiting for checks' }
+        }
+        # The real wait blocks inside herdr for the whole slice. A mock that returns instantly would
+        # be a different function, and would spin this loop instead of pacing it.
+        Mock -ModuleName Herdr Wait-HerdrAgent { Start-Sleep -Milliseconds $TimeoutMs; $null }
+    }
+
+    It 'returns the settled result the moment the worker stops, exactly as the guarded wake does' {
+        Mock -ModuleName Herdr Wait-HerdrAgent {
+            [pscustomobject]@{ name = 't-9001'; agent_status = 'idle'; pane_id = 'p1' }
+        }
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 5000 -SampleSeconds 1
+
+        $r.settled       | Should -BeTrue
+        $r.state         | Should -Be 'idle'
+        $r.stalled       | Should -BeFalse
+        $r.reason        | Should -Be 'settled'
+        $r.awaitingInput | Should -BeFalse
+    }
+
+    It 'still lets the screen outrank the state word for a settled worker on a prompt' {
+        Mock -ModuleName Herdr Wait-HerdrAgent {
+            [pscustomobject]@{ name = 't-9001'; agent_status = 'done'; pane_id = 'p1' }
+        }
+        Mock -ModuleName Herdr Test-HerdrAgentAwaitingInput { $true }
+
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 5000 -SampleSeconds 1
+        $r.state         | Should -Be 'blocked' -Because 'herdr called a worker on an open menu done'
+        $r.awaitingInput | Should -BeTrue
+    }
+
+    It 'reports a stall with the evidence needed to act on it' {
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 4000 -SampleSeconds 1 -StallMinutes 0
+
+        $r.stalled      | Should -BeTrue
+        $r.reason       | Should -Be 'stalled'
+        $r.settled      | Should -BeFalse -Because 'a stalled worker has not finished anything'
+        $r.lastActivity | Should -BeLike '*waiting for checks*' -Because 'which step and what it was last doing is the whole report'
+        $r.stallMinutes | Should -Be 0 -Because 'the threshold it fired on has to be in the evidence'
+        $r.quietMinutes | Should -Not -BeNullOrEmpty
+    }
+
+    It 'does not report a stall while the screen keeps changing' {
+        $script:tick = 0
+        Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
+            $script:tick++
+            [pscustomobject]@{ readable = $true; signal = "s$script:tick"; lastActivity = 'still going' }
+        }
+
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 2000 -SampleSeconds 1 -StallMinutes 0
+        $r.stalled | Should -BeFalse -Because 'the threshold counts unchanged time, not elapsed time'
+        $r.reason  | Should -Be 'timeout'
+    }
+
+    # Fail closed, again. An unreadable screen must never become a stall: the watcher says it could
+    # not see, and the Hand is told that rather than told the worker is stuck.
+    It 'never claims a stall from a screen it could not read' {
+        Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
+            [pscustomobject]@{ readable = $false; signal = ''; lastActivity = '' }
+        }
+
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 2000 -SampleSeconds 1 -StallMinutes 0
+        $r.stalled        | Should -BeFalse -Because 'a screen that could not be read is not a still one'
+        $r.signalReadable | Should -BeFalse -Because 'the caller has to know the watch was blind'
+        $r.reason         | Should -Be 'timeout'
+    }
+
+    It 'says a worker herdr has never heard of is gone, rather than waiting on a dead process' {
+        Mock -ModuleName Herdr Get-HerdrAgent { $null }
+
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 4000 -SampleSeconds 1
+        $r.reason  | Should -Be 'gone'
+        $r.settled | Should -BeFalse
+        $r.stalled | Should -BeFalse -Because 'a worker that is not there did not stall, it disappeared'
+    }
+
+    # A wait built on somebody else's timeout becomes a spin the moment that timeout stops being
+    # honoured, and a spin is silent. The iteration bound is what stops it, so it is asserted by
+    # count rather than by hope.
+    It 'gives up instead of spinning when the underlying wait stops consuming its slice' {
+        Mock -ModuleName Herdr Wait-HerdrAgent { $null }
+
+        $started = Get-Date
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000 -SampleSeconds 60
+        ((Get-Date) - $started).TotalSeconds |
+            Should -BeLessThan 30 -Because 'ten minutes of instant failures must not be waited out'
+        $r.reason  | Should -Be 'wait-failed'
+        $r.stalled | Should -BeFalse
+    }
+
+    It 'reports not settled without inventing a state when the whole wait times out' {
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 2000 -SampleSeconds 1 -StallMinutes 120
+        $r.settled | Should -BeFalse
+        $r.state   | Should -BeNullOrEmpty -Because 'not settled is the absence of an outcome, never an outcome of its own'
+        $r.stalled | Should -BeFalse
+    }
+
+    # Reporting is the deliverable. `rally` owns what happens to a stalled worker, and a wrong
+    # automatic action on one is worse than a late human one - so this must never steer, answer,
+    # or stop anything.
+    It 'never steers, answers or stops the worker it is watching' {
+        Mock -ModuleName Herdr Send-HerdrPrompt { throw 'the watcher must not steer' }
+        Mock -ModuleName Herdr Send-HerdrKeys   { throw 'the watcher must not answer a prompt' }
+        Mock -ModuleName Herdr Stop-HerdrAgent  { throw 'the watcher must not stop a worker' }
+
+        $null = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 2000 -SampleSeconds 1 -StallMinutes 0
+        Should -Invoke Send-HerdrPrompt -ModuleName Herdr -Times 0 -Exactly
+        Should -Invoke Send-HerdrKeys   -ModuleName Herdr -Times 0 -Exactly
+        Should -Invoke Stop-HerdrAgent  -ModuleName Herdr -Times 0 -Exactly
+    }
+}
+
+Describe 'the settled wake is unchanged by the progress wait beside it' {
+    # The brief for the progress watcher was explicit that this function keeps its behaviour: other
+    # callers depend on it and its guarded screen read is correct for what it does. Pinned here so
+    # that a later edit to the pair has to notice.
+    It 'still answers with exactly the three fields it always had' {
+        Mock -ModuleName Herdr Wait-HerdrAgent {
+            [pscustomobject]@{ name = 't-9001'; agent_status = 'idle'; pane_id = 'p1' }
+        }
+        Mock -ModuleName Herdr Test-HerdrAgentAwaitingInput { $false }
+
+        $r = Wait-HerdrAgentSettled -Name 'T-9001' -TimeoutMs 10
+        @($r.PSObject.Properties.Name) | Should -Be @('settled', 'state', 'awaitingInput')
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
 # Pane creation. This is the one that cost the most to learn.
 #
 # Width is load-bearing and nothing about it is obvious. Every way of telling a stuck worker from a

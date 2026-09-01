@@ -169,6 +169,38 @@ Tell the user, and let them choose: run `no-mistakes init` in that repo once, or
 line from the brief for this dispatch. `init` touches no tracked files and is reversible with
 `no-mistakes eject`, but it is still their repo's configuration.
 
+**Then establish whether anything can report a check there, before promising a worker it can wait
+for one.** The pipeline's `ci` step waits for checks, and it cannot tell "checks have not started
+yet" from "checks will never exist" - so on a repository with no CI it waits forever. A run on the
+kingshand repository sat on that step for over an hour and was found only because the King asked.
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Ci.psm1 -Force
+$ci = Get-RepoCiStatus -RepoPath "<absolute repo path>"
+"$($ci.status) - $($ci.detail)"
+$ci.briefLine
+```
+
+Three answers, and each one changes what happens next:
+
+- `has-ci` - carry on. `$ci.briefLine` is the ordinary line and Step 2 uses it unchanged.
+- `no-ci` - carry on, and **say so in one plain line when you tell the user what you are
+  dispatching**. `$ci.briefLine` now tells the worker to stop at the pull request instead of
+  waiting for checks that cannot arrive. Do not offer to add CI to the repository: an absence is a
+  decision somebody made, and this step makes it safe rather than reversing it.
+- `unknown` - the question could not be settled: no `gh`, a remote this cannot see, an
+  unauthenticated machine, a network that did not answer. **Say which, in one line, at dispatch
+  time.** `$ci.briefLine` is the terminating one here too, because under uncertainty a worker that
+  stops at the pull request loses at most a wait for a check the user can see on the forge anyway,
+  while one told to wait for green loses an hour to checks that may not exist.
+
+**Never substitute your own reading for the three answers, and never treat `unknown` as `no-ci`
+when you report it.** The whole value of the check is that a failed lookup stays visibly a failed
+lookup - `bin\Ci.psm1`'s header owns why, and it never converts one into an answer.
+
+Carry `$ci.briefLine` to Step 2 verbatim. A preflight whose answer never reaches the brief changes
+nothing at all, because the worker reads its brief and nothing else.
+
 ## Step 2 - Write a brief per unit of work
 
 **Read the index for this project before you write anything.** It is at
@@ -258,7 +290,9 @@ Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
 Add-IndexEntry -Project "<project>" -Path "data\<id>\brief.md" -Summary "<the one-line title>"
 ```
 
-**The Done-means block is generated from the resolved mode.** Use exactly one of these three.
+**The Done-means block is generated from the resolved mode.** Use exactly one of these four - and
+for a `no-mistakes` task, which of the two `no-mistakes` blocks is chosen by Step 1b's answer, not
+by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
 
 `local-only`:
 
@@ -301,7 +335,7 @@ Add-IndexEntry -Project "<project>" -Path "data\<id>\brief.md" -Summary "<the on
   message rather than reporting success.
 ```
 
-`no-mistakes`:
+`no-mistakes`, where Step 1b answered `has-ci`:
 
 ```markdown
 - Implemented and committed on this worktree's branch.
@@ -323,6 +357,37 @@ Add-IndexEntry -Project "<project>" -Path "data\<id>\brief.md" -Summary "<the on
 - If the repo cannot build or the gate cannot run, stop and say so plainly in your final
   message rather than reporting success.
 ```
+
+`no-mistakes`, where Step 1b answered `no-ci` or `unknown`. Identical but for the third line, which
+is the whole point of the preflight - it ends a wait that would otherwise have no end:
+
+```markdown
+- Implemented and committed on this worktree's branch.
+- Run the review gate from inside the worktree and fix what it parks:
+  `no-mistakes axi run --intent "<the Goal above, one line>"`
+- Drive the pipeline through to a pull request and stop there. Checks are not expected to report on
+  this repository, so when the pipeline's `ci` step has been waiting more than fifteen minutes with
+  no checks reported, report the pull request's full https:// URL as delivered and say plainly that
+  CI cannot report here. Do not sit on it. Do not merge it.
+- Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
+  required every time, including when the work succeeded plainly with nothing surprising in it.
+- Never call `AskUserQuestion`, and never open any interactive prompt, menu or confirmation of
+  any kind. You are a background agent with nobody attached: there is no one to answer, and the
+  run hangs until it is killed.
+- When you reach a decision your brief does not settle, write the question into
+  `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
+  would need in order to choose - then stop and say so in your final message.
+- Where you can proceed on a stated assumption instead, do that: record the assumption in
+  `report.md` and continue rather than stopping.
+- Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
+- If the repo cannot build or the gate cannot run, stop and say so plainly in your final
+  message rather than reporting success.
+```
+
+That third line is `$ci.briefLine` from Step 1b, and taking it from there rather than retyping it is
+the point: the two must agree, and only one of them is computed from what the repository actually
+has. **Do not decide between the two blocks yourself** - a repository with no workflow file may
+still get checks from outside it, which is exactly the case a reading-by-eye gets wrong.
 
 **The no-interactive-prompts rule is absolute, and it is there because a worker hung on it for
 hours.** Worker `7372d875` called `AskUserQuestion`, drew a menu that said "Enter to select,
@@ -499,23 +564,35 @@ worker looks like, but only this wait's completion brings you back to look:
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
-$w = Wait-HerdrAgentSettled -Name "<worker id>" -TimeoutMs 2700000
-if (-not $w.settled) { "NOT SETTLED <worker id>" }
-else { "WAKE <worker id> state=$($w.state) awaitingInput=$($w.awaitingInput)" }
+$w = Wait-HerdrAgentProgress -Name "<worker id>" -TimeoutMs 2700000
+if ($w.settled) { "WAKE <worker id> state=$($w.state) awaitingInput=$($w.awaitingInput)" }
+elseif ($w.stalled) { "STALLED <worker id> $($w.quietMinutes)m with no movement - last seen: $($w.lastActivity)" }
+else { "NOT SETTLED <worker id> reason=$($w.reason)" }
 ```
 
-**Use the guarded wake, `Wait-HerdrAgentSettled`, and never `Wait-HerdrAgent` directly.** The raw
+**Use a guarded wake - `Wait-HerdrAgentProgress` here, or `Wait-HerdrAgentSettled` where only
+completion matters - and never `Wait-HerdrAgent` directly.** The raw
 wait returns on herdr's own classification, and that classification is wrong in both directions:
 a worker sitting on an unanswered menu was measured reporting `idle`, then `done` minutes later
 while a genuinely finished worker reported `idle`. Since the raw wait matches `idle`, `done` or
-`blocked`, it wakes you claiming completion for a worker that is waiting on a person. The guarded
-wake re-reads that worker's live screen before it answers, so `awaitingInput` is the screen and
-not herdr's word for it.
+`blocked`, it wakes you claiming completion for a worker that is waiting on a person. Both guarded
+wakes re-read that worker's live screen before they answer, so `awaitingInput` is the screen and
+not herdr's word for it, and `settled`, `state` and `awaitingInput` mean the same thing in either.
 
-This is an event, not a poll. `Wait-HerdrAgentSettled` blocks inside herdr until the worker stops,
-and returns the moment it does. Nothing here sleeps in a loop and nothing re-reads state on a
+**`Wait-HerdrAgentProgress` also watches whether the work is advancing, which is a different
+question from whether the worker is alive.** Liveness answered both of last week's failures
+wrongly: a worker that handed its work to a background pipeline and returned to its prompt read
+`done` within seconds, so the wait fired on a completion that had not happened, and the same night
+a worker whose work was genuinely finished read `working` because stray text sat in its input box.
+The signal it watches instead is the worker's own screen with the elapsed timer and token counter
+normalised out - which needs no knowledge of what the worker was sent to do, and still catches a
+review gate parked on one step, because a gate prints its own step transitions onto that screen.
+
+This is an event, not a poll. Both wakes block inside herdr until the worker stops,
+and return the moment it does. Nothing here sleeps in a loop and nothing re-reads state on a
 timer; if you find yourself writing a `while` loop around `Get-HerdrAgent`, you have rebuilt the
-thing this replaced.
+thing this replaced. The progress wake samples the screen once per minute between those blocks,
+because "nothing happened" is not an event anything can push at you.
 
 - Run it as a **harness-tracked background job**, never with `&` and never as a detached process.
   Its completion is what wakes you; an untracked process wakes nothing and you will not notice it
@@ -526,6 +603,24 @@ thing this replaced.
   and load `rally`. This is the failure that cost five hours of silence, and catching it is the
   main thing herdr bought. `awaitingInput` being `$true` says the same thing off the worker's own
   screen, and it wins over whatever `state` says.
+- **`stalled` is a wake reason too, and it is not a completion.** It means nothing on that worker's
+  screen has changed for `$w.quietMinutes` minutes against a threshold of twenty, which is long
+  enough that a slow step is not it - a review pass on kingshand has legitimately taken 38 minutes
+  while printing its progress the whole way. Tell the user what the work has stopped on, how long it
+  has been there, and what it was last seen doing - `$w.lastActivity` carries that - then load
+  `rally`, which owns what happens next. **Do not act on a stall on your own**: a wrong automatic
+  action on a stalled worker is worse than a late human one, and nothing in the wait recovers
+  anything by design. Raise the threshold with `-StallMinutes` for work that is genuinely quiet for
+  longer; never lower it under fifteen, where slow steps start reporting as stalls and a false alarm
+  reaching the King costs more than a silent one.
+- **`$w.signalReadable` being `$false` means the watch was blind, not that the worker is fine.** The
+  screen could not be read - usually a pane too narrow to render, the same defect that blinds the
+  blocked-worker guard - so no stall can be claimed either way. Check it with
+  `Test-HerdrAgentReadable` and say plainly that you cannot see the worker rather than reporting it
+  healthy.
+- **`reason` of `gone` means herdr has no such worker any more.** That is not a timeout and not a
+  stall: the process is not there. Load `rally` and reconcile before anything else, and never remove
+  its worktree first.
 - **Never arm the wait immediately after submitting a prompt without accounting for stale state.**
   A worker reads `idle` for a moment after its prompt is submitted, so a wait armed on `idle`
   alone can return instantly and report a completion that never happened. The dispatcher hands
@@ -543,8 +638,8 @@ Tell the user one line per worker that dispatch happened, then stop talking.
 
 ## Step 5 - Quiet, and status on request
 
-Between dispatch and completion, say nothing unless a worker is blocked, something needs a
-decision only the user can make, or the user asks.
+Between dispatch and completion, say nothing unless a worker is blocked, a worker has stopped
+advancing, something needs a decision only the user can make, or the user asks.
 
 **Quiet means no narration, not no monitoring.** The Step 4 wait stays armed the whole time and
 its wake is not narration - it is the completion you promised to report. Going quiet is never a

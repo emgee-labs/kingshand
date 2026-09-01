@@ -1,15 +1,15 @@
 ---
 name: rally
-description: Reference procedure for a worker that has stopped making progress - a worker reported blocked on an interactive prompt, one whose liveness read comes back dead or has no live process, one looping or repeatedly confused, one asking a question its brief already answers, one that has gone unresponsive, or one still recorded as working after the Hand's session restarted. Reconciles what that worker actually holds before escalating from targeted inspection through a corrective steer, an answered prompt the user decided, a safe relaunch, or a reported failure. The Hand loads it when that situation arrives; nobody invokes it by name.
+description: Reference procedure for a worker that has stopped making progress - a worker reported blocked on an interactive prompt, one whose liveness read comes back dead or has no live process, one reported stalled because nothing on its screen has moved, one looping or repeatedly confused, one asking a question its brief already answers, one that has gone unresponsive, or one still recorded as working after the Hand's session restarted. Reconciles what that worker actually holds before escalating from targeted inspection through a corrective steer, an answered prompt the user decided, a safe relaunch, or a reported failure. The Hand loads it when that situation arrives; nobody invokes it by name.
 version: 1.0.0
 ---
 
 # Rally
 
 Use this playbook when a worker reads `blocked`, when its recorded session reads dead or has no
-live process, when a worker settled without writing its `report.md`, or when a worker is stale,
-looping, repeatedly confused, asking a question its brief already answers, unresponsive, or has
-stopped without landing.
+live process, when a wait reports it `stalled`, when a worker settled without writing its
+`report.md`, or when a worker is stale, looping, repeatedly confused, asking a question its brief
+already answers, unresponsive, or has stopped without landing.
 
 Intent lives in `state\crew.json` through `bin\Crew.psm1`, and `bin\Get-CrewStatus.ps1` joins it
 with live state. Where the two disagree, the live read wins for liveness and `crew.json` wins for
@@ -79,6 +79,44 @@ The live viewport is the point, not an implementation detail: `recent` and `rece
 carry scrollback, so a worker that answered a menu an hour ago still has that text in its history
 and would read as blocked forever. `Read-HerdrAgent` is for reading what a worker said, and it is
 not a blocked test.
+
+## A stalled worker is alive, busy by every state word, and getting nowhere
+
+`Wait-HerdrAgentProgress` reports `stalled` when nothing on a worker's screen has changed for
+twenty minutes. That is a different fact from any state herdr reports: the worker is running, its
+state reads `working`, and none of the liveness checks above will show anything wrong with it. The
+run that produced this rule sat on a review gate's `ci` step for over an hour, waiting for checks on
+a repository that has no CI, and was found only because the King asked what had happened to it.
+
+**A stall is a report, never a trigger for an automatic action.** The escalation below still applies
+in order, starting with peeking at the screen. A wrong automatic action on a stalled worker is worse
+than a late human one, which is why nothing in the wait recovers anything.
+
+Read three things before deciding anything:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
+Test-HerdrAgentReadable -Name "<worker id>"       # can that worker be read at all
+Read-HerdrAgent -Name "<worker id>" -Lines 60     # what it is parked on
+Get-HerdrAgentProgressSignal -Name "<worker id>"  # its current fingerprint, and its last activity
+```
+
+**A `signalReadable` of `$false` is not a stall.** It means the screen could not be read, usually a
+pane too narrow to render - the same width defect that inverts herdr's own classification. You do
+not know that worker's state rather than knowing it is stuck, and the cure is a herdr server restart
+once the workers have finished.
+
+Three things a stall commonly turns out to be, and only the first is the worker's fault:
+
+- **Waiting for something that cannot arrive.** A review gate's `ci` step on a repository with no
+  CI is the case that produced this. Confirm it with `Get-RepoCiStatus` from `bin\Ci.psm1`; where
+  the answer is `no-ci`, the pull request is the deliverable and the worker needs telling to stop
+  waiting, which is a steer rather than a relaunch.
+- **A prompt the screen guard did not match.** Check `Test-HerdrAgentAwaitingInput` before anything
+  else - a worker sitting on an unrecognised dialog looks exactly like a stalled one, and it is the
+  user's decision rather than a stall.
+- **Genuinely slow work.** A review pass on kingshand has taken 38 minutes. Read the screen before
+  concluding anything: a step that is slow prints as it goes, and its screen changes.
 
 ## Removing the worktree destroys any unlanded work
 

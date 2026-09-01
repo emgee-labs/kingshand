@@ -284,8 +284,12 @@ Describe 'the anti-attribution rule is in every Done-means variant' {
             Where-Object { $_.Contains("Implemented and committed on this worktree's branch.") })
     }
 
-    It 'there are exactly three Done-means blocks' {
-        $script:DoneBlocks.Count | Should -Be 3
+    # Four, not three: the `no-mistakes` variant split in two when the CI preflight arrived, because
+    # a repository where nothing can report a check needs a worker told to stop at the pull request
+    # rather than one told to wait for a green that cannot come. The count is pinned so that adding a
+    # fifth variant without carrying the prohibitions into it fails here.
+    It 'there are exactly four Done-means blocks' {
+        $script:DoneBlocks.Count | Should -Be 4
     }
 
     It 'each one forbids mentioning Claude, AI or an assistant' {
@@ -295,9 +299,9 @@ Describe 'the anti-attribution rule is in every Done-means variant' {
         }
     }
 
-    It 'the two push-capable variants extend it to the PR title and body' {
+    It 'the three push-capable variants extend it to the PR title and body' {
         $pr = @($script:DoneBlocks | Where-Object { $_.Contains('PR title, PR body') })
-        $pr.Count | Should -Be 2
+        $pr.Count | Should -Be 3
     }
 
     It 'CLAUDE.md rule 3 covers anything reaching a remote or Azure DevOps' {
@@ -320,8 +324,8 @@ Describe 'the worker writes findings to a file that outlives the session' {
             Where-Object { $_.Contains("Implemented and committed on this worktree's branch.") })
     }
 
-    It 'each of the three Done-means blocks requires report.md at an exact path' {
-        $script:ReportBlocks.Count | Should -Be 3
+    It 'each of the four Done-means blocks requires report.md at an exact path' {
+        $script:ReportBlocks.Count | Should -Be 4
         foreach ($block in $script:ReportBlocks) {
             $block.Contains('Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish.') |
                 Should -BeTrue -Because 'every Done-means variant must name the exact report path'
@@ -373,8 +377,8 @@ Describe 'a background worker never opens an interactive prompt' {
             ForEach-Object { ConvertTo-NormalisedText $_ })
     }
 
-    It 'the prohibition is in all three Done-means blocks, not just one' {
-        $script:PromptBlocks.Count | Should -Be 3
+    It 'the prohibition is in all four Done-means blocks, not just one' {
+        $script:PromptBlocks.Count | Should -Be 4
     }
 
     It 'each one forbids AskUserQuestion and every other interactive surface' {
@@ -482,10 +486,64 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
     It 'the wake is stated once, as runnable text, and blocks in herdr' {
         $fences = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('WAKE <worker id>') })
         $fences.Count | Should -Be 1 -Because 'the wake is stated once, as runnable text'
-        $fences[0].Contains('Wait-HerdrAgentSettled') |
-            Should -BeTrue -Because 'the raw wait returns on a classification that was measured wrong in both directions'
+        $fences[0].Contains('Wait-HerdrAgentProgress') |
+            Should -BeTrue -Because 'the armed wait watches progress as well as liveness'
+        # The raw wait, not the guarded ones whose names begin with it. It returns on a
+        # classification that was measured wrong in both directions.
+        $fences[0] | Should -Not -Match 'Wait-HerdrAgent\s+-Name' -Because 'the raw wait is never armed directly'
         $fences[0].Contains('Start-Sleep') |
             Should -BeFalse -Because 'a sleep in the wake is the polling loop coming back'
+    }
+
+    # A stall is a wake reason of its own: the worker is alive, `working` by every state word herdr
+    # has, and getting nowhere. Reporting it is the deliverable - acting on it belongs to rally,
+    # because a wrong automatic action on a stalled worker is worse than a late human one.
+    It 'treats a stall as a wake reason and refuses to act on one' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase '**`stalled` is a wake reason too, and it is not a completion.**'
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase '**Do not act on a stall on your own**'
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('a wrong automatic action on a stalled worker is worse than a late human one, ' +
+                     'and nothing in the wait recovers anything by design')
+    }
+
+    It 'names the threshold, allows raising it, and refuses to lower it into false alarms' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase 'against a threshold of twenty'
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('Raise the threshold with `-StallMinutes` for work that is genuinely quiet for ' +
+                     'longer; never lower it under fifteen')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase 'a false alarm reaching the King costs more than a silent one'
+    }
+
+    # Fail closed. An unreadable screen is not a still one, and a worker herdr has lost is not a
+    # slow one. Both were reported as "fine" by everything that came before.
+    It 'refuses to read an unreadable screen or a missing worker as health' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('**`$w.signalReadable` being `$false` means the watch was blind, not that the ' +
+                     'worker is fine.**')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase 'say plainly that you cannot see the worker rather than reporting it healthy'
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase '**`reason` of `gone` means herdr has no such worker any more.**'
+    }
+
+    It 'says why liveness alone was the wrong question' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('**`Wait-HerdrAgentProgress` also watches whether the work is advancing, which ' +
+                     'is a different question from whether the worker is alive.**')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('a worker whose work was genuinely finished read `working` because stray text ' +
+                     'sat in its input box')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase 'because "nothing happened" is not an event anything can push at you'
+    }
+
+    It 'Step 5 counts a stalled worker among the things worth breaking quiet for' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 5 - Quiet, and status on request') -Where 'muster Step 5' `
+            -Phrase 'say nothing unless a worker is blocked, a worker has stopped advancing'
     }
 
     # herdr called a worker sitting on an unanswered menu `idle`, and called that same still-blocked
@@ -494,14 +552,16 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
     # for a worker that is waiting on a person.
     It 'uses the guarded wake and says why the raw one is unsafe' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase ('**Use the guarded wake, `Wait-HerdrAgentSettled`, and never ' +
+            -Phrase ('**Use a guarded wake - `Wait-HerdrAgentProgress` here, or ' +
+                     '`Wait-HerdrAgentSettled` where only completion matters - and never ' +
                      '`Wait-HerdrAgent` directly.**')
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase ('a worker sitting on an unanswered menu was measured reporting `idle`, then ' +
                      '`done` minutes later while a genuinely finished worker reported `idle`')
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase ('The guarded wake re-reads that worker''s live screen before it answers, so ' +
-                     '`awaitingInput` is the screen and not herdr''s word for it.')
+            -Phrase ('Both guarded wakes re-read that worker''s live screen before they answer, so ' +
+                     '`awaitingInput` is the screen and not herdr''s word for it, and `settled`, ' +
+                     '`state` and `awaitingInput` mean the same thing in either.')
     }
 
     It 'lets the screen outrank the state word, and keeps not-settled from becoming one' {
@@ -1174,7 +1234,22 @@ Describe 'recovery reconciles records against reality before taking new work' {
                      'anything else.**')
         Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
             -Phrase 'a restart kills it silently'
-        $s | Should -Match 'Wait-HerdrAgentSettled' -Because 'the guarded wait is the one to re-arm, not the raw one'
+        $s | Should -Match 'Wait-HerdrAgentProgress' -Because 'the guarded wait is the one to re-arm, not the raw one'
+    }
+
+    # Re-arming after a restart restores the watch, and it also restarts the stall clock from zero.
+    # A worker already stuck for an hour looks brand new to a fresh wait, so the recovery section
+    # says so rather than letting a reader assume the elapsed silence carried over.
+    It 'says a live worker is not necessarily one that is getting anywhere' {
+        $s = Get-HandSection 'Recovery'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase '**A worker that is alive is not necessarily getting anywhere**'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase ('reports a stall with its evidence rather than acting on one - `rally` owns ' +
+                     'the response')
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase ('a worker already stuck before the restart takes the full threshold to be ' +
+                     'noticed again')
     }
 
     It 'routes a dead worker to the recovery skill and a catch-up to survey' {
@@ -2414,6 +2489,8 @@ Describe 'no long dash' {
         @{ file = 'docs\2026-08-28-worker-control-plane-decision.md' }
         @{ file = 'docs\2026-08-29-herdr-worker-control-plane.md' }
         @{ file = 'docs\2026-08-30-data-index.md' }
+        @{ file = 'docs\2026-08-31-read-first-declared-not-parsed.md' }
+        @{ file = 'docs\2026-09-01-stall-detection.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
@@ -3265,5 +3342,168 @@ Describe 'no predecessor vocabulary survives in prose the user can see' {
         }
 
         @($offences) | Should -BeNullOrEmpty -Because 'the words are King, Hand and the King''s men - crew is the predecessor''s'
+    }
+}
+
+
+# ---------------------------------------------------------------------------------------------
+# CI is established before a worker is promised a wait for it.
+#
+# A review-gate run on this repository sat on its `ci` step for over an hour waiting for checks that
+# could never arrive, and was found only because the King asked. The gate cannot tell "checks have
+# not started yet" from "checks will never exist", so the question has to be settled before the
+# dispatch - which is the last moment it costs nothing.
+# ---------------------------------------------------------------------------------------------
+Describe 'the review gate is never promised a check that cannot come' {
+    BeforeAll { $script:Step1b = Get-MusterStep 'Step 1b' }
+
+    It 'preflights CI in the step that dispatches, as runnable text' {
+        $fences = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('Get-RepoCiStatus') })
+        $fences.Count | Should -BeGreaterOrEqual 1 -Because 'a check nobody runs is worthless'
+        $fences[0].Contains('Ci.psm1') | Should -BeTrue -Because 'the module is imported where it is used'
+        $fences[0].Contains('briefLine') |
+            Should -BeTrue -Because 'the answer has to reach the brief, which is the only thing a worker reads'
+    }
+
+    It 'names the failure it prevents, so nobody deletes it as a formality' {
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase ('it cannot tell "checks have not started yet" from "checks will never exist" - ' +
+                     'so on a repository with no CI it waits forever')
+    }
+
+    It 'routes all three answers, and keeps unknown from becoming an answer' {
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase ('**Never substitute your own reading for the three answers, and never treat ' +
+                     '`unknown` as `no-ci` when you report it.**')
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase 'a failed lookup stays visibly a failed lookup'
+    }
+
+    It 'tells the user at dispatch time rather than an hour later' {
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase '**say so in one plain line when you tell the user what you are dispatching**'
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase '**Say which, in one line, at dispatch time.**'
+    }
+
+    # The King's standing instruction: the absence of CI here is deliberate, and this task makes it
+    # safe rather than removing it.
+    It 'never offers to add CI to a repository that has none' {
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase ('Do not offer to add CI to the repository: an absence is a decision somebody ' +
+                     'made, and this step makes it safe rather than reversing it.')
+    }
+
+    It 'carries the answer into the brief rather than leaving it to be retyped' {
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase ('A preflight whose answer never reaches the brief changes nothing at all, ' +
+                     'because the worker reads its brief and nothing else.')
+    }
+
+    # The two `no-mistakes` variants differ in one line, and the difference is the whole preflight.
+    It 'has one no-mistakes Done-means block per answer, keyed on the preflight' {
+        $text = Get-DocText $script:MusterMd
+        Assert-Phrase -Text $text -Where 'muster Step 2' `
+            -Phrase '`no-mistakes`, where Step 1b answered `has-ci`:'
+        Assert-Phrase -Text $text -Where 'muster Step 2' `
+            -Phrase '`no-mistakes`, where Step 1b answered `no-ci` or `unknown`.'
+        Assert-Phrase -Text $text -Where 'muster Step 2' `
+            -Phrase ('**Do not decide between the two blocks yourself** - a repository with no ' +
+                     'workflow file may still get checks from outside it')
+    }
+
+    It 'the no-CI variant ends the wait instead of leaving it open' {
+        $blocks = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains('Checks are not expected to report on') })
+        $blocks.Count | Should -Be 1 -Because 'the terminating line is stated once, in its own Done-means block'
+        $blocks[0].Contains('waiting more than fifteen minutes') |
+            Should -BeTrue -Because 'an open-ended wait is exactly the failure this removes'
+        $blocks[0].Contains('Do not sit on it.') | Should -BeTrue
+        $blocks[0].Contains('Do not merge it.') | Should -BeTrue
+    }
+
+    It 'CLAUDE.md lists the module that answers the question' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
+            -Phrase ('| `bin\Ci.psm1` | whether a repository has any CI that could report a check, ' +
+                     'before a task is promised a wait for one |')
+    }
+}
+
+Describe 'rally owns a stalled worker, and the wait only reports one' {
+    # A stalled worker is alive, `working` by every state word herdr has, and getting nowhere. It is
+    # a different fact from every liveness signal in this playbook, so it needs its own entry - and
+    # the response stays human, because a wrong automatic action on a stalled worker is worse than a
+    # late human one.
+    BeforeAll { $script:StuckText = Get-DocText $script:StuckMd }
+
+    It 'names the situation in the description, which is its only trigger' {
+        $fm = Get-Frontmatter $script:StuckMd
+        $fm['description'].Contains('one reported stalled because nothing on its screen has moved') |
+            Should -BeTrue -Because 'a reference skill is reached by recognising the situation, not by name'
+    }
+
+    It 'says what a stall is and why no liveness check shows it' {
+        Assert-Phrase -Text $script:StuckText -Where 'rally' `
+            -Phrase ('the worker is running, its state reads `working`, and none of the liveness ' +
+                     'checks above will show anything wrong with it')
+        Assert-Phrase -Text $script:StuckText -Where 'rally' `
+            -Phrase '**A stall is a report, never a trigger for an automatic action.**'
+    }
+
+    It 'refuses to read an unreadable screen as a stall' {
+        Assert-Phrase -Text $script:StuckText -Where 'rally' `
+            -Phrase '**A `signalReadable` of `$false` is not a stall.**'
+        Assert-Phrase -Text $script:StuckText -Where 'rally' `
+            -Phrase 'You do not know that worker''s state rather than knowing it is stuck'
+    }
+
+    It 'lists the three things a stall usually turns out to be' {
+        Assert-Phrase -Text $script:StuckText -Where 'rally' `
+            -Phrase '**Waiting for something that cannot arrive.**'
+        Assert-Phrase -Text $script:StuckText -Where 'rally' `
+            -Phrase '**A prompt the screen guard did not match.**'
+        Assert-Phrase -Text $script:StuckText -Where 'rally' `
+            -Phrase '**Genuinely slow work.**'
+    }
+}
+
+Describe 'the stall-detection record states what must not be undone' {
+    # The design note is the only place the rejected alternatives live: a future editor who deletes
+    # the screen normalisation or widens it to strip digits would be reintroducing a failure this
+    # already had, and the record is what tells them so.
+    BeforeAll { $script:StallDoc = Get-DocText (Join-Path $script:Root 'docs\2026-09-01-stall-detection.md') }
+
+    It 'says why the screen was chosen over the pipeline and the git log' {
+        Assert-Phrase -Text $script:StallDoc -Where 'the stall record' `
+            -Phrase ('The screen won because the Hand waits on investigations, audits and plain ' +
+                     'edits as well as pipeline runs')
+        Assert-Phrase -Text $script:StallDoc -Where 'the stall record' `
+            -Phrase 'Not knowing about runs at all cannot get the run id wrong.'
+    }
+
+    It 'pins the normalisation from both directions' {
+        Assert-Phrase -Text $script:StallDoc -Where 'the stall record' `
+            -Phrase ('Delete it and every frozen worker reports as progressing. Widen it to strip ' +
+                     'digits wholesale and every counter-printing job reports as stalled.')
+    }
+
+    It 'keeps the threshold and its floor' {
+        Assert-Phrase -Text $script:StallDoc -Where 'the stall record' `
+            -Phrase 'Twenty minutes is the default on'
+        Assert-Phrase -Text $script:StallDoc -Where 'the stall record' `
+            -Phrase 'Under about fifteen minutes, slow steps start reporting as stalls'
+    }
+
+    It 'keeps the two-signal CI rule and the refusal to guess' {
+        Assert-Phrase -Text $script:StallDoc -Where 'the stall record' `
+            -Phrase '**Two signals, and the second one is why this is not a directory test.**'
+        Assert-Phrase -Text $script:StallDoc -Where 'the stall record' `
+            -Phrase '**`unknown` is never rewritten into an answer.**'
+    }
+
+    It 'says the settled wake keeps its behaviour' {
+        Assert-Phrase -Text $script:StallDoc -Where 'the stall record' `
+            -Phrase ('**`Wait-HerdrAgentSettled` keeps its behaviour.** The progress wait was added ' +
+                     'beside it, not over it.')
     }
 }
