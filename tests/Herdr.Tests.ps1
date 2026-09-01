@@ -130,16 +130,22 @@ exit $code
     # suggestion, rendered into the empty box after a turn ends - not input, and it cannot
     # concatenate, but a bare Enter submits it as though the Hand had written it.
     #
+    # The shape is copied off the preserved capture of the worker that produced the report,
+    # data\kh-stray-input\2026-09-01-emgee-theme-toggle-prompt-box.txt: a bare U+2500 rule, then the
+    # caret at column 0, then another rule. There are no U+2502 side borders on a real screen, and a
+    # fixture that invents them is a fixture the detector can be tightened against while never
+    # matching a live worker.
+    #
     # `u{276F} and `u{00A0} are escaped deliberately. The box line really is `❯` followed by a
-    # NO-BREAK space, measured off a captured screen, and a literal no-break space in a fixture is
+    # NO-BREAK space, measured off that capture, and a literal no-break space in a fixture is
     # invisible in every diff it appears in - which is how it gets "tidied" into a plain space and
     # quietly stops testing anything.
     $script:SuggestionScreen = @"
   Done. Committed 3 files and wrote report.md.
 
-  ╭────────────────────────────────────────────────────────────────────────────────────────╮
-  │ `u{276F}`u{00A0}show me the getting started section rendered                            │
-  ╰────────────────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────
+`u{276F}`u{00A0}show me the getting started section rendered
+────────────────────────────────────────────────────────────────────────────────────────────
     ? for shortcuts
 "@
 
@@ -147,10 +153,25 @@ exit $code
     $script:EmptyBoxScreen = @"
   Done. Committed 3 files and wrote report.md.
 
-  ╭────────────────────────────────────────────────────────────────────────────────────────╮
-  │ `u{276F}`u{00A0}                                                                        │
-  ╰────────────────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────
+`u{276F}`u{00A0}
+────────────────────────────────────────────────────────────────────────────────────────────
     ? for shortcuts
+"@
+
+    # A worker blocked on a numbered option menu, drawn the way Claude Code really draws one: the
+    # SAME `❯` cursor as the box, but followed by a PLAIN space rather than a no-break one. That one
+    # glyph is all that separates a menu row from box content, and the box detector returns its first
+    # match top-down - so a caret-only rule reads '1. Rewrite the parser' as text the Hand must
+    # explain, refuses the bare Enter that answers the menu, and leaves the worker unanswerable.
+    $script:MenuScreen = @"
+  Which approach should I take?
+
+`u{276F} 1. Rewrite the parser
+  2. Patch the caller
+  3. Chat about this instead
+
+  Enter to select, up/down to navigate
 "@
 }
 
@@ -530,12 +551,31 @@ Describe 'the send paths refuse to write into a box the caller did not fill' {
         ($script:reached -join ' ') | Should -BeLike '*send-keys t-9001 enter*'
     }
 
-    # Only the FIRST key is checked. An arrow is moving a cursor through a menu, and a menu has no
-    # prompt box - so `rally` step 3's read-then-arrow-then-Enter sequence still works.
+    # Only the FIRST key is checked. A later Enter is answering the menu the earlier keys have moved
+    # through, so `rally` step 3's read-then-arrow-then-Enter sequence still works.
     It 'still answers a menu, where the Enter follows an arrow' {
         Set-HerdrScreen $script:SuggestionScreen
         Send-HerdrKeys -Name 'T-9001' -Keys @('down', 'enter') -DelayMs 0
         ($script:reached -join ' ') | Should -BeLike '*send-keys t-9001 enter*'
+    }
+
+    # THE FALSE POSITIVE THAT WOULD STRAND A WORKER. `❯` is the harness's generic pointer, not a box
+    # glyph: the highlighted row of a numbered menu carries it too. `rally` step 3 reads the screen
+    # back between the arrow and the Enter, so that Enter arrives as the first key of its own call -
+    # and if the menu row read as box content the guard would refuse the one route to a headless
+    # worker, on exactly the worker that is already blocked. The plain space after the caret is what
+    # keeps it apart from the box's no-break one.
+    It 'answers a worker blocked on a menu, where the Enter opens the call' {
+        Set-HerdrScreen $script:MenuScreen
+        Send-HerdrKeys -Name 'T-9001' -Keys @('enter') -DelayMs 0
+        ($script:reached -join ' ') |
+            Should -BeLike '*send-keys t-9001 enter*' -Because 'a menu cursor is not text the Hand has to explain'
+    }
+
+    It 'sends a prompt to a worker blocked on a menu' {
+        Set-HerdrScreen $script:MenuScreen
+        $null = Send-HerdrPrompt -Name 'T-9001' -Text 'do the thing'
+        ($script:reached -join ' ') | Should -BeLike '*do the thing*'
     }
 
     # A worker that cannot be stopped because of a cosmetic render is a worse failure than the one
@@ -930,6 +970,15 @@ Describe 'Get-HerdrAgentProgressSignal ignores what Claude Code repaints on its 
         Set-HerdrScreen $script:EmptyBoxScreen
         (Get-HerdrAgentProgressSignal -Name 'T-9001').promptBox |
             Should -Be '' -Because 'an empty box is the ordinary state and must not read as content'
+    }
+
+    # A blocked worker's menu row is not box content, and reporting one as such would put a wrong
+    # value on every settled, stalled, gone and timeout report the Hand reads - with no error to say
+    # so, and the Hand then escalating a menu option as text nobody can account for.
+    It 'reports no box for a worker sitting on a menu' {
+        Set-HerdrScreen $script:MenuScreen
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').promptBox |
+            Should -Be '' -Because 'the caret on a menu row is a selection cursor, not a prompt box'
     }
 
     It 'reports no box at all when the screen could not be read' {

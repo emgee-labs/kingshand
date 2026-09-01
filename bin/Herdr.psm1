@@ -263,21 +263,31 @@ function Read-HerdrAgentScreen {
 # `❯` followed by U+00A0 - a NO-BREAK space, not a plain one - is how the box line is drawn,
 # measured off captured screens rather than guessed.
 $script:PromptBoxCaret = [char]0x276F
+$script:PromptBoxSpace = [char]0x00A0
 $script:PromptBoxRule  = [char]0x2502   # the │ the box is drawn inside
 
 # What the prompt box on this screen holds, or '' when it is empty or there is no box on it.
 #
 # ONLY `❯` COUNTS. A worker's own output lines start with a plain `>`, and treating one of those as
 # a prompt box would refuse every send to a perfectly healthy worker.
+#
+# AND ONLY `❯` FOLLOWED BY U+00A0. The caret alone is not a box glyph - Claude Code draws the
+# highlighted row of a numbered option menu with the same caret, as `❯ 1. Rewrite the parser`, and
+# this returns the first match top-down, so a menu row above the box would win over the box itself.
+# The box emits a no-break space after the caret and the menu emits a plain one, which is the only
+# thing that separates them on a rendered screen. Anchoring on the pair is what keeps a worker
+# blocked on a menu answerable: a bare Enter there is the one route to it, and refusing that Enter
+# would leave the worker stuck with nobody able to deliver the answer the King already gave.
 function Get-HerdrPromptBoxText {
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
 
+    $anchor = "$($script:PromptBoxCaret)$($script:PromptBoxSpace)"
+
     foreach ($line in ($Text -split "`r?`n")) {
-        $inner = $line.Trim().Trim($script:PromptBoxRule).Trim()
-        if (-not $inner.StartsWith($script:PromptBoxCaret)) { continue }
-        # .Trim() takes U+00A0 with it: .NET counts a no-break space as whitespace.
-        return $inner.Substring(1).Trim()
+        $inner = $line.Trim().Trim($script:PromptBoxRule).TrimStart()
+        if (-not $inner.StartsWith($anchor)) { continue }
+        return $inner.Substring($anchor.Length).Trim($script:PromptBoxRule).Trim()
     }
     ''
 }
@@ -867,10 +877,15 @@ function Wait-HerdrAgentProgress {
 # all.
 #
 # AN ENTER THAT OPENS THE CALL IS THE DANGEROUS ONE, and it is refused when the box is not empty.
-# There is no menu on the screen at that point, so the Enter goes to the input box and submits
+# Nothing in this call has moved a selection yet, so the Enter lands on the input box and submits
 # whatever is rendered there - which may be a suggestion the harness generated rather than anything
-# the Hand wrote. A later Enter in the same call is answering the menu the earlier keys are moving
-# through, and a menu has no prompt box, so only the first key is checked.
+# the Hand wrote. A later Enter in the same call is answering the menu the earlier keys have moved
+# through, so only the first key is checked.
+#
+# A WORKER SITTING ON A MENU IS STILL ANSWERABLE by a bare Enter, and has to be: that is the only
+# route to it. The check runs there too, and passes, because the box detector anchors on the caret
+# plus a no-break space and a menu row renders the same caret with a plain one. It is the glyph pair
+# that keeps the two apart, not the absence of a box.
 function Send-HerdrKeys {
     [CmdletBinding()]
     param(
