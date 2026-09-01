@@ -78,6 +78,22 @@
   on muster's own template quotes that template, fence and all, and the quoted `## Read first`
   heading satisfied the check for a brief that had no section of its own.
 
+  The section being PRESENT is not the same as the index having been read, and the second refusal
+  closes that gap. When the target project has an index, the dispatch is refused unless one of two
+  deliberate acts is on record: at least one -ReadPath was passed, or the section states in one line
+  that the index was checked and nothing in it applies. An index of pointers nobody is obliged to
+  follow is the settled-spec failure at a larger scale and worse, because it looks solved. Neither
+  way past is an absence: an empty section, or a heading with nothing under it, still refuses.
+
+  The project is resolved from the REGISTRY by repo path, never from a parameter. A parameter can be
+  left off, and a gate that is skipped by forgetting one is the forgetting it exists to stop. An
+  unregistered repo resolves to no project, has no index, and dispatches exactly as before - posture
+  is read there, never inferred, and hard rule 2 already forbids dispatching into one.
+
+  That check parses nothing about paths either. It counts -ReadPath entries, which arrived
+  structurally, asks Index.psm1 whether the project's index lists anything, and looks at the
+  section's own lines for one stated sentence. Nothing in it turns prose into a file name.
+
   Everything else refused here is about -ReadPath itself, where the path is known exactly and
   nothing is being read out of anything: a path that is not on disk, a directory where a file was
   meant, and two entries whose file names would collide in the staging directory.
@@ -97,7 +113,13 @@ param(
     [Parameter(Mandatory)][string]$Name,
     [Parameter(Mandatory)][string]$BriefPath,
     [string[]]$ReadPath = @(),
-    [int]$TimeoutSeconds = 90
+    [int]$TimeoutSeconds = 90,
+    # The data root the index gate reads: this installation's data\ unless a caller points it
+    # elsewhere. Index.psm1 and Projects.psm1 both take the same seam for the same reason - a check
+    # that can only ever be exercised against the real installation is a check no test can drive.
+    # Resolved in the body rather than here: a parameter default is evaluated before the script's
+    # own Import-Module lines run, so Get-DefaultIndexDataPath is not loaded yet at this point.
+    [string]$DataPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -112,6 +134,11 @@ if (-not (Test-Path $BriefPath)) { throw "Brief not found: $BriefPath" }
 
 Import-Module (Join-Path $PSScriptRoot 'Herdr.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'ClaudeWorkspace.psm1') -Force
+# Index BEFORE Projects, and both before anything reads them. Projects.psm1 imports Index.psm1 as a
+# nested module without -Force, so forcing Index afterwards would remove the copy Projects is
+# already holding - the failure Test-CrewPrereqs hit, recorded in `statute`'s style rules.
+Import-Module (Join-Path $PSScriptRoot 'Index.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'Projects.psm1') -Force
 
 # Checked here rather than at the first herdr call: without it nothing below can work, and finding
 # that out after a worktree and a branch exist leaves debris to clean up.
@@ -120,6 +147,7 @@ if (-not (Get-HerdrCommandPath)) { throw (Get-HerdrCommandHint) }
 $RepoPath  = (Resolve-Path $RepoPath).Path
 $BriefPath = (Resolve-Path $BriefPath).Path
 $briefDir  = Split-Path $BriefPath -Parent
+if (-not $DataPath.Trim()) { $DataPath = Get-DefaultIndexDataPath }
 
 # Staged BEFORE the worktree exists, for the same reason the base ref is resolved first: a brief
 # naming a file that is not there is a brief the worker cannot carry out, and finding that out
@@ -163,8 +191,15 @@ foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
 # Fenced blocks are QUOTED TEXT rather than this brief's own structure. A brief for a task on
 # muster's own template quotes that template, fence and all, and the quoted `## Read first` heading
 # satisfied this check for a brief that had no section of its own.
-$hasSection = $false
-$inFence    = $false
+#
+# The section's own lines are collected as well, for the one stated sentence the index gate below
+# accepts. That is the whole of what is read out of them: no path, no file name, no comparison
+# against -ReadPath. The section ends at the next heading, and a fenced block inside it is quoted
+# text there too - a template a brief quotes cannot make a statement on that brief's behalf.
+$hasSection   = $false
+$inSection    = $false
+$inFence      = $false
+$sectionLines = [System.Collections.Generic.List[string]]::new()
 foreach ($line in @(Get-Content -LiteralPath $BriefPath)) {
     if ($line -match '^\s*```') {
         $inFence = -not $inFence
@@ -173,7 +208,12 @@ foreach ($line in @(Get-Content -LiteralPath $BriefPath)) {
     if ($inFence) { continue }
     if ($line -match '^\s*##\s+Read first\s*$') {
         $hasSection = $true
-        break
+        $inSection  = $true
+        continue
+    }
+    if ($inSection) {
+        if ($line -match '^\s*#{1,6}\s') { $inSection = $false; continue }
+        $sectionLines.Add($line)
     }
 }
 
@@ -187,6 +227,69 @@ if (-not $hasSection) {
            "it not at all. Add the section naming each file to read - or the single line " +
            "'- Nothing beyond this brief.' when the index turns up nothing this task touches, so " +
            "that it reads as a decision rather than an omission. Nothing was created.")
+}
+
+# The index gate. The section exists; this asks whether the index behind it was actually consulted.
+#
+# The index was built, written to as files are written, and nothing obliged anyone to open it - and
+# a pointer nobody is obliged to follow is exactly the failure that already happened once, when a
+# settled brand spec named itself the input to the website brief and the site shipped without it. So
+# forgetting the index is refused here, at the moment it happens, rather than discovered later.
+#
+# The project is resolved from the registry by repo path. Nothing is inferred from the path itself
+# and no -Project parameter is taken: a parameter can be omitted, and a gate that a forgotten
+# argument switches off is not a gate. An unregistered repo therefore has no project and no index,
+# and dispatches exactly as it did before.
+$project = ''
+try {
+    $target = [IO.Path]::GetFullPath($RepoPath).TrimEnd('\')
+    # Get-AllProjects returns the whole array as ONE pipeline object - Projects.psm1's leading-comma
+    # idiom - so this is a plain loop over the assigned value rather than an @() wrap, which would
+    # nest it a second time and iterate once over the array itself.
+    $registered = Get-AllProjects -RegistryPath (Join-Path $DataPath 'projects.md') -WarningAction SilentlyContinue
+    foreach ($entry in $registered) {
+        if (-not $entry.path -or -not $entry.indexable) { continue }
+        if ([IO.Path]::GetFullPath($entry.path).TrimEnd('\').Equals($target, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $project = $entry.name
+            break
+        }
+    }
+} catch {
+    # No registry, or one nothing can parse. That is a state, not a failure of this dispatch: the
+    # gate has nothing to check and every other refusal above still stands. Throwing here would
+    # block every dispatch on a fresh installation that has registered nothing yet.
+    $project = ''
+}
+
+if ($project) {
+    # "Has an index" is Index.psm1's answer, never a Test-Path of ours: an index file that lists
+    # nothing has nothing to consult, and demanding a statement about an empty table of contents
+    # would refuse a dispatch nobody could act on.
+    $indexed = @(Get-IndexEntries -Project $project -DataPath $DataPath)
+    if ($indexed.Count -gt 0) {
+        # The stated line, and nothing else about these lines. It has to name the index and say
+        # nothing in it applies, because that is a decision somebody made - where an empty section,
+        # or `- Nothing beyond this brief.` on its own, says only that the slot was filled in.
+        $statesIndexChecked = $false
+        foreach ($line in $sectionLines) {
+            if ($line -match '\bindex\b' -and $line -match '\b(nothing|none|no entr(y|ies))\b') {
+                $statesIndexChecked = $true
+                break
+            }
+        }
+
+        if ($staged.Count -eq 0 -and -not $statesIndexChecked) {
+            $indexPath = Get-IndexPath -Project $project -DataPath $DataPath
+            throw ("Project $project has an index at $indexPath listing $($indexed.Count) file(s), " +
+                   "and this brief neither names a file from it to read nor says it was checked. A " +
+                   "worker reads exactly one thing, so a settled file no brief names reaches it not " +
+                   "at all - which is how a site shipped without the brand that was already decided. " +
+                   "Open that index, then either pass -ReadPath for each file this task touches and " +
+                   "name the copies under 'Read first', or put one line there saying the index was " +
+                   "checked and nothing in it applies - '- Nothing beyond this brief - the index was " +
+                   "checked and nothing in it applies.' Nothing was created.")
+        }
+    }
 }
 
 # Copied only once every check above has passed, so a refusal is always true when it says nothing
