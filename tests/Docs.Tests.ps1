@@ -3999,3 +3999,149 @@ Describe 'the stall-detection record states what must not be undone' {
                      'beside it, not over it.')
     }
 }
+
+# The largest measured blocks of review waste in this system's own history were not defects the
+# review gate should have caught earlier - they were mechanisms chosen before anybody listed the
+# cases they had to hold over. Six consecutive rounds on a path parser, ten on a hand-rolled
+# Markdown renderer, every finding in both correct. Two rounds in `emgee-theme-toggle` on lifecycle
+# re-entry, where the same worker got the origin question right first time because its brief named
+# that dimension and nothing named the other one. The rules below are the front end of that: they
+# fire before a line is written, and they are pinned here because they live in prose and nothing
+# else would notice them going.
+Describe 'a mechanism is chosen against the case space it has to cover' {
+    BeforeAll {
+        # The brief template is the one fence carrying both the Goal and the Done-means headings,
+        # identified the same way the Read-first slot test identifies it.
+        $script:Template = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains('## Goal') -and $_.Contains('## Done means') })
+        $script:CaseSpace = if ($script:Template.Count -eq 1) {
+            ConvertTo-NormalisedText $script:Template[0]
+        } else { '' }
+        $script:MusterAll = Get-DocText $script:MusterMd
+        # The Done-means blocks, so the section can be shown NOT to have been folded into them.
+        $script:DoneFences = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains("Implemented and committed on this worktree's branch.") })
+    }
+
+    It 'the brief template carries a Case space section, after the requirements and before Done means' {
+        $script:Template.Count | Should -Be 1 -Because 'the brief template is one fence'
+        $t = $script:Template[0]
+        $t.Contains('## Case space') |
+            Should -BeTrue -Because 'a discipline with no slot in the template reaches no brief'
+        $t.IndexOf('## Case space') | Should -BeGreaterThan $t.IndexOf('## Requirements') `
+            -Because 'the cases belong to the requirements, so they come after them'
+        $t.IndexOf('## Case space') | Should -BeLessThan $t.IndexOf('## Done means') `
+            -Because 'it is worked before the work is judged, not as part of judging it'
+    }
+
+    # A discipline that demands enumeration everywhere is a discipline skipped everywhere. The
+    # limiter is what keeps it affordable, and it is the first thing an editor would cut.
+    It 'the section applies only to a choice that would be expensive to undo' {
+        Assert-Phrase -Text $script:CaseSpace -Where 'the Case space section' `
+            -Phrase 'whose choice would be expensive to undo'
+        Assert-Phrase -Text $script:CaseSpace -Where 'the Case space section' `
+            -Phrase 'A choice a later commit could reverse in minutes needs none of this.'
+    }
+
+    # The list is closed and each line is one measured finding. A dimension deleted here is a
+    # dimension that has already cost review rounds once.
+    It 'names the dimension <dimension>' -ForEach @(
+        @{ dimension = '**Origins and hosts**' }
+        @{ dimension = '**Callers, and the arguments they actually pass**' }
+        @{ dimension = '**Re-entry**' }
+        @{ dimension = '**Environments and versions**' }
+        @{ dimension = '**The live installation''s own state**' }
+        @{ dimension = '**How its inputs fail**' }
+    ) {
+        Assert-Phrase -Text $script:CaseSpace -Where 'the Case space section' -Phrase $dimension
+    }
+
+    # Each dimension's tail is the finding it came from, and the tail is what makes it checkable.
+    # A bare dimension word is a heading; these clauses are the rule.
+    It 'keeps the finding behind a dimension: <clause>' -ForEach @(
+        # A default TimeoutMs of four minutes against a StallMinutes of twenty made the stall
+        # branch unreachable for every caller that did not override it.
+        @{ clause = 'including a default nobody overrides' }
+        # A page restored from the back/forward cache kept the theme it was frozen with.
+        @{ clause = 'after reading its state once' }
+        # An unprefixed `mask-image` with a guarded sibling 900 lines above it, and a
+        # `MediaQueryList.addEventListener` that throws on Safari 13.1.
+        @{ clause = 'matching any guarded precedent already in the' }
+        # The index gate built to its brief's literal words against an index that does not exist.
+        @{ clause = 'check what is actually there rather than what this brief says is there' }
+        # A fail-closed path that fingerprinted herdr's own error text as though it were a screen.
+        @{ clause = 'or an error where a value was expected' }
+    ) {
+        Assert-Phrase -Text $script:CaseSpace -Where 'the Case space section' -Phrase $clause
+    }
+
+    # This is the line that stops the section becoming a reason to stop or a silent omission. A
+    # worker cannot ask, so an uncovered case has exactly one destination: written down as a gap.
+    It 'sends an uncovered case to report.md as a stated gap rather than anywhere else' {
+        Assert-Phrase -Text $script:CaseSpace -Where 'the Case space section' `
+            -Phrase 'record in `report.md` which mechanism covers all of it and what the rejected ones fail on'
+        Assert-Phrase -Text $script:CaseSpace -Where 'the Case space section' `
+            -Phrase 'Mark every line `covered`, `a stated gap`, or `not applicable`'
+    }
+
+    # The biggest block of waste in the evidence, and the only line here that pays for itself on
+    # its own. Both instances were correct at every round; what was wrong was that the mechanism
+    # had no last round. Deleting this sentence is what lets the next parser be written.
+    It 'states the open-ended-input decision as a decision, not as another case to enumerate' {
+        Assert-Phrase -Text $script:CaseSpace -Where 'the Case space section' `
+            -Phrase ('Where the list of cases has no end - anything hand-written that parses, ' +
+                     'renders or normalises an open-ended text format - that is the answer rather ' +
+                     'than a case to enumerate: take an existing library, or change the requirement ' +
+                     'so the input is not open-ended.')
+    }
+
+    # If the list can be tailored per dispatch, the Hand supplies the dimensions it can already see
+    # and the one nobody thought of stays missing - the same failure one level up.
+    It 'Step 2 forbids tailoring the list, and keeps the instance that shows why' {
+        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+            -Phrase '**Paste the `## Case space` section unchanged, and do not tailor its list.**'
+        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+            -Phrase 'the script reads its state once and I had not asked what happens when the page comes back'
+        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+            -Phrase 'a dimension you pick out for the worker is a dimension you could already see'
+    }
+
+    It 'Step 2 keeps the sixteen rounds behind the open-ended-input line' {
+        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+            -Phrase 'cost 16 review rounds between them, every finding correct in both'
+        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+            -Phrase 'there is no round after which the parser is finished'
+        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+            -Phrase 'enumerating is what ends both, by showing the list has no end'
+    }
+
+    # The index gate is the one instance that is not a thinking failure at all: the brief asserted
+    # a fact about the live installation and the fact was wrong. Hard rule 1 splits the check in
+    # two, and the split is the rule - without it this reads as licence for the Hand to go looking
+    # inside a project itself.
+    It 'Step 2 makes a requirement that names a mechanism carry the fact it rests on' {
+        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+            -Phrase '**A requirement that names a mechanism carries the fact it rests on.**'
+        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+            -Phrase 'would have refused nothing, ever'
+        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+            -Phrase 'hard rule 1 says a worker checks it, so write the requirement as a premise to verify before building to it'
+    }
+
+    It 'the section is dropped only where the dispatch writes no mechanism at all' {
+        Assert-Phrase -Text $script:MusterAll -Where 'muster Step 2' `
+            -Phrase ('Drop the section only for a dispatch that writes no mechanism at all - an ' +
+                     'investigation, an audit, a documentation pass')
+    }
+
+    # Stated once, in the template, and not multiplied into the four mode blocks. Those blocks are
+    # near-copies by design and every line added to them is added four times; the count of exactly
+    # four is pinned elsewhere and this change deliberately leaves them alone.
+    It 'lives in the template rather than being copied into the four Done-means blocks' {
+        $script:DoneFences.Count | Should -Be 4 -Because 'the four mode blocks are untouched by this'
+        foreach ($fence in $script:DoneFences) {
+            $fence.Contains('Case space') |
+                Should -BeFalse -Because 'one owner: the template states it once'
+        }
+    }
+}

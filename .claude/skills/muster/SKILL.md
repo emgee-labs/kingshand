@@ -293,6 +293,27 @@ Do NOT touch: <explicit exclusions>
 ## Unchanged
 - <behaviour that must not change>
 
+## Case space
+Before you write a mechanism for any requirement above whose choice would be expensive to undo - a
+storage or transport choice, something hand-written where a library exists, a guard's trigger
+condition, a public default, a data format - work this list, and record in `report.md` which
+mechanism covers all of it and what the rejected ones fail on. Mark every line `covered`, `a stated
+gap`, or `not applicable`:
+- **Origins and hosts** it has to reach.
+- **Callers, and the arguments they actually pass** - including a default nobody overrides.
+- **Re-entry** - the thing restored, resumed, restarted or run again after reading its state once.
+- **Environments and versions** it has to run on, matching any guarded precedent already in the
+  same file.
+- **The live installation's own state** - check what is actually there rather than what this brief
+  says is there.
+- **How its inputs fail** - absent, unreadable, or an error where a value was expected.
+
+Where the list of cases has no end - anything hand-written that parses, renders or normalises an
+open-ended text format - that is the answer rather than a case to enumerate: take an existing
+library, or change the requirement so the input is not open-ended. Say which you did.
+
+A choice a later commit could reverse in minutes needs none of this. Say so in one line and move on.
+
 ## Done means
 <the block for this project's mode - see below>
 ```
@@ -448,7 +469,7 @@ because nothing could leave the machine; a project registered `no-mistakes` has 
 full pipeline. Never add them back for a `no-mistakes` project, and never remove the push
 prohibition from the `local-only` variant.
 
-Two rules about writing briefs, both learned the hard way:
+Rules about writing briefs, all learned the hard way:
 
 **`Unchanged` is mandatory whenever the ticket states it.** Those lines are instructions not to
 do the obvious thing, which is exactly why they get implemented backwards.
@@ -456,6 +477,34 @@ do the obvious thing, which is exactly why they get implemented backwards.
 **Be literal about artefacts.** A worker told to "create a marker file" produced `MARKER.md`
 when the brief asked for `WORKER_PROBE.md`. If an exact filename, route, or identifier matters,
 state it exactly and say it is exact. Workers paraphrase anything left loose.
+
+**Paste the `## Case space` section unchanged, and do not tailor its list.** The list is closed and
+fixed on purpose. `emgee-theme-toggle` is the cleanest evidence why: on the dimension its brief made
+salient - the choice surviving "to the other site" - the worker established that `emgeelabs.in` and
+`kingshand.emgeelabs.in` are separate origins and chose a cookie over per-origin storage, right first
+time and never reopened. On the dimension nothing mentioned it lost two review rounds, its own
+reading being "the script reads its state once and I had not asked what happens when the page comes
+back". Same worker, same task, same care: what failed was salience. So a dimension you pick out for
+the worker is a dimension you could already see, which is that failure repeating one level up. Drop
+the section only for a dispatch that writes no mechanism at all - an investigation, an audit, a
+documentation pass - and take `not applicable` lines over deleting it when in doubt.
+
+**The open-ended-input line in that section is the expensive one.** Two runs in this repository's own
+history cost 16 review rounds between them, every finding correct in both, both spent hand-writing
+something that reads an open format: the `## Read first` path parser, where
+`docs\2026-08-31-read-first-declared-not-parsed.md` concludes "there is no round after which the
+parser is finished", and a hand-rolled Markdown renderer that took ten rounds before it was replaced
+by a library. Neither is an enumeration failure - enumerating is what ends both, by showing the list
+has no end. Where you already know a requirement reads an open format, say so in `Requirements`
+rather than leaving the worker to find out at round six.
+
+**A requirement that names a mechanism carries the fact it rests on.** `kh-dispatch-index-gate`'s
+brief said to gate on a project's own index. The worker built exactly that, then found that
+`data\index\` does not exist at all while `data\index.md` holds every real entry, so the gate as
+built "would have refused nothing, ever" - correct to the letter, and it had to be widened. Where the
+fact is yours to read - `data\`, `state\`, the registry - check it and write it into the brief. Where
+it is inside the project, hard rule 1 says a worker checks it, so write the requirement as a premise
+to verify before building to it rather than as a settled fact.
 
 ## Step 3 - Gate one: approve the dispatch
 
