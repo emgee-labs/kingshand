@@ -224,17 +224,19 @@ someone forgot. Dispatch refuses a brief with no `## Read first` heading at all,
 created - so a brief written before this section existed needs that one line adding before it can go
 out.
 
-**Where anything at all is indexed, that line is not optional and no other line will do.** Dispatch
-reads both indexes that could cover the work - the root `data\index.md` and the project's own
-`data\index\<project>.md` - and refuses unless either a file is passed to `-ReadPath` at Step 4 or
-the section states in one line that the index was checked and nothing in it applies. The root index
-is not project-scoped, so it gates a repo the registry has never heard of just as it gates a
-registered one, and it is where the settled files this exists to protect actually sit. An empty
-section does not pass and neither does `- Nothing beyond this brief.` on its own: a brief that says
-the index was checked is a decision, where a brief that says nothing is the failure this whole
-mechanism exists to stop - a settled spec that sat in `data\` unread while the site it described
-shipped without it. Reading the index is the first line of this step for exactly that reason; the
-refusal is what stops a busy session skipping it.
+**Where anything at all is indexed, that line is not optional, and it has to state both halves: that
+the index was checked, and that nothing in it applies.** The line above is the one to copy, but the
+wording is yours - dispatch accepts a paraphrase that states both halves, and refuses one that
+leaves either out. Dispatch reads both indexes that could cover the work - the root `data\index.md`
+and the project's own `data\index\<project>.md` - and refuses unless either a file is passed to
+`-ReadPath` at Step 4 or the section states in one line that the index was checked and nothing in
+it applies. The root index is not project-scoped, so it gates a repo the registry has never heard
+of just as it gates a registered one, and it is where the settled files this exists to protect
+actually sit. An empty section does not pass and neither does `- Nothing beyond this brief.` on its
+own: a brief that says the index was checked is a decision, where a brief that says nothing is the
+failure this whole mechanism exists to stop - a settled spec that sat in `data\` unread while the
+site it described shipped without it. Reading the index is the first line of this step for exactly
+that reason; the refusal is what stops a busy session skipping it.
 
 **Name the copy, not the original.** A worker can reach exactly two places: its own worktree and
 the brief's own directory. A settled file at `data\<name>.md` is a sibling of `data\<id>\` rather

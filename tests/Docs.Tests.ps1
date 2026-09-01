@@ -2902,8 +2902,9 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     # a brief - a refusal discovered at the dispatch is a brief rewritten, not a rule learned.
     It 'muster says an indexed project needs a ReadPath or the stated line' {
         Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
-            -Phrase ('**Where anything at all is indexed, that line is not optional and no other ' +
-                     'line will do.**')
+            -Phrase ('**Where anything at all is indexed, that line is not optional, and it has to ' +
+                     'state both halves: that the index was checked, and that nothing in it ' +
+                     'applies.**')
         Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
             -Phrase ('reads both indexes that could cover the work - the root `data\index.md` and ' +
                      'the project''s own `data\index\<project>.md` - and refuses unless either a ' +
