@@ -1092,6 +1092,25 @@ Describe 'rally states what steering can and cannot do, and protects unlanded wo
                      'options you have not read.')
     }
 
+    # A worker's input box can hold text nobody sent, and a bare Enter accepts it - so the one
+    # thing rally must never tell the Hand to do is submit it or tidy it away. The guard in
+    # bin\Herdr.psm1 refuses the send; this is the prose that says what to do with the refusal, and
+    # deleting it is how someone re-learns the whole thing by submitting a generated instruction.
+    It 'never submits or clears text a worker''s input box was found holding' {
+        $text = Get-DocText $script:StuckMd
+        Assert-Phrase -Text $text -Where 'the prompt-box hazard' `
+            -Phrase '**Do not submit it, and do not clear it.**'
+        Assert-Phrase -Text $text -Where 'the prompt-box hazard' `
+            -Phrase ('A bare Enter accepts whatever is rendered there, so `Send-HerdrKeys ' +
+                     '-Keys @(''enter'')` at an idle worker submits a generated instruction as ' +
+                     'though the Hand had written it.')
+        Assert-Phrase -Text $text -Where 'the prompt-box hazard' `
+            -Phrase 'Clearing it destroys the only evidence the event happened.'
+        Assert-Phrase -Text $text -Where 'the prompt-box hazard' `
+            -Phrase ('**the exception is the escalation**: report what it said, and pass ' +
+                     '`-AllowNonEmptyBox` only once the King has seen it')
+    }
+
     It 'gets the user''s answer before answering a blocked prompt' {
         $text = Get-DocText $script:StuckMd
         Assert-Phrase -Text $text -Where 'the rally escalation' `
