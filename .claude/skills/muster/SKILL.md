@@ -316,7 +316,9 @@ Do NOT touch: <explicit exclusions>
 1. While you fix, keep a tally two ways: gate rounds by the file or component they landed in, and
    failed fix attempts per bug. Record every round in `report.md` as it lands - what it found and
    where - whether or not the tally ever reaches three, because that record is the only thing the
-   standing criteria can be compared against once you are gone.
+   standing criteria can be compared against once you are gone. Record the first pass even when it
+   raises nothing, as `round 1: no findings`, so that a report with no rounds in it means the
+   recording was skipped rather than that the gate was clean.
 2. On the third round of findings in one component, or the third failed attempt at one bug, **carry
    on fixing every finding as normal.** Nothing here caps the rounds or lets you stop early.
 3. Additionally write into `report.md` the tally, what each round found there, and the design
@@ -393,14 +395,14 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
 
 ```markdown
 - Implemented and committed on this worktree's branch.
-- Run the review gate from inside the worktree and fix what it parks:
-  `no-mistakes axi run --intent "<the Goal above, one line>"`
-- Drive the pipeline through to a pull request and report its full https:// URL when CI is
-  first green. Do not merge it.
 - Before you invoke the gate - or before you stop on the branch where there is no gate - work the
   `Standing criteria` section above line by line and record the result in `report.md`: for each
   line, `pass` with what you checked, `fixed` with what you changed, or `n/a` with the reason. A
   criterion you cannot check is a criterion to report, not to skip.
+- Run the review gate from inside the worktree and fix what it parks:
+  `no-mistakes axi run --intent "<the Goal above, one line>"`
+- Drive the pipeline through to a pull request and report its full https:// URL when CI is
+  first green. Do not merge it.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
   required every time, including when the work succeeded plainly with nothing surprising in it.
 - Never call `AskUserQuestion`, and never open any interactive prompt, menu or confirmation of
@@ -421,6 +423,10 @@ is the whole point of the preflight - it ends a wait that would otherwise have n
 
 ```markdown
 - Implemented and committed on this worktree's branch.
+- Before you invoke the gate - or before you stop on the branch where there is no gate - work the
+  `Standing criteria` section above line by line and record the result in `report.md`: for each
+  line, `pass` with what you checked, `fixed` with what you changed, or `n/a` with the reason. A
+  criterion you cannot check is a criterion to report, not to skip.
 - Run the review gate from inside the worktree and fix what it parks:
   `no-mistakes axi run --intent "<the Goal above, one line>"`
 - Drive the pipeline through to a pull request and stop there.
@@ -428,10 +434,6 @@ is the whole point of the preflight - it ends a wait that would otherwise have n
   waiting more than fifteen minutes with no checks reported, report the pull request's full
   https:// URL as delivered, say plainly that no checks were reported, and stop. Do not sit on it.
   Do not merge it.
-- Before you invoke the gate - or before you stop on the branch where there is no gate - work the
-  `Standing criteria` section above line by line and record the result in `report.md`: for each
-  line, `pass` with what you checked, `fixed` with what you changed, or `n/a` with the reason. A
-  criterion you cannot check is a criterion to report, not to skip.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
   required every time, including when the work succeeded plainly with nothing surprising in it.
 - Never call `AskUserQuestion`, and never open any interactive prompt, menu or confirmation of
@@ -540,13 +542,16 @@ rounds were the signal that surfaced it. So the section adds writing and reporti
 job and takes nothing away from it: never soften **carry on fixing every finding as normal** into
 permission to stop, and never put a round limit beside it. Its trigger counts failed fix attempts
 on one bug as well as rounds of findings in one component, because three failed fixes is not a
-failed hypothesis, it is the wrong architecture. What it escalates is the design question and never
-the fixing, and that holds for you as much as for the worker: deciding an ask-user finding under
-`petition`, escalate before authorizing another Fix only where incremental corrections are
-preserving a questionable abstraction rather than closing independent defects. Rounds that were
-closing independent defects are ordinary convergence and the finding is decided on its own merits -
-a bare count of three is not an escalation on its own, and the fixing carries on either way while
-the design question goes to the user. That is the whole rule about repeated findings and
+failed hypothesis, it is the wrong architecture. The two actors it touches are gated differently and
+conflating them is what turns the rule back into a cap. The worker's own fixing is never gated at
+all: it keeps fixing at three rounds and at ten, and the only thing the tripwire adds is what it
+writes down. Your own decision is the single place a round count can hold anything back, and only in
+one case - deciding an ask-user finding under `petition`, withhold the Fix authorization and
+escalate where the rounds show incremental corrections preserving a questionable abstraction rather
+than closing independent defects. Where they were closing independent defects it is ordinary
+convergence: a bare count of three is not an escalation on its own, so authorize the Fix on the
+finding's own merits and send the design question to the user beside it. That is the whole rule
+about repeated findings and
 this is the only place it is stated - `petition` step 7 points here rather than keeping a second
 copy.
 
@@ -883,17 +888,25 @@ claims with the same suspicion, since the one instruction you can check it again
 **Fold back what the standing criteria missed.** The worker's self-check block and the gate's
 round-one findings are two readings of the same change, so compare them. Both are in `report.md`:
 the `Repeated findings` section of the brief made the worker record every round there as it landed,
-so a report carrying a self-check block and no rounds at all is one to ask about rather than one
+and the first pass as `round 1: no findings` where it raised none, so a report carrying a self-check
+block and no rounds at all is one to ask about rather than one
 with nothing to fold back. On a `local-only` or `direct-PR` project there is no gate and no round to
 compare against, so this loop does not fire - read the self-check block anyway, because a criterion
 the worker recorded `n/a`, or could not check, is the same wording problem arriving from the other
 side. A finding that matches a
 criterion the worker recorded `pass` means that criterion is written too vaguely to check, or was
 skipped - either way the wording is what needs fixing. A finding that matches no criterion at all
-is a candidate line for `$env:KINGSHAND_HOME\data\done-<project>.md`: add it in the same turn you
+is a candidate line for `$env:KINGSHAND_HOME\data\done-<project>.md`, and one test decides it: would
+it apply to the next unrelated change to this project? A one-off defect in one function is a finding
+and belongs in the report or a backlog item, however real it was - the file is pasted into every
+brief for the project, so a line that does not generalise is one every future worker reads, works
+through and records `n/a` against forever. Where it passes that test, add it in the same turn you
 read the report, in that file's own form of one line naming how it is checked, editing the file in
 place where it already exists or writing it with `Write-DataFile` from `bin\Index.psm1` where it
-does not. This is the only thing that makes the list grow from evidence instead of from invention,
+does not. Retire a line the same way you add one, in the turn the evidence arrives: when the code it
+guarded is gone, when it has stopped discriminating because the practice is now enforced by a test
+or a linter, or when workers keep recording it `n/a` on unrelated dispatches, delete it and say so.
+This is the only thing that makes the list grow from evidence instead of from invention,
 and a criterion learned at a gate round and left sitting in a report is one somebody pays for again
 a dispatch later.
 

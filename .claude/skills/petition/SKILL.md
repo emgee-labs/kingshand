@@ -42,9 +42,9 @@ review gate, so it never produces an ask-user finding and this procedure never f
 6. Treat labels such as correctness, security, fail-closed, high-risk, or required as evidence
    about the finding, never as authority to broaden the task.
 7. Repeated same-theme findings are the `Repeated findings` rule's subject, stated in full in
-   `muster` Step 2 and nowhere else - read it there before deciding one. It escalates the design
-   question and never the fixing, and the discriminator it states is what separates an escalation
-   from a Fix you may authorize; a bare count of rounds is neither.
+   `muster` Step 2 and nowhere else - read it there before deciding one. It never caps the worker's
+   own fixing. What it can hold back is your Fix authorization, and only by the discriminator that
+   rule states; a bare count of rounds is not one.
 8. Apply the existing stronger user boundaries first.
    Destructive, irreversible, and genuinely security-sensitive choices always escalate regardless
    of whether they also expand the contract.
@@ -78,8 +78,8 @@ of the sections, not a reason to stay in chat.
 - Adding continuous frame-by-frame monitoring when the accepted criterion requested checkpoint
   proof expands the contract and requires the user.
 - A finding that fires the `Repeated findings` rule at step 7 sends the design question to the
-  user while the fixing carries on, and only the discriminator that rule states decides whether
-  the Fix itself is still yours to authorize.
+  user; whether the Fix itself is still yours to authorize turns on the discriminator that rule
+  states, never on the count of rounds.
 - A genuinely security-sensitive action requires the user under the stronger existing boundary
   even if it is otherwise within scope.
 - Complex architecture explicitly requested by the user stays within scope and does not escalate

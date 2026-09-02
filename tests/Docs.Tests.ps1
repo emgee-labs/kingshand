@@ -4296,6 +4296,20 @@ Describe 'a project has a standing definition of done, and repeated findings are
         }
     }
 
+    # "Before you invoke the gate" is what the bullet says; where the bullet sits is what a worker
+    # working the list top-down actually does. Below the gate bullets it self-checks code the gate
+    # has already made it fix, records `pass` on a criterion that genuinely caught something, and
+    # Step 6 then rewords a criterion that was working.
+    It 'the self-check bullet precedes the gate bullet in the blocks that have one' {
+        $gated = @($script:CritDoneBlocks | Where-Object { $_.Contains('no-mistakes axi run') })
+        $gated.Count | Should -Be 2 -Because 'only the two no-mistakes blocks run a gate'
+        foreach ($block in $gated) {
+            $block.IndexOf('Before you invoke the gate') |
+                Should -BeLessThan $block.IndexOf('Run the review gate from inside the worktree') `
+                    -Because 'a list worked top-down has to reach the self-check first'
+        }
+    }
+
     # Three rounds in one component and three failed fixes on one bug are the same signal reached
     # from two directions, and the rule was stated in three places before this. Per component, not
     # per run: three rounds spread across three areas is ordinary convergence.
@@ -4352,22 +4366,42 @@ Describe 'a project has a standing definition of done, and repeated findings are
     # escalation from a Fix, and every third round becomes a question for the user.
     It 'the owner states the discriminator the cross-reference relies on' {
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
-            -Phrase ('escalate before authorizing another Fix only where incremental corrections ' +
-                     'are preserving a questionable abstraction rather than closing independent ' +
-                     'defects')
+            -Phrase ('withhold the Fix authorization and escalate where the rounds show ' +
+                     'incremental corrections preserving a questionable abstraction rather than ' +
+                     'closing independent defects')
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
             -Phrase 'a bare count of three is not an escalation on its own'
     }
 
-    # Both mentions in petition have to escalate the design question without stopping the fixing,
-    # or the cross-reference contradicts the rule it points at - which is the one failure a
-    # cross-reference is supposed to be immune to.
-    It 'petition escalates the design question without capping the fixing' {
+    # The worker and the Hand are gated differently and the rule reads as a self-contradiction the
+    # moment that is blurred: an unqualified "the fixing carries on either way" cancels the Fix
+    # authorization it just withheld, and a Hand facing a third-round finding has two opposite
+    # answers with no second source to break the tie.
+    It 'the owner separates the worker fixing from the Hand authorizing a Fix' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('The worker''s own fixing is never gated at all: it keeps fixing at three ' +
+                     'rounds and at ten')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('Your own decision is the single place a round count can hold anything back, ' +
+                     'and only in one case')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('authorize the Fix on the finding''s own merits and send the design question ' +
+                     'to the user beside it')
+        $script:CritStep2.Contains('the fixing carries on either way') |
+            Should -BeFalse -Because 'an unscoped either way cancels the authorization just withheld'
+    }
+
+    # Both mentions in petition point at that split rather than restating it, and neither may read
+    # as a cap on the worker - which is the one failure a cross-reference is supposed to be immune
+    # to.
+    It 'petition points at the split without capping the fixing' {
         $petition = Get-DocText $script:AskUserMd
         Assert-Phrase -Text $petition -Where 'petition step 7' `
-            -Phrase 'It escalates the design question and never the fixing'
+            -Phrase ('It never caps the worker''s own fixing. What it can hold back is your Fix ' +
+                     'authorization, and only by the discriminator that rule states')
         Assert-Phrase -Text $petition -Where 'petition classification examples' `
-            -Phrase ('sends the design question to the user while the fixing carries on')
+            -Phrase ('whether the Fix itself is still yours to authorize turns on the ' +
+                     'discriminator that rule states, never on the count of rounds')
     }
 
     # The loop that makes the list grow from evidence instead of from invention. Without it a
@@ -4385,6 +4419,25 @@ Describe 'a project has a standing definition of done, and repeated findings are
             -Phrase 'writing it with `Write-DataFile` from `bin\Index.psm1` where it does not'
     }
 
+    # Step 2 pastes this file into every brief for the project, so an unfiltered fold-back turns
+    # every one-off defect into a line every future worker reads and records `n/a` against. The
+    # generality test is what keeps the list a definition of done rather than a defect log, and the
+    # retirement path is what stops it growing in one direction only - `chronicle` curates the two
+    # memory files against a budget and deliberately does not reach this one.
+    It 'the fold-back filters for generality and says what retires a line' {
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('one test decides it: would it apply to the next unrelated change to this ' +
+                     'project?')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('A one-off defect in one function is a finding and belongs in the report or a ' +
+                     'backlog item')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase 'Retire a line the same way you add one, in the turn the evidence arrives'
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('when workers keep recording it `n/a` on unrelated dispatches, delete it and ' +
+                     'say so')
+    }
+
     # The comparison needs both halves to survive teardown. The self-check block is required by all
     # four Done-means blocks; the rounds are only in `report.md` because the brief made the worker
     # put them there as they landed. Drop that and the fold-back has one reading to compare against
@@ -4395,6 +4448,16 @@ Describe 'a project has a standing definition of done, and repeated findings are
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
             -Phrase ('the `Repeated findings` section of the brief made the worker record every ' +
                      'round there as it landed')
+    }
+
+    # Without this the best outcome and the worst are the same report. A gate that raised nothing
+    # first time leaves no rounds behind, which is exactly the shape Step 6 says to query - so the
+    # clean run and the worker that ignored the recording instruction are indistinguishable.
+    It 'a clean first pass is recorded, so no rounds at all means the recording was skipped' {
+        $script:CritTemplateText.Contains('Record the first pass even when it raises nothing, as `round 1: no findings`, so that a report with no rounds in it means the recording was skipped rather than that the gate was clean.') |
+            Should -BeTrue -Because 'an absent line has to mean one thing, not two opposite things'
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase 'and the first pass as `round 1: no findings` where it raised none'
     }
 
     # Twenty of the twenty-two registered projects have no review gate, so an unqualified compare
