@@ -943,6 +943,62 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') | Should -BeTrue
         }
 
+        # muster hands data\done-<project>.md to -ReadPath on every brief for a project that has
+        # one, so counting it here would retire this refusal the moment the first criteria file is
+        # written - the gate would be open for exactly the projects furthest along. The evidence it
+        # asks for is that the Hand went through the index for THIS task, and a path passed by rote
+        # on every dispatch is none.
+        It 'refuses an indexed project whose only -ReadPath is the standing-criteria file' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-criteria-only'
+            $name = Register-FixtureProject -Fixture $f -WithIndex
+            $criteria = Join-Path $f.DataPath "done-$name.md"
+            Set-Content -Path $criteria -Value '- Every new prose rule is pinned by a test.' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf "done-$name.md" -From $criteria
+
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8021' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $criteria } |
+                Should -Throw '*neither names a file from them to read*'
+        }
+
+        # And the refusal says which path it discounted, because otherwise the Hand reads a message
+        # denying it named any file while looking at the one it just passed.
+        It 'names the standing-criteria file it discounted' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-criteria-message'
+            $name = Register-FixtureProject -Fixture $f -WithIndex
+            $criteria = Join-Path $f.DataPath "done-$name.md"
+            Set-Content -Path $criteria -Value '- Every new prose rule is pinned by a test.' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf "done-$name.md" -From $criteria
+
+            $msg = ''
+            try {
+                & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8022' `
+                    -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $criteria
+            } catch { $msg = $_.Exception.Message }
+            $msg | Should -BeLike "*$criteria*"
+            $msg | Should -BeLike '*every brief for this project passes*'
+        }
+
+        # The discount is exactly one file. Any other path the Hand chose is the engagement this
+        # gate asks for, and it still opens the gate when the criteria file rides along beside it.
+        It 'dispatches when another file is passed alongside the standing-criteria file' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-criteria-plus'
+            $name = Register-FixtureProject -Fixture $f -WithIndex
+            $criteria = Join-Path $f.DataPath "done-$name.md"
+            Set-Content -Path $criteria -Value '- Every new prose rule is pinned by a test.' -Encoding utf8
+            $brand = Join-Path $f.DataPath 'brand.md'
+            Set-Content -Path $brand -Value 'teal, not amber' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf @("done-$name.md", 'brand.md') -From $brand
+
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8023' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath @($criteria, $brand)
+            $r.id | Should -Be 'T-8023'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\done-$name.md") | Should -BeTrue
+        }
+
         It 'dispatches an indexed project when the section says the index was checked' {
             Set-AgentStartState
             $f = New-DispatchFixture 'index-stated'

@@ -238,6 +238,12 @@ failure this whole mechanism exists to stop - a settled spec that sat in `data\`
 site it described shipped without it. Reading the index is the first line of this step for exactly
 that reason; the refusal is what stops a busy session skipping it.
 
+**The standing-criteria file below does not discharge this.** It goes to `-ReadPath` on every brief
+for a project that has one, so a gate that counted it would be one no dispatch could ever fail
+again - and dispatch knows it, discounting `done-<project>.md` from the paths that satisfy this
+refusal. Where it is the only file this task touches, the stated line about the index still goes in
+the section beside it. Any other file you pass counts as it always did.
+
 **Name the copy, not the original.** A worker can reach exactly two places: its own worktree and
 the brief's own directory. A settled file at `data\<name>.md` is a sibling of `data\<id>\` rather
 than inside it, so a brief naming it there tells the worker to open a file it cannot reach - the
@@ -276,9 +282,13 @@ task's ticket mentions them. Read the file, paste its lines into `## Standing cr
 unchanged, and hand the same file to `-ReadPath` at Step 4 with a `Read first` line naming the copy,
 exactly like any other settled file. Both, and for different reasons: the paste is in the artefact
 the worker is judged against, so it is what gets complied with, and the copy is what a mid-task
-re-read reaches. Where the project has no such file yet, write `- Nothing standing for this project
-yet.` rather than dropping the section, so an empty list is a decision someone made - and in that
-case write no `Read first` line for it and pass no `-ReadPath` for it either, because Step 4 refuses
+re-read reaches. Where the file holds no criteria - it does not exist yet, or the fold-back has
+retired its last line - write `- Nothing standing for this project
+yet.` rather than dropping the section, so an empty list is a decision someone made. Key that on
+what the file holds and never on whether it exists: a file retired down to nothing pastes an empty
+section, and a worker cannot tell an empty section from one it forgot to work. Where the file is
+absent, also
+write no `Read first` line for it and pass no `-ReadPath` for it either, because Step 4 refuses
 a brief naming a file that is not there and the refusal costs a whole dispatch. Read the file every
 time even so, and never carry an absence forward from the last brief you wrote: the fold-back at
 Step 6 creates it the first time a gate finding generalises, so a project with nothing standing
@@ -929,7 +939,9 @@ with nothing to fold back. On a `local-only` or `direct-PR` project - including 
 compare against, so this loop does not fire - read the self-check block anyway, because a criterion
 the worker could not check, or recorded `n/a` against for any reason other than a set-aside this
 brief made, is the same wording problem arriving from the other
-side. A finding that matches a
+side. A section whose only line is `- Nothing standing for this project yet.` is neither: there was
+nothing to check, the `n/a` against it is the only answer available, and it is not a criterion to
+reword or a reason to create the file. A finding that matches a
 criterion the worker recorded `pass` or `fixed` means that criterion did not end the defect: written
 too vaguely to check, or skipped, or worked and still leaving the same class of defect behind it.
 Either way the wording is what needs fixing, so rewrite that line in place in the same
@@ -949,7 +961,9 @@ place where it already exists or writing it with `Write-DataFile -Project "<proj
 `data\index.md` and the next session reading `data\index\<project>.md` finds no trace of it. Retire a line the same way you add one, in the turn the evidence arrives: when the code it
 guarded is gone, when it has stopped discriminating because the practice is now enforced by a test
 or a linter, or when workers keep recording it `n/a` on unrelated dispatches for want of anything to
-check, delete it and say so.
+check, delete it and say so. Where that was the file's last line, leave `- Nothing standing for this
+project yet.` in its place rather than an empty file, so the next brief pastes a decision somebody
+made instead of a blank section.
 This is the only thing that makes the list grow from evidence instead of from invention,
 and a criterion learned at a gate round and left sitting in a report is one somebody pays for again
 a dispatch later.

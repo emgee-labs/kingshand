@@ -4258,10 +4258,32 @@ Describe 'a project has a standing definition of done, and repeated findings are
                      'complied with, and the copy is what a mid-task re-read reaches')
     }
 
+    # Keyed on what the file holds, not on whether it exists: the fold-back's retire branch can take
+    # a file down to its last line, and an existing-but-empty file falls outside a rule that asks
+    # only whether one is there - so the brief pastes a blank section and the worker cannot tell it
+    # from one it forgot to work, which is the ambiguity `round 1: no findings` closed on the other
+    # half of the report.
     It 'an empty list is written down rather than the section being dropped' {
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
-            -Phrase ('Where the project has no such file yet, write `- Nothing standing for this ' +
+            -Phrase ('Where the file holds no criteria - it does not exist yet, or the fold-back ' +
+                     'has retired its last line - write `- Nothing standing for this ' +
                      'project yet.` rather than dropping the section')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('Key that on what the file holds and never on whether it exists')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('Where that was the file''s last line, leave `- Nothing standing for this ' +
+                     'project yet.` in its place rather than an empty file')
+    }
+
+    # The placeholder is a `-` bullet inside the section, so the self-check works it line by line and
+    # the only answer available is `n/a`. Without this carve-out that `n/a` trips the wording-problem
+    # clause on every gateless dispatch until a criteria file exists - and the paragraph it sits in
+    # then talks about rewording a line in a file that does not exist.
+    It 'the placeholder is not read as a criterion that needs rewording' {
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('A section whose only line is `- Nothing standing for this project yet.` is ' +
+                     'neither: there was nothing to check, the `n/a` against it is the only answer ' +
+                     'available, and it is not a criterion to reword or a reason to create the file')
     }
 
     # One line form, stated once. The fold-back writes this file and the next brief pastes it back
@@ -4285,6 +4307,21 @@ Describe 'a project has a standing definition of done, and repeated findings are
     # project has one of these files yet - so a Hand that reads the paste-and-copy instruction
     # without this exception spends a dispatch discovering it, every time, until the first one
     # exists.
+    # The criteria file goes to -ReadPath on every brief for a project that has one, and the
+    # dispatcher's index gate refuses only when no path was passed - so counting it would open that
+    # gate permanently for exactly the projects furthest along. Dispatch-Worker.Tests.ps1 owns the
+    # enforcement; this pins that the Hand is told the same thing the code does.
+    It 'the criteria file is said not to discharge the index obligation' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase '**The standing-criteria file below does not discharge this.**'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('dispatch knows it, discounting `done-<project>.md` from the paths that ' +
+                     'satisfy this refusal')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('Where it is the only file this task touches, the stated line about the index ' +
+                     'still goes in the section beside it')
+    }
+
     It 'the empty case hands the dispatcher no path to refuse' {
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
             -Phrase ('write no `Read first` line for it and pass no `-ReadPath` for it either, ' +

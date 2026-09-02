@@ -362,12 +362,36 @@ if ($gates.Count -gt 0) {
         }
     }
 
-    if ($staged.Count -eq 0 -and -not $statesIndexChecked) {
+    # The project's standing-criteria file does not count towards this. muster hands it to -ReadPath
+    # on EVERY brief for a project that has one, so counting it would make this refusal unreachable
+    # from the moment the first one is written - and the gate's whole premise is that a -ReadPath is
+    # evidence the Hand went through the index for THIS task. A path passed by rote is no evidence.
+    # Every other -ReadPath still counts, including another file sitting beside it in data\.
+    $byRote = ''
+    if ($project) {
+        $dataRoot = ''
+        try { $dataRoot = [IO.Path]::GetFullPath($DataPath).TrimEnd('\') } catch { $dataRoot = '' }
+        if ($dataRoot) { $byRote = Join-Path $dataRoot "done-$project.md" }
+    }
+    $engaged = @($staged.Values | Where-Object {
+        -not ($byRote -and $_.Equals($byRote, [System.StringComparison]::OrdinalIgnoreCase))
+    })
+
+    if ($engaged.Count -eq 0 -and -not $statesIndexChecked) {
         # Every index that triggered this is named with its path, because the refusal is the Hand's
         # instruction sheet: a refusal that says only "an index" is one the reader has to research.
         $named = ($gates | ForEach-Object { "$($_.label) at $($_.path), listing $($_.count) file(s)" }) -join '; '
+        # Said plainly when the brief DID pass a path, or the Hand reads a refusal denying what it
+        # can see it just did and has no way to work out which path was discounted.
+        $discounted = ''
+        if ($staged.Count -gt 0) {
+            $discounted = ("The only file this brief passes is the standing-criteria file $byRote, " +
+                           "which every brief for this project passes and which therefore says " +
+                           "nothing about this task. ")
+        }
         throw ("This dispatch is gated by $named - and this brief neither names a file from them to " +
-               "read nor says they were checked. A worker reads exactly one thing, so a settled file " +
+               "read nor says they were checked. $discounted" +
+               "A worker reads exactly one thing, so a settled file " +
                "no brief names reaches it not at all - which is how a site shipped without the brand " +
                "that was already decided. Open each index named above, then either pass -ReadPath for " +
                "each file this task touches and name the copies under 'Read first', or put one line " +
