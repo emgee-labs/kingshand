@@ -35,6 +35,13 @@ substance of the choice, and never from a customer name, a credential, a path, a
 anything else the queue should not carry. A key that changes between retries files the same
 decision twice; a key shared by two decisions loses one of them.
 
+**Where the decision came from a worker parked under `## Waiting on a decision`, adopt that
+entry's own `###` slug rather than deriving a second identifier.** The worker wrote that slug to be
+the one string naming this decision in its report and here, so a key invented beside it leaves
+nobody able to tell which entry a note answers - which is the whole check `muster` Step 6 makes
+before steering an answer in. Prefix it with the work id where two workers could plausibly pick
+the same slug.
+
 After inventorying the whole surface, either every unresolved key is registered, or you state
 plainly that the reviewed surface contains no unresolved decision. **Do not let "I found nothing"
 be silence.** An unstated inventory and an inventory never taken read identically afterwards, and

@@ -447,12 +447,14 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
   comes back to you as an ordinary prompt and you carry on from there, so leave everything where
   it is: do not undo what you have done, do not pick a different task, and do not report the work
-  as failed. **Each decision is its own entry under that heading: the question first, and when the
-  answer reaches you, the decision written into that same entry.** The heading stays where it is,
-  and it is the answer under a question that stops that entry reading as unanswered. A new question
-  is always appended last, never folded into an entry already answered - park twice and the section
-  holds two entries, the decision you were given still readable above the one nobody has answered
-  yet.
+  as failed. **Each decision is its own `###` sub-heading under that section, named with a short
+  slug for the decision - `### shorter-hero-copy` - and written exactly, for the same reason the
+  section heading is.** That slug is the one string naming this decision in your report and in the
+  Hand's own records, so keep it as you first wrote it. The question goes under it, and when the
+  answer reaches you, write the decision under that same slug on a line starting `Answer:` and
+  leave the sub-heading alone. A new question is always a new sub-heading appended last, never
+  folded into one already answered - park twice and the section holds two, the decision you were
+  given still readable above the one nobody has answered yet.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping.
 - Never mention Claude, AI, or an assistant in any commit message or file.
@@ -484,12 +486,14 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
   comes back to you as an ordinary prompt and you carry on from there, so leave everything where
   it is: do not undo what you have done, do not pick a different task, and do not report the work
-  as failed. **Each decision is its own entry under that heading: the question first, and when the
-  answer reaches you, the decision written into that same entry.** The heading stays where it is,
-  and it is the answer under a question that stops that entry reading as unanswered. A new question
-  is always appended last, never folded into an entry already answered - park twice and the section
-  holds two entries, the decision you were given still readable above the one nobody has answered
-  yet.
+  as failed. **Each decision is its own `###` sub-heading under that section, named with a short
+  slug for the decision - `### shorter-hero-copy` - and written exactly, for the same reason the
+  section heading is.** That slug is the one string naming this decision in your report and in the
+  Hand's own records, so keep it as you first wrote it. The question goes under it, and when the
+  answer reaches you, write the decision under that same slug on a line starting `Answer:` and
+  leave the sub-heading alone. A new question is always a new sub-heading appended last, never
+  folded into one already answered - park twice and the section holds two, the decision you were
+  given still readable above the one nobody has answered yet.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping.
 - Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
@@ -536,12 +540,14 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
   comes back to you as an ordinary prompt and you carry on from there, so leave everything where
   it is: do not undo what you have done, do not pick a different task, and do not report the work
-  as failed. **Each decision is its own entry under that heading: the question first, and when the
-  answer reaches you, the decision written into that same entry.** The heading stays where it is,
-  and it is the answer under a question that stops that entry reading as unanswered. A new question
-  is always appended last, never folded into an entry already answered - park twice and the section
-  holds two entries, the decision you were given still readable above the one nobody has answered
-  yet.
+  as failed. **Each decision is its own `###` sub-heading under that section, named with a short
+  slug for the decision - `### shorter-hero-copy` - and written exactly, for the same reason the
+  section heading is.** That slug is the one string naming this decision in your report and in the
+  Hand's own records, so keep it as you first wrote it. The question goes under it, and when the
+  answer reaches you, write the decision under that same slug on a line starting `Answer:` and
+  leave the sub-heading alone. A new question is always a new sub-heading appended last, never
+  folded into one already answered - park twice and the section holds two, the decision you were
+  given still readable above the one nobody has answered yet.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping. **A finding the gate classified `ask-user` is
   never one of those.** Stating an assumption over one and carrying on is you answering your own
@@ -597,12 +603,14 @@ that has gone stale points a Hand at the gate-run bullet instead:
   than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
   comes back to you as an ordinary prompt and you carry on from there, so leave everything where
   it is: do not undo what you have done, do not pick a different task, and do not report the work
-  as failed. **Each decision is its own entry under that heading: the question first, and when the
-  answer reaches you, the decision written into that same entry.** The heading stays where it is,
-  and it is the answer under a question that stops that entry reading as unanswered. A new question
-  is always appended last, never folded into an entry already answered - park twice and the section
-  holds two entries, the decision you were given still readable above the one nobody has answered
-  yet.
+  as failed. **Each decision is its own `###` sub-heading under that section, named with a short
+  slug for the decision - `### shorter-hero-copy` - and written exactly, for the same reason the
+  section heading is.** That slug is the one string naming this decision in your report and in the
+  Hand's own records, so keep it as you first wrote it. The question goes under it, and when the
+  answer reaches you, write the decision under that same slug on a line starting `Answer:` and
+  leave the sub-heading alone. A new question is always a new sub-heading appended last, never
+  folded into one already answered - park twice and the section holds two, the decision you were
+  given still readable above the one nobody has answered yet.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping. **A finding the gate classified `ask-user` is
   never one of those.** Stating an assumption over one and carrying on is you answering your own
@@ -1056,10 +1064,12 @@ brief made it write, and nothing has answered. So read the report before you act
 facts rather than after, and treat a question still standing under that heading as a worker
 mid-run.
 
-**Read every entry under that heading, and key on whether any one of them is unanswered.** The
-brief has the worker keep one entry per decision and append each new question last, so a worker
+**Read every `###` entry under that heading, and key on whether any one of them is unanswered.**
+The brief gives each decision its own `###` slug and appends each new question last, so a worker
 that parked, was answered and parked again has an answered entry sitting above a question nobody
-has answered. **One unanswered entry means a worker mid-run**, whatever else that section records.
+has answered. An entry is answered when it carries an `Answer:` line under its slug, and not when
+the prose around it reads like a conclusion. **One unanswered entry means a worker mid-run**,
+whatever else that section records.
 
 **A section that records an answer is not a waiting worker.** Where every entry carries its own
 answer, the heading has outlived the answers and the entries underneath are what you are reading
@@ -1069,15 +1079,22 @@ you have ever answered reads as waiting forever; read the first entry alone and 
 nobody answered goes to the landing gate instead, where approval tears the worker down and takes
 the parked run with it.
 
-**Before you steer the same decision a second time, read back the note you registered under
-`decree`.** The entry is text a worker writes, so it can fail that instruction exactly as it can
-fail the one about writing a report at all - and then an entry showing only a question means
-either of two opposite things. Your own durable record says which, and what was confirmed decides
-it rather than what looks likely: no `answered:` note against this work means nothing was ever
-steered and the worker is still waiting, while a closed `answered:` note whose steer you confirmed
-landed - `working` arrived - means the worker applied the decision and left its entry alone.
-**Steer the first. Load `rally` for the second**, because a worker sent the same answer twice is a
-worker asked to do the work twice.
+**Before you steer any entry, read back what `decree` holds under that entry's own slug.** The
+entry is text a worker writes, so it can fail that instruction exactly as it can fail the one about
+writing a report at all - and an entry showing only a question then means either of two opposite
+things. What tells them apart is a durable pair, read one slug at a time rather than once per
+worker: the entry under that slug, and the note under the same key in the queue.
+
+- **No note under that key** is a decision nobody has answered yet. That is the ordinary case this
+  section is about: decide it, register it, and steer it.
+- **A note closed `answered:` while its entry still carries no `Answer:` line** is a worker that
+  did not apply the decision it was given. Load `rally` and do not send it again, because a worker
+  told to decide the same thing twice does the work twice.
+
+**Nothing here turns on whether you watched `working` arrive.** That lived in the session that saw
+it, and the next session has no way to know it - which is exactly the restart this route exists to
+survive. Reading it per slug is what keeps a worker parked twice straight: one key answered and
+one key with no note is a worker waiting on its second question, not a stuck one.
 
 Such a worker is idle rather than hung and costs nothing where it is - the review-gate run it left
 parked keeps the branch and every fix commit already made. **Do not set `gating`, do not close the
@@ -1087,7 +1104,7 @@ run, and the answer then has nowhere to go.
 **Load `petition` before answering it - whatever the posture, and whether or not the King is at
 the machine.** It owns who may decide this and by what test, including the test that applies when
 he is away, and it is the only place that test is stated. **Register the decision under `decree` in
-the same turn you read the report, whichever way it goes** - an answer he still owes and an answer
+the same turn you read the report, whichever way it goes, under that entry's own slug** - an answer he still owes and an answer
 you gave in his stead both survive this session ending that way, and neither one does in chat or
 in a return digest. `decree` owns what its note has to carry and is the only place that is
 written.
@@ -1300,6 +1317,10 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
 - Never merge on the forge. `direct-PR` and `no-mistakes` work ends at a pull request the user
   merges.
 - Never push a project that is not registered with a push-capable posture.
+- **Never land a worker holding an unanswered entry under `## Waiting on a decision`.** It is
+  mid-run rather than delivered, whatever its branch shows, and Step 6 owns what to do with it.
+  Read its `report.md` here rather than assuming Step 6 ran: Step 0 sends "land / merge / ship a
+  worker" straight to this step, so on this path it has not.
 
 **Verify the base ref resolves before gathering anything.** This check is not optional and
 nothing below it runs until it passes:
@@ -1491,8 +1512,12 @@ describes.
 **`dispatched` or `implementing` means Step 6 was skipped, which is normal here.** Step 0 routes
 "land / merge / ship a worker" straight to Step 7, and Step 6 is the only place `gating` is ever
 set - so a user returning in a fresh session and saying "land T-1001" arrives with the stage never
-advanced. That is the direct-entry path working as designed, not a reason to refuse. Set the stage
-to `gating` and carry on with the rest of this step:
+advanced. That is the direct-entry path working as designed, not a reason to refuse. **It does
+mean the one check Step 6 owns has not run, so run it here: a worker whose `report.md` holds an
+entry under `## Waiting on a decision` with no `Answer:` line under it is mid-run.** Leave the
+stage where it is, take it to Step 6, and close nothing out - a decision still owed is not a
+delivery, however good the branch looks. Otherwise set the stage to `gating` and carry on with the
+rest of this step:
 
 ```powershell
 Set-CrewStage -State $s -WorkerId "<id>" -Stage 'gating'
@@ -1568,6 +1593,14 @@ half-deleted directory and a stale git worktree registration.
 the branch is not on the remote, the worktree is the only copy of the work and removing it
 destroys it. Confirm one or the other first - teardown removes the worktree, and nothing puts it
 back.
+
+**A worker holding an unanswered entry under `## Waiting on a decision` is never torn down
+either, and a confirmed push does not release that.** Teardown ends the live process, and that
+process is what the answer is coming back to: kill it and the decision it is parked on can never
+be applied, while the gate run it left parked keeps its fix commits somewhere nobody will look
+again. Read its `report.md` for an `Answer:` line under every `###` slug before you stop anything,
+and where one is missing take it to Step 6 instead. This is the same shape as the floor above -
+both refuse an irreversible cleanup over work that is not finished.
 
 **`report.md` survives teardown, and must never be deleted as part of cleanup.** It lives at
 `$env:KINGSHAND_HOME\data\<id>\report.md`, beside the brief and outside the worktree, so teardown

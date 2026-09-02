@@ -94,13 +94,16 @@ while he is away that decision is answered on the test below or it is answered n
 test generalises. The authority analysis above is still the gate procedure and still fires for a
 gated project alone.
 
-**With him at the machine, a parked decision has the ordinary answer: put it to him.** That holds
-whatever the posture and however the worker reached it - a `local-only` worker's question is his
-the same way a gated one is, and `+yolo` is authority to land work inside the accepted criteria
-rather than a licence to answer in his place. Register it under `decree` first so it outlives the
-session, then escalate it as `User-facing escalation` above describes. This grants nothing: the
-only autonomous answer anywhere in this skill is the one the test below allows while he is
-unreachable.
+**With him at the machine, the authority analysis above routes a parked decision, and this section
+changes none of it.** One that analysis leaves with him goes to him; one steps 3 to 5 keep inside
+your authority is still answered without asking, exactly as `+yolo` and those steps already
+provide, and waking him for a copy fix the posture already authorised is the failure this whole
+branch exists to end. Read a parked decision through that analysis whatever the posture and however
+the worker reached it - a `local-only` worker's parked question weighs the accepted contract
+against an expansion the same way a gated one does, even though no gate produced it. Register it
+under `decree` either way so it outlives the session, and escalate the ones it leaves with him as
+`User-facing escalation` above describes. This section adds exactly one thing to that: the answer
+the test below allows while he is unreachable.
 
 **The test is reversibility, not knowledge.** Not what the two of you have discussed, not what you
 happen to know, not how confident you feel - whether a wrong call can be undone in minutes.
