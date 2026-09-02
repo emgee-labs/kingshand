@@ -88,7 +88,7 @@ Run every command from `$env:KINGSHAND_HOME` so `.tasks.toml` resolves.
 | record a decision the Hand answered in the King's stead | `tasks-axi add <key> "<one line>"`, `tasks-axi hold <key> --reason "<reason>" --kind captain`, `tasks-axi block <work-id> --by <key>` against the item the parked worker is already running under, then `tasks-axi done <key> --note "answered: <the decision, the reasoning, and whether it rested on a recorded position or on your own judgement>"` - registered and closed in the same pass, because there is nobody to wait for, and the block is still what makes that `answered:` note true |
 | repair a hold closed without its answer | `tasks-axi done <key> --note "<answered or declined>: ..."` backfills the note without moving the close date; where authorised work was never routed, `tasks-axi reopen <key>` first, then route it and close normally |
 
-Four mechanical facts this depends on, each confirmed against the tool rather than assumed:
+Six mechanical facts this depends on, each confirmed against the tool rather than assumed:
 
 - **`add` and `hold` are both idempotent under the same key.** Re-running either reports
   `already: true` and changes nothing, which is what makes a stable key safe to replay after a
@@ -101,6 +101,15 @@ Four mechanical facts this depends on, each confirmed against the tool rather th
   answer authorised. That is why the order below is load-bearing: block first, close second. Close
   first and there is nothing left to route, and the queue never records that the answer authorised
   anything at all.
+- **The reason says which of the two open holds this is, and that is not optional.** An open hold
+  with no note has two causes that take opposite actions later: he genuinely has the question, or
+  the Hand was answering it in his stead and the pass ended before the note went in. Nothing else
+  in the queue tells them apart - both are `--kind captain`, and neither carries a note yet - so
+  the reason states it in words: that the question is with him and what he has to choose, or that
+  you are answering it in his stead under `petition`'s test and which way. A reason that records
+  only the choice leaves a later session unable to tell a question he owes from a pass that was
+  interrupted, and it freezes the second as though it were the first. `muster` Step 6 reads that
+  reason and owns what each one does next.
 - **`--kind captain` is what marks the hold as the King's own.** The other kinds - `external`,
   `load`, `parked`, `future` - wait on something that is not the King, and `survey` routes them to
   a different section. `chronicle` files its pinned-offload approvals the same way, so stay

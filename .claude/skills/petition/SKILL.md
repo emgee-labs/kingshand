@@ -1,6 +1,6 @@
 ---
 name: petition
-description: Decision procedure for an ask-user finding returned by the no-mistakes review gate. Load it before deciding any ask-user finding, whatever the project's yolo posture, and load it again when a worker is parked on one and the King is away and cannot be asked. It tells a correction within accepted intent apart from a product or engineering contract expansion that needs the user, and it owns the reversibility test that decides what may be answered in his stead. Only a project registered `no-mistakes`, or a `no-mistakes-prod-only` project whose task resolved to `no-mistakes`, ever produces one - a `local-only` or `direct-PR` project has no review gate and never does.
+description: Decision procedure for a decision that is the King's to make or the Hand's to answer. Load it two ways - before deciding any ask-user finding the no-mistakes review gate returned, whatever the project's yolo posture, and whenever a worker is parked on a decision its brief did not settle, on any posture including `local-only` and `direct-PR`, whether or not the King is at the machine. It tells a correction within accepted intent apart from a product or engineering contract expansion that needs the user, and it owns the reversibility test that decides what may be answered in his stead while he is away. Only a `no-mistakes` review gate ever produces an ask-user finding, and the classification written for that finding fires there alone.
 version: 1.0.0
 ---
 

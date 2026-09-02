@@ -1071,6 +1071,14 @@ has answered. An entry is answered when it carries an `Answer:` line under its s
 the prose around it reads like a conclusion. **One unanswered entry means a worker mid-run**,
 whatever else that section records.
 
+**A section that is there and holds text but yields no `###` entry at all is unanswered, never
+satisfied.** Zero entries under a present heading is a malformed report rather than a clean one -
+the question is standing there in prose, which is exactly the worker mid-run the paragraph above
+describes - so establish the cause of it before anything irreversible, and treat it as unanswered
+until you have. Every guard that reads entries inherits this line: the landing floor at Step 7 and
+the teardown at Step 8b both read them, and a rule that passes vacuously on a malformed report is
+worth nothing at the one point where it cannot be undone.
+
 **A section that records an answer is not a waiting worker.** Where every entry carries its own
 answer, the heading has outlived the answers and the entries underneath are what you are reading
 for: a section saying what was decided is a worker that has already been answered and carried on,
@@ -1094,16 +1102,18 @@ question, not a stuck one.
 |---|---|---|
 | nothing at all | unanswered | Nobody has seen this decision yet. Load `petition`, register it, and then steer it or escalate it as that leaves it. |
 | nothing at all | answered | **The one row that stops.** An answer with no record has two causes and you cannot tell them apart from here: the record was never written, or the worker answered its own question - which its brief forbids outright. Establish which before you do anything, and register nothing until you have. Where a session, a closed note or a recorded position accounts for that answer, the record was merely missing and you write it. Where nothing does, the worker answered itself: load `rally`, and read everything else it claims with the same suspicion a missing report earns. |
-| an open hold, no note | unanswered | He already has this question and nobody has answered it. It waits: carry it into the digest and never re-escalate it. Do not decide it, do not ask him again, and do not steer. |
-| an open hold, no note | answered | The queue says he has not answered and the report says something was applied. Neither one tells you which, so the hold stays open until he answers it himself - put that entry's answer to him, and land nothing on this work meanwhile. |
+| an open hold, no note, reason says the question is his | unanswered | He already has this question and nobody has answered it. It waits: carry it into the digest and never re-escalate it. Do not decide it, do not ask him again, and do not steer. |
+| an open hold, no note, reason says the question is his | answered | The queue says he has not answered and the report says something was applied. Neither one tells you which, so the hold stays open until he answers it himself - put that entry's answer to him, and land nothing on this work meanwhile. |
+| an open hold, no note, reason says you are answering it in his stead | unanswered | A stead pass was interrupted before its note went in. He was never asked, so nothing here is waiting on him: re-enter `petition`'s test on that decision, finish the pass, and close it. Never carry it into the digest as a question he owes - freezing it here is the parked-until-morning failure this route exists to end. |
+| an open hold, no note, reason says you are answering it in his stead | answered | The same pass, interrupted after the steer landed. Confirm the answer in that entry is the decision the reason records, then close the note on it and carry on. Where it is not that decision, the `nothing at all / answered` row above governs instead. |
 | a closed hold, no note | either | No durable answer exists, so nothing here may infer what it was - not from the entry, and not from what looks likely. Repair it through `decree`, which owns that, and do not steer until it is repaired. |
-| a closed hold, `answered:` or `declined:` | unanswered | The decision has an answer this worker has not recorded. Load `rally`: it owns whether the steer ever arrived, and it delivers it once. Do not decide it again and do not re-send it blind, because a worker told to decide the same thing twice does the work twice. |
+| a closed hold, `answered:` or `declined:` | unanswered | The decision has an answer this worker has not recorded. Load `rally` for the worker's condition - whether the steer ever landed and whether it can take one now - then send that closed note's answer with the block below, once. The route back is this step's, so no second block and no second note are filed: the decision is closed already. Do not decide it again and do not re-send it blind, because a worker told to decide the same thing twice does the work twice. |
 | a closed hold, `answered:` or `declined:` | answered | Settled. Nothing to steer, and this entry is no reason to hold the work back. |
 
-Four queue states and two entry states, and the `no note` close covers both entry states in one
-row because the repair comes first either way. Nothing else is reachable: `decree` closes a hold
-with `answered:`, with `declined:`, or - as the fault it carries a repair for - with no note at
-all.
+Five queue states and two entry states, and the `no note` close covers both entry states in one
+row because the repair comes first either way. Nothing else is reachable: an open hold reads its
+reason, which `decree` requires to say which of the two it is, and `decree` closes a hold with
+`answered:`, with `declined:`, or - as the fault it carries a repair for - with no note at all.
 
 **Nothing in that table turns on whether you watched `working` arrive.** That lived in the session
 that saw it, and the next session has no way to know it - which is exactly the restart this route
@@ -1345,9 +1355,10 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
   merges.
 - Never push a project that is not registered with a push-capable posture.
 - **Never land a worker holding an unanswered entry under `## Waiting on a decision`.** It is
-  mid-run rather than delivered, whatever its branch shows, and Step 6 owns what to do with it.
-  Read its `report.md` here rather than assuming Step 6 ran: Step 0 sends "land / merge / ship a
-  worker" straight to this step, so on this path it has not.
+  mid-run rather than delivered, whatever its branch shows, and Step 6 owns what to do with it -
+  including what counts as unanswered, a section holding text but no entry among them. Read its
+  `report.md` here rather than assuming Step 6 ran: Step 0 sends "land / merge / ship a worker"
+  straight to this step, so on this path it has not.
 
 **Verify the base ref resolves before gathering anything.** This check is not optional and
 nothing below it runs until it passes:
@@ -1629,7 +1640,10 @@ again. Read its `report.md` for an `Answer:` line under every `###` slug **insid
 `## Waiting on a decision`** before you stop anything, and where one is missing take it to Step 6
 instead. Only that section's slugs count - a report carries `###` headings for other things, the
 per-round records the `Repeated findings` instruction asks for among them, and refusing teardown
-over one of those bounces a delivered worker between here and a step that finds nothing waiting. This is the same shape as the floor above -
+over one of those bounces a delivered worker between here and a step that finds nothing waiting.
+**A section holding text with no `###` slug in it at all is missing an answer too**, per Step 6,
+which owns what counts as unanswered: no entries to read is a malformed report, and this is the
+one place where reading it as a pass cannot be taken back. This is the same shape as the floor above -
 both refuse an irreversible cleanup over work that is not finished.
 
 **`report.md` survives teardown, and must never be deleted as part of cleanup.** It lives at
