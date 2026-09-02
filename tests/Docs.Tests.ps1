@@ -954,11 +954,12 @@ Describe 'the ported reference skills are loadable and keep their load-bearing r
     }
 
     It 'statute matches a rule''s form to the failure it addresses' {
-        # The distinction is the whole section: a recipe where the output comes out the wrong
-        # shape, a prohibition where the rule is understood and skipped. Both halves are pinned,
-        # because half of it is advice that reads as arbitrary. The basis sentence is pinned with
-        # them - it is guidance from an outside measurement nobody has reproduced here, and a
-        # later edit that tidies the caveat away would leave a guess reading as a law.
+        # The distinction is the heart of the section: a recipe where the output comes out the
+        # wrong shape, a prohibition where the rule is understood and skipped. Both halves are
+        # pinned, because half of it is advice that reads as arbitrary, and so are the two
+        # corollaries that say how to write each form. The basis sentence is pinned with them -
+        # it is guidance from an outside measurement nobody has reproduced here, and a later
+        # edit that tidies the caveat away would leave a guess reading as a law.
         $text = Get-DocText $script:GuidelinesMd
         Assert-Phrase -Text $text -Where 'statute' `
             -Phrase ('A **shaping** failure is output coming out the wrong shape rather than a ' +
@@ -969,6 +970,12 @@ Describe 'the ported reference skills are loadable and keep their load-bearing r
         Assert-Phrase -Text $text -Where 'statute' `
             -Phrase ('It is unverified against kingshand''s, so treat it as guidance for the ' +
                      'next rule you write rather than a law')
+        Assert-Phrase -Text $text -Where 'statute' `
+            -Phrase ('**Do not append a nuance clause to a recipe that works** - it degrades ' +
+                     'the recipe.')
+        Assert-Phrase -Text $text -Where 'statute' `
+            -Phrase ('**an exemption clause does not scope**: "this limit does not apply to ' +
+                     'code blocks" still suppresses code blocks')
     }
 }
 

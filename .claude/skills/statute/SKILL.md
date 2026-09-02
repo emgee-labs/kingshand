@@ -144,8 +144,9 @@ mid-sentence.
 Two corollaries. **Do not append a nuance clause to a recipe that works** - it degrades the recipe.
 And **an exemption clause does not scope**: "this limit does not apply to code blocks" still
 suppresses code blocks, so say what to do in that case instead of carving it out. `CLAUDE.md` hard
-rule 5 is the worked example on our own material, a length prohibition with two exemptions hung off
-it - and it is the King's, out of scope, and stays.
+rule 5 is the worked example on our own material, a length prohibition with two exemptions hung
+off it - and it stays as written, because this guidance shapes the next rule rather than
+reopening one already in force.
 
 ## Style rules
 
