@@ -4203,3 +4203,196 @@ Describe 'a brief settles the mechanism questions that have no last review round
             -Phrase 'hard rule 1 says a worker checks it, so write the requirement as a premise to verify before building to it'
     }
 }
+
+# A third of the findings measured across six dispatches were criteria the reviewer was always
+# going to apply and no brief ever stated - and the single biggest block of waste was not findings
+# at all, but ten rounds of correct findings inside a design nobody questioned. These pin the two
+# answers: a per-project list the brief pastes in and the worker checks itself against, and a
+# tripwire that reports the third round without ever stopping the fixing.
+Describe 'a project has a standing definition of done, and repeated findings are reported not capped' {
+    BeforeAll {
+        $script:CritStep2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' `
+            -ToHeading 'Step 3 - Gate one'
+        $script:CritStep6 = Get-MusterStep 'Step 6 - Completion'
+        # The brief template is the one fence carrying both the Goal and the Done-means headings,
+        # and it is read raw because the assertion below is about the order of its sections.
+        $script:CritTemplate = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains('## Goal') -and $_.Contains('## Done means') })
+        # And normalised for everything else in it, so a sentence stays found when it is re-wrapped.
+        $script:CritTemplateText = if ($script:CritTemplate.Count -eq 1) {
+            ConvertTo-NormalisedText $script:CritTemplate[0]
+        } else { '' }
+        $script:CritDoneBlocks = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains("Implemented and committed on this worktree's branch.") } |
+            ForEach-Object { ConvertTo-NormalisedText $_ })
+    }
+
+    # The section has to sit in the brief, not in this skill: the worker reads one artefact and this
+    # file is not it. Its position is pinned because the criteria are what the Done-means line sends
+    # the worker back to, and a section below that line is one it works after the gate has run.
+    It 'the brief template carries the Standing criteria slot between Unchanged and Done means' {
+        $script:CritTemplate.Count |
+            Should -Be 1 -Because 'the brief template is one fence and the worker gets what it says'
+        $t = $script:CritTemplate[0]
+        $t.Contains('## Standing criteria') |
+            Should -BeTrue -Because 'the pasted criteria need a slot in the artefact the worker reads'
+        $t.IndexOf('## Unchanged') | Should -BeLessThan $t.IndexOf('## Standing criteria')
+        $t.IndexOf('## Standing criteria') | Should -BeLessThan $t.IndexOf('## Done means')
+    }
+
+    # A decision file does not load itself into a worker's session; a worker sees exactly one thing,
+    # its brief. So both, and for different reasons - which is the part an editor trimming one of
+    # them would undo.
+    It 'Step 2 names the file, pastes it, and delivers the copy as well' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase '**Paste the project''s standing criteria into the brief.**'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('`$env:KINGSHAND_HOME\data\done-<project>.md` - one line per criterion, each ' +
+                     'naming how it is checked')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('paste its numbered lines into `## Standing criteria` unchanged, and hand the ' +
+                     'same file to `-ReadPath` at Step 4')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('the paste is in the artefact the worker is judged against, so it is what gets ' +
+                     'complied with, and the copy is what a mid-task re-read reaches')
+    }
+
+    It 'an empty list is written down rather than the section being dropped' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('Where the project has no such file yet, write `- Nothing standing for this ' +
+                     'project yet.` rather than dropping the section')
+    }
+
+    # The file is a standing list and the brief is this task's instruction, so the brief has to win
+    # or a worker deciding for itself picks wrong half the time. The intent string is the other half:
+    # a criterion broken silently is what the review gate raises a finding about.
+    It 'the brief wins over the standing file, and the exception is named in the intent string' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('say so in `Requirements` or `Unchanged` and in the gate''s `--intent` - the ' +
+                     'brief wins over the file')
+    }
+
+    # In all four, because the criteria only ever mattered as something the worker is made to work
+    # through. The count stays four - per-project content inside these blocks would multiply them.
+    It 'all four Done-means blocks make the worker work the list before the gate' {
+        $script:CritDoneBlocks.Count | Should -Be 4
+        foreach ($block in $script:CritDoneBlocks) {
+            $block.Contains('Before you invoke the gate - or before you stop on the branch where there is no gate - work the `Standing criteria` section above line by line and record the result in `report.md`') |
+                Should -BeTrue -Because 'the self-check is worked before the gate, in every mode'
+            $block.Contains('`pass` with what you checked, `fixed` with what you changed, or `n/a` with the reason') |
+                Should -BeTrue -Because 'a recorded result is what the Hand compares against the findings'
+            $block.Contains('A criterion you cannot check is a criterion to report, not to skip.') |
+                Should -BeTrue -Because 'an unreportable skip is how the self-check becomes a formality'
+        }
+    }
+
+    # Three rounds in one component and three failed fixes on one bug are the same signal reached
+    # from two directions, and the rule was stated in three places before this. Per component, not
+    # per run: three rounds spread across three areas is ordinary convergence.
+    It 'the tripwire trigger counts failed fix attempts as well as rounds in one component' {
+        $script:CritTemplateText.Contains('On the third round of findings in one component, or the third failed attempt at one bug') |
+            Should -BeTrue -Because 'both halves of the trigger reach the worker or neither does'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('Its trigger counts failed fix attempts on one bug as well as rounds of ' +
+                     'findings in one component, because three failed fixes is not a failed ' +
+                     'hypothesis, it is the wrong architecture')
+    }
+
+    # The load-bearing assertion of the whole tripwire. `emgee-agent-crawlable` ran about ten rounds
+    # and found genuine defects in every one, so a rule that stopped the fixing at three would have
+    # shipped them - the tripwire's only permitted action is to write and report. Delete the clause
+    # and the rule silently becomes a cap.
+    It 'the tripwire never stops the fixing' {
+        $script:CritTemplateText.Contains('**carry on fixing every finding as normal.** Nothing here caps the rounds or lets you stop early.') |
+            Should -BeTrue -Because 'the worker is told to keep fixing at the moment it counts three'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('never soften **carry on fixing every finding as normal** into permission to ' +
+                     'stop, and never put a round limit beside it')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase 'a rule that stopped the fixing at three would have shipped every one of them'
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase 'It is never a reason to have capped the fixing.'
+    }
+
+    It 'the tripwire reports the tally and the design question, in the report and in the message' {
+        $t = $script:CritTemplateText
+        $t.Contains('Additionally write into `report.md` the tally, what each round found there, and the design question: what that component is doing that keeps producing findings, and what the alternative is.') |
+            Should -BeTrue -Because 'a tally with no design question beside it is just a number'
+        $t.Contains('Say it in your final message too, so it arrives as a finding rather than a completion notice.') |
+            Should -BeTrue -Because 'a report nobody is told to read arrives after the Hand has moved on'
+    }
+
+    # The rule was stated in `petition` step 7, proposed again for the tripwire, and reached us a
+    # third time from outside. One owner, and every other mention is a cross-reference - the two
+    # copies drift the moment only one of them is edited.
+    It 'one owner: petition points at the rule rather than keeping a second copy' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('this is the only place it is stated - `petition` step 7 points here rather ' +
+                     'than keeping a second copy')
+        Assert-Phrase -Text (Get-DocText $script:AskUserMd) -Where 'petition step 7' `
+            -Phrase ('Repeated same-theme findings are the `Repeated findings` rule''s subject, ' +
+                     'stated in full in `muster` Step 2 and nowhere else')
+        (Get-DocText $script:AskUserMd).Contains('incremental corrections are preserving a questionable abstraction') |
+            Should -BeFalse -Because 'petition cross-references the rule and never restates it'
+    }
+
+    # The loop that makes the list grow from evidence instead of from invention. Without it a
+    # criterion learned at a gate round lives in one report and the next dispatch pays for it again.
+    It 'Step 6 folds a finding no criterion matched back into the file' {
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase '**Fold back what the standing criteria missed.**'
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('A finding that matches a criterion the worker recorded `pass` means that ' +
+                     'criterion is written too vaguely to check, or was skipped')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('A finding that matches no criterion at all is a candidate line for ' +
+                     '`$env:KINGSHAND_HOME\data\done-<project>.md`')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase 'writing it with `Write-DataFile` from `bin\Index.psm1` where it does not'
+    }
+
+    It 'Step 6 escalates a round tally as a finding rather than filing it as progress' {
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase '**A round tally in a report is a finding, not a completion notice.**'
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase 'file it as a backlog item and let `decree` own the decision from there'
+    }
+
+    # `emgee-apex-design` named all seven of its settled decisions in the intent string and came back
+    # with engineering findings only; `kh-decision-carry` left a stale one and the gate raised a
+    # finding against the mismatch. The cheapest lever measured anywhere in that evidence.
+    It 'the intent string names what the task deliberately sets aside' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase '**Say in `--intent` what this task deliberately sets aside.**'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase 'add to it the settled decisions and standing criteria this work breaks, and why'
+    }
+
+    # And the boundary that has to come with it. A wider intent string is exactly what somebody
+    # would use to suppress findings while believing they were being helpful, and from outside a
+    # suppressed run and a well-prepared one look identical.
+    It 'the intent string is never used to tell the gate what not to flag' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase '**Never tell the review gate what not to flag.**'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('That string says what the work is for; it never says what the reviewer may ' +
+                     'not find.')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('Name the decision and the evidence for it, and let the gate raise the finding ' +
+                     'anyway.')
+    }
+
+    # The prohibition lands paired with the rationalisations it is meant to catch, so the writer
+    # recognises their own sentence mid-draft rather than having to judge their own motive. All four
+    # are real declines from this repository's gate history, turned into an instruction.
+    It 'and it lists the phrasings that give it away' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase '"the prose assertions in `Docs.Tests.ps1` are settled, do not raise them again"'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase '"the design notes in `docs\` are settled, so raise nothing against them"'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase '"the King has already declined findings of this class"'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase '"no linter is configured here, so ignore lint"'
+    }
+}
