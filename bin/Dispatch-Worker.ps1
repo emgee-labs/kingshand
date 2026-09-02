@@ -86,6 +86,17 @@
   follow is the settled-spec failure at a larger scale and worse, because it looks solved. Neither
   way past is an absence: an empty section, or a heading with nothing under it, still refuses.
 
+  EXACTLY ONE -ReadPath does not count towards it: data\done-<project>.md for the project this
+  dispatch resolved to, the standing-criteria file muster hands over on every brief for a project
+  that has one. Counting a path passed by rote would make this refusal unreachable from the moment
+  the first criteria file is written, and the premise of the whole check is that a -ReadPath is
+  evidence the Hand went through the index for THIS task. Every other path counts, including another
+  file sitting beside it in data\. When the discounted path is the only one the brief passed, the
+  refusal says which path it discounted and why - a message denying what the reader can see it just
+  did is one nobody can act on - and it recommends muster's longer stated line rather than the short
+  one, because the short one would tell the worker there is nothing beyond the brief in the same
+  breath as the section hands it the criteria copy.
+
   EVERY index that could cover the dispatch counts, and the root one counts first. data\index.md is
   where the settled files this gate exists to protect actually land - chronicle, annex and survey all
   write data\<topic>.md with no project - while data\index\<project>.md holds little beyond briefs
@@ -362,17 +373,60 @@ if ($gates.Count -gt 0) {
         }
     }
 
-    if ($staged.Count -eq 0 -and -not $statesIndexChecked) {
+    # The project's standing-criteria file does not count towards this. muster hands it to -ReadPath
+    # on EVERY brief for a project that has one, so counting it would make this refusal unreachable
+    # from the moment the first one is written - and the gate's whole premise is that a -ReadPath is
+    # evidence the Hand went through the index for THIS task. A path passed by rote is no evidence.
+    # Every other -ReadPath still counts, including another file sitting beside it in data\.
+    #
+    # The root comes from Index.psm1's own Resolve-IndexDataPath, so this path and the entries
+    # Get-IndexEntries just read above are rooted by one rule. GetFullPath alone would not be that
+    # rule: it resolves against the process working directory, which Set-Location does not move, so
+    # a relative -DataPath could put the criteria file somewhere the index never looked and the
+    # discount would silently stop discounting.
+    #
+    # Unguarded on purpose. A root this cannot resolve has to stop the dispatch, not fall through to
+    # an empty $byRote - that discounts nothing, opens the gate for the projects furthest along, and
+    # says so nowhere. Nothing is created before this point, so throwing here costs the caller only
+    # the message.
+    $byRote = ''
+    if ($project) {
+        $byRote = Join-Path (Resolve-IndexDataPath -DataPath $DataPath) "done-$project.md"
+    }
+    $engaged = @($staged.Values | Where-Object {
+        -not ($byRote -and $_.Equals($byRote, [System.StringComparison]::OrdinalIgnoreCase))
+    })
+
+    if ($engaged.Count -eq 0 -and -not $statesIndexChecked) {
         # Every index that triggered this is named with its path, because the refusal is the Hand's
         # instruction sheet: a refusal that says only "an index" is one the reader has to research.
         $named = ($gates | ForEach-Object { "$($_.label) at $($_.path), listing $($_.count) file(s)" }) -join '; '
+        # Said plainly when the brief DID pass a path, or the Hand reads a refusal denying what it
+        # can see it just did and has no way to work out which path was discounted.
+        #
+        # The line recommended below changes with it, and has to. In the ordinary case the section
+        # names no file and the literal line is true. In the discount case the section already hands
+        # the worker the criteria copy, so that same line would tell it there is nothing beyond the
+        # brief in the same breath - the contradiction muster rules out. So this branch recommends
+        # muster's paraphrase, which states both halves and passes the regex above unchanged.
+        $discounted = ''
+        $stated = "'- Nothing beyond this brief - the index was checked and nothing in it applies.'"
+        if ($staged.Count -gt 0) {
+            $discounted = ("The only file this brief passes is the standing-criteria file $byRote, " +
+                           "which every brief for this project passes and which therefore says " +
+                           "nothing about this task. ")
+            $stated = ("'- The index was checked; nothing in it applies to this task beyond the " +
+                       "standing criteria above.' - which says so without contradicting the " +
+                       "criteria line already in the section.")
+        }
         throw ("This dispatch is gated by $named - and this brief neither names a file from them to " +
-               "read nor says they were checked. A worker reads exactly one thing, so a settled file " +
+               "read nor says they were checked. $discounted" +
+               "A worker reads exactly one thing, so a settled file " +
                "no brief names reaches it not at all - which is how a site shipped without the brand " +
                "that was already decided. Open each index named above, then either pass -ReadPath for " +
                "each file this task touches and name the copies under 'Read first', or put one line " +
-               "there saying the index was checked and nothing in it applies - '- Nothing beyond this " +
-               "brief - the index was checked and nothing in it applies.' Nothing was created.")
+               "there saying the index was checked and nothing in it applies - $stated Nothing was " +
+               "created.")
     }
 }
 

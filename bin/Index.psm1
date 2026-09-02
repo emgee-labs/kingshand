@@ -57,6 +57,10 @@ function Get-DefaultIndexDataPath {
 #
 # It does not require the directory to exist: an index can be written into a data directory that
 # is about to be created.
+#
+# Exported, because anything outside this module that compares a path against what an index holds
+# has to arrive at the same absolute root. A second copy of the rooting rule is a copy that drifts,
+# and the two roots then differ only for a relative -DataPath - the case nothing routine exercises.
 function Resolve-IndexDataPath {
     param([Parameter(Mandatory)][string]$DataPath)
 
@@ -511,5 +515,5 @@ function Get-IndexDrift {
 
 Export-ModuleMember -Function Get-IndexPath, Get-AllIndexPaths, Get-IndexEntries, Add-IndexEntry,
                               Remove-IndexEntry, Write-DataFile, Get-IndexableFiles, Get-IndexDrift,
-                              Get-DefaultIndexDataPath, Test-IndexProjectName, Get-IndexProjectNameRule,
-                              ConvertTo-IndexProjectName
+                              Get-DefaultIndexDataPath, Resolve-IndexDataPath, Test-IndexProjectName,
+                              Get-IndexProjectNameRule, ConvertTo-IndexProjectName

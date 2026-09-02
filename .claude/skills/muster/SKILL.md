@@ -238,6 +238,20 @@ failure this whole mechanism exists to stop - a settled spec that sat in `data\`
 site it described shipped without it. Reading the index is the first line of this step for exactly
 that reason; the refusal is what stops a busy session skipping it.
 
+**The standing-criteria file below does not discharge this.** It goes to `-ReadPath` on every brief
+for a project that has one, so a gate that counted it would be one no dispatch could ever fail
+again - and dispatch knows it, discounting `done-<project>.md` from the paths that satisfy this
+refusal. Where it is the only file this task touches, a line about the index still goes in the
+section beside it - but not the literal one above, which would tell the worker there is nothing
+beyond the brief in the same breath as handing it a file to read. Write what is true instead:
+
+```markdown
+- The index was checked; nothing in it applies to this task beyond the standing criteria above.
+```
+
+Dispatch accepts that because it states both halves, and the worker gets a section that agrees with
+itself. Any other file you pass counts as it always did.
+
 **Name the copy, not the original.** A worker can reach exactly two places: its own worktree and
 the brief's own directory. A settled file at `data\<name>.md` is a sibling of `data\<id>\` rather
 than inside it, so a brief naming it there tells the worker to open a file it cannot reach - the
@@ -268,6 +282,27 @@ canonical settled file sits directly under `data\`, so that grant hands the work
 worker's brief and report, `king.md`, `learnings.md`, `backlog.md` and `projects.md`, and hands
 them writable. Do not ask for it.
 
+**Paste the project's standing criteria into the brief.** They live at
+`$env:KINGSHAND_HOME\data\done-<project>.md` - one `-` bullet per criterion, each naming how it is
+checked, and that one form is what every line of that file takes wherever it is written or read -
+and they are what every change to that project is expected to meet whether or not this task's
+ticket mentions them. Read the file, paste its lines into `## Standing criteria` unchanged, and
+hand the same file to `-ReadPath` at Step 4 with a `Read first` line naming the copy, exactly like
+any other settled file. Both, and for different reasons: the paste is in the artefact the worker is
+judged against, so it is what gets complied with, and the copy is what a mid-task re-read reaches.
+Where the file holds no criteria - it does not exist yet, or the fold-back has retired its last
+line - write `- Nothing standing for this project yet.` rather than dropping the section, so an
+empty list is a decision someone made. Key that on what the file holds and never on whether it
+exists: a file retired down to nothing pastes an empty section, and a worker cannot tell an empty
+section from one it forgot to work. Where the file is absent, also write no `Read first` line for
+it and pass no `-ReadPath` for it either, because Step 4 refuses a brief naming a file that is not
+there and the refusal costs a whole dispatch. Read the file every time even so, and never carry an
+absence forward from the last brief you wrote: the fold-back at Step 6 creates it the first time a
+gate finding generalises, so a project with nothing standing today has criteria the next dispatch
+is expected to meet. Where a criterion is one this task deliberately sets aside, say so in
+`Requirements` or `Unchanged` and in the `Intent` section the gate is handed - the brief wins over
+the file, and a worker left to work out which source wins picks wrong half the time.
+
 Write `$env:KINGSHAND_HOME\data\<id>\brief.md`:
 
 ```markdown
@@ -293,6 +328,34 @@ Do NOT touch: <explicit exclusions>
 ## Unchanged
 - <behaviour that must not change>
 
+## Standing criteria
+<the lines of `data\done-<project>.md`, pasted unchanged>
+
+## Intent
+<the Goal in one line, plus every settled decision and standing criterion this task sets aside,
+and why - this is the string the gate is given verbatim>
+
+## Repeated findings
+1. While you fix, keep a tally two ways: gate rounds by the file or component they landed in, and
+   failed fix attempts per bug. The failed-attempt half applies whatever this brief asks of you.
+   The round half applies only where the `Done means` block below has you run the review gate -
+   where it does not there is no pass and no round to record, a report with no rounds in it is the
+   right record rather than a missing one, and you never write a round for a gate you did not run.
+   Where it does, the tally is kept as it happens rather than reconstructed at the end. Record every
+   round in `report.md` as it lands - what it found and where - whether or not the tally ever reaches
+   three, because that record is the only thing the standing criteria can be compared against once
+   you are gone. Record the first pass even when it raises nothing, as `round 1: no findings`, so
+   that a report with no rounds in it means the recording was skipped rather than that the gate was
+   clean.
+2. On the third round of findings in one component, or the third failed attempt at one bug, **carry
+   on fixing every finding as normal.** Nothing here caps the rounds or lets you stop early.
+3. Additionally write into `report.md` the tally, what each round or attempt found, and the design
+   question: what keeps producing them - the component that goes on raising findings, or the bug
+   that will not stay fixed - and what the alternative is. Whichever of the two triggers fired is
+   the one to write up, and on a brief that runs no review gate the failed attempts are the only
+   trigger there is. Say it in your final message too, so it arrives as a finding rather than a
+   completion notice.
+
 ## Done means
 <the block for this project's mode - see below>
 ```
@@ -314,6 +377,12 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
 
 ```markdown
 - Implemented and committed on this worktree's branch.
+- Before you deliver - before you invoke the gate, push, open a pull request, or stop on the
+  branch - work the `Standing criteria` section above line by line and record the result in
+  `report.md`: for each line, `pass` with what you checked, `fixed` with what you changed, or `n/a`
+  with the reason. A criterion you cannot check is a criterion to report, not to skip. Where
+  `Requirements` or `Unchanged` sets a criterion aside, this brief overrides that line: record it
+  `n/a` naming the brief line that set it aside, and do not implement it.
 - Stop on the branch. Do not push. Do not open a PR. Do not merge.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
   required every time, including when the work succeeded plainly with nothing surprising in it.
@@ -334,6 +403,12 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
 
 ```markdown
 - Implemented and committed on this worktree's branch.
+- Before you deliver - before you invoke the gate, push, open a pull request, or stop on the
+  branch - work the `Standing criteria` section above line by line and record the result in
+  `report.md`: for each line, `pass` with what you checked, `fixed` with what you changed, or `n/a`
+  with the reason. A criterion you cannot check is a criterion to report, not to skip. Where
+  `Requirements` or `Unchanged` sets a criterion aside, this brief overrides that line: record it
+  `n/a` naming the brief line that set it aside, and do not implement it.
 - Push the branch and open a pull request against the default branch.
 - Do not merge it. Report the pull request's full https:// URL in your final message.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
@@ -355,8 +430,19 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
 
 ```markdown
 - Implemented and committed on this worktree's branch.
+- Before you deliver - before you invoke the gate, push, open a pull request, or stop on the
+  branch - work the `Standing criteria` section above line by line and record the result in
+  `report.md`: for each line, `pass` with what you checked, `fixed` with what you changed, or `n/a`
+  with the reason. A criterion you cannot check is a criterion to report, not to skip. Where
+  `Requirements` or `Unchanged` sets a criterion aside, this brief overrides that line: record it
+  `n/a` naming the brief line that set it aside, and do not implement it.
 - Run the review gate from inside the worktree and fix what it parks:
-  `no-mistakes axi run --intent "<the Goal above, one line>"`
+  `no-mistakes axi run --intent '<the `Intent` section above, verbatim on one line>'`
+  Single quotes, and keep them: that section names files, modes and postures in backticks, and in a
+  double-quoted PowerShell string a backtick escapes the character after it, so the gate would be
+  handed a mangled sentence and no error. Run the line in PowerShell and double any single quote
+  inside the section - doubling is PowerShell's escape, and in a POSIX shell the same two
+  characters close and reopen the string, so the apostrophe is deleted instead.
 - Drive the pipeline through to a pull request and report its full https:// URL when CI is
   first green. Do not merge it.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
@@ -374,13 +460,26 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   message rather than reporting success.
 ```
 
-`no-mistakes`, where Step 1b answered `no-ci` or `unknown`. Identical but for the third line, which
-is the whole point of the preflight - it ends a wait that would otherwise have no end:
+`no-mistakes`, where Step 1b answered `no-ci` or `unknown`. Identical but for the `Drive the
+pipeline` line, which is the whole point of the preflight - it ends a wait that would otherwise have
+no end. Named by its text and never by its position: bullets get inserted above it, and an ordinal
+that has gone stale points a Hand at the gate-run bullet instead:
 
 ```markdown
 - Implemented and committed on this worktree's branch.
+- Before you deliver - before you invoke the gate, push, open a pull request, or stop on the
+  branch - work the `Standing criteria` section above line by line and record the result in
+  `report.md`: for each line, `pass` with what you checked, `fixed` with what you changed, or `n/a`
+  with the reason. A criterion you cannot check is a criterion to report, not to skip. Where
+  `Requirements` or `Unchanged` sets a criterion aside, this brief overrides that line: record it
+  `n/a` naming the brief line that set it aside, and do not implement it.
 - Run the review gate from inside the worktree and fix what it parks:
-  `no-mistakes axi run --intent "<the Goal above, one line>"`
+  `no-mistakes axi run --intent '<the `Intent` section above, verbatim on one line>'`
+  Single quotes, and keep them: that section names files, modes and postures in backticks, and in a
+  double-quoted PowerShell string a backtick escapes the character after it, so the gate would be
+  handed a mangled sentence and no error. Run the line in PowerShell and double any single quote
+  inside the section - doubling is PowerShell's escape, and in a POSIX shell the same two
+  characters close and reopen the string, so the apostrophe is deleted instead.
 - Drive the pipeline through to a pull request and stop there.
   Checks may not report on this repository at all, so when the pipeline's `ci` step has been
   waiting more than fifteen minutes with no checks reported, report the pull request's full
@@ -401,9 +500,9 @@ is the whole point of the preflight - it ends a wait that would otherwise have n
   message rather than reporting success.
 ```
 
-That third line is `$ci.briefLine` from Step 1b, and taking it from there rather than retyping it is
-the point: the two must agree, and only one of them is computed from what the repository actually
-has. **Do not decide between the two blocks yourself** - a repository with no workflow file may
+That `Drive the pipeline` line is `$ci.briefLine` from Step 1b, and taking it from there rather than
+retyping it is the point: the two must agree, and only one of them is computed from what the
+repository actually has. **Do not decide between the two blocks yourself** - a repository with no workflow file may
 still get checks from outside it, which is exactly the case a reading-by-eye gets wrong.
 
 **The no-interactive-prompts rule is absolute, and it is there because a worker hung on it for
@@ -448,6 +547,26 @@ because nothing could leave the machine; a project registered `no-mistakes` has 
 full pipeline. Never add them back for a `no-mistakes` project, and never remove the push
 prohibition from the `local-only` variant.
 
+**Say in `--intent` what this task deliberately sets aside.** You write that string, not the worker:
+it is the `Intent` section of the brief, and the two `no-mistakes` blocks hand it to the gate
+verbatim. Start from the Goal in one line and add to it the settled decisions and standing criteria
+this work breaks, and why. Leaving the section to say only what the Goal says is how a set-aside
+recorded in `Requirements` or `Unchanged` never reaches the gate at all.
+`emgee-apex-design` named all seven of its settled decisions there and came back with engineering
+findings only and no ask-user finding at all, where `kh-decision-carry` left a stale intent string
+and the gate duly raised a finding against the mismatch.
+
+**Never tell the review gate what not to flag.** That string says what the work is for; it never
+says what the reviewer may not find. A wider intent is exactly where someone weakens the gate while
+believing they are being helpful, and from outside the two are indistinguishable - a run that
+raised nothing looks identical either way - so catch it in your own sentence rather than in your
+motive. You are already doing it if you write "the prose assertions in `Docs.Tests.ps1` are
+settled, do not raise them again", "the design notes in `docs\` are settled, so raise nothing
+against them", "the King has already declined findings of this class", or "no linter is configured
+here, so ignore lint". Each of those is a real decline from this repository's own gate history
+turned into an instruction to the reviewer. Name the decision and the evidence for it, and let the
+gate raise the finding anyway.
+
 Rules about writing briefs, all learned the hard way:
 
 **`Unchanged` is mandatory whenever the ticket states it.** Those lines are instructions not to
@@ -469,6 +588,25 @@ enumeration failure - enumerating is what ends both, by showing the list has no 
 already know a requirement reads an open format, say so in `Requirements` rather than leaving the
 worker to find out at round six, and say what to do about it: take an existing library, or change
 the requirement so the input is not open-ended.
+
+**The `Repeated findings` section in the template is a report, never a cap.** Those ten rounds
+found genuine defects every time, so a rule that stopped the fixing at three would have shipped
+every one of them - what was actually wrong was a single design decision nobody questioned, and the
+rounds were the signal that surfaced it. So the section adds writing and reporting to the worker's
+job and takes nothing away from it: never soften **carry on fixing every finding as normal** into
+permission to stop, and never put a round limit beside it. Its trigger counts failed fix attempts
+on one bug as well as rounds of findings in one component, because three failed fixes is not a
+failed hypothesis, it is the wrong architecture. The two actors it touches are gated differently and
+conflating them is what turns the rule back into a cap. The worker's own fixing is never gated at
+all: it keeps fixing at three rounds and at ten, and the only thing the tripwire adds is what it
+writes down. Your own decision is the single place a round count can hold anything back, and only in
+one case - deciding an ask-user finding under `petition`, withhold the Fix authorization and
+escalate where the rounds show incremental corrections preserving a questionable abstraction rather
+than closing independent defects. Where they were closing independent defects it is ordinary
+convergence: a bare count of three is not an escalation on its own, so authorize the Fix on the
+finding's own merits and send the design question to the user beside it. That is the whole rule
+about repeated findings and this is the only place it is stated - `petition` step 7 points here
+rather than keeping a second copy.
 
 **A requirement that names a mechanism carries the fact it rests on.** `kh-dispatch-index-gate`'s
 brief said to gate on a project's own index. The worker built exactly that, then found that
@@ -547,7 +685,8 @@ read. Drop the parameter only when the section states there is nothing to read.
 Every refusal comes before anything at all is created, so a mistake here costs nothing to fix.
 There are five, and each is refused by name: a brief with no `## Read first` section at all, a
 brief that passes no `-ReadPath` and does not say the index was checked when anything at all is
-indexed, a path that does not exist, a directory where a file was meant, and two different files
+indexed - and the standing-criteria file does not count towards that one, per Step 2, which owns
+the rule - a path that does not exist, a directory where a file was meant, and two different files
 whose names would land on top of each other in the staging directory.
 
 **Dispatch does not read the paths out of the brief's prose, and nothing may make it start.** An
@@ -799,6 +938,63 @@ Get-Content "$env:KINGSHAND_HOME\data\<id>\report.md" -Raw
 **A missing report is itself worth reporting.** It means the worker did not follow its brief, so
 say so to the user rather than quietly falling back - and treat everything else that worker
 claims with the same suspicion, since the one instruction you can check it against was ignored.
+
+**Fold back what the standing criteria missed.** The worker's self-check block and the gate's
+round-one findings are two readings of the same change, so compare them. **That comparison needs a
+gate, and most projects have none.** On a `local-only` or `direct-PR` project - including a
+`no-mistakes-prod-only` project whose task resolved to `direct-PR` - there is no gate and no round
+to compare against, so this loop does not fire, and a report with no rounds in it is the record
+that brief asked for rather than one to query. Where this task did run the review gate, both
+readings are in `report.md`: the `Repeated findings` section of the brief made the worker record
+every round there as it landed, and the first pass as `round 1: no findings` where it raised none,
+so a report carrying a self-check block and no rounds at all is one to ask about rather than one
+with nothing to fold back. Read the self-check block either way, because a criterion the worker
+could not check - one it could not tell whether this change met, for want of the line saying how -
+is the same wording problem arriving from the other side. **Most `n/a`s are not that.** A criterion
+whose subject this change does not touch is answered correctly by `n/a` - `- Every new component
+has a Storybook story` against a task that fixes a CSS bug and adds no component - and so is one
+this brief set aside. Both are the right answer, and neither is reworded nor recorded: most useful
+criteria are conditional, so rewording every line a change happens not to touch would churn the
+file this loop exists to build, on every unrelated dispatch. A criterion workers keep recording
+`n/a` against for want of anything to check is the retire branch below, once it has happened more
+than once - not a wording problem the first time. A section whose only line is `- Nothing standing
+for this project yet.` is neither: there was nothing to check, the `n/a` against it is the only
+answer available, and it is not a criterion to reword or a reason to create the file. A finding
+that matches a criterion the worker recorded `pass` or `fixed` means that criterion did not end
+the defect: written too vaguely to check, or skipped, or worked and still leaving the same class
+of defect behind it. Either way the wording is what needs fixing, so rewrite that line in place
+in the same turn you read the report, in the file's one `-` bullet form, and say what you changed.
+`fixed` is in that branch deliberately - a criterion the worker acted on and the gate then caught
+anyway is the clearest evidence there is that the line does not say enough. A criterion this brief
+set aside is not that: the `n/a` is the correct answer and there is nothing to reword. A finding
+that matches no criterion at all is a candidate line for
+`$env:KINGSHAND_HOME\data\done-<project>.md`, and one test decides it: would it apply to the next
+unrelated change to this project? A one-off defect in one function is a finding and belongs in the
+report or a backlog item, however real it was - the file is pasted into every brief for the
+project, so a line that does not generalise is one every future worker reads, works through and
+records `n/a` against forever. Where it passes that test, add it in the same turn you read the
+report, in that file's one form of a `-` bullet naming how it is checked, editing the file in place
+where it already exists or writing it with `Write-DataFile -Project "<project>"` from
+`bin\Index.psm1` where it does not - name the project, or the entry lands in kingshand's own
+`data\index.md` and the next session reading `data\index\<project>.md` finds no trace of it. Where
+the file holds only `- Nothing standing for this project yet.`, the first real criterion replaces
+that line rather than joining it: the placeholder says there are no criteria, so a file holding
+both says two contradictory things and leaves every future worker working a line it can only
+record `n/a` against. Retire a line the same way you add one, in the turn the evidence arrives:
+when the code it guarded is gone, when it has stopped discriminating because the practice is now
+enforced by a test or a linter, or when workers keep recording it `n/a` on unrelated dispatches
+for want of anything to check, delete it and say so. Where that was the file's last line, leave
+`- Nothing standing for this project yet.` in its place rather than an empty file, so the next
+brief pastes a decision somebody made instead of a blank section. This is the only thing that
+makes the list grow from evidence instead of from invention, and a criterion learned at a gate
+round and left sitting in a report is one somebody pays for again a dispatch later.
+
+**A round tally in a report is a finding, not a completion notice.** Where the worker reports three
+rounds of findings in one component or three failed attempts at one bug, escalate it with the tally
+and the design question in the worker's own terms: what kept producing findings there, and what the
+alternative was. It reaches the user immediately, like any other finding. Where the answer is a
+design change nobody has made, file it as a backlog item and let `decree` own the decision from
+there. It is never a reason to have capped the fixing.
 
 **Before you treat this worker's work as complete, load `decree`.** A `report.md`
 that names a decision the brief did not settle is exactly its trigger, and the Done-means block

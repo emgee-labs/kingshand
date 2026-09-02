@@ -348,6 +348,29 @@ Describe 'a file no index lists is drift, and drift is counted' {
             Should -BeFalse -Because 'an index does not index itself, whichever way its directory was named'
     }
 
+    # The rooting rule is exported because Dispatch-Worker's index gate composes
+    # data\done-<project>.md against it. Anything that resolved the same relative -DataPath its own
+    # way would name a different file - GetFullPath goes to the PROCESS working directory, which
+    # Set-Location does not move - and the gate would compare two paths that can never be equal.
+    It 'roots a relative data directory where the index functions themselves read it' {
+        $data = New-DataFixture 'relative-one-root'
+        New-DataFile -DataPath $data -Relative 'listed.md' | Out-Null
+        Add-IndexEntry -Path 'data\listed.md' -Summary 'listed' -Project 'acme' -DataPath $data | Out-Null
+
+        Push-Location (Split-Path $data -Parent)
+        try {
+            $resolved = Resolve-IndexDataPath -DataPath 'data'
+            $entries  = @(Get-IndexEntries -Project 'acme' -DataPath 'data')
+        } finally { Pop-Location }
+
+        $resolved | Should -Be (Resolve-IndexDataPath -DataPath $data) `
+            -Because 'the same directory named relatively and absolutely is one root'
+        @($entries).Count | Should -Be 1
+        @($entries)[0].exists | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $resolved 'listed.md') |
+            Should -BeTrue -Because 'the resolved root has to be the one holding the file that index just listed'
+    }
+
     It 'reads an installation with no data directory as empty rather than failing' {
         $absent = Join-Path $TestDrive 'never-installed\data'
         { Get-IndexDrift -DataPath $absent } | Should -Not -Throw

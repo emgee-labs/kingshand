@@ -103,6 +103,9 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
 - `state\crew.json` - worker id to ticket, repo, stage. Maintained via `bin\Crew.psm1`.
 - `data\projects.md` - the project registry: standing delivery posture per project. Maintained
   via `/annex` or by hand.
+- `data\done-<project>.md` - one project's standing definition of done, one `-` bullet per
+  criterion. Pasted into every brief for that project, and grown from gate evidence at close-out.
+  `muster` owns both of those and nothing else restates them.
 - `data\backlog.md` - the durable work queue. Maintained via `tasks-axi`; the Backlog contract
   below owns it.
 - `data\<id>\brief.md` - the brief given to each worker.
@@ -277,6 +280,9 @@ an older backlog line, ticket text or report - a worker left to choose picks wro
   appending forever.
 - Task-scoped notes belong with the backlog item, and investigation findings belong in that worker's
   `data\<id>\report.md`.
+- A criterion every future change to one project must meet is the one exception to the bullet
+  below: it belongs in `data\done-<project>.md`, which you do write, in the turn the evidence for
+  it arrives. `muster` owns what qualifies.
 - Knowledge useful to every contributor to one project belongs in that project's own memory file,
   written by a worker through its delivery path, never by you. Hard rule 1 is not relaxed for a
   memory file.

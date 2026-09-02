@@ -2956,9 +2956,11 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase ('There are five, and each is refused by name: a brief with no ' +
                      '`## Read first` section at all, a brief that passes no `-ReadPath` and does ' +
-                     'not say the index was checked when anything at all is indexed, a path that ' +
-                     'does not exist, a directory where a file was meant, and two different files ' +
-                     'whose names would land on top of each other in the staging directory.')
+                     'not say the index was checked when anything at all is indexed - and the ' +
+                     'standing-criteria file does not count towards that one, per Step 2, which ' +
+                     'owns the rule - a path that does not exist, a directory where a file was ' +
+                     'meant, and two different files whose names would land on top of each other ' +
+                     'in the staging directory.')
     }
 
     # A single quoted placeholder is filled in with two paths in one string, which names no file
@@ -4201,5 +4203,632 @@ Describe 'a brief settles the mechanism questions that have no last review round
             -Phrase 'would have refused nothing, ever'
         Assert-Phrase -Text $script:MusterStep2 -Where 'muster Step 2' `
             -Phrase 'hard rule 1 says a worker checks it, so write the requirement as a premise to verify before building to it'
+    }
+}
+
+# A third of the findings measured across six dispatches were criteria the reviewer was always
+# going to apply and no brief ever stated - and the single biggest block of waste was not findings
+# at all, but ten rounds of correct findings inside a design nobody questioned. These pin the two
+# answers: a per-project list the brief pastes in and the worker checks itself against, and a
+# tripwire that reports the third round without ever stopping the fixing.
+Describe 'a project has a standing definition of done, and repeated findings are reported not capped' {
+    BeforeAll {
+        $script:CritStep2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' `
+            -ToHeading 'Step 3 - Gate one'
+        $script:CritStep6 = Get-MusterStep 'Step 6 - Completion'
+        # The brief template is the one fence carrying both the Goal and the Done-means headings,
+        # and it is read raw because the assertion below is about the order of its sections.
+        $script:CritTemplate = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains('## Goal') -and $_.Contains('## Done means') })
+        # And normalised for everything else in it, so a sentence stays found when it is re-wrapped.
+        $script:CritTemplateText = if ($script:CritTemplate.Count -eq 1) {
+            ConvertTo-NormalisedText $script:CritTemplate[0]
+        } else { '' }
+        $script:CritDoneBlocksRaw = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains("Implemented and committed on this worktree's branch.") })
+        $script:CritDoneBlocks = @($script:CritDoneBlocksRaw |
+            ForEach-Object { ConvertTo-NormalisedText $_ })
+    }
+
+    # The section has to sit in the brief, not in this skill: the worker reads one artefact and this
+    # file is not it. Its position is pinned because the criteria are what the Done-means line sends
+    # the worker back to, and a section below that line is one it works after the gate has run.
+    It 'the brief template carries the Standing criteria slot between Unchanged and Done means' {
+        $script:CritTemplate.Count |
+            Should -Be 1 -Because 'the brief template is one fence and the worker gets what it says'
+        $t = $script:CritTemplate[0]
+        $t.Contains('## Standing criteria') |
+            Should -BeTrue -Because 'the pasted criteria need a slot in the artefact the worker reads'
+        $t.IndexOf('## Unchanged') | Should -BeLessThan $t.IndexOf('## Standing criteria')
+        $t.IndexOf('## Standing criteria') | Should -BeLessThan $t.IndexOf('## Done means')
+    }
+
+    # A decision file does not load itself into a worker's session; a worker sees exactly one thing,
+    # its brief. So both, and for different reasons - which is the part an editor trimming one of
+    # them would undo.
+    It 'Step 2 names the file, pastes it, and delivers the copy as well' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase '**Paste the project''s standing criteria into the brief.**'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('`$env:KINGSHAND_HOME\data\done-<project>.md` - one `-` bullet per criterion, ' +
+                     'each naming how it is checked')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('paste its lines into `## Standing criteria` unchanged, and hand the ' +
+                     'same file to `-ReadPath` at Step 4')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('the paste is in the artefact the worker is judged against, so it is what gets ' +
+                     'complied with, and the copy is what a mid-task re-read reaches')
+    }
+
+    # Keyed on what the file holds, not on whether it exists: the fold-back's retire branch can take
+    # a file down to its last line, and an existing-but-empty file falls outside a rule that asks
+    # only whether one is there - so the brief pastes a blank section and the worker cannot tell it
+    # from one it forgot to work, which is the ambiguity `round 1: no findings` closed on the other
+    # half of the report.
+    It 'an empty list is written down rather than the section being dropped' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('Where the file holds no criteria - it does not exist yet, or the fold-back ' +
+                     'has retired its last line - write `- Nothing standing for this ' +
+                     'project yet.` rather than dropping the section')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('Key that on what the file holds and never on whether it exists')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('Where that was the file''s last line, leave `- Nothing standing for this ' +
+                     'project yet.` in its place rather than an empty file')
+    }
+
+    # The placeholder is a `-` bullet inside the section, so the self-check works it line by line and
+    # the only answer available is `n/a`. Without this carve-out that `n/a` trips the wording-problem
+    # clause on every gateless dispatch until a criteria file exists - and the paragraph it sits in
+    # then talks about rewording a line in a file that does not exist.
+    It 'the placeholder is not read as a criterion that needs rewording' {
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('A section whose only line is `- Nothing standing for this project yet.` is ' +
+                     'neither: there was nothing to check, the `n/a` against it is the only answer ' +
+                     'available, and it is not a criterion to reword or a reason to create the file')
+    }
+
+    # That carve-out says "only line", and the retire branch can leave the placeholder as a file's
+    # last line - so an add that joined it rather than replacing it would put the carve-out out of
+    # reach and send the Hand to reword a placeholder on every dispatch from then on, which no
+    # rewording can make checkable.
+    It 'the first real criterion replaces the placeholder rather than joining it' {
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('Where the file holds only `- Nothing standing for this project yet.`, the ' +
+                     'first real criterion replaces that line rather than joining it')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('a file holding both says two contradictory things and leaves every future ' +
+                     'worker working a line it can only record `n/a` against')
+    }
+
+    # One line form, stated once. The fold-back writes this file and the next brief pastes it back
+    # `unchanged`, so a second form described anywhere leaves the paste step renumbering a file it
+    # was told not to touch - or dropping it. The empty-case placeholder is already a `-` bullet,
+    # which is what settles which form wins.
+    It 'the criteria line form is stated once and never contradicted' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('that one form is what every line of that file takes wherever it is written ' +
+                     'or read')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase 'in that file''s one form of a `-` bullet naming how it is checked'
+        $whole = Get-DocText $script:MusterMd
+        $whole.Contains('numbered lines of `data\done-<project>.md`') |
+            Should -BeFalse -Because 'a second line form is what makes the unchanged paste impossible'
+        $whole.Contains('paste its numbered lines') |
+            Should -BeFalse -Because 'the fold-back writes bullets, so the paste cannot expect numbers'
+    }
+
+    # The dispatcher refuses a brief whose `Read first` names a file that is not there, and no
+    # project has one of these files yet - so a Hand that reads the paste-and-copy instruction
+    # without this exception spends a dispatch discovering it, every time, until the first one
+    # exists.
+    # The criteria file goes to -ReadPath on every brief for a project that has one, and the
+    # dispatcher's index gate refuses only when no path was passed - so counting it would open that
+    # gate permanently for exactly the projects furthest along. Dispatch-Worker.Tests.ps1 owns the
+    # enforcement; this pins that the Hand is told the same thing the code does.
+    It 'the criteria file is said not to discharge the index obligation' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase '**The standing-criteria file below does not discharge this.**'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('dispatch knows it, discounting `done-<project>.md` from the paths that ' +
+                     'satisfy this refusal')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('Where it is the only file this task touches, a line about the index still ' +
+                     'goes in the section beside it')
+    }
+
+    # The literal line the refusal quotes says there is nothing beyond the brief, which is false in
+    # the one case this discount creates - the bullet above it hands the worker a file. A worker
+    # reading both may skip the copy, which is the mid-task re-read the copy exists for.
+    # Dispatch-Worker.Tests.ps1 runs the paraphrase against the real gate; this pins that muster
+    # gives it rather than sending the Hand to the contradicting line.
+    It 'the criteria-only case gets a line that does not contradict the file beside it' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('but not the literal one above, which would tell the worker there is nothing ' +
+                     'beyond the brief in the same breath as handing it a file to read')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('- The index was checked; nothing in it applies to this task beyond the ' +
+                     'standing criteria above.')
+    }
+
+    It 'the empty case hands the dispatcher no path to refuse' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('write no `Read first` line for it and pass no `-ReadPath` for it either, ' +
+                     'because Step 4 refuses a brief naming a file that is not there')
+    }
+
+    # The empty case is the one a Hand starts believing. Step 6's fold-back writes this file the
+    # first time a gate finding generalises, so any count of how many projects have one is false
+    # from that turn - and false in the direction where the criteria just recorded never reach the
+    # next worker, which is the loop this whole change exists to close.
+    It 'the read is unconditional and no absence is carried forward' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('Read the file every time even so, and never carry an absence forward from ' +
+                     'the last brief you wrote')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('a project with nothing standing today has criteria the next dispatch is ' +
+                     'expected to meet')
+    }
+
+    # The file is a standing list and the brief is this task's instruction, so the brief has to win
+    # or a worker deciding for itself picks wrong half the time. The intent string is the other half:
+    # a criterion broken silently is what the review gate raises a finding about.
+    It 'the brief wins over the standing file, and the exception is named in the intent string' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('say so in `Requirements` or `Unchanged` and in the `Intent` section the gate ' +
+                     'is handed - the brief wins over the file')
+    }
+
+    # The Hand writes the brief and the worker writes the gate's intent string, so a set-aside the
+    # Hand records has to travel through a slot in the brief or it never reaches the gate at all -
+    # it condenses the Goal, the criterion looks broken for no stated reason, and the gate raises
+    # the finding the rule exists to prevent. Both gated blocks have to point at the same slot.
+    It 'what the intent string must carry has a slot the worker is handed' {
+        $t = $script:CritTemplate[0]
+        $t.Contains('## Intent') |
+            Should -BeTrue -Because 'the Hand needs somewhere to write what the gate is told'
+        $t.IndexOf('## Standing criteria') | Should -BeLessThan $t.IndexOf('## Intent')
+        $t.IndexOf('## Intent') | Should -BeLessThan $t.IndexOf('## Done means')
+        $script:CritTemplateText.Contains('plus every settled decision and standing criterion this task sets aside, and why - this is the string the gate is given verbatim') |
+            Should -BeTrue -Because 'a slot that only repeats the Goal changes nothing'
+
+        $gated = @($script:CritDoneBlocks | Where-Object { $_.Contains('no-mistakes axi run') })
+        $gated.Count | Should -Be 2 -Because 'only the two no-mistakes blocks invoke the gate'
+        foreach ($block in $gated) {
+            $block.Contains("--intent '<the ``Intent`` section above, verbatim on one line>'") |
+                Should -BeTrue -Because 'the worker passes the section rather than reconstructing it'
+        }
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('You write that string, not the worker: it is the `Intent` section of the ' +
+                     'brief, and the two `no-mistakes` blocks hand it to the gate verbatim')
+    }
+
+    # The section is specified to carry settled decisions and criteria, and this repository names
+    # every file, mode and posture in backticks - so the string it is pasted into decides whether
+    # the gate reads a sentence or a fragment. In a double-quoted PowerShell string a backtick
+    # escapes the next character and a double quote ends the argument, both silently.
+    It 'the gate is handed the intent in a string that survives backticks' {
+        $gated = @($script:CritDoneBlocks | Where-Object { $_.Contains('no-mistakes axi run') })
+        $gated.Count | Should -Be 2
+        foreach ($block in $gated) {
+            $block.Contains('--intent "') |
+                Should -BeFalse -Because 'a double-quoted string eats the backticks the section uses'
+            $block.Contains('in a double-quoted PowerShell string a backtick escapes the character after it') |
+                Should -BeTrue -Because 'the next editor has to know why the quotes are single'
+            $block.Contains('Run the line in PowerShell and double any single quote inside the section') |
+                Should -BeTrue -Because 'that is the one character a literal string still breaks on'
+            $block.Contains('in a POSIX shell the same two characters close and reopen the string, so the apostrophe is deleted instead') |
+                Should -BeTrue -Because 'a worker with both shells needs to know which one the rule assumes'
+        }
+    }
+
+    # In all four, because the criteria only ever mattered as something the worker is made to work
+    # through. The count stays four - per-project content inside these blocks would multiply them.
+    # The trigger names delivery generically: `direct-PR` neither runs a gate nor stops on the
+    # branch, so a two-clause trigger left the one mode whose next bullet opens a pull request
+    # describing no moment at all.
+    It 'all four Done-means blocks make the worker work the list before it delivers' {
+        $script:CritDoneBlocks.Count | Should -Be 4
+        foreach ($block in $script:CritDoneBlocks) {
+            $block.Contains('Before you deliver - before you invoke the gate, push, open a pull request, or stop on the branch - work the `Standing criteria` section above line by line and record the result in `report.md`') |
+                Should -BeTrue -Because 'every mode has to recognise its own delivery act here'
+            $block.Contains('`pass` with what you checked, `fixed` with what you changed, or `n/a` with the reason') |
+                Should -BeTrue -Because 'a recorded result is what the Hand compares against the findings'
+            $block.Contains('A criterion you cannot check is a criterion to report, not to skip.') |
+                Should -BeTrue -Because 'an unreportable skip is how the self-check becomes a formality'
+        }
+    }
+
+    # The criteria are pasted `unchanged`, so a criterion this task sets aside arrives in the
+    # section looking exactly like one to implement. "The brief wins over the file" is stated in
+    # this skill, which the worker never reads - the precedence has to travel in the one bullet the
+    # worker executes, or it works the list line by line and ships the change `Unchanged` forbade.
+    It 'the worker is told a brief set-aside overrides a pasted criterion' {
+        foreach ($block in $script:CritDoneBlocks) {
+            $block.Contains('Where `Requirements` or `Unchanged` sets a criterion aside, this brief overrides that line: record it `n/a` naming the brief line that set it aside, and do not implement it.') |
+                Should -BeTrue -Because 'precedence has to reach the artefact the worker is judged against'
+        }
+    }
+
+    # "Before you invoke the gate" is what the bullet says; where the bullet sits is what a worker
+    # working the list top-down actually does. Below the delivery bullets it self-checks code it has
+    # already gated, pushed or opened a pull request against - a criterion it then records `fixed`
+    # is a commit the delivered PR does not contain, and on a gated block it records `pass` on a
+    # criterion the gate itself had just caught, which sends Step 6 off to reword a working line.
+    # Asserted on all four blocks by position rather than on the two with a gate: the bullet is
+    # copied four times, and the last round repositioned two of them and left two.
+    It 'the self-check is the second bullet of every Done-means block' {
+        $script:CritDoneBlocksRaw.Count |
+            Should -Be 4 -Because 'one Done-means block per delivery mode'
+        foreach ($block in $script:CritDoneBlocksRaw) {
+            $bullets = @($block -split "`n" | Where-Object { $_ -match '^- ' })
+            $bullets[0] | Should -BeLike "- Implemented and committed on this worktree's branch.*" `
+                -Because 'there is nothing to check until the work exists'
+            $bullets[1] | Should -BeLike '- Before you deliver*' `
+                -Because 'every bullet below this one delivers, gates or stops the work'
+        }
+    }
+
+    # "Identical but for the third line" was true until a bullet was inserted above it, and then it
+    # pointed at the gate-run bullet - a Hand substituting $ci.briefLine where the prose said would
+    # have dropped `no-mistakes axi run` out of the brief entirely. Asserted against Ci.psm1's own
+    # output rather than an ordinal or a sentence: the two blocks must differ in exactly the line
+    # that function computes, and in nothing else, which is what the prose claims and what makes
+    # taking it from Step 1b safe.
+    It 'the two gated blocks differ only in the line Ci.psm1 computes' {
+        Import-Module "$PSScriptRoot\..\bin\Ci.psm1" -Force
+        $gated = @($script:CritDoneBlocks | Where-Object { $_.Contains('no-mistakes axi run') })
+        $gated.Count | Should -Be 2 -Because 'only the two no-mistakes blocks invoke the gate'
+
+        $hasCi = ConvertTo-NormalisedText (Get-CiBriefLine -Status 'has-ci')
+        $noCi  = ConvertTo-NormalisedText (Get-CiBriefLine -Status 'no-ci')
+        $withHasCi = @($gated | Where-Object { $_.Contains($hasCi) })
+        $withNoCi  = @($gated | Where-Object { $_.Contains($noCi) })
+        $withHasCi.Count | Should -Be 1 -Because 'one block carries the has-ci line Step 1b computes'
+        $withNoCi.Count  | Should -Be 1 -Because 'the other carries the terminating line'
+
+        $withHasCi[0].Replace($hasCi, '') | Should -Be $withNoCi[0].Replace($noCi, '') `
+            -Because 'identical but for that line is what lets the Hand swap one for the other'
+    }
+
+    # And the prose names it by its text, so the next bullet inserted above it cannot restale the
+    # reference the way an ordinal was.
+    It 'the prose names that line by its text rather than its position' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase 'Identical but for the `Drive the pipeline` line'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase 'That `Drive the pipeline` line is `$ci.briefLine` from Step 1b'
+        $script:CritStep2.Contains('Identical but for the third line') |
+            Should -BeFalse -Because 'an ordinal goes stale the moment a bullet is inserted above it'
+    }
+
+    # Three rounds in one component and three failed fixes on one bug are the same signal reached
+    # from two directions, and the rule was stated in three places before this. Per component, not
+    # per run: three rounds spread across three areas is ordinary convergence.
+    It 'the tripwire trigger counts failed fix attempts as well as rounds in one component' {
+        $script:CritTemplateText.Contains('On the third round of findings in one component, or the third failed attempt at one bug') |
+            Should -BeTrue -Because 'both halves of the trigger reach the worker or neither does'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('Its trigger counts failed fix attempts on one bug as well as rounds of ' +
+                     'findings in one component, because three failed fixes is not a failed ' +
+                     'hypothesis, it is the wrong architecture')
+    }
+
+    # The load-bearing assertion of the whole tripwire. `emgee-agent-crawlable` ran about ten rounds
+    # and found genuine defects in every one, so a rule that stopped the fixing at three would have
+    # shipped them - the tripwire's only permitted action is to write and report. Delete the clause
+    # and the rule silently becomes a cap.
+    It 'the tripwire never stops the fixing' {
+        $script:CritTemplateText.Contains('**carry on fixing every finding as normal.** Nothing here caps the rounds or lets you stop early.') |
+            Should -BeTrue -Because 'the worker is told to keep fixing at the moment it counts three'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('never soften **carry on fixing every finding as normal** into permission to ' +
+                     'stop, and never put a round limit beside it')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase 'a rule that stopped the fixing at three would have shipped every one of them'
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase 'It is never a reason to have capped the fixing.'
+    }
+
+    It 'the tripwire reports the tally and the design question, in the report and in the message' {
+        $t = $script:CritTemplateText
+        $t.Contains('Additionally write into `report.md` the tally, what each round or attempt found, and the design question: what keeps producing them') |
+            Should -BeTrue -Because 'a tally with no design question beside it is just a number'
+        $t.Contains('Say it in your final message too, so it arrives as a finding rather than a completion notice.') |
+            Should -BeTrue -Because 'a report nobody is told to read arrives after the Hand has moved on'
+    }
+
+    # Item 2 fires on either trigger, and on the gateless majority of the fleet only the second one
+    # can: there are no rounds to count. Written up in round-and-component terms alone, item 3 asks
+    # a gateless worker for a record item 1 just told it never to keep, and the design question the
+    # tripwire exists to surface never leaves the worktree - while Step 6, which names both
+    # triggers, is looking for it.
+    It 'the write-up covers the failed-attempt trigger, not rounds alone' {
+        $t = $script:CritTemplateText
+        $t.Contains('what each round or attempt found') |
+            Should -BeTrue -Because 'three failed attempts at one bug produce no rounds to write up'
+        $t.Contains('on a brief that runs no review gate the failed attempts are the only trigger there is') |
+            Should -BeTrue -Because 'the gateless worker has to know which trigger is still live'
+
+        # Both triggers Step 6 escalates on have to be writable from the brief, or the owner is
+        # looking for a write-up the artefact never asked for.
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('Where the worker reports three rounds of findings in one component or three ' +
+                     'failed attempts at one bug')
+        $t.Contains('or the third failed attempt at one bug') |
+            Should -BeTrue -Because 'the brief has to arm the trigger Step 6 escalates'
+    }
+
+    # The rule was stated in `petition` step 7, proposed again for the tripwire, and reached us a
+    # third time from outside. One owner, and every other mention is a cross-reference - the two
+    # copies drift the moment only one of them is edited.
+    It 'one owner: petition points at the rule rather than keeping a second copy' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('this is the only place it is stated - `petition` step 7 points here rather ' +
+                     'than keeping a second copy')
+        Assert-Phrase -Text (Get-DocText $script:AskUserMd) -Where 'petition step 7' `
+            -Phrase ('Repeated same-theme findings are the `Repeated findings` rule''s subject, ' +
+                     'stated in full in `muster` Step 2 and nowhere else')
+        (Get-DocText $script:AskUserMd).Contains('incremental corrections are preserving a questionable abstraction') |
+            Should -BeFalse -Because 'petition cross-references the rule and never restates it'
+    }
+
+    # The discriminator moved with the rule, and it is what stops the tripwire escalating on a bare
+    # count: three rounds that each closed an independent defect are ordinary convergence. Without
+    # it in the one place the rule now lives, the cross-reference points at nothing that tells an
+    # escalation from a Fix, and every third round becomes a question for the user.
+    It 'the owner states the discriminator the cross-reference relies on' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('withhold the Fix authorization and escalate where the rounds show ' +
+                     'incremental corrections preserving a questionable abstraction rather than ' +
+                     'closing independent defects')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase 'a bare count of three is not an escalation on its own'
+    }
+
+    # The worker and the Hand are gated differently and the rule reads as a self-contradiction the
+    # moment that is blurred: an unqualified "the fixing carries on either way" cancels the Fix
+    # authorization it just withheld, and a Hand facing a third-round finding has two opposite
+    # answers with no second source to break the tie.
+    It 'the owner separates the worker fixing from the Hand authorizing a Fix' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('The worker''s own fixing is never gated at all: it keeps fixing at three ' +
+                     'rounds and at ten')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('Your own decision is the single place a round count can hold anything back, ' +
+                     'and only in one case')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('authorize the Fix on the finding''s own merits and send the design question ' +
+                     'to the user beside it')
+        $script:CritStep2.Contains('the fixing carries on either way') |
+            Should -BeFalse -Because 'an unscoped either way cancels the authorization just withheld'
+    }
+
+    # Both mentions in petition point at that split rather than restating it, and neither may read
+    # as a cap on the worker - which is the one failure a cross-reference is supposed to be immune
+    # to.
+    It 'petition points at the split without capping the fixing' {
+        $petition = Get-DocText $script:AskUserMd
+        Assert-Phrase -Text $petition -Where 'petition step 7' `
+            -Phrase ('It never caps the worker''s own fixing. What it can hold back is your Fix ' +
+                     'authorization, and only by the discriminator that rule states')
+        Assert-Phrase -Text $petition -Where 'petition classification examples' `
+            -Phrase ('whether the Fix itself is still yours to authorize turns on the ' +
+                     'discriminator that rule states, never on the count of rounds')
+    }
+
+    # The loop that makes the list grow from evidence instead of from invention. Without it a
+    # criterion learned at a gate round lives in one report and the next dispatch pays for it again.
+    It 'Step 6 folds a finding no criterion matched back into the file' {
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase '**Fold back what the standing criteria missed.**'
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('A finding that matches a criterion the worker recorded `pass` or `fixed` ' +
+                     'means that criterion did not end the defect')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('so rewrite that line in place in the same turn you read the report, in the ' +
+                     'file''s one `-` bullet form, and say what you changed')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('A finding that matches no criterion at all is a candidate line for ' +
+                     '`$env:KINGSHAND_HOME\data\done-<project>.md`')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('writing it with `Write-DataFile -Project "<project>"` from `bin\Index.psm1` ' +
+                     'where it does not')
+    }
+
+    # The self-check records one of three values and the fold-back branches on two of them, so the
+    # third has to land somewhere or it falls through both: `fixed` is not `pass`, and it does match
+    # a criterion, so it is not "matches no criterion at all". A criterion the worker acted on and
+    # the gate then caught anyway is the strongest evidence the line is too weak, and it was the one
+    # result that reached neither branch.
+    It 'every self-check result the worker can record reaches a fold-back branch' {
+        $vocabulary = @('pass', 'fixed', 'n/a')
+        foreach ($block in $script:CritDoneBlocks) {
+            foreach ($result in $vocabulary) {
+                $block.Contains("``$result``") |
+                    Should -BeTrue -Because "the worker is offered $result and the Hand must handle it"
+            }
+        }
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase 'recorded `pass` or `fixed`'
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('`fixed` is in that branch deliberately - a criterion the worker acted on and ' +
+                     'the gate then caught anyway is the clearest evidence there is that the line ' +
+                     'does not say enough')
+    }
+
+    # `Write-DataFile` takes -Project as an optional parameter and routes the index entry by it, so
+    # omitting it is silent: the file lands correctly and its index line lands in kingshand's own
+    # index instead of the project's. Asserted against the real parameter set rather than the
+    # sentence alone, so this stays true if the helper's signature changes.
+    It 'the fold-back names the project the index entry belongs to' {
+        Import-Module "$PSScriptRoot\..\bin\Index.psm1" -Force
+        (Get-Command Write-DataFile).Parameters.ContainsKey('Project') |
+            Should -BeTrue -Because 'the routing the instruction has to name is a real parameter'
+        (Get-Command Write-DataFile).Parameters['Project'].Attributes |
+            Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] -and $_.Mandatory } |
+            Should -BeNullOrEmpty -Because 'it is optional, which is exactly why the instruction must name it'
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('name the project, or the entry lands in kingshand''s own `data\index.md` and ' +
+                     'the next session reading `data\index\<project>.md` finds no trace of it')
+    }
+
+    # Step 2 pastes this file into every brief for the project, so an unfiltered fold-back turns
+    # every one-off defect into a line every future worker reads and records `n/a` against. The
+    # generality test is what keeps the list a definition of done rather than a defect log, and the
+    # retirement path is what stops it growing in one direction only - `chronicle` curates the two
+    # memory files against a budget and deliberately does not reach this one.
+    # Every branch of the fold-back has to say what to write and when, or the one that defers is the
+    # one that costs most: a criterion too vague to check keeps returning `pass` while the gate
+    # keeps finding the same defect, and the list stops discriminating without ever looking broken.
+    # The `n/a`s that are the correct answer are carved out of it, since rewording a working line on
+    # that evidence is the same damage from the other direction. Most useful criteria are
+    # conditional ("every new X ..."), so a change that touches no X is the common case rather than
+    # the edge, and treating every such `n/a` as a wording defect would rewrite correct criteria on
+    # ordinary dispatches - churning the file this whole loop exists to build. Repetition of that
+    # kind belongs to the retire branch, which the same paragraph already owns.
+    It 'the reword branch writes in the same turn, and a correct n/a is not rewordable' {
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('rewrite that line in place in the same turn you read the report')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('A criterion this brief set aside is not that: the `n/a` is the correct ' +
+                     'answer and there is nothing to reword')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('A criterion whose subject this change does not touch is answered correctly ' +
+                     'by `n/a`')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('Both are the right answer, and neither is reworded nor recorded')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('A criterion workers keep recording `n/a` against for want of anything to ' +
+                     'check is the retire branch below, once it has happened more than once')
+    }
+
+    It 'the fold-back filters for generality and says what retires a line' {
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('one test decides it: would it apply to the next unrelated change to this ' +
+                     'project?')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('A one-off defect in one function is a finding and belongs in the report or a ' +
+                     'backlog item')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase 'Retire a line the same way you add one, in the turn the evidence arrives'
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('when workers keep recording it `n/a` on unrelated dispatches for want of ' +
+                     'anything to check, delete it and say so')
+    }
+
+    # The comparison needs both halves to survive teardown. The self-check block is required by all
+    # four Done-means blocks; the rounds are only in `report.md` because the brief made the worker
+    # put them there as they landed. Drop that and the fold-back has one reading to compare against
+    # nothing, and it silently does nothing at all.
+    It 'the rounds the fold-back compares against are recorded as they land' {
+        $script:CritTemplateText.Contains('Record every round in `report.md` as it lands - what it found and where - whether or not the tally ever reaches three') |
+            Should -BeTrue -Because 'the fold-back compares against rounds that were written down'
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('the `Repeated findings` section of the brief made the worker record every ' +
+                     'round there as it landed')
+    }
+
+    # Without this the best outcome and the worst are the same report. A gate that raised nothing
+    # first time leaves no rounds behind, which is exactly the shape Step 6 says to query - so the
+    # clean run and the worker that ignored the recording instruction are indistinguishable.
+    It 'a clean first pass is recorded, so no rounds at all means the recording was skipped' {
+        $script:CritTemplateText.Contains('Record the first pass even when it raises nothing, as `round 1: no findings`, so that a report with no rounds in it means the recording was skipped rather than that the gate was clean.') |
+            Should -BeTrue -Because 'an absent line has to mean one thing, not two opposite things'
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase 'and the first pass as `round 1: no findings` where it raised none'
+    }
+
+    # The round half of the tally exists only where the brief runs the review gate, and 20 of the
+    # 22 registered projects never do. Unscoped, this instruction breaks two ways at once: a worker
+    # that takes it literally writes `round 1: no findings` for a gate it never ran and the
+    # fold-back compares against a fabricated round, or it records nothing and Step 6 queries a
+    # report that is exactly right.
+    It 'the tally scopes its round half to a brief that runs the review gate' {
+        $script:CritTemplateText.Contains('The round half applies only where the `Done means` block below has you run the review gate') |
+            Should -BeTrue -Because 'a worker with no gate has no round to record'
+        $script:CritTemplateText.Contains('you never write a round for a gate you did not run') |
+            Should -BeTrue -Because 'the wrong reading has to be closed off, not left open'
+        $script:CritTemplateText.Contains('The failed-attempt half applies whatever this brief asks of you') |
+            Should -BeTrue -Because 'the per-bug half of the tally is mode-independent'
+
+        $scope  = $script:CritTemplateText.IndexOf('The round half applies only where')
+        $record = $script:CritTemplateText.IndexOf('Record every round in `report.md` as it lands')
+        $scope  | Should -BeGreaterThan -1
+        $record | Should -BeGreaterThan -1
+        $scope  | Should -BeLessThan $record `
+            -Because 'the scope has to be read before the instruction it scopes'
+    }
+
+    # Twenty of the twenty-two registered projects have no review gate, so an unqualified compare
+    # is an instruction that cannot be carried out for most of the fleet. The self-check still gets
+    # read there - an `n/a` is the same wording problem arriving from the other side. The prod-only
+    # half is named because that mode resolves per task, so the two registered prod-only projects
+    # produce gateless runs the registry alone does not account for.
+    It 'the fold-back says it does not fire where there is no gate' {
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('On a `local-only` or `direct-PR` project - including a ' +
+                     '`no-mistakes-prod-only` project whose task resolved to `direct-PR` - there ' +
+                     'is no gate and no round to compare against, so this loop does not fire, and ' +
+                     'a report with no rounds in it is the record that brief asked for rather than ' +
+                     'one to query')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase 'Read the self-check block either way'
+    }
+
+    # A qualifier stated after the clause it qualifies is one the reader has already acted on. The
+    # query fires on the gateless majority, so the exemption has to be in front of it - the same
+    # shape as the two n/a-classification defects this loop already had.
+    It 'the gateless exemption is stated before the query it exempts' {
+        $exempt = $script:CritStep6.IndexOf('there is no gate and no round to compare against')
+        $query  = $script:CritStep6.IndexOf('no rounds at all is one to ask about')
+        $exempt | Should -BeGreaterThan -1 -Because 'the exemption has to be there to be read'
+        $query  | Should -BeGreaterThan -1 -Because 'the query is what it exempts'
+        $exempt | Should -BeLessThan $query
+    }
+
+    It 'Step 6 escalates a round tally as a finding rather than filing it as progress' {
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase '**A round tally in a report is a finding, not a completion notice.**'
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase 'file it as a backlog item and let `decree` own the decision from there'
+    }
+
+    # `emgee-apex-design` named all seven of its settled decisions in the intent string and came back
+    # with engineering findings only; `kh-decision-carry` left a stale one and the gate raised a
+    # finding against the mismatch. The cheapest lever measured anywhere in that evidence.
+    It 'the intent string names what the task deliberately sets aside' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase '**Say in `--intent` what this task deliberately sets aside.**'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase 'add to it the settled decisions and standing criteria this work breaks, and why'
+    }
+
+    # And the boundary that has to come with it. A wider intent string is exactly what somebody
+    # would use to suppress findings while believing they were being helpful, and from outside a
+    # suppressed run and a well-prepared one look identical.
+    It 'the intent string is never used to tell the gate what not to flag' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase '**Never tell the review gate what not to flag.**'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('That string says what the work is for; it never says what the reviewer may ' +
+                     'not find.')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('Name the decision and the evidence for it, and let the gate raise the finding ' +
+                     'anyway.')
+    }
+
+    # The prohibition lands paired with the rationalisations it is meant to catch, so the writer
+    # recognises their own sentence mid-draft rather than having to judge their own motive. All four
+    # are real declines from this repository's gate history, turned into an instruction.
+    It 'and it lists the phrasings that give it away' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase '"the prose assertions in `Docs.Tests.ps1` are settled, do not raise them again"'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase '"the design notes in `docs\` are settled, so raise nothing against them"'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase '"the King has already declined findings of this class"'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase '"no linter is configured here, so ignore lint"'
     }
 }
