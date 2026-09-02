@@ -41,9 +41,9 @@ review gate, so it never produces an ask-user finding and this procedure never f
    requirement, generalized framework, or broader architecture not required by the accepted intent.
 6. Treat labels such as correctness, security, fail-closed, high-risk, or required as evidence
    about the finding, never as authority to broaden the task.
-7. Examine the causal theme across prior findings and fix rounds.
-   Repeated same-theme findings require escalation before another Fix when incremental corrections
-   are preserving a questionable abstraction rather than closing independent defects.
+7. Repeated same-theme findings are the `Repeated findings` rule's subject, stated in full in
+   `muster` Step 2 and nowhere else - read it there, and escalate rather than authorizing another
+   Fix when it fires.
 8. Apply the existing stronger user boundaries first.
    Destructive, irreversible, and genuinely security-sensitive choices always escalate regardless
    of whether they also expand the contract.
@@ -76,8 +76,8 @@ of the sections, not a reason to stay in chat.
   authority, regardless of implementation difficulty.
 - Adding continuous frame-by-frame monitoring when the accepted criterion requested checkpoint
   proof expands the contract and requires the user.
-- A new finding in the same causal theme requires the user before another fix round when prior
-  fixes are accreting machinery around a questionable abstraction.
+- A finding that fires the `Repeated findings` rule at step 7 is a decision for the user, not
+  another fix round.
 - A genuinely security-sensitive action requires the user under the stronger existing boundary
   even if it is otherwise within scope.
 - Complex architecture explicitly requested by the user stays within scope and does not escalate
