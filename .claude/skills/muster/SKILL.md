@@ -353,10 +353,13 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
 
 ```markdown
 - Implemented and committed on this worktree's branch.
-- Before you invoke the gate - or before you stop on the branch where there is no gate - work the
-  `Standing criteria` section above line by line and record the result in `report.md`: for each
+- Before you deliver - before you invoke the gate, push, open a pull request, or stop on the
+  branch - work the `Standing criteria` section above line by line and record the result in
+  `report.md`: for each
   line, `pass` with what you checked, `fixed` with what you changed, or `n/a` with the reason. A
-  criterion you cannot check is a criterion to report, not to skip.
+  criterion you cannot check is a criterion to report, not to skip. Where `Requirements` or
+  `Unchanged` sets a criterion aside, this brief overrides that line: record it `n/a` naming the
+  brief line that set it aside, and do not implement it.
 - Stop on the branch. Do not push. Do not open a PR. Do not merge.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
   required every time, including when the work succeeded plainly with nothing surprising in it.
@@ -377,10 +380,13 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
 
 ```markdown
 - Implemented and committed on this worktree's branch.
-- Before you invoke the gate - or before you stop on the branch where there is no gate - work the
-  `Standing criteria` section above line by line and record the result in `report.md`: for each
+- Before you deliver - before you invoke the gate, push, open a pull request, or stop on the
+  branch - work the `Standing criteria` section above line by line and record the result in
+  `report.md`: for each
   line, `pass` with what you checked, `fixed` with what you changed, or `n/a` with the reason. A
-  criterion you cannot check is a criterion to report, not to skip.
+  criterion you cannot check is a criterion to report, not to skip. Where `Requirements` or
+  `Unchanged` sets a criterion aside, this brief overrides that line: record it `n/a` naming the
+  brief line that set it aside, and do not implement it.
 - Push the branch and open a pull request against the default branch.
 - Do not merge it. Report the pull request's full https:// URL in your final message.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
@@ -402,12 +408,18 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
 
 ```markdown
 - Implemented and committed on this worktree's branch.
-- Before you invoke the gate - or before you stop on the branch where there is no gate - work the
-  `Standing criteria` section above line by line and record the result in `report.md`: for each
+- Before you deliver - before you invoke the gate, push, open a pull request, or stop on the
+  branch - work the `Standing criteria` section above line by line and record the result in
+  `report.md`: for each
   line, `pass` with what you checked, `fixed` with what you changed, or `n/a` with the reason. A
-  criterion you cannot check is a criterion to report, not to skip.
+  criterion you cannot check is a criterion to report, not to skip. Where `Requirements` or
+  `Unchanged` sets a criterion aside, this brief overrides that line: record it `n/a` naming the
+  brief line that set it aside, and do not implement it.
 - Run the review gate from inside the worktree and fix what it parks:
-  `no-mistakes axi run --intent "<the `Intent` section above, verbatim on one line>"`
+  `no-mistakes axi run --intent '<the `Intent` section above, verbatim on one line>'`
+  Single quotes, and keep them: that section names files, modes and postures in backticks, and in a
+  double-quoted PowerShell string a backtick escapes the character after it, so the gate would be
+  handed a mangled sentence and no error. Double any single quote inside the section.
 - Drive the pipeline through to a pull request and report its full https:// URL when CI is
   first green. Do not merge it.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
@@ -432,12 +444,18 @@ that has gone stale points a Hand at the gate-run bullet instead:
 
 ```markdown
 - Implemented and committed on this worktree's branch.
-- Before you invoke the gate - or before you stop on the branch where there is no gate - work the
-  `Standing criteria` section above line by line and record the result in `report.md`: for each
+- Before you deliver - before you invoke the gate, push, open a pull request, or stop on the
+  branch - work the `Standing criteria` section above line by line and record the result in
+  `report.md`: for each
   line, `pass` with what you checked, `fixed` with what you changed, or `n/a` with the reason. A
-  criterion you cannot check is a criterion to report, not to skip.
+  criterion you cannot check is a criterion to report, not to skip. Where `Requirements` or
+  `Unchanged` sets a criterion aside, this brief overrides that line: record it `n/a` naming the
+  brief line that set it aside, and do not implement it.
 - Run the review gate from inside the worktree and fix what it parks:
-  `no-mistakes axi run --intent "<the `Intent` section above, verbatim on one line>"`
+  `no-mistakes axi run --intent '<the `Intent` section above, verbatim on one line>'`
+  Single quotes, and keep them: that section names files, modes and postures in backticks, and in a
+  double-quoted PowerShell string a backtick escapes the character after it, so the gate would be
+  handed a mangled sentence and no error. Double any single quote inside the section.
 - Drive the pipeline through to a pull request and stop there.
   Checks may not report on this repository at all, so when the pipeline's `ci` step has been
   waiting more than fifteen minutes with no checks reported, report the pull request's full
@@ -905,10 +923,14 @@ block and no rounds at all is one to ask about rather than one
 with nothing to fold back. On a `local-only` or `direct-PR` project - including a
 `no-mistakes-prod-only` project whose task resolved to `direct-PR` - there is no gate and no round to
 compare against, so this loop does not fire - read the self-check block anyway, because a criterion
-the worker recorded `n/a`, or could not check, is the same wording problem arriving from the other
+the worker could not check, or recorded `n/a` against for any reason other than a set-aside this
+brief made, is the same wording problem arriving from the other
 side. A finding that matches a
 criterion the worker recorded `pass` means that criterion is written too vaguely to check, or was
-skipped - either way the wording is what needs fixing. A finding that matches no criterion at all
+skipped - either way the wording is what needs fixing, so rewrite that line in place in the same
+turn you read the report, in the file's one `-` bullet form, and say what you changed. A criterion
+this brief set aside is not that: the `n/a` is the correct answer and there is nothing to reword.
+A finding that matches no criterion at all
 is a candidate line for `$env:KINGSHAND_HOME\data\done-<project>.md`, and one test decides it: would
 it apply to the next unrelated change to this project? A one-off defect in one function is a finding
 and belongs in the report or a backlog item, however real it was - the file is pasted into every
@@ -918,7 +940,8 @@ read the report, in that file's one form of a `-` bullet naming how it is checke
 place where it already exists or writing it with `Write-DataFile` from `bin\Index.psm1` where it
 does not. Retire a line the same way you add one, in the turn the evidence arrives: when the code it
 guarded is gone, when it has stopped discriminating because the practice is now enforced by a test
-or a linter, or when workers keep recording it `n/a` on unrelated dispatches, delete it and say so.
+or a linter, or when workers keep recording it `n/a` on unrelated dispatches for want of anything to
+check, delete it and say so.
 This is the only thing that makes the list grow from evidence instead of from invention,
 and a criterion learned at a gate round and left sitting in a report is one somebody pays for again
 a dispatch later.

@@ -4329,7 +4329,7 @@ Describe 'a project has a standing definition of done, and repeated findings are
         $gated = @($script:CritDoneBlocks | Where-Object { $_.Contains('no-mistakes axi run') })
         $gated.Count | Should -Be 2 -Because 'only the two no-mistakes blocks invoke the gate'
         foreach ($block in $gated) {
-            $block.Contains('--intent "<the `Intent` section above, verbatim on one line>"') |
+            $block.Contains("--intent '<the ``Intent`` section above, verbatim on one line>'") |
                 Should -BeTrue -Because 'the worker passes the section rather than reconstructing it'
         }
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
@@ -4337,17 +4337,48 @@ Describe 'a project has a standing definition of done, and repeated findings are
                      'brief, and the two `no-mistakes` blocks hand it to the gate verbatim')
     }
 
+    # The section is specified to carry settled decisions and criteria, and this repository names
+    # every file, mode and posture in backticks - so the string it is pasted into decides whether
+    # the gate reads a sentence or a fragment. In a double-quoted PowerShell string a backtick
+    # escapes the next character and a double quote ends the argument, both silently.
+    It 'the gate is handed the intent in a string that survives backticks' {
+        $gated = @($script:CritDoneBlocks | Where-Object { $_.Contains('no-mistakes axi run') })
+        $gated.Count | Should -Be 2
+        foreach ($block in $gated) {
+            $block.Contains('--intent "') |
+                Should -BeFalse -Because 'a double-quoted string eats the backticks the section uses'
+            $block.Contains('in a double-quoted PowerShell string a backtick escapes the character after it') |
+                Should -BeTrue -Because 'the next editor has to know why the quotes are single'
+            $block.Contains('Double any single quote inside the section.') |
+                Should -BeTrue -Because 'that is the one character a literal string still breaks on'
+        }
+    }
+
     # In all four, because the criteria only ever mattered as something the worker is made to work
     # through. The count stays four - per-project content inside these blocks would multiply them.
-    It 'all four Done-means blocks make the worker work the list before the gate' {
+    # The trigger names delivery generically: `direct-PR` neither runs a gate nor stops on the
+    # branch, so a two-clause trigger left the one mode whose next bullet opens a pull request
+    # describing no moment at all.
+    It 'all four Done-means blocks make the worker work the list before it delivers' {
         $script:CritDoneBlocks.Count | Should -Be 4
         foreach ($block in $script:CritDoneBlocks) {
-            $block.Contains('Before you invoke the gate - or before you stop on the branch where there is no gate - work the `Standing criteria` section above line by line and record the result in `report.md`') |
-                Should -BeTrue -Because 'the self-check is worked before the gate, in every mode'
+            $block.Contains('Before you deliver - before you invoke the gate, push, open a pull request, or stop on the branch - work the `Standing criteria` section above line by line and record the result in `report.md`') |
+                Should -BeTrue -Because 'every mode has to recognise its own delivery act here'
             $block.Contains('`pass` with what you checked, `fixed` with what you changed, or `n/a` with the reason') |
                 Should -BeTrue -Because 'a recorded result is what the Hand compares against the findings'
             $block.Contains('A criterion you cannot check is a criterion to report, not to skip.') |
                 Should -BeTrue -Because 'an unreportable skip is how the self-check becomes a formality'
+        }
+    }
+
+    # The criteria are pasted `unchanged`, so a criterion this task sets aside arrives in the
+    # section looking exactly like one to implement. "The brief wins over the file" is stated in
+    # this skill, which the worker never reads - the precedence has to travel in the one bullet the
+    # worker executes, or it works the list line by line and ships the change `Unchanged` forbade.
+    It 'the worker is told a brief set-aside overrides a pasted criterion' {
+        foreach ($block in $script:CritDoneBlocks) {
+            $block.Contains('Where `Requirements` or `Unchanged` sets a criterion aside, this brief overrides that line: record it `n/a` naming the brief line that set it aside, and do not implement it.') |
+                Should -BeTrue -Because 'precedence has to reach the artefact the worker is judged against'
         }
     }
 
@@ -4365,7 +4396,7 @@ Describe 'a project has a standing definition of done, and repeated findings are
             $bullets = @($block -split "`n" | Where-Object { $_ -match '^- ' })
             $bullets[0] | Should -BeLike "- Implemented and committed on this worktree's branch.*" `
                 -Because 'there is nothing to check until the work exists'
-            $bullets[1] | Should -BeLike '- Before you invoke the gate*' `
+            $bullets[1] | Should -BeLike '- Before you deliver*' `
                 -Because 'every bullet below this one delivers, gates or stops the work'
         }
     }
@@ -4506,6 +4537,9 @@ Describe 'a project has a standing definition of done, and repeated findings are
             -Phrase ('A finding that matches a criterion the worker recorded `pass` means that ' +
                      'criterion is written too vaguely to check, or was skipped')
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('so rewrite that line in place in the same turn you read the report, in the ' +
+                     'file''s one `-` bullet form, and say what you changed')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
             -Phrase ('A finding that matches no criterion at all is a candidate line for ' +
                      '`$env:KINGSHAND_HOME\data\done-<project>.md`')
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
@@ -4517,6 +4551,21 @@ Describe 'a project has a standing definition of done, and repeated findings are
     # generality test is what keeps the list a definition of done rather than a defect log, and the
     # retirement path is what stops it growing in one direction only - `chronicle` curates the two
     # memory files against a budget and deliberately does not reach this one.
+    # Every branch of the fold-back has to say what to write and when, or the one that defers is the
+    # one that costs most: a criterion too vague to check keeps returning `pass` while the gate
+    # keeps finding the same defect, and the list stops discriminating without ever looking broken.
+    # The deliberate set-aside is carved out of it, since its `n/a` is the correct answer and
+    # rewording a working line on that evidence is the same damage from the other direction.
+    It 'the reword branch writes in the same turn, and a set-aside is not rewordable' {
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('rewrite that line in place in the same turn you read the report')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('A criterion this brief set aside is not that: the `n/a` is the correct ' +
+                     'answer and there is nothing to reword')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('recorded `n/a` against for any reason other than a set-aside this brief made')
+    }
+
     It 'the fold-back filters for generality and says what retires a line' {
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
             -Phrase ('one test decides it: would it apply to the next unrelated change to this ' +
@@ -4527,8 +4576,8 @@ Describe 'a project has a standing definition of done, and repeated findings are
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
             -Phrase 'Retire a line the same way you add one, in the turn the evidence arrives'
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
-            -Phrase ('when workers keep recording it `n/a` on unrelated dispatches, delete it and ' +
-                     'say so')
+            -Phrase ('when workers keep recording it `n/a` on unrelated dispatches for want of ' +
+                     'anything to check, delete it and say so')
     }
 
     # The comparison needs both halves to survive teardown. The self-check block is required by all
