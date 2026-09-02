@@ -4718,6 +4718,27 @@ Describe 'a project has a standing definition of done, and repeated findings are
             -Phrase 'and the first pass as `round 1: no findings` where it raised none'
     }
 
+    # The round half of the tally exists only where the brief runs the review gate, and 20 of the
+    # 22 registered projects never do. Unscoped, this instruction breaks two ways at once: a worker
+    # that takes it literally writes `round 1: no findings` for a gate it never ran and the
+    # fold-back compares against a fabricated round, or it records nothing and Step 6 queries a
+    # report that is exactly right.
+    It 'the tally scopes its round half to a brief that runs the review gate' {
+        $script:CritTemplateText.Contains('The round half applies only where the `Done means` block below has you run the review gate') |
+            Should -BeTrue -Because 'a worker with no gate has no round to record'
+        $script:CritTemplateText.Contains('you never write a round for a gate you did not run') |
+            Should -BeTrue -Because 'the wrong reading has to be closed off, not left open'
+        $script:CritTemplateText.Contains('The failed-attempt half applies whatever this brief asks of you') |
+            Should -BeTrue -Because 'the per-bug half of the tally is mode-independent'
+
+        $scope  = $script:CritTemplateText.IndexOf('The round half applies only where')
+        $record = $script:CritTemplateText.IndexOf('Record every round in `report.md` as it lands')
+        $scope  | Should -BeGreaterThan -1
+        $record | Should -BeGreaterThan -1
+        $scope  | Should -BeLessThan $record `
+            -Because 'the scope has to be read before the instruction it scopes'
+    }
+
     # Twenty of the twenty-two registered projects have no review gate, so an unqualified compare
     # is an instruction that cannot be carried out for most of the fleet. The self-check still gets
     # read there - an `n/a` is the same wording problem arriving from the other side. The prod-only
@@ -4727,8 +4748,22 @@ Describe 'a project has a standing definition of done, and repeated findings are
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
             -Phrase ('On a `local-only` or `direct-PR` project - including a ' +
                      '`no-mistakes-prod-only` project whose task resolved to `direct-PR` - there ' +
-                     'is no gate and no round to compare against, so this loop does not fire - ' +
-                     'read the self-check block anyway')
+                     'is no gate and no round to compare against, so this loop does not fire, and ' +
+                     'a report with no rounds in it is the record that brief asked for rather than ' +
+                     'one to query')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase 'Read the self-check block either way'
+    }
+
+    # A qualifier stated after the clause it qualifies is one the reader has already acted on. The
+    # query fires on the gateless majority, so the exemption has to be in front of it - the same
+    # shape as the two n/a-classification defects this loop already had.
+    It 'the gateless exemption is stated before the query it exempts' {
+        $exempt = $script:CritStep6.IndexOf('there is no gate and no round to compare against')
+        $query  = $script:CritStep6.IndexOf('no rounds at all is one to ask about')
+        $exempt | Should -BeGreaterThan -1 -Because 'the exemption has to be there to be read'
+        $query  | Should -BeGreaterThan -1 -Because 'the query is what it exempts'
+        $exempt | Should -BeLessThan $query
     }
 
     It 'Step 6 escalates a round tally as a finding rather than filing it as progress' {

@@ -339,11 +339,16 @@ and why - this is the string the gate is given verbatim>
 
 ## Repeated findings
 1. While you fix, keep a tally two ways: gate rounds by the file or component they landed in, and
-   failed fix attempts per bug. Record every round in `report.md` as it lands - what it found and
-   where - whether or not the tally ever reaches three, because that record is the only thing the
-   standing criteria can be compared against once you are gone. Record the first pass even when it
-   raises nothing, as `round 1: no findings`, so that a report with no rounds in it means the
-   recording was skipped rather than that the gate was clean.
+   failed fix attempts per bug. The failed-attempt half applies whatever this brief asks of you.
+   The round half applies only where the `Done means` block below has you run the review gate -
+   where it does not there is no pass and no round to record, a report with no rounds in it is the
+   right record rather than a missing one, and you never write a round for a gate you did not run.
+   Where it does, the tally is kept as it happens rather than reconstructed at the end. Record every
+   round in `report.md` as it lands - what it found and where - whether or not the tally ever reaches
+   three, because that record is the only thing the standing criteria can be compared against once
+   you are gone. Record the first pass even when it raises nothing, as `round 1: no findings`, so
+   that a report with no rounds in it means the recording was skipped rather than that the gate was
+   clean.
 2. On the third round of findings in one component, or the third failed attempt at one bug, **carry
    on fixing every finding as normal.** Nothing here caps the rounds or lets you stop early.
 3. Additionally write into `report.md` the tally, what each round found there, and the design
@@ -939,13 +944,15 @@ say so to the user rather than quietly falling back - and treat everything else 
 claims with the same suspicion, since the one instruction you can check it against was ignored.
 
 **Fold back what the standing criteria missed.** The worker's self-check block and the gate's
-round-one findings are two readings of the same change, so compare them. Both are in `report.md`:
-the `Repeated findings` section of the brief made the worker record every round there as it landed,
-and the first pass as `round 1: no findings` where it raised none, so a report carrying a self-check
-block and no rounds at all is one to ask about rather than one
-with nothing to fold back. On a `local-only` or `direct-PR` project - including a
+round-one findings are two readings of the same change, so compare them. **That comparison needs a
+gate, and most projects have none.** On a `local-only` or `direct-PR` project - including a
 `no-mistakes-prod-only` project whose task resolved to `direct-PR` - there is no gate and no round to
-compare against, so this loop does not fire - read the self-check block anyway, because a criterion
+compare against, so this loop does not fire, and a report with no rounds in it is the record that
+brief asked for rather than one to query. Where this task did run the review gate, both readings are
+in `report.md`: the `Repeated findings` section of the brief made the worker record every round there
+as it landed, and the first pass as `round 1: no findings` where it raised none, so a report carrying
+a self-check block and no rounds at all is one to ask about rather than one
+with nothing to fold back. Read the self-check block either way, because a criterion
 the worker could not check - one it could not tell whether this change met, for want of the line
 saying how - is the same wording problem arriving from the other
 side. **Most `n/a`s are not that.** A criterion whose subject this change does not touch is answered

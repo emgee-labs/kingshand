@@ -384,11 +384,14 @@ if ($gates.Count -gt 0) {
     # rule: it resolves against the process working directory, which Set-Location does not move, so
     # a relative -DataPath could put the criteria file somewhere the index never looked and the
     # discount would silently stop discounting.
+    #
+    # Unguarded on purpose. A root this cannot resolve has to stop the dispatch, not fall through to
+    # an empty $byRote - that discounts nothing, opens the gate for the projects furthest along, and
+    # says so nowhere. Nothing is created before this point, so throwing here costs the caller only
+    # the message.
     $byRote = ''
     if ($project) {
-        $dataRoot = ''
-        try { $dataRoot = Resolve-IndexDataPath -DataPath $DataPath } catch { $dataRoot = '' }
-        if ($dataRoot) { $byRote = Join-Path $dataRoot "done-$project.md" }
+        $byRote = Join-Path (Resolve-IndexDataPath -DataPath $DataPath) "done-$project.md"
     }
     $engaged = @($staged.Values | Where-Object {
         -not ($byRote -and $_.Equals($byRote, [System.StringComparison]::OrdinalIgnoreCase))
