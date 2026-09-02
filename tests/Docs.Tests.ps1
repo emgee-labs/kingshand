@@ -4263,6 +4263,16 @@ Describe 'a project has a standing definition of done, and repeated findings are
                      'project yet.` rather than dropping the section')
     }
 
+    # The dispatcher refuses a brief whose `Read first` names a file that is not there, and no
+    # project has one of these files yet - so a Hand that reads the paste-and-copy instruction
+    # without this exception spends a dispatch discovering it, every time, until the first one
+    # exists.
+    It 'the empty case hands the dispatcher no path to refuse' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('write no `Read first` line for it and pass no `-ReadPath` for it either, ' +
+                     'because Step 4 refuses a brief naming a file that is not there')
+    }
+
     # The file is a standing list and the brief is this task's instruction, so the brief has to win
     # or a worker deciding for itself picks wrong half the time. The intent string is the other half:
     # a criterion broken silently is what the review gate raises a finding about.
@@ -4336,6 +4346,30 @@ Describe 'a project has a standing definition of done, and repeated findings are
             Should -BeFalse -Because 'petition cross-references the rule and never restates it'
     }
 
+    # The discriminator moved with the rule, and it is what stops the tripwire escalating on a bare
+    # count: three rounds that each closed an independent defect are ordinary convergence. Without
+    # it in the one place the rule now lives, the cross-reference points at nothing that tells an
+    # escalation from a Fix, and every third round becomes a question for the user.
+    It 'the owner states the discriminator the cross-reference relies on' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('escalate before authorizing another Fix only where incremental corrections ' +
+                     'are preserving a questionable abstraction rather than closing independent ' +
+                     'defects')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase 'a bare count of three is not an escalation on its own'
+    }
+
+    # Both mentions in petition have to escalate the design question without stopping the fixing,
+    # or the cross-reference contradicts the rule it points at - which is the one failure a
+    # cross-reference is supposed to be immune to.
+    It 'petition escalates the design question without capping the fixing' {
+        $petition = Get-DocText $script:AskUserMd
+        Assert-Phrase -Text $petition -Where 'petition step 7' `
+            -Phrase 'It escalates the design question and never the fixing'
+        Assert-Phrase -Text $petition -Where 'petition classification examples' `
+            -Phrase ('sends the design question to the user while the fixing carries on')
+    }
+
     # The loop that makes the list grow from evidence instead of from invention. Without it a
     # criterion learned at a gate round lives in one report and the next dispatch pays for it again.
     It 'Step 6 folds a finding no criterion matched back into the file' {
@@ -4349,6 +4383,27 @@ Describe 'a project has a standing definition of done, and repeated findings are
                      '`$env:KINGSHAND_HOME\data\done-<project>.md`')
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
             -Phrase 'writing it with `Write-DataFile` from `bin\Index.psm1` where it does not'
+    }
+
+    # The comparison needs both halves to survive teardown. The self-check block is required by all
+    # four Done-means blocks; the rounds are only in `report.md` because the brief made the worker
+    # put them there as they landed. Drop that and the fold-back has one reading to compare against
+    # nothing, and it silently does nothing at all.
+    It 'the rounds the fold-back compares against are recorded as they land' {
+        $script:CritTemplateText.Contains('Record every round in `report.md` as it lands - what it found and where - whether or not the tally ever reaches three') |
+            Should -BeTrue -Because 'the fold-back compares against rounds that were written down'
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('the `Repeated findings` section of the brief made the worker record every ' +
+                     'round there as it landed')
+    }
+
+    # Twenty of the twenty-two registered projects have no review gate, so an unqualified compare
+    # is an instruction that cannot be carried out for most of the fleet. The self-check still gets
+    # read there - an `n/a` is the same wording problem arriving from the other side.
+    It 'the fold-back says it does not fire where there is no gate' {
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('On a `local-only` or `direct-PR` project there is no gate and no round to ' +
+                     'compare against, so this loop does not fire - read the self-check block anyway')
     }
 
     It 'Step 6 escalates a round tally as a finding rather than filing it as progress' {

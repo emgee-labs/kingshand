@@ -276,7 +276,10 @@ unchanged, and hand the same file to `-ReadPath` at Step 4 with a `Read first` l
 exactly like any other settled file. Both, and for different reasons: the paste is in the artefact
 the worker is judged against, so it is what gets complied with, and the copy is what a mid-task
 re-read reaches. Where the project has no such file yet, write `- Nothing standing for this project
-yet.` rather than dropping the section, so an empty list is a decision someone made. Where a
+yet.` rather than dropping the section, so an empty list is a decision someone made - and in that
+case write no `Read first` line for it and pass no `-ReadPath` for it either, because Step 4 refuses
+a brief naming a file that is not there and the refusal costs a whole dispatch. No project has one
+of these files yet, so that is the ordinary case rather than the exception. Where a
 criterion is one this task deliberately sets aside, say so in `Requirements` or `Unchanged` and in
 the gate's `--intent` - the brief wins over the file, and a worker left to work out which source
 wins picks wrong half the time.
@@ -311,7 +314,9 @@ Do NOT touch: <explicit exclusions>
 
 ## Repeated findings
 1. While you fix, keep a tally two ways: gate rounds by the file or component they landed in, and
-   failed fix attempts per bug.
+   failed fix attempts per bug. Record every round in `report.md` as it lands - what it found and
+   where - whether or not the tally ever reaches three, because that record is the only thing the
+   standing criteria can be compared against once you are gone.
 2. On the third round of findings in one component, or the third failed attempt at one bug, **carry
    on fixing every finding as normal.** Nothing here caps the rounds or lets you stop early.
 3. Additionally write into `report.md` the tally, what each round found there, and the design
@@ -535,7 +540,13 @@ rounds were the signal that surfaced it. So the section adds writing and reporti
 job and takes nothing away from it: never soften **carry on fixing every finding as normal** into
 permission to stop, and never put a round limit beside it. Its trigger counts failed fix attempts
 on one bug as well as rounds of findings in one component, because three failed fixes is not a
-failed hypothesis, it is the wrong architecture. That is the whole rule about repeated findings and
+failed hypothesis, it is the wrong architecture. What it escalates is the design question and never
+the fixing, and that holds for you as much as for the worker: deciding an ask-user finding under
+`petition`, escalate before authorizing another Fix only where incremental corrections are
+preserving a questionable abstraction rather than closing independent defects. Rounds that were
+closing independent defects are ordinary convergence and the finding is decided on its own merits -
+a bare count of three is not an escalation on its own, and the fixing carries on either way while
+the design question goes to the user. That is the whole rule about repeated findings and
 this is the only place it is stated - `petition` step 7 points here rather than keeping a second
 copy.
 
@@ -870,7 +881,13 @@ say so to the user rather than quietly falling back - and treat everything else 
 claims with the same suspicion, since the one instruction you can check it against was ignored.
 
 **Fold back what the standing criteria missed.** The worker's self-check block and the gate's
-round-one findings are two readings of the same change, so compare them. A finding that matches a
+round-one findings are two readings of the same change, so compare them. Both are in `report.md`:
+the `Repeated findings` section of the brief made the worker record every round there as it landed,
+so a report carrying a self-check block and no rounds at all is one to ask about rather than one
+with nothing to fold back. On a `local-only` or `direct-PR` project there is no gate and no round to
+compare against, so this loop does not fire - read the self-check block anyway, because a criterion
+the worker recorded `n/a`, or could not check, is the same wording problem arriving from the other
+side. A finding that matches a
 criterion the worker recorded `pass` means that criterion is written too vaguely to check, or was
 skipped - either way the wording is what needs fixing. A finding that matches no criterion at all
 is a candidate line for `$env:KINGSHAND_HOME\data\done-<project>.md`: add it in the same turn you
