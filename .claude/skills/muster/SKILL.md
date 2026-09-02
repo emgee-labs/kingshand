@@ -1052,24 +1052,39 @@ run, and the answer then has nowhere to go.
 
 **Load `petition` before answering it - whatever the posture, and whether or not the King is at
 the machine.** It owns who may decide this and by what test, including the test that applies when
-he is away, and it is the only place that test is stated. Register the decision under `decree` in
-the same turn you read the report, so an answer he still owes survives this session ending.
+he is away, and it is the only place that test is stated. **Register the decision under `decree` in
+the same turn you read the report, whichever way it goes** - an answer he still owes and an answer
+you gave in his stead both survive this session ending that way, and neither one does in chat or
+in a return digest. `decree` owns what its note has to carry and is the only place that is
+written.
 
-With the answer in hand, send it to the worker as one prompt and read the screen back:
+With the answer in hand, send it to the worker as one prompt, read the screen back, and wait for
+the worker to actually pick the answer up:
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
 Send-HerdrPrompt -Name "<worker id>" -Text "<the decision, and the reason for it>"
 Read-HerdrAgent -Name "<worker id>" -Lines 20
+Wait-HerdrAgent -Name "<worker id>" -Until 'working' -TimeoutMs 120000
 ```
 
-`rally` owns the steer itself and says why an unchecked one is not a steer at all. Two things
+`rally` owns the steer itself and says why an unchecked one is not a steer at all. Three things
 about this one in particular. The send is refused outright when that worker's input box already
 holds text this session did not write - the wake reported `promptBox`, so you already know, and
 `rally` owns what to do about it rather than `-AllowNonEmptyBox` being reached for here. And **the
 worker is working again the moment the answer lands, so re-arm the Step 4 wait** - the wait that
 woke you is spent, and a worker resumed with nothing watching it is the silence this whole layer
 exists to prevent.
+
+**Arm it after that `-Until 'working'` line and never straight after the send.** Step 4's
+`Never arm the wait immediately after submitting a prompt without accounting for stale state`
+bullet owns why, and this steer is the case it names: the worker still reads `idle` for a moment,
+so a wait armed on the send comes back at once claiming a completion, and you re-read a `## Waiting
+on a decision` section the worker has not had time to rewrite and steer the same answer in twice.
+Naming `working` is the one wait that is allowed to be the raw one, because it is asking for a
+state the worker has to reach rather than trusting herdr's word for one it has stopped in. Where
+`working` never arrives inside those two minutes the answer did not land at all - read the screen
+and load `rally` rather than arming a wait over a worker that never took it.
 
 With all three confirmed and no decision waiting, **set its stage to `gating`** - the
 implementation is done and the work is waiting on the landing gate at Step 7. Say so in chat as an

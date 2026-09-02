@@ -3797,9 +3797,21 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Regency | Should -Match 'this bought no authority\s+at all over a land, a delete, a cost, or anything destructive, irreversible or security-sensitive'
         }
 
+        # Keyed on how the worker parks, not on the gate that made it park. Every Done-means block
+        # writes the same heading, so a `local-only` worker parks identically and the gate-only
+        # wording left it matching no bullet at all.
         It 'carries the parked worker into the away-mode handling rather than leaving it unnamed' {
-            $script:Regency | Should -Match '\*\*A worker is parked on an ask-user finding\.\*\*'
-            $script:Regency | Should -Match 'ended its turn, so nothing is hanging and nothing is lost while you think'
+            $script:Regency | Should -Match '\*\*A worker is parked on a decision its brief did not settle\.\*\*'
+            $script:Regency | Should -Match 'ended its turn, so nothing is hanging and nothing\s+is lost while you think'
+            $script:Regency | Should -Match 'Every posture parks that way, so this is not only the gated ones'
+            $script:Regency | Should -Match 'Register what you decided under `decree`, carry it into the return digest'
+        }
+
+        # The digest is session memory and the King's review of what was decided in his name cannot
+        # be. The notes decree closed those decisions with are what a restart leaves behind.
+        It 'rebuilds the decided-in-his-stead part of the digest from the durable notes' {
+            $script:Regency | Should -Match 'Read those back from\s+the notes `decree` closed them with rather than from memory'
+            $script:Regency | Should -Match 'a restart before he returns takes it with it, while the notes are still there'
         }
 
         # Two bullets both keyed on a decision in a report, and the broader one is read first: it
@@ -5996,9 +6008,18 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
                      'not the King is at the machine.**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase 'it is the only place that test is stated'
+        # Either way, and that word is the fix: petition scoped this to the wait branch, so a
+        # finding the Hand answered in the King's stead was registered nowhere and the only record
+        # of it was a return digest that dies with the session.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('Register the decision under `decree` in the same turn you read the report, ' +
-                     'so an answer he still owes survives this session ending.')
+            -Phrase ('**Register the decision under `decree` in the same turn you read the ' +
+                     'report, whichever way it goes**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('an answer he still owes and an answer you gave in his stead both survive ' +
+                     'this session ending that way, and neither one does in chat or in a return ' +
+                     'digest')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase '`decree` owns what its note has to carry and is the only place that is written.'
     }
 
     # The answer travels by the steer that already exists. Asserted as runnable text rather than as
@@ -6010,6 +6031,11 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         $fence.Count | Should -Be 1 -Because 'the answer goes back by one steer, stated once'
         $fence[0].Contains('Read-HerdrAgent -Name "<worker id>" -Lines 20') |
             Should -BeTrue -Because 'a steer nobody read back is not a steer'
+        # Herdr.psm1 documents the race: `agent prompt` returns before the state machine moves, so
+        # a worker that is about to work still reads `idle` and a wait armed on the send returns at
+        # once claiming a completion. Step 4 already forbids that; the fence has to obey it.
+        $fence[0].Contains("Wait-HerdrAgent -Name ""<worker id>"" -Until 'working' -TimeoutMs 120000") |
+            Should -BeTrue -Because 'the worker has to leave idle before a fresh wait is armed over it'
     }
 
     # Two failure modes of the steer itself, both already real in this repository: a prompt box
@@ -6024,6 +6050,25 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('**the worker is working again the moment the answer lands, so re-arm the ' +
                      'Step 4 wait**')
+    }
+
+    # The ordering the fence depends on, said in prose as well, and pointed at the Step 4 bullet
+    # that already owns the reasoning rather than copying it down here.
+    It 'Step 6 arms the fresh wait only once the worker has left idle' {
+        # Single-quoted, because a backtick inside a double-quoted PowerShell string is the escape
+        # character and silently drops the backticks the literal line carries.
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**Arm it after that `-Until ''working''` line and never straight after the ' +
+                     'send.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('Step 4''s `Never arm the wait immediately after submitting a prompt without ' +
+                     'accounting for stale state` bullet owns why')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('you re-read a `## Waiting on a decision` section the worker has not had ' +
+                     'time to rewrite and steer the same answer in twice')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('Where `working` never arrives inside those two minutes the answer did not ' +
+                     'land at all')
     }
 
     It 'decree stops describing the worker as stopped, and routes the answer back into its own item' {
@@ -6049,6 +6094,31 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
                      "work's own item, that item is the one to block and no second is filed")
         Assert-Phrase -Text $script:RouteHold -Where 'decree step 6' `
             -Phrase 'the block is still what records that the answer authorised the work'
+    }
+
+    # The durable home for a decision made in the King's stead. petition requires three things
+    # recorded every time and named no destination that outlives the session, so the record lived
+    # only in a regency digest built from session memory - gone on the restart CLAUDE.md treats as
+    # routine, and he is never told a call was made in his name.
+    It 'decree holds the record of a decision answered in the King''s stead' {
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree note convention' `
+            -Phrase ("**A decision the Hand answered in the King's stead is one of these too, and " +
+                     'its note carries three things rather than one: the decision, the reasoning, ' +
+                     "and whether it rested on a recorded position or on the Hand's own " +
+                     'judgement.**')
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree note convention' `
+            -Phrase ('it is registered and closed in the same pass because nobody is being waited ' +
+                     'for')
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree note convention' `
+            -Phrase ('a regency''s return digest is built inside one session, so a restart before ' +
+                     'he is back means he is never told a call was made in his name at all')
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree command table' `
+            -Phrase ("| record a decision the Hand answered in the King's stead |")
+        # petition keeps the test and the basis definition; decree keeps the lifecycle.
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree note convention' `
+            -Phrase ('`petition` owns which decisions those are and what a recorded position is')
+        $script:RouteHold.Contains('reversible in minutes') |
+            Should -BeFalse -Because 'the reversibility test is stated once, in petition'
     }
 }
 
@@ -6099,6 +6169,42 @@ Describe "the reversibility test owns what may be answered in the King's stead" 
         Assert-Phrase -Text $script:Away -Where 'petition' `
             -Phrase ('steps 3 to 5 keep a reversible correction inside your authority where the ' +
                      'posture at step 1 leaves it there, and everything else escalates and waits')
+    }
+
+    # Parking is mode-independent - every Done-means block writes the same heading - so keying the
+    # away test to the gate's own ask-user finding left a `local-only` worker parked on a decision
+    # nothing claimed: regency's finished-and-unclear bullet advanced it, which muster Step 6
+    # forbids, or nothing matched at all and the decision was never registered.
+    It 'the away test governs any parked decision, however the worker reached it' {
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('**Its test governs any decision a parked worker has left you, however the ' +
+                     'worker reached it.**')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('a worker on any posture writes `## Waiting on a decision` into its ' +
+                     '`report.md` for any decision its brief did not settle, and while he is away ' +
+                     'that decision is answered on the test below or it is answered nowhere')
+        # Only the test widens. The gate procedure above still fires for a gated project alone,
+        # and the scoping section that says so is untouched.
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('Only the test generalises. The authority analysis above is still the gate ' +
+                     'procedure and still fires for a gated project alone.')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('it never produces an ask-user finding and this procedure never fires for it')
+    }
+
+    # petition scoped registration to the wait branch, so the branch it exists for recorded
+    # nothing. decree owns the lifecycle; this is the one-line cross-reference to it.
+    It 'registers both branches under decree rather than only the wait' {
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('**Either branch is registered under `decree`, and its note is where those ' +
+                     'three things live.**')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('A regency digest is built inside one session, so a restart or a compaction ' +
+                     'before he is back takes it with it')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('`decree` owns that lifecycle, including the pass that registers a decision ' +
+                     'you answered yourself and closes it in the same breath; nothing here ' +
+                     'restates it.')
     }
 
     # "regardless of what is known" is the mirror of the test above and the half a softened rewrite
@@ -6176,13 +6282,17 @@ Describe "the reversibility test owns what may be answered in the King's stead" 
     # copy problem rather than anything the King had settled.
     It 'classifies the finding shape it was designed against' {
         Assert-Phrase -Text $script:Away -Where 'petition' `
-            -Phrase ('is reversible in minutes and is none of the four, so it is decided rather ' +
-                     'than parked, away or present. Five of exactly that shape came back on one run.')
-        # And which rule reaches that verdict, so the example cannot be read as authority while he
-        # is at the machine - with `yolo` off, step 1 gives it to him.
+            -Phrase 'is reversible in minutes and is none of the four.'
+        # The verdict is conditional, because step 1 reverses it for one real combination: a gated
+        # project registered `yolo off` with the King at the machine. A flat "decided, away or
+        # present" in an example a Hand reads for a case-match hands back the wrong answer with no
+        # rule erroring.
         Assert-Phrase -Text $script:Away -Where 'petition' `
-            -Phrase ('Away, the section above is what decides it; present, it is the authority ' +
-                     'analysis, starting at the posture step 1 reads.')
+            -Phrase ('Away, that is what makes it yours to decide rather than park. Present, this ' +
+                     'section is not reached and the posture at step 1 decides whether it is yours ' +
+                     'at all - with `yolo` off it is his, however small it looks.')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase 'Five of exactly that shape came back on one run.'
         Assert-Phrase -Text $script:Away -Where 'petition' `
             -Phrase ('Deleting a guard test to make a new assertion pass is a delete, so it waits ' +
                      'however obvious the reasoning looks')

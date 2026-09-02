@@ -1,6 +1,6 @@
 ---
 name: regency
-description: Hold the fleet while the King is away from the machine. Use when the user says they are going afk, stepping out, going to bed, back in an hour, "watch this while I'm gone", invokes /regency or /afk, or when state\.afk already exists at session start. Keeps workers supervised, batches everything that does not need them, never answers a prompt a blocked worker is sitting on, decides a parked worker's ask-user finding only on petition's reversibility test, and ends the moment they speak again.
+description: Hold the fleet while the King is away from the machine. Use when the user says they are going afk, stepping out, going to bed, back in an hour, "watch this while I'm gone", invokes /regency or /afk, or when state\.afk already exists at session start. Keeps workers supervised, batches everything that does not need them, never answers a prompt a blocked worker is sitting on, decides a parked worker's unsettled decision only on petition's reversibility test, and ends the moment they speak again.
 ---
 
 # Regency
@@ -81,10 +81,13 @@ posture, exactly as you would with them present. Record it for the return digest
 stage, write the outcome down, and batch it. `decree` still owns any unresolved decision and still
 applies.
 
-**A worker is parked on an ask-user finding.** It wrote the question into its `report.md` and
-ended its turn, so nothing is hanging and nothing is lost while you think. Load `petition`, which
-owns whether this one is yours to answer, and take the route back into the worker from `muster`
-Step 6. Record what you decided for the return digest and do not message.
+**A worker is parked on a decision its brief did not settle.** It wrote the question into its
+`report.md` under `## Waiting on a decision` and ended its turn, so nothing is hanging and nothing
+is lost while you think. Every posture parks that way, so this is not only the gated ones: a
+review gate's ask-user finding is one route into it and not the only one. Load `petition`, whose
+away-mode test owns whether this one is yours to answer, and take the route back into the worker
+from `muster` Step 6. Register what you decided under `decree`, carry it into the return digest,
+and do not message.
 
 **A worker is blocked on a prompt.** This is the case regency exists for and the one to get right.
 
@@ -126,7 +129,9 @@ outranks a durable flag, and wrongly staying in regency is worse than wrongly le
    Short, and in this order: what landed, what is waiting on them, what broke, what is still
    running. Every blocked worker's question, quoted. **Every finding you decided in his stead,
    with the reasoning and whether it rested on a recorded position or on your own judgement** -
-   that flag is what makes the digest reviewable, and `petition` owns why.
+   that flag is what makes the digest reviewable, and `petition` owns why. Read those back from
+   the notes `decree` closed them with rather than from memory: this digest is built inside a
+   session and a restart before he returns takes it with it, while the notes are still there.
 3. Then answer them.
 
 If nothing happened, say exactly that in one line. "Nothing needed you" is a complete and useful

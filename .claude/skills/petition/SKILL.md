@@ -86,6 +86,14 @@ while he is at the machine.** With him there, an ask-user finding is settled by 
 analysis above and by nothing here: steps 3 to 5 keep a reversible correction inside your
 authority where the posture at step 1 leaves it there, and everything else escalates and waits.
 
+**Its test governs any decision a parked worker has left you, however the worker reached it.**
+`When this applies at all` above is about where an ask-user finding comes from and it is unchanged
+- only a gated project produces one - but parking is not: a worker on any posture writes
+`## Waiting on a decision` into its `report.md` for any decision its brief did not settle, and
+while he is away that decision is answered on the test below or it is answered nowhere. Only the
+test generalises. The authority analysis above is still the gate procedure and still fires for a
+gated project alone.
+
 **The test is reversibility, not knowledge.** Not what the two of you have discussed, not what you
 happen to know, not how confident you feel - whether a wrong call can be undone in minutes.
 Writing it as a knowledge test is the mis-statement to refuse: "answer only what you know" parks
@@ -118,8 +126,13 @@ this session. Reviewer language is not one, and neither is a pattern you inferre
 task.
 
 Where you decide, the answer goes back to the parked worker as a steer, and `muster` Step 6 owns
-that route. Where you wait, register the decision under `decree` before anything is called
-complete, so his answer is still owed after this session ends.
+that route. Where you wait, leave the decision open until he answers it.
+
+**Either branch is registered under `decree`, and its note is where those three things live.** A
+regency digest is built inside one session, so a restart or a compaction before he is back takes
+it with it - and a decision he was never told about is the opposite of the reviewability this
+section exists for. `decree` owns that lifecycle, including the pass that registers a decision you
+answered yourself and closes it in the same breath; nothing here restates it.
 
 ## Classification examples
 
@@ -136,9 +149,9 @@ complete, so his answer is still owed after this session ends.
   merely because it is complex.
 - A consistency or copy finding - a comment that now states the opposite of the decision it
   describes, a sentence the change itself made false, a plain-text file that has drifted from the
-  page beside it - is reversible in minutes and is none of the four, so it is decided rather than
-  parked, away or present. Five of exactly that shape came back on one run. Away, the section
-  above is what decides it; present, it is the authority analysis, starting at the posture step 1
-  reads.
+  page beside it - is reversible in minutes and is none of the four. Away, that is what makes it
+  yours to decide rather than park. Present, this section is not reached and the posture at step 1
+  decides whether it is yours at all - with `yolo` off it is his, however small it looks. Five of
+  exactly that shape came back on one run.
 - Deleting a guard test to make a new assertion pass is a delete, so it waits however obvious the
   reasoning looks and however well the King's position seems to be known.
