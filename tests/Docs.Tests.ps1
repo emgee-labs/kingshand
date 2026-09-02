@@ -4286,6 +4286,19 @@ Describe 'a project has a standing definition of done, and repeated findings are
                      'available, and it is not a criterion to reword or a reason to create the file')
     }
 
+    # That carve-out says "only line", and the retire branch can leave the placeholder as a file's
+    # last line - so an add that joined it rather than replacing it would put the carve-out out of
+    # reach and send the Hand to reword a placeholder on every dispatch from then on, which no
+    # rewording can make checkable.
+    It 'the first real criterion replaces the placeholder rather than joining it' {
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('Where the file holds only `- Nothing standing for this project yet.`, the ' +
+                     'first real criterion replaces that line rather than joining it')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('a file holding both says two contradictory things and leaves every future ' +
+                     'worker working a line it can only record `n/a` against')
+    }
+
     # One line form, stated once. The fold-back writes this file and the next brief pastes it back
     # `unchanged`, so a second form described anywhere leaves the paste step renumbering a file it
     # was told not to touch - or dropping it. The empty-case placeholder is already a `-` bullet,
@@ -4318,8 +4331,22 @@ Describe 'a project has a standing definition of done, and repeated findings are
             -Phrase ('dispatch knows it, discounting `done-<project>.md` from the paths that ' +
                      'satisfy this refusal')
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
-            -Phrase ('Where it is the only file this task touches, the stated line about the index ' +
-                     'still goes in the section beside it')
+            -Phrase ('Where it is the only file this task touches, a line about the index still ' +
+                     'goes in the section beside it')
+    }
+
+    # The literal line the refusal quotes says there is nothing beyond the brief, which is false in
+    # the one case this discount creates - the bullet above it hands the worker a file. A worker
+    # reading both may skip the copy, which is the mid-task re-read the copy exists for.
+    # Dispatch-Worker.Tests.ps1 runs the paraphrase against the real gate; this pins that muster
+    # gives it rather than sending the Hand to the contradicting line.
+    It 'the criteria-only case gets a line that does not contradict the file beside it' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('but not the literal one above, which would tell the worker there is nothing ' +
+                     'beyond the brief in the same breath as handing it a file to read')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('- The index was checked; nothing in it applies to this task beyond the ' +
+                     'standing criteria above.')
     }
 
     It 'the empty case hands the dispatcher no path to refuse' {

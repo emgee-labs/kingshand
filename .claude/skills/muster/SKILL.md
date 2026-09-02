@@ -241,8 +241,16 @@ that reason; the refusal is what stops a busy session skipping it.
 **The standing-criteria file below does not discharge this.** It goes to `-ReadPath` on every brief
 for a project that has one, so a gate that counted it would be one no dispatch could ever fail
 again - and dispatch knows it, discounting `done-<project>.md` from the paths that satisfy this
-refusal. Where it is the only file this task touches, the stated line about the index still goes in
-the section beside it. Any other file you pass counts as it always did.
+refusal. Where it is the only file this task touches, a line about the index still goes in the
+section beside it - but not the literal one above, which would tell the worker there is nothing
+beyond the brief in the same breath as handing it a file to read. Write what is true instead:
+
+```markdown
+- The index was checked; nothing in it applies to this task beyond the standing criteria above.
+```
+
+Dispatch accepts that because it states both halves, and the worker gets a section that agrees with
+itself. Any other file you pass counts as it always did.
 
 **Name the copy, not the original.** A worker can reach exactly two places: its own worktree and
 the brief's own directory. A settled file at `data\<name>.md` is a sibling of `data\<id>\` rather
@@ -958,7 +966,11 @@ through and records `n/a` against forever. Where it passes that test, add it in 
 read the report, in that file's one form of a `-` bullet naming how it is checked, editing the file in
 place where it already exists or writing it with `Write-DataFile -Project "<project>"` from
 `bin\Index.psm1` where it does not - name the project, or the entry lands in kingshand's own
-`data\index.md` and the next session reading `data\index\<project>.md` finds no trace of it. Retire a line the same way you add one, in the turn the evidence arrives: when the code it
+`data\index.md` and the next session reading `data\index\<project>.md` finds no trace of it. Where
+the file holds only `- Nothing standing for this project yet.`, the first real criterion replaces
+that line rather than joining it: the placeholder says there are no criteria, so a file holding both
+says two contradictory things and leaves every future worker working a line it can only record `n/a`
+against. Retire a line the same way you add one, in the turn the evidence arrives: when the code it
 guarded is gone, when it has stopped discriminating because the practice is now enforced by a test
 or a linter, or when workers keep recording it `n/a` on unrelated dispatches for want of anything to
 check, delete it and say so. Where that was the file's last line, leave `- Nothing standing for this

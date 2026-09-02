@@ -980,6 +980,26 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $msg | Should -BeLike '*every brief for this project passes*'
         }
 
+        # The way past the discount that muster actually tells the Hand to write. The literal line
+        # the refusal quotes would say there is nothing beyond the brief while the bullet above it
+        # hands the worker a file, so muster names this paraphrase instead - and a paraphrase is
+        # only usable if the gate really takes it, which is what this runs.
+        It 'accepts the paraphrase muster gives for the criteria-only case' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-criteria-paraphrase'
+            $name = Register-FixtureProject -Fixture $f -WithIndex
+            $criteria = Join-Path $f.DataPath "done-$name.md"
+            Set-Content -Path $criteria -Value '- Every new prose rule is pinned by a test.' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                "- ``$($f.BriefDir)\read-first\done-$name.md`` - the standing criteria, copied here from ``$criteria``.",
+                '- The index was checked; nothing in it applies to this task beyond the standing criteria above.')
+
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8024' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $criteria
+            $r.id | Should -Be 'T-8024'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\done-$name.md") | Should -BeTrue
+        }
+
         # The discount is exactly one file. Any other path the Hand chose is the engagement this
         # gate asks for, and it still opens the gate when the criteria file rides along beside it.
         It 'dispatches when another file is passed alongside the standing-criteria file' {
