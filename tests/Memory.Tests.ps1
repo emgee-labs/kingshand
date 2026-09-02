@@ -227,3 +227,30 @@ Describe 'Get-MemoryReport accounts for both memory files' {
         $r.estimator | Should -Match 'not a tokenizer'
     }
 }
+
+# A forced nested import removes Paths.psm1 before re-importing it, so a script that had already
+# imported it lost Get-KingshandHome the moment this module loaded, and died on its next path
+# lookup with an error from a module it never touched. Get-SessionStart.ps1 imports Paths first and
+# Memory second, which is exactly that order; this is the same invariant for the Memory -> Paths
+# edge. One child process, in the order that breaks.
+Describe 'importing Memory does not unload Paths from the caller' {
+    BeforeAll {
+        $root   = Split-Path $PSScriptRoot -Parent
+        $driver = Join-Path ([IO.Path]::GetTempPath()) ("memoryimport-" + [guid]::NewGuid().ToString('N') + '.ps1')
+        Set-Content -LiteralPath $driver -Encoding utf8 -Value @"
+Import-Module '$root\bin\Paths.psm1' -Force
+Import-Module '$root\bin\Memory.psm1' -Force
+Write-Host "PATHS_BOUND=`$([bool](Get-Command Get-KingshandHome -ErrorAction SilentlyContinue))"
+Write-Host "MEMORY_BOUND=`$([bool](Get-Command Get-MemoryReport -ErrorAction SilentlyContinue))"
+"@
+        $script:MemoryImportOut = & (Get-Process -Id $PID).Path -NoProfile -File $driver 2>&1 | Out-String
+    }
+
+    It 'keeps Get-KingshandHome bound in the session that imported Paths first' {
+        $script:MemoryImportOut | Should -BeLike '*PATHS_BOUND=True*'
+    }
+
+    It 'still binds its own exports' {
+        $script:MemoryImportOut | Should -BeLike '*MEMORY_BOUND=True*'
+    }
+}

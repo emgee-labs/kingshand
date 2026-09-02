@@ -1,7 +1,9 @@
 #Requires -Version 7.0
 Set-StrictMode -Version Latest
 
-Import-Module (Join-Path $PSScriptRoot 'Paths.psm1') -Force
+# NOT -Force - a module never forces a nested import. The rule and the failure it prevents are in
+# the `statute` skill's style rules; tests\Memory.Tests.ps1 pins this edge.
+Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
 
 # The startup-memory budget: what the two curated memory files cost, against what is allowed.
 #
