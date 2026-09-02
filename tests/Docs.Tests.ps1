@@ -6012,6 +6012,11 @@ Describe "the reversibility test owns what may be answered in the King's stead" 
                      'reversible in minutes and is **none of**: a delete, a cost, ' +
                      'security-sensitive, or a material expansion of what the work was accepted ' +
                      'to deliver.')
+        # "away or present" is the clause most likely to be read as an accident and edited out, so
+        # the skill says why it is there and this pins the reason with it.
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('The clause says away or present because presence is not what the test turns ' +
+                     'on')
     }
 
     # "regardless of what is known" is the mirror of the test above and the half a softened rewrite

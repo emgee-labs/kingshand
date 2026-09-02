@@ -27,9 +27,6 @@ Being away is not consent. Every one of these still waits for the King, however 
 - **New work they did not ask for.** An empty queue while they are out is a healthy state. Do not
   invent work, tidy, refactor, or improve anything on your own initiative.
 
-If a choice is close enough that you find yourself building a case for it, that is the signal to
-batch it and stop.
-
 **This rule changed deliberately, on the King's own instruction, and it is not an accident to be
 repaired.** Regency used to say a worker's question was recorded and never answered, full stop.
 Answering nothing woke him for SEO details and copy fixes and parked workers overnight on calls
@@ -37,6 +34,9 @@ that take a minute to undo, so he replaced the knowledge test with a reversibili
 who finds `Record it, never answer it` in this file's history should read it as superseded rather
 than as a rule that went missing. Nothing else in the list above moved: this bought no authority
 at all over a land, a delete, a cost, or anything destructive, irreversible or security-sensitive.
+
+If a choice is close enough that you find yourself building a case for it, that is the signal to
+batch it and stop.
 
 ## What regency actually does
 

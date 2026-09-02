@@ -90,7 +90,10 @@ end.
 **Decide it** - away or present, discussed or not - when the call is reversible in minutes and is
 **none of**: a delete, a cost, security-sensitive, or a material expansion of what the work was
 accepted to deliver. SEO details, page wording, a stylesheet comment, website JavaScript and that
-class are his own examples of what you decide rather than ask about.
+class are his own examples of what you decide rather than ask about. The clause says away or
+present because presence is not what the test turns on: present, the analysis above already keeps
+a reversible correction inside your authority instead of sending it up, and away, this is what
+stops the same call parking a worker until morning.
 
 **Wait for him** on a delete, a cost or anything security-sensitive, **regardless of what is
 known**, and on a major or irreversible call where nothing records his position. Those are the
