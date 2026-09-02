@@ -447,9 +447,12 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
   comes back to you as an ordinary prompt and you carry on from there, so leave everything where
   it is: do not undo what you have done, do not pick a different task, and do not report the work
-  as failed. **When you apply the answer, rewrite that section to record what was decided** - the
-  heading stays where it is, and it is the answer written under it that stops the section reading
-  as unanswered.
+  as failed. **Each decision is its own entry under that heading: the question first, and when the
+  answer reaches you, the decision written into that same entry.** The heading stays where it is,
+  and it is the answer under a question that stops that entry reading as unanswered. A new question
+  is always appended last, never folded into an entry already answered - park twice and the section
+  holds two entries, the decision you were given still readable above the one nobody has answered
+  yet.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping.
 - Never mention Claude, AI, or an assistant in any commit message or file.
@@ -481,9 +484,12 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
   comes back to you as an ordinary prompt and you carry on from there, so leave everything where
   it is: do not undo what you have done, do not pick a different task, and do not report the work
-  as failed. **When you apply the answer, rewrite that section to record what was decided** - the
-  heading stays where it is, and it is the answer written under it that stops the section reading
-  as unanswered.
+  as failed. **Each decision is its own entry under that heading: the question first, and when the
+  answer reaches you, the decision written into that same entry.** The heading stays where it is,
+  and it is the answer under a question that stops that entry reading as unanswered. A new question
+  is always appended last, never folded into an entry already answered - park twice and the section
+  holds two entries, the decision you were given still readable above the one nobody has answered
+  yet.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping.
 - Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
@@ -530,11 +536,17 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
   comes back to you as an ordinary prompt and you carry on from there, so leave everything where
   it is: do not undo what you have done, do not pick a different task, and do not report the work
-  as failed. **When you apply the answer, rewrite that section to record what was decided** - the
-  heading stays where it is, and it is the answer written under it that stops the section reading
-  as unanswered.
+  as failed. **Each decision is its own entry under that heading: the question first, and when the
+  answer reaches you, the decision written into that same entry.** The heading stays where it is,
+  and it is the answer under a question that stops that entry reading as unanswered. A new question
+  is always appended last, never folded into an entry already answered - park twice and the section
+  holds two entries, the decision you were given still readable above the one nobody has answered
+  yet.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
-  `report.md` and continue rather than stopping.
+  `report.md` and continue rather than stopping. **A finding the gate classified `ask-user` is
+  never one of those.** Stating an assumption over one and carrying on is you answering your own
+  ask-user finding, which is the one thing you may not do - park it under the heading above and
+  wait, however obvious the answer looks from here.
 - Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
 - If the repo cannot build or the gate cannot run, stop and say so plainly in your final
   message rather than reporting success.
@@ -585,11 +597,17 @@ that has gone stale points a Hand at the gate-run bullet instead:
   than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
   comes back to you as an ordinary prompt and you carry on from there, so leave everything where
   it is: do not undo what you have done, do not pick a different task, and do not report the work
-  as failed. **When you apply the answer, rewrite that section to record what was decided** - the
-  heading stays where it is, and it is the answer written under it that stops the section reading
-  as unanswered.
+  as failed. **Each decision is its own entry under that heading: the question first, and when the
+  answer reaches you, the decision written into that same entry.** The heading stays where it is,
+  and it is the answer under a question that stops that entry reading as unanswered. A new question
+  is always appended last, never folded into an entry already answered - park twice and the section
+  holds two entries, the decision you were given still readable above the one nobody has answered
+  yet.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
-  `report.md` and continue rather than stopping.
+  `report.md` and continue rather than stopping. **A finding the gate classified `ask-user` is
+  never one of those.** Stating an assumption over one and carrying on is you answering your own
+  ask-user finding, which is the one thing you may not do - park it under the heading above and
+  wait, however obvious the answer looks from here.
 - Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
 - If the repo cannot build or the gate cannot run, stop and say so plainly in your final
   message rather than reporting success.
@@ -1038,12 +1056,18 @@ brief made it write, and nothing has answered. So read the report before you act
 facts rather than after, and treat a question still standing under that heading as a worker
 mid-run.
 
-**A section that records an answer is not a waiting worker.** Its brief made it rewrite that
-section as it applied the steer, so the heading outlives the answer and the body underneath is
-what you are reading for: a section saying what was decided is a worker that has already been
-answered and carried on, and it reaches the landing gate like any other delivery. Read the heading
-alone and every worker you have ever answered reads as waiting forever, so the one you steered
-this morning is still being re-steered tonight.
+**Read every entry under that heading, and key on whether any one of them is unanswered.** The
+brief has the worker keep one entry per decision and append each new question last, so a worker
+that parked, was answered and parked again has an answered entry sitting above a question nobody
+has answered. **One unanswered entry means a worker mid-run**, whatever else that section records.
+
+**A section that records an answer is not a waiting worker.** Where every entry carries its own
+answer, the heading has outlived the answers and the entries underneath are what you are reading
+for: a section saying what was decided is a worker that has already been answered and carried on,
+and it reaches the landing gate like any other delivery. Read the heading alone and every worker
+you have ever answered reads as waiting forever; read the first entry alone and a second decision
+nobody answered goes to the landing gate instead, where approval tears the worker down and takes
+the parked run with it.
 
 Such a worker is idle rather than hung and costs nothing where it is - the review-gate run it left
 parked keeps the branch and every fix commit already made. **Do not set `gating`, do not close the
@@ -1083,8 +1107,11 @@ so a wait armed on the send comes back at once claiming a completion, and you re
 on a decision` section the worker has not had time to rewrite and steer the same answer in twice.
 Naming `working` is the one wait that is allowed to be the raw one, because it is asking for a
 state the worker has to reach rather than trusting herdr's word for one it has stopped in. Where
-`working` never arrives inside those two minutes the answer did not land at all - read the screen
-and load `rally` rather than arming a wait over a worker that never took it.
+`working` never arrives inside those two minutes, the wait came back `$null` and that is two
+things at once: the answer never landed, or herdr stopped answering while the worker took it
+anyway. **Do not report either one - the null does not say which.** Read the screen and check what
+the worker is actually doing, and load `rally` where the screen cannot tell you, rather than arming
+a wait over a worker that may never have taken the answer.
 
 With all three confirmed and no decision waiting, **set its stage to `gating`** - the
 implementation is done and the work is waiting on the landing gate at Step 7. Say so in chat as an

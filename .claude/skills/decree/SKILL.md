@@ -76,7 +76,7 @@ Run every command from `$env:KINGSHAND_HOME` so `.tasks.toml` resolves.
 | attest the inventory | no verb exists - you state it in the close-out, in words |
 | route an authorised answer | `tasks-axi add <work-id> "<one line>"` where no item holds that work yet, then `tasks-axi block <work-id> --by <key>`, then `tasks-axi done <key> --note "answered: <the decision>"`. Where the answer went back into a worker already running on this work's own item, skip the `add` and block that existing item |
 | record a declined answer | `tasks-axi done <key> --note "declined: <the decision>"`, with no dependent item |
-| record a decision the Hand answered in the King's stead | `tasks-axi add <key> "<one line>"`, `tasks-axi hold <key> --reason "<reason>" --kind captain`, then `tasks-axi done <key> --note "answered: <the decision, the reasoning, and whether it rested on a recorded position or on your own judgement>"` - registered and closed in the same pass, because there is nothing to wait for |
+| record a decision the Hand answered in the King's stead | `tasks-axi add <key> "<one line>"`, `tasks-axi hold <key> --reason "<reason>" --kind captain`, `tasks-axi block <work-id> --by <key>` against the item the parked worker is already running under, then `tasks-axi done <key> --note "answered: <the decision, the reasoning, and whether it rested on a recorded position or on your own judgement>"` - registered and closed in the same pass, because there is nobody to wait for, and the block is still what makes that `answered:` note true |
 | repair a hold closed without its answer | `tasks-axi done <key> --note "<answered or declined>: ..."` backfills the note without moving the close date; where authorised work was never routed, `tasks-axi reopen <key>` first, then route it and close normally |
 
 Four mechanical facts this depends on, each confirmed against the tool rather than assumed:
@@ -119,7 +119,9 @@ was answered and routed, so it is a convention to follow exactly rather than a s
 things rather than one: the decision, the reasoning, and whether it rested on a recorded position
 or on the Hand's own judgement.** `petition` owns which decisions those are and what a recorded
 position is; this is where the record lands, and it is registered and closed in the same pass
-because nobody is being waited for. Nothing else durably holds it - a regency's return digest is
+because nobody is being waited for. **It is an `answered:` note like any other, so the block still
+happens** - the steered worker's own item is the dependent one, exactly as the bullet above says,
+and skipping it leaves a closed note claiming an authorisation the queue never recorded. Nothing else durably holds it - a regency's return digest is
 built inside one session, so a restart before he is back means he is never told a call was made in
 his name at all.
 

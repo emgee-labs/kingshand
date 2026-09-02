@@ -94,6 +94,14 @@ while he is away that decision is answered on the test below or it is answered n
 test generalises. The authority analysis above is still the gate procedure and still fires for a
 gated project alone.
 
+**With him at the machine, a parked decision has the ordinary answer: put it to him.** That holds
+whatever the posture and however the worker reached it - a `local-only` worker's question is his
+the same way a gated one is, and `+yolo` is authority to land work inside the accepted criteria
+rather than a licence to answer in his place. Register it under `decree` first so it outlives the
+session, then escalate it as `User-facing escalation` above describes. This grants nothing: the
+only autonomous answer anywhere in this skill is the one the test below allows while he is
+unreachable.
+
 **The test is reversibility, not knowledge.** Not what the two of you have discussed, not what you
 happen to know, not how confident you feel - whether a wrong call can be undone in minutes.
 Writing it as a knowledge test is the mis-statement to refuse: "answer only what you know" parks

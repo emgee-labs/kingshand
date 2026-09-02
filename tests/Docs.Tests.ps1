@@ -5917,12 +5917,21 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
     # as waiting - the Hand re-reads the report, refuses to advance it, and a fresh session steers a
     # second answer into a worker that already applied the first. The section stays where it is and
     # the answer written into it is what stops it matching.
-    It 'all four have the worker record the answer in that same section' {
+    #
+    # One entry per decision, because one slot cannot hold two. A worker answered on round one and
+    # parked again on round two writes the second question into the same section, and a single-slot
+    # section then either reads as a delivery - landing gate, then teardown, and the second decision
+    # is answered nowhere - or has the first decision overwritten to make room for the new question.
+    It 'all four keep one entry per decision, answered in place and appended in order' {
         foreach ($block in $script:RouteBlocks) {
-            $block.Contains('**When you apply the answer, rewrite that section to record what was decided**') |
-                Should -BeTrue -Because 'a section nobody rewrites reads as unanswered forever'
-            $block.Contains('the heading stays where it is, and it is the answer written under it that stops the section reading as unanswered') |
-                Should -BeTrue -Because 'the discriminator stays that one heading, answered rather than removed'
+            $block.Contains('**Each decision is its own entry under that heading: the question first, and when the answer reaches you, the decision written into that same entry.**') |
+                Should -BeTrue -Because 'one slot cannot hold two decisions'
+            $block.Contains('it is the answer under a question that stops that entry reading as unanswered') |
+                Should -BeTrue -Because 'the discriminator is per entry, answered rather than removed'
+            $block.Contains('A new question is always appended last, never folded into an entry already answered') |
+                Should -BeTrue -Because 'folding the new question in destroys the record of the last decision'
+            $block.Contains('park twice and the section holds two entries, the decision you were given still readable above the one nobody has answered yet') |
+                Should -BeTrue -Because 'the parked-twice case is the one this shape exists for'
         }
     }
 
@@ -5952,6 +5961,23 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         }
     }
 
+    # And the other way it would, which needs no flag at all. Routing a gate ask-user finding into
+    # the decision bullet put the pre-existing stated-assumption escape hatch directly behind it: a
+    # worker could write "assuming he wants the shorter copy", respond to the gate with its own
+    # answer and carry on. The escape hatch stays - it is the ordinary case - but not for these.
+    It 'the assumption escape hatch is closed to a gate ask-user finding' {
+        $parked = @($script:RouteBlocks | Where-Object { $_.Contains('**Leave the run parked while you wait.**') })
+        $parked.Count | Should -Be 2
+        foreach ($block in $parked) {
+            $block.Contains('Where you can proceed on a stated assumption instead, do that: record the assumption in `report.md` and continue rather than stopping.') |
+                Should -BeTrue -Because 'the ordinary case still prefers a recorded assumption to stopping'
+            $block.Contains('**A finding the gate classified `ask-user` is never one of those.**') |
+                Should -BeTrue -Because 'an assumption stated over one of those is the worker answering it itself'
+            $block.Contains('park it under the heading above and wait, however obvious the answer looks from here') |
+                Should -BeTrue -Because 'the worker needs the alternative named, not only the prohibition'
+        }
+    }
+
     # muster names a Done-means bullet by its text and never by its position, and says so where the
     # `Drive the pipeline` line is introduced. An ordinal here pointed four bullets short of the one
     # it meant - at `Drive the pipeline through to a pull request` - so a worker reading literally
@@ -5975,6 +6001,27 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase 'a `## Waiting on a decision` section the brief made it write, and nothing has answered'
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase 'read the report before you act on the three facts rather than after'
+    }
+
+    # The read has to be per entry, or a worker answered once and parked again reads as a delivery -
+    # and the landing gate's approval then tears it down with a decision nobody answered inside it.
+    It 'Step 6 keys on an unanswered entry rather than on what the section appears to say' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**Read every entry under that heading, and key on whether any one of them ' +
+                     'is unanswered.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('a worker that parked, was answered and parked again has an answered entry ' +
+                     'sitting above a question nobody has answered')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**One unanswered entry means a worker mid-run**, whatever else that section ' +
+                     'records.')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('read the first entry alone and a second decision nobody answered goes to ' +
+                     'the landing gate instead, where approval tears the worker down and takes ' +
+                     'the parked run with it')
+        # The delivery side of the same key: every entry answered, and only then a delivery.
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase 'Where every entry carries its own answer'
     }
 
     # Teardown is the irreversible one. It ends the process holding the parked run, so the answer
@@ -6066,9 +6113,19 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('you re-read a `## Waiting on a decision` section the worker has not had ' +
                      'time to rewrite and steer the same answer in twice')
+        # `Wait-HerdrAgent` returns $null for a timeout and for a herdr error alike, and the module
+        # names that ambiguity itself. So the null cannot be reported as a lost answer: a server
+        # that stopped answering while the worker took the steer looks identical, and every
+        # fail-closed path here has to name its own failure rather than pick one.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('Where `working` never arrives inside those two minutes the answer did not ' +
-                     'land at all')
+            -Phrase ('Where `working` never arrives inside those two minutes, the wait came back ' +
+                     '`$null` and that is two things at once: the answer never landed, or herdr ' +
+                     'stopped answering while the worker took it anyway.')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase '**Do not report either one - the null does not say which.**'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('Read the screen and check what the worker is actually doing, and load ' +
+                     '`rally` where the screen cannot tell you')
     }
 
     It 'decree stops describing the worker as stopped, and routes the answer back into its own item' {
@@ -6114,6 +6171,17 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
                      'he is back means he is never told a call was made in his name at all')
         Assert-Phrase -Text $script:RouteHold -Where 'the decree command table' `
             -Phrase ("| record a decision the Hand answered in the King's stead |")
+        # The row skipped the block, which the note convention and step 6 both require: an
+        # `answered:` note with no dependency edge asserts an authorisation the queue never
+        # recorded. The dependent item is the one the steered worker is already running under.
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree command table' `
+            -Phrase ('`tasks-axi block <work-id> --by <key>` against the item the parked worker is ' +
+                     'already running under')
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree note convention' `
+            -Phrase ('**It is an `answered:` note like any other, so the block still happens**')
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree note convention' `
+            -Phrase ('skipping it leaves a closed note claiming an authorisation the queue never ' +
+                     'recorded')
         # petition keeps the test and the basis definition; decree keeps the lifecycle.
         Assert-Phrase -Text $script:RouteHold -Where 'the decree note convention' `
             -Phrase ('`petition` owns which decisions those are and what a recorded position is')
@@ -6190,6 +6258,23 @@ Describe "the reversibility test owns what may be answered in the King's stead" 
                      'procedure and still fires for a gated project alone.')
         Assert-Phrase -Text $script:Away -Where 'petition' `
             -Phrase ('it never produces an ask-user finding and this procedure never fires for it')
+    }
+
+    # The symmetric half. muster Step 6 loads petition for a parked decision whatever the posture
+    # and whether or not he is at the machine, and for a non-gated project with him present the
+    # skill answered neither question - the gate procedure declines it and the away section is not
+    # reached - which leaves "no procedure constrains me" available on a `yolo on` project.
+    It 'names the present-King route for a parked decision, and grants nothing by it' {
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('**With him at the machine, a parked decision has the ordinary answer: put ' +
+                     'it to him.**')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('a `local-only` worker''s question is his the same way a gated one is, and ' +
+                     '`+yolo` is authority to land work inside the accepted criteria rather than ' +
+                     'a licence to answer in his place')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('This grants nothing: the only autonomous answer anywhere in this skill is ' +
+                     'the one the test below allows while he is unreachable.')
     }
 
     # petition scoped registration to the wait branch, so the branch it exists for recorded
