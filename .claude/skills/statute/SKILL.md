@@ -144,8 +144,8 @@ test the thing that notices when the prose is gone.
   partway through and dies with "not recognized" from a module it never touched - which is how
   `Test-CrewPrereqs` printed every check OK and then lost `Get-KingshandHome`. `Herdr.psm1`,
   `Index.psm1`, `Memory.psm1` and `Projects.psm1` point their import line back here, and
-  `tests\Index.Tests.ps1`, `tests\Memory.Tests.ps1` and `tests\Projects.Tests.ps1` pin those
-  edges.
+  `tests\Index.Tests.ps1`, `tests\Memory.Tests.ps1` and `tests\Projects.Tests.ps1` pin the
+  Index, Memory and Projects edges.
 - `yolo` is the string `'on'` or `'off'`, never a boolean. Test it as `-eq 'on'`; `if ($proj.yolo)`
   is true for `'off'` because every non-empty string is truthy in PowerShell.
 - Tests live in `tests\` as Pester, named `<Subject>.Tests.ps1`. Extend an existing file rather
