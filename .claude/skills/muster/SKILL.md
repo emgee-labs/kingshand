@@ -606,9 +606,9 @@ worker looks like, but only this wait's completion brings you back to look:
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
 $w = Wait-HerdrAgentProgress -Name "<worker id>" -TimeoutMs 2700000
-if ($w.settled) { "WAKE <worker id> state=$($w.state) awaitingInput=$($w.awaitingInput) readable=$($w.signalReadable) last: $($w.lastActivity)" }
-elseif ($w.stalled) { "STALLED <worker id> $($w.quietMinutes)m with no movement - last seen: $($w.lastActivity)" }
-else { "NOT SETTLED <worker id> reason=$($w.reason) readable=$($w.signalReadable)" }
+if ($w.settled) { "WAKE <worker id> state=$($w.state) awaitingInput=$($w.awaitingInput) readable=$($w.signalReadable) box='$($w.promptBox)' last: $($w.lastActivity)" }
+elseif ($w.stalled) { "STALLED <worker id> $($w.quietMinutes)m with no movement - box='$($w.promptBox)' last seen: $($w.lastActivity)" }
+else { "NOT SETTLED <worker id> reason=$($w.reason) readable=$($w.signalReadable) box='$($w.promptBox)'" }
 ```
 
 **Print every field you will need, because the printed line is all that survives.** The wait runs as
@@ -675,6 +675,10 @@ because "nothing happened" is not an event anything can push at you.
   blocked-worker guard - so no stall can be claimed either way. Check it with
   `Test-HerdrAgentReadable` and say plainly that you cannot see the worker rather than reporting it
   healthy.
+- **`$w.promptBox` with anything in it is not the worker's output and not a question for you.** It is
+  text sitting in that worker's input box that nothing here sent, and a bare Enter would submit it as
+  though the Hand had written it. **Never submit it and never clear it** - quote it, say which worker
+  it was on, and load `rally`, which owns what happens next.
 - **`reason` of `gone` means herdr has no such worker any more.** That is not a timeout and not a
   stall: the process is not there. It is confirmed by a second read and by the server still
   answering, so neither one transient error nor a server that is down produces it. Load `rally` and

@@ -125,6 +125,76 @@ exit $code
 
   [ ]                                             ? for shortcuts
 '@
+
+    # An idle worker whose input box holds text nobody sent. This is the harness's own prompt
+    # suggestion, rendered into the empty box after a turn ends - not input, and it cannot
+    # concatenate, but a bare Enter submits it as though the Hand had written it.
+    #
+    # The shape is copied off the capture of the worker that produced this, reproduced in
+    # docs\2026-09-02-prompt-box-safety.md: a bare U+2500 rule, then the caret at column 0, then
+    # another rule. There are no U+2502 side borders on a real screen, and a fixture that invents
+    # them is a fixture the detector can be tightened against while never matching a live worker.
+    #
+    # `u{276F} and `u{00A0} are escaped deliberately. The box line really is `❯` followed by a
+    # NO-BREAK space, measured off that capture, and a literal no-break space in a fixture is
+    # invisible in every diff it appears in - which is how it gets "tidied" into a plain space and
+    # quietly stops testing anything.
+    $script:SuggestionScreen = @"
+  Done. Committed 3 files and wrote report.md.
+
+────────────────────────────────────────────────────────────────────────────────────────────
+`u{276F}`u{00A0}show me the getting started section rendered
+────────────────────────────────────────────────────────────────────────────────────────────
+    ? for shortcuts
+"@
+
+    # The same worker with nothing in the box - the ordinary case, which must not be refused.
+    $script:EmptyBoxScreen = @"
+  Done. Committed 3 files and wrote report.md.
+
+────────────────────────────────────────────────────────────────────────────────────────────
+`u{276F}`u{00A0}
+────────────────────────────────────────────────────────────────────────────────────────────
+    ? for shortcuts
+"@
+
+    # A worker blocked on a numbered option menu, drawn the way Claude Code really draws one: the
+    # SAME `❯` cursor as the box, but followed by a PLAIN space rather than a no-break one. That one
+    # glyph is all that separates a menu row from box content, and the box detector returns its first
+    # match top-down - so a caret-only rule reads '1. Rewrite the parser' as text the Hand must
+    # explain, refuses the bare Enter that answers the menu, and leaves the worker unanswerable.
+    $script:MenuScreen = @"
+  Which approach should I take?
+
+`u{276F} 1. Rewrite the parser
+  2. Patch the caller
+  3. Chat about this instead
+
+  Enter to select, up/down to navigate
+"@
+
+    # The same box shape as SuggestionScreen and EmptyBoxScreen, with whatever line the case needs
+    # sitting in the box. The placeholder cases below all differ only in that one line.
+    function New-BoxScreen {
+        param([string]$Box = '')
+        $rule = ([string][char]0x2500) * 92
+        @"
+  Done. Committed 3 files and wrote report.md.
+
+$rule
+`u{276F}`u{00A0}$Box
+$rule
+    ? for shortcuts
+"@
+    }
+
+    # Claude Code's own placeholder text, quoted as the shipped 2.1.200 binary emits it rather than
+    # paraphrased. It is dim-styled and drawn into the EMPTY box in exactly the position box content
+    # occupies, so a detector working on position alone reads it as text the Hand must explain -
+    # which would refuse every send to a worker the harness happened to print a hint at.
+    $script:QueuedHintBox = 'Press up to edit queued messages'
+    $script:TeammateBox   = "Message @reviewer`u{2026}"
+    $script:TryBox        = 'Try "how do I log an error?"'
 }
 
 AfterAll {
@@ -291,6 +361,12 @@ Describe 'Send-HerdrPrompt routes a blocked worker rather than throwing at it' {
     # cannot take text until it is answered. Throwing would make every caller wrap this in a
     # try/catch and read a routine, recoverable state as a failure.
 
+    # The prompt-box guard reads the worker's live screen, which none of these cases is about, and
+    # an unmocked read would run whatever herdr the machine happens to have against whatever server
+    # happens to be up. An empty box is the ordinary case, so that is what they get. The guard
+    # itself is exercised further down.
+    BeforeEach { Mock -ModuleName Herdr Get-HerdrAgentPromptBox { '' } }
+
     It 'returns a blocked result instead of throwing when herdr answers agent_blocked' {
         Mock -ModuleName Herdr Invoke-Herdr { New-HerdrError -Code 'agent_blocked' -Message 'agent is blocked' }
 
@@ -347,7 +423,12 @@ Describe 'Send-HerdrKeys sends one key per call and never batches them' {
     # failure shape available, and the only thing standing between kingshand and it is that this
     # function issues one herdr command per key. So the call COUNT is the assertion.
 
-    BeforeEach { Mock -ModuleName Herdr Invoke-Herdr { $null } }
+    BeforeEach {
+        Mock -ModuleName Herdr Invoke-Herdr { $null }
+        # Same reason as above: these cases are about the call count, not about the box, and none
+        # of them opens with an Enter. The refusal that does is exercised further down.
+        Mock -ModuleName Herdr Get-HerdrAgentPromptBox { '' }
+    }
 
     It 'issues exactly one herdr command per key for a two-key sequence' {
         Send-HerdrKeys -Name 'T-9001' -Keys @('down', 'enter') -DelayMs 0
@@ -382,6 +463,204 @@ Describe 'Send-HerdrKeys sends one key per call and never batches them' {
         # which is the same class of silent wrong answer the one-key-per-call rule exists for.
         { Send-HerdrKeys -Name 'T-9001' -Keys @() -DelayMs 0 } | Should -Throw
         Should -Invoke Invoke-Herdr -ModuleName Herdr -Times 0 -Exactly
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# The prompt box, and the guard that stops the Hand submitting text it never wrote.
+#
+# A worker's input box can hold a prompt suggestion the harness generated and rendered there after
+# a turn ended. It is not input and it cannot concatenate - the first typed character displaces it -
+# but a bare Enter ACCEPTS it, so `Send-HerdrKeys -Keys @('enter')` at an idle worker submits a
+# model-generated instruction as though the Hand had written it. `rally` step 3 sends exactly that
+# call to answer a menu. docs\2026-09-02-prompt-box-safety.md is the record.
+#
+# Every refusing case below asserts BOTH that it throws AND that nothing reached herdr, so no case
+# can pass vacuously: delete the guard and both assertions fail independently.
+# ---------------------------------------------------------------------------------------------
+Describe 'the send paths refuse to write into a box the caller did not fill' {
+    BeforeAll { $script:BoxGuardDir = Initialize-HerdrScreenStub }
+
+    BeforeEach {
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $env:KINGSHAND_TEST_HERDR_EXE }
+        # Everything that would actually reach herdr, recorded rather than sent. A refusal that
+        # threw after submitting would be no guard at all, so the recording is the second half of
+        # every case here.
+        $script:reached = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName Herdr Invoke-Herdr {
+            $script:reached.Add(($Arguments -join ' '))
+            New-HerdrAgentResult
+        }
+    }
+
+    It 'refuses a prompt rather than typing over the box' {
+        Set-HerdrScreen $script:SuggestionScreen
+
+        { Send-HerdrPrompt -Name 'T-9001' -Text 'do the thing' } | Should -Throw '*getting started*'
+        $script:reached.Count |
+            Should -Be 0 -Because 'a refusal that still submitted would be worse than no guard'
+    }
+
+    It 'names the worker in the refusal, so the reader knows which box to look at' {
+        Set-HerdrScreen $script:SuggestionScreen
+        { Send-HerdrPrompt -Name 'T-9001' -Text 'do the thing' } | Should -Throw '*T-9001*'
+    }
+
+    # THE GUARD THAT MATTERS. Nothing about a bare Enter looks dangerous, and it is the one call
+    # that submits whatever happens to be rendered in the box.
+    It 'refuses a bare enter, which would submit whatever is in the box' {
+        Set-HerdrScreen $script:SuggestionScreen
+
+        { Send-HerdrKeys -Name 'T-9001' -Keys @('enter') -DelayMs 0 } | Should -Throw '*getting started*'
+        $script:reached.Count | Should -Be 0
+    }
+
+    # REFUSE, NEVER CLEAR. The box is the only evidence that the event happened at all, and an
+    # escape sent to tidy it up destroys exactly what the King needs to see.
+    It 'leaves the box alone rather than clearing it' {
+        Set-HerdrScreen $script:SuggestionScreen
+        { Send-HerdrPrompt -Name 'T-9001' -Text 'do the thing' } | Should -Throw
+        $script:reached.Count |
+            Should -Be 0 -Because 'clearing the box would destroy the evidence of the event'
+    }
+
+    It 'proceeds with a prompt when the caller has accepted the risk' {
+        Set-HerdrScreen $script:SuggestionScreen
+        $null = Send-HerdrPrompt -Name 'T-9001' -Text 'do the thing' -AllowNonEmptyBox
+        ($script:reached -join ' ') | Should -BeLike '*do the thing*'
+    }
+
+    It 'proceeds with a bare enter when the caller has accepted the risk' {
+        Set-HerdrScreen $script:SuggestionScreen
+        Send-HerdrKeys -Name 'T-9001' -Keys @('enter') -DelayMs 0 -AllowNonEmptyBox
+        ($script:reached -join ' ') | Should -BeLike '*send-keys t-9001 enter*'
+    }
+
+    It 'proceeds with a prompt on an empty box' {
+        Set-HerdrScreen $script:EmptyBoxScreen
+        $null = Send-HerdrPrompt -Name 'T-9001' -Text 'do the thing'
+        ($script:reached -join ' ') | Should -BeLike '*do the thing*'
+    }
+
+    It 'proceeds with a bare enter on an empty box' {
+        Set-HerdrScreen $script:EmptyBoxScreen
+        Send-HerdrKeys -Name 'T-9001' -Keys @('enter') -DelayMs 0
+        ($script:reached -join ' ') | Should -BeLike '*send-keys t-9001 enter*'
+    }
+
+    # THE OTHER FALSE POSITIVE THAT WOULD STRAND A WORKER. An empty box is not blank on screen: the
+    # harness draws its own dim placeholder into it, in the same position box content occupies. The
+    # queued-messages hint is the one that bites - it appears the moment a corrective steer is
+    # queued at a worker that is still working, which is precisely when `rally` sends the next one,
+    # so a wedged worker would become unsteerable on a hint the harness printed itself.
+    It 'sends a prompt through the placeholder <case>' -ForEach @(
+        @{ case = 'on queued messages'; box = { $script:QueuedHintBox } }
+        @{ case = 'for a teammate';     box = { $script:TeammateBox } }
+        @{ case = 'on a fresh session'; box = { $script:TryBox } }
+    ) {
+        Set-HerdrScreen (New-BoxScreen -Box (& $box))
+        $null = Send-HerdrPrompt -Name 'T-9001' -Text 'do the thing'
+        ($script:reached -join ' ') |
+            Should -BeLike '*do the thing*' -Because 'the harness''s own hint is not text the Hand has to explain'
+    }
+
+    It 'sends a bare enter through the placeholder <case>' -ForEach @(
+        @{ case = 'on queued messages'; box = { $script:QueuedHintBox } }
+        @{ case = 'for a teammate';     box = { $script:TeammateBox } }
+        @{ case = 'on a fresh session'; box = { $script:TryBox } }
+    ) {
+        Set-HerdrScreen (New-BoxScreen -Box (& $box))
+        Send-HerdrKeys -Name 'T-9001' -Keys @('enter') -DelayMs 0
+        ($script:reached -join ' ') | Should -BeLike '*send-keys t-9001 enter*'
+    }
+
+    # And the exclusion has to stay narrow, because a generated suggestion sits in an empty box too -
+    # its value is empty and an Enter still submits it as though the Hand had written it. Only the
+    # three named placeholders are excluded; anything that merely opens like one is still refused.
+    It 'still refuses <case>' -ForEach @(
+        @{ case = 'a real generated suggestion'
+           box  = 'show me the getting started section rendered' }
+        @{ case = 'a line that only opens like the queued hint'
+           box  = 'Press up to edit queued messages, then land it' }
+        @{ case = 'a line that only opens like the teammate placeholder'
+           box  = 'Message @reviewer about the failing test' }
+        @{ case = 'a line that only opens like the try example'
+           box  = 'Try "how do I log an error?" and report back' }
+    ) {
+        Set-HerdrScreen (New-BoxScreen -Box $box)
+        { Send-HerdrPrompt -Name 'T-9001' -Text 'do the thing' } | Should -Throw
+        $script:reached.Count |
+            Should -Be 0 -Because 'an unlisted string falls back to refusing, which is the safe direction'
+    }
+
+    # A worker's own output lines open with a plain `>`. Treating one of those as a prompt box
+    # would refuse every send to a perfectly healthy worker, which is the failure that would get
+    # the whole guard ripped back out.
+    It 'does not mistake the worker''s own output for a prompt box' {
+        Set-HerdrScreen $script:FinishedScreen
+        $null = Send-HerdrPrompt -Name 'T-9001' -Text 'do the thing'
+        ($script:reached -join ' ') | Should -BeLike '*do the thing*'
+    }
+
+    # FAIL OPEN, and deliberately the opposite of the stall signal. There the cost of guessing is a
+    # false stall report; here it is a corrective steer or a teardown that cannot be delivered to a
+    # worker that may be wedged. A narrow pane must not make a worker unsteerable.
+    It 'proceeds with a prompt when the screen could not be read at all' {
+        Set-HerdrScreenFailure
+        $null = Send-HerdrPrompt -Name 'T-9001' -Text 'do the thing'
+        ($script:reached -join ' ') |
+            Should -BeLike '*do the thing*' -Because 'an unreadable pane must not make a worker unsteerable'
+    }
+
+    It 'proceeds with a bare enter when the screen could not be read at all' {
+        Set-HerdrScreenFailure
+        Send-HerdrKeys -Name 'T-9001' -Keys @('enter') -DelayMs 0
+        ($script:reached -join ' ') | Should -BeLike '*send-keys t-9001 enter*'
+    }
+
+    # Only the FIRST key is checked. A later Enter is answering the menu the earlier keys have moved
+    # through, so `rally` step 3's read-then-arrow-then-Enter sequence still works.
+    It 'still answers a menu, where the Enter follows an arrow' {
+        Set-HerdrScreen $script:SuggestionScreen
+        Send-HerdrKeys -Name 'T-9001' -Keys @('down', 'enter') -DelayMs 0
+        ($script:reached -join ' ') | Should -BeLike '*send-keys t-9001 enter*'
+    }
+
+    # THE FALSE POSITIVE THAT WOULD STRAND A WORKER. `❯` is the harness's generic pointer, not a box
+    # glyph: the highlighted row of a numbered menu carries it too. `rally` step 3 reads the screen
+    # back between the arrow and the Enter, so that Enter arrives as the first key of its own call -
+    # and if the menu row read as box content the guard would refuse the one route to a headless
+    # worker, on exactly the worker that is already blocked. The plain space after the caret is what
+    # keeps it apart from the box's no-break one.
+    It 'answers a worker blocked on a menu, where the Enter opens the call' {
+        Set-HerdrScreen $script:MenuScreen
+        Send-HerdrKeys -Name 'T-9001' -Keys @('enter') -DelayMs 0
+        ($script:reached -join ' ') |
+            Should -BeLike '*send-keys t-9001 enter*' -Because 'a menu cursor is not text the Hand has to explain'
+    }
+
+    It 'sends a prompt to a worker blocked on a menu' {
+        Set-HerdrScreen $script:MenuScreen
+        $null = Send-HerdrPrompt -Name 'T-9001' -Text 'do the thing'
+        ($script:reached -join ' ') | Should -BeLike '*do the thing*'
+    }
+
+    # A worker that cannot be stopped because of a cosmetic render is a worse failure than the one
+    # the guard exists to prevent, so teardown carries the exemption. Remove it and `/exit` never
+    # reaches herdr at all.
+    It 'tears a worker down even when its box holds a suggestion' {
+        Set-HerdrScreen $script:SuggestionScreen
+        $script:gets = 0
+        Mock -ModuleName Herdr Get-HerdrAgent {
+            $script:gets++
+            if ($script:gets -eq 1) { return [pscustomobject]@{ name = 't-9001'; pane_id = 'p1' } }
+            $null
+        }
+
+        $stop = Stop-HerdrAgent -Name 'T-9001' -TimeoutSeconds 5
+        $stop.stopped | Should -BeTrue
+        ($script:reached -join ' ') |
+            Should -BeLike '*/exit*' -Because 'teardown must never be blocked by a box the Hand did not fill'
     }
 }
 
@@ -742,6 +1021,67 @@ Describe 'Get-HerdrAgentProgressSignal ignores what Claude Code repaints on its 
         (Get-HerdrAgentProgressSignal -Name 'T-9001').readable |
             Should -BeFalse -Because 'herdr answers its failures as JSON, whatever it exits with'
     }
+
+    # All three sightings of an unexplained prompt box were found by chance, on a worker nobody was
+    # inspecting. This is the sample that already reads the viewport every minute on every watched
+    # worker, so reporting the box costs one regex over text already in memory. Delete the field and
+    # every reader of it throws under Set-StrictMode -Version Latest rather than quietly seeing
+    # $null, which is why these cannot pass vacuously.
+    It 'reports what is sitting in the prompt box' {
+        Set-HerdrScreen $script:SuggestionScreen
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').promptBox |
+            Should -Be 'show me the getting started section rendered'
+    }
+
+    It 'reports an empty box as empty' {
+        Set-HerdrScreen $script:EmptyBoxScreen
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').promptBox |
+            Should -Be '' -Because 'an empty box is the ordinary state and must not read as content'
+    }
+
+    # A blocked worker's menu row is not box content, and reporting one as such would put a wrong
+    # value on every settled, stalled, gone and timeout report the Hand reads - with no error to say
+    # so, and the Hand then escalating a menu option as text nobody can account for.
+    It 'reports no box for a worker sitting on a menu' {
+        Set-HerdrScreen $script:MenuScreen
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').promptBox |
+            Should -Be '' -Because 'the caret on a menu row is a selection cursor, not a prompt box'
+    }
+
+    # Same again for the harness's own placeholder, which is drawn into an empty box in the same
+    # position box content occupies. Reporting one as content puts a wrong value on every report the
+    # Hand reads, with no error to say so, and sends it escalating a hint the harness printed itself.
+    It 'reports no box for the placeholder <case>' -ForEach @(
+        @{ case = 'on queued messages'; box = { $script:QueuedHintBox } }
+        @{ case = 'for a teammate';     box = { $script:TeammateBox } }
+        @{ case = 'on a fresh session'; box = { $script:TryBox } }
+    ) {
+        Set-HerdrScreen (New-BoxScreen -Box (& $box))
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').promptBox |
+            Should -Be '' -Because 'a placeholder means the box is empty, not that it holds text'
+    }
+
+    It 'reports no box at all when the screen could not be read' {
+        Set-HerdrScreenFailure
+        $r = Get-HerdrAgentProgressSignal -Name 'T-9001'
+        $r.readable  | Should -BeFalse
+        $r.promptBox | Should -Be '' -Because 'herdr''s own error text is not a worker''s prompt box'
+    }
+
+    # The box is not a state. A worker with text in its box has not asked anybody anything, and
+    # folding this into the blocked guard would make every finished worker read `blocked`.
+    It 'does not turn a box with text in it into an interactive prompt' {
+        Set-HerdrScreen $script:SuggestionScreen
+        Test-HerdrAgentAwaitingInput -Name 'T-9001' |
+            Should -BeFalse -Because 'a rendered suggestion is not a question anyone is waiting on'
+    }
+
+    It 'reads the box off a screen only once, with no second herdr call' {
+        Set-HerdrScreen $script:SuggestionScreen
+        $null = Get-HerdrAgentProgressSignal -Name 'T-9001'
+        @(Get-HerdrStubArgs).Count |
+            Should -Be 1 -Because 'the box comes off text already in memory, not off a second read'
+    }
 }
 
 Describe 'Test-HerdrAgentReadable never confirms a pane out of herdr''s own error text' {
@@ -778,7 +1118,10 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         Mock -ModuleName Herdr Test-HerdrServer { $true }
         Mock -ModuleName Herdr Test-HerdrAgentAwaitingInput { $false }
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
-            [pscustomobject]@{ readable = $true; signal = 'aaaa'; lastActivity = 'Bash(no-mistakes axi status) | waiting for checks' }
+            [pscustomobject]@{
+                readable = $true; signal = 'aaaa'; promptBox = ''
+                lastActivity = 'Bash(no-mistakes axi status) | waiting for checks'
+            }
         }
         # The real wait blocks inside herdr for the whole slice. A mock that returns instantly would
         # be a different function, and would spin this loop instead of pacing it.
@@ -809,7 +1152,10 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         $script:sample = 0
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
             $script:sample++
-            [pscustomobject]@{ readable = $true; signal = "s$script:sample"; lastActivity = "screen $script:sample" }
+            [pscustomobject]@{
+                readable = $true; signal = "s$script:sample"; promptBox = ''
+                lastActivity = "screen $script:sample"
+            }
         }
 
         $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 5000 -SampleSeconds 1
@@ -817,12 +1163,38 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         $r.lastActivity | Should -Be 'screen 2' -Because 'the wake reports what the worker was doing when it stopped'
     }
 
+    # The wake the Hand already handles is where an unexplained box has to surface, because nothing
+    # else looks. Carried on every report this makes - settled, stalled, gone and timeout - and
+    # sampled at the same moment as lastActivity.
+    It 'carries the prompt box out of the wait' {
+        Mock -ModuleName Herdr Wait-HerdrAgent {
+            [pscustomobject]@{ name = 't-9001'; agent_status = 'idle'; pane_id = 'p1' }
+        }
+        Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
+            [pscustomobject]@{
+                readable = $true; signal = 'aaaa'; lastActivity = 'Done'
+                promptBox = 'show me the getting started section rendered'
+            }
+        }
+
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 5000 -SampleSeconds 1
+        @($r.PSObject.Properties.Name) | Should -Contain 'promptBox'
+        $r.promptBox | Should -Be 'show me the getting started section rendered'
+    }
+
+    It 'carries the prompt box out of a stall report too' {
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 4000 -SampleSeconds 1 -StallMinutes 0
+        $r.stalled | Should -BeTrue
+        @($r.PSObject.Properties.Name) |
+            Should -Contain 'promptBox' -Because 'a stalled worker is exactly the one worth reading the box on'
+    }
+
     It 'says the watch was blind when the screen a settled worker stopped on could not be read' {
         Mock -ModuleName Herdr Wait-HerdrAgent {
             [pscustomobject]@{ name = 't-9001'; agent_status = 'done'; pane_id = 'p1' }
         }
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
-            [pscustomobject]@{ readable = $false; signal = ''; lastActivity = '' }
+            [pscustomobject]@{ readable = $false; signal = ''; lastActivity = ''; promptBox = '' }
         }
 
         $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 5000 -SampleSeconds 1
@@ -857,7 +1229,7 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         $script:tick = 0
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
             $script:tick++
-            [pscustomobject]@{ readable = $true; signal = "s$script:tick"; lastActivity = 'still going' }
+            [pscustomobject]@{ readable = $true; signal = "s$script:tick"; lastActivity = 'still going'; promptBox = '' }
         }
 
         $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 2000 -SampleSeconds 1 -StallMinutes 0
@@ -869,7 +1241,7 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
     # not see, and the Hand is told that rather than told the worker is stuck.
     It 'never claims a stall from a screen it could not read' {
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
-            [pscustomobject]@{ readable = $false; signal = ''; lastActivity = '' }
+            [pscustomobject]@{ readable = $false; signal = ''; lastActivity = ''; promptBox = '' }
         }
 
         $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 2000 -SampleSeconds 1 -StallMinutes 0
@@ -1042,5 +1414,21 @@ Describe 'New-HerdrPane never splits, because a split pane is an unreadable pane
         }
         InModuleScope Herdr { $null = New-HerdrPane -Cwd 'C:\repo' }
         ($script:seen2 -join ' ') | Should -Match 'CLAUDE_CODE_CHILD_SESSION='
+    }
+
+    # The real fix rather than a defence against it. A worker has no human at its prompt, so a
+    # suggestion of what that human should type next has no purpose and only creates the hazard the
+    # send-path guards exist for. The environment check is the first branch of the harness's own
+    # resolver, so it wins over everything else that could turn the feature back on.
+    It 'starts a worker pane with the prompt-suggestion feature switched off' {
+        $script:seen3 = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName Herdr Invoke-Herdr {
+            $script:seen3.Add(($Arguments -join ' '))
+            @{ root_pane = @{ pane_id = 'w7:p1' } }
+        }
+        InModuleScope Herdr { $null = New-HerdrPane -Cwd 'C:\repo' }
+        ($script:seen3 -join ' ') |
+            Should -Match 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=0' `
+            -Because 'a worker with no human at its prompt has no use for a suggested prompt'
     }
 }

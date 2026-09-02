@@ -550,6 +550,21 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
             -Phrase '**`reason` of `gone` means herdr has no such worker any more.**'
     }
 
+    # The wake line prints `promptBox` on every branch, and a printed field with no stated response
+    # is a field the Hand reads past. A box with text in it is the one thing on that line that must
+    # never be acted on directly: submitting it sends an instruction nobody wrote, and clearing it
+    # destroys the only record the event happened.
+    It 'says what a non-empty prompt box is, and routes it to rally instead of acting on it' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('**`$w.promptBox` with anything in it is not the worker''s output and not a ' +
+                     'question for you.**')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('a bare Enter would submit it as though the Hand had written it')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('**Never submit it and never clear it** - quote it, say which worker it was ' +
+                     'on, and load `rally`')
+    }
+
     It 'says why liveness alone was the wrong question' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase ('**`Wait-HerdrAgentProgress` also watches whether the work is advancing, which ' +
@@ -1092,6 +1107,25 @@ Describe 'rally states what steering can and cannot do, and protects unlanded wo
                      'options you have not read.')
     }
 
+    # A worker's input box can hold text nobody sent, and a bare Enter accepts it - so the one
+    # thing rally must never tell the Hand to do is submit it or tidy it away. The guard in
+    # bin\Herdr.psm1 refuses the send; this is the prose that says what to do with the refusal, and
+    # deleting it is how someone re-learns the whole thing by submitting a generated instruction.
+    It 'never submits or clears text a worker''s input box was found holding' {
+        $text = Get-DocText $script:StuckMd
+        Assert-Phrase -Text $text -Where 'the prompt-box hazard' `
+            -Phrase '**Do not submit it, and do not clear it.**'
+        Assert-Phrase -Text $text -Where 'the prompt-box hazard' `
+            -Phrase ('A bare Enter accepts whatever is rendered there, so `Send-HerdrKeys ' +
+                     '-Keys @(''enter'')` at an idle worker submits a generated instruction as ' +
+                     'though the Hand had written it.')
+        Assert-Phrase -Text $text -Where 'the prompt-box hazard' `
+            -Phrase 'Clearing it destroys the only evidence the event happened.'
+        Assert-Phrase -Text $text -Where 'the prompt-box hazard' `
+            -Phrase ('**the exception is the escalation**: report what it said, and pass ' +
+                     '`-AllowNonEmptyBox` only once the King has seen it')
+    }
+
     It 'gets the user''s answer before answering a blocked prompt' {
         $text = Get-DocText $script:StuckMd
         Assert-Phrase -Text $text -Where 'the rally escalation' `
@@ -1161,6 +1195,17 @@ Describe 'CLAUDE.md declares a load trigger for every reference skill' {
             -Phrase 'Invoke `audience` when the user invokes `/audience` or asks what they missed'
         Assert-Phrase -Text $text -Where 'the CLAUDE.md Skills section' `
             -Phrase 'Never remove a stuck worker''s worktree before loading it.'
+    }
+
+    # A settled worker with a suggestion in its input box trips no other rally trigger: it is not
+    # dead, not stalled, not blocked and not confused. Without this clause in both the always-loaded
+    # trigger and the skill's own description, the one situation the guard reports has nowhere to go.
+    It 'names an unexplained input box as a reason to load rally, here and in rally itself' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Skills section' `
+            -Phrase 'found with unexplained text in its input box'
+        $fm = Get-Frontmatter (Join-Path $script:Root '.claude\skills\rally\SKILL.md')
+        $fm['description'].Contains('one found with unexplained text in its input box') |
+            Should -BeTrue -Because 'the description is the trigger, and nothing else loads rally for a prompt box'
     }
 
     It 'keeps the routing rule and hard rule 1 exactly as they were' {
@@ -3000,6 +3045,7 @@ Describe 'no long dash' {
         @{ file = 'docs\2026-08-30-data-index.md' }
         @{ file = 'docs\2026-08-31-read-first-declared-not-parsed.md' }
         @{ file = 'docs\2026-09-01-stall-detection.md' }
+        @{ file = 'docs\2026-09-02-prompt-box-safety.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
@@ -4017,6 +4063,63 @@ Describe 'the stall-detection record states what must not be undone' {
         Assert-Phrase -Text $script:StallDoc -Where 'the stall record' `
             -Phrase ('**`Wait-HerdrAgentSettled` keeps its behaviour.** The progress wait was added ' +
                      'beside it, not over it.')
+    }
+}
+
+Describe 'the prompt-box record is the tracked owner of why the guard is shaped this way' {
+    # The investigation that produced this lives under data\, which no other clone has. Everything a
+    # future editor needs to avoid re-opening the hole - the glyph pair, the named placeholder list,
+    # the fail-open direction and the captured render the fixtures copy - has to survive here.
+    BeforeAll { $script:BoxDoc = Get-DocText (Join-Path $script:Root 'docs\2026-09-02-prompt-box-safety.md') }
+
+    It 'says why the guard sits on the send paths rather than the input side' {
+        Assert-Phrase -Text $script:BoxDoc -Where 'the prompt-box record' `
+            -Phrase ('It cannot concatenate onto anything - the first typed character displaces it ' +
+                     '- so text arriving at the box is never at risk of being mixed with it.')
+        Assert-Phrase -Text $script:BoxDoc -Where 'the prompt-box record' `
+            -Phrase '**Refuse, never clear.**'
+    }
+
+    It 'keeps the glyph pair that separates the box from a menu row' {
+        Assert-Phrase -Text $script:BoxDoc -Where 'the prompt-box record' `
+            -Phrase ('The box line is drawn as the caret `' + [char]0x276F + '` (U+276F) followed ' +
+                     'by U+00A0. The highlighted row of a numbered option menu is drawn with the ' +
+                     '**same caret** followed by a plain space.')
+        Assert-Phrase -Text $script:BoxDoc -Where 'the prompt-box record' `
+            -Phrase 'Match the caret alone and every worker blocked on a menu becomes unanswerable.'
+    }
+
+    It 'keeps the placeholder exclusion a named list rather than an emptiness test' {
+        Assert-Phrase -Text $script:BoxDoc -Where 'the prompt-box record' `
+            -Phrase ('**It is deliberately not the general rule "the underlying value is empty, so ' +
+                     'Enter submits nothing".**')
+        Assert-Phrase -Text $script:BoxDoc -Where 'the prompt-box record' `
+            -Phrase 'Refusing an unknown string is the safe direction; letting one through is not.'
+    }
+
+    It 'states the two opposite failure directions and why they are not an inconsistency' {
+        Assert-Phrase -Text $script:BoxDoc -Where 'the prompt-box record' `
+            -Phrase 'This detector fails open, and the stall signal fails closed'
+        Assert-Phrase -Text $script:BoxDoc -Where 'the prompt-box record' `
+            -Phrase 'A pane too narrow to render must not make a worker unsteerable.'
+    }
+
+    It 'names the environment variable and why it beats the settings key' {
+        Assert-Phrase -Text $script:BoxDoc -Where 'the prompt-box record' `
+            -Phrase '`CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=0` is set on the pane'
+        Assert-Phrase -Text $script:BoxDoc -Where 'the prompt-box record' `
+            -Phrase ('**The environment check is the first branch of the harness''s resolver**')
+        Assert-Phrase -Text $script:BoxDoc -Where 'the prompt-box record' `
+            -Phrase 'writing it into a worktree''s `settings.local.json` may do nothing at all'
+    }
+
+    # The fixtures in Herdr.Tests.ps1 are copied off a capture under data\, so a clone without that
+    # directory has only this reproduction to check them against.
+    It 'reproduces the captured render the fixtures are built from' {
+        Assert-Phrase -Text $script:BoxDoc -Where 'the prompt-box record' `
+            -Phrase 'a bare U+2500 rule, the caret and U+00A0 and the text at column 0, then another rule'
+        Assert-Phrase -Text $script:BoxDoc -Where 'the prompt-box record' `
+            -Phrase ('`<U+00A0>` below stands for the no-break space that is really there')
     }
 }
 
