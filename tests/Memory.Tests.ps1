@@ -243,7 +243,11 @@ Import-Module '$root\bin\Memory.psm1' -Force
 Write-Host "PATHS_BOUND=`$([bool](Get-Command Get-KingshandHome -ErrorAction SilentlyContinue))"
 Write-Host "MEMORY_BOUND=`$([bool](Get-Command Get-MemoryReport -ErrorAction SilentlyContinue))"
 "@
-        $script:MemoryImportOut = & (Get-Process -Id $PID).Path -NoProfile -File $driver 2>&1 | Out-String
+        try {
+            $script:MemoryImportOut = & (Get-Process -Id $PID).Path -NoProfile -File $driver 2>&1 | Out-String
+        } finally {
+            Remove-Item -LiteralPath $driver -Force -ErrorAction SilentlyContinue
+        }
     }
 
     It 'keeps Get-KingshandHome bound in the session that imported Paths first' {
