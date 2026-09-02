@@ -2956,9 +2956,11 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase ('There are five, and each is refused by name: a brief with no ' +
                      '`## Read first` section at all, a brief that passes no `-ReadPath` and does ' +
-                     'not say the index was checked when anything at all is indexed, a path that ' +
-                     'does not exist, a directory where a file was meant, and two different files ' +
-                     'whose names would land on top of each other in the staging directory.')
+                     'not say the index was checked when anything at all is indexed - and the ' +
+                     'standing-criteria file does not count towards that one, per Step 2, which ' +
+                     'owns the rule - a path that does not exist, a directory where a file was ' +
+                     'meant, and two different files whose names would land on top of each other ' +
+                     'in the staging directory.')
     }
 
     # A single quoted placeholder is filled in with two paths in one string, which names no file

@@ -1058,6 +1058,35 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\done-$name.md") | Should -BeTrue
         }
 
+        # The discount has to survive a relative -DataPath, because the two ways of rooting one
+        # disagree: GetFullPath uses the PROCESS working directory, which Set-Location does not
+        # move, while Index.psm1 reads its indexes from POWERSHELL's location. Rooted the first way
+        # the composed done-<project>.md named a file in a directory nobody was looking at, no
+        # -ReadPath matched it, and the dispatch went through on a path passed by rote with no index
+        # consulted - silently, which is the exact failure the discount exists to catch.
+        It 'discounts the standing-criteria file when the data directory is named relatively' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-criteria-relative'
+            $name = Register-FixtureProject -Fixture $f -WithIndex
+            $criteria = Join-Path $f.DataPath "done-$name.md"
+            Set-Content -Path $criteria -Value '- Every new prose rule is pinned by a test.' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf "done-$name.md" -From $criteria
+
+            $savedCwd = [System.Environment]::CurrentDirectory
+            Push-Location (Split-Path $f.DataPath -Parent)
+            try {
+                # The divergence stated outright rather than left to whatever the test host's
+                # working directory happens to be.
+                [System.Environment]::CurrentDirectory = $f.Home
+                { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8027' `
+                    -BriefPath $f.BriefPath -DataPath 'data' -ReadPath $criteria } |
+                    Should -Throw '*neither names a file from them to read*'
+            } finally {
+                [System.Environment]::CurrentDirectory = $savedCwd
+                Pop-Location
+            }
+        }
+
         It 'dispatches an indexed project when the section says the index was checked' {
             Set-AgentStartState
             $f = New-DispatchFixture 'index-stated'

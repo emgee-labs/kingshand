@@ -378,10 +378,16 @@ if ($gates.Count -gt 0) {
     # from the moment the first one is written - and the gate's whole premise is that a -ReadPath is
     # evidence the Hand went through the index for THIS task. A path passed by rote is no evidence.
     # Every other -ReadPath still counts, including another file sitting beside it in data\.
+    #
+    # The root comes from Index.psm1's own Resolve-IndexDataPath, so this path and the entries
+    # Get-IndexEntries just read above are rooted by one rule. GetFullPath alone would not be that
+    # rule: it resolves against the process working directory, which Set-Location does not move, so
+    # a relative -DataPath could put the criteria file somewhere the index never looked and the
+    # discount would silently stop discounting.
     $byRote = ''
     if ($project) {
         $dataRoot = ''
-        try { $dataRoot = [IO.Path]::GetFullPath($DataPath).TrimEnd('\') } catch { $dataRoot = '' }
+        try { $dataRoot = Resolve-IndexDataPath -DataPath $DataPath } catch { $dataRoot = '' }
         if ($dataRoot) { $byRote = Join-Path $dataRoot "done-$project.md" }
     }
     $engaged = @($staged.Values | Where-Object {

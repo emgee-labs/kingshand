@@ -684,7 +684,8 @@ read. Drop the parameter only when the section states there is nothing to read.
 Every refusal comes before anything at all is created, so a mistake here costs nothing to fix.
 There are five, and each is refused by name: a brief with no `## Read first` section at all, a
 brief that passes no `-ReadPath` and does not say the index was checked when anything at all is
-indexed, a path that does not exist, a directory where a file was meant, and two different files
+indexed - and the standing-criteria file does not count towards that one, per Step 2, which owns
+the rule - a path that does not exist, a directory where a file was meant, and two different files
 whose names would land on top of each other in the staging directory.
 
 **Dispatch does not read the paths out of the brief's prose, and nothing may make it start.** An
