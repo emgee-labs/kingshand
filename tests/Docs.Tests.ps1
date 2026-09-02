@@ -4248,10 +4248,10 @@ Describe 'a project has a standing definition of done, and repeated findings are
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
             -Phrase '**Paste the project''s standing criteria into the brief.**'
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
-            -Phrase ('`$env:KINGSHAND_HOME\data\done-<project>.md` - one line per criterion, each ' +
-                     'naming how it is checked')
+            -Phrase ('`$env:KINGSHAND_HOME\data\done-<project>.md` - one `-` bullet per criterion, ' +
+                     'each naming how it is checked')
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
-            -Phrase ('paste its numbered lines into `## Standing criteria` unchanged, and hand the ' +
+            -Phrase ('paste its lines into `## Standing criteria` unchanged, and hand the ' +
                      'same file to `-ReadPath` at Step 4')
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
             -Phrase ('the paste is in the artefact the worker is judged against, so it is what gets ' +
@@ -4262,6 +4262,23 @@ Describe 'a project has a standing definition of done, and repeated findings are
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
             -Phrase ('Where the project has no such file yet, write `- Nothing standing for this ' +
                      'project yet.` rather than dropping the section')
+    }
+
+    # One line form, stated once. The fold-back writes this file and the next brief pastes it back
+    # `unchanged`, so a second form described anywhere leaves the paste step renumbering a file it
+    # was told not to touch - or dropping it. The empty-case placeholder is already a `-` bullet,
+    # which is what settles which form wins.
+    It 'the criteria line form is stated once and never contradicted' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('that one form is what every line of that file takes wherever it is written ' +
+                     'or read')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase 'in that file''s one form of a `-` bullet naming how it is checked'
+        $whole = Get-DocText $script:MusterMd
+        $whole.Contains('numbered lines of `data\done-<project>.md`') |
+            Should -BeFalse -Because 'a second line form is what makes the unchanged paste impossible'
+        $whole.Contains('paste its numbered lines') |
+            Should -BeFalse -Because 'the fold-back writes bullets, so the paste cannot expect numbers'
     }
 
     # The dispatcher refuses a brief whose `Read first` names a file that is not there, and no
@@ -4292,8 +4309,32 @@ Describe 'a project has a standing definition of done, and repeated findings are
     # a criterion broken silently is what the review gate raises a finding about.
     It 'the brief wins over the standing file, and the exception is named in the intent string' {
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
-            -Phrase ('say so in `Requirements` or `Unchanged` and in the gate''s `--intent` - the ' +
-                     'brief wins over the file')
+            -Phrase ('say so in `Requirements` or `Unchanged` and in the `Intent` section the gate ' +
+                     'is handed - the brief wins over the file')
+    }
+
+    # The Hand writes the brief and the worker writes the gate's intent string, so a set-aside the
+    # Hand records has to travel through a slot in the brief or it never reaches the gate at all -
+    # it condenses the Goal, the criterion looks broken for no stated reason, and the gate raises
+    # the finding the rule exists to prevent. Both gated blocks have to point at the same slot.
+    It 'what the intent string must carry has a slot the worker is handed' {
+        $t = $script:CritTemplate[0]
+        $t.Contains('## Intent') |
+            Should -BeTrue -Because 'the Hand needs somewhere to write what the gate is told'
+        $t.IndexOf('## Standing criteria') | Should -BeLessThan $t.IndexOf('## Intent')
+        $t.IndexOf('## Intent') | Should -BeLessThan $t.IndexOf('## Done means')
+        $script:CritTemplateText.Contains('plus every settled decision and standing criterion this task sets aside, and why - this is the string the gate is given verbatim') |
+            Should -BeTrue -Because 'a slot that only repeats the Goal changes nothing'
+
+        $gated = @($script:CritDoneBlocks | Where-Object { $_.Contains('no-mistakes axi run') })
+        $gated.Count | Should -Be 2 -Because 'only the two no-mistakes blocks invoke the gate'
+        foreach ($block in $gated) {
+            $block.Contains('--intent "<the `Intent` section above, verbatim on one line>"') |
+                Should -BeTrue -Because 'the worker passes the section rather than reconstructing it'
+        }
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('You write that string, not the worker: it is the `Intent` section of the ' +
+                     'brief, and the two `no-mistakes` blocks hand it to the gate verbatim')
     }
 
     # In all four, because the criteria only ever mattered as something the worker is made to work
@@ -4327,6 +4368,39 @@ Describe 'a project has a standing definition of done, and repeated findings are
             $bullets[1] | Should -BeLike '- Before you invoke the gate*' `
                 -Because 'every bullet below this one delivers, gates or stops the work'
         }
+    }
+
+    # "Identical but for the third line" was true until a bullet was inserted above it, and then it
+    # pointed at the gate-run bullet - a Hand substituting $ci.briefLine where the prose said would
+    # have dropped `no-mistakes axi run` out of the brief entirely. Asserted against Ci.psm1's own
+    # output rather than an ordinal or a sentence: the two blocks must differ in exactly the line
+    # that function computes, and in nothing else, which is what the prose claims and what makes
+    # taking it from Step 1b safe.
+    It 'the two gated blocks differ only in the line Ci.psm1 computes' {
+        Import-Module "$PSScriptRoot\..\bin\Ci.psm1" -Force
+        $gated = @($script:CritDoneBlocks | Where-Object { $_.Contains('no-mistakes axi run') })
+        $gated.Count | Should -Be 2 -Because 'only the two no-mistakes blocks invoke the gate'
+
+        $hasCi = ConvertTo-NormalisedText (Get-CiBriefLine -Status 'has-ci')
+        $noCi  = ConvertTo-NormalisedText (Get-CiBriefLine -Status 'no-ci')
+        $withHasCi = @($gated | Where-Object { $_.Contains($hasCi) })
+        $withNoCi  = @($gated | Where-Object { $_.Contains($noCi) })
+        $withHasCi.Count | Should -Be 1 -Because 'one block carries the has-ci line Step 1b computes'
+        $withNoCi.Count  | Should -Be 1 -Because 'the other carries the terminating line'
+
+        $withHasCi[0].Replace($hasCi, '') | Should -Be $withNoCi[0].Replace($noCi, '') `
+            -Because 'identical but for that line is what lets the Hand swap one for the other'
+    }
+
+    # And the prose names it by its text, so the next bullet inserted above it cannot restale the
+    # reference the way an ordinal was.
+    It 'the prose names that line by its text rather than its position' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase 'Identical but for the `Drive the pipeline` line'
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase 'That `Drive the pipeline` line is `$ci.briefLine` from Step 1b'
+        $script:CritStep2.Contains('Identical but for the third line') |
+            Should -BeFalse -Because 'an ordinal goes stale the moment a bullet is inserted above it'
     }
 
     # Three rounds in one component and three failed fixes on one bug are the same signal reached

@@ -269,9 +269,10 @@ worker's brief and report, `king.md`, `learnings.md`, `backlog.md` and `projects
 them writable. Do not ask for it.
 
 **Paste the project's standing criteria into the brief.** They live at
-`$env:KINGSHAND_HOME\data\done-<project>.md` - one line per criterion, each naming how it is
-checked - and they are what every change to that project is expected to meet whether or not this
-task's ticket mentions them. Read the file, paste its numbered lines into `## Standing criteria`
+`$env:KINGSHAND_HOME\data\done-<project>.md` - one `-` bullet per criterion, each naming how it is
+checked, and that one form is what every line of that file takes wherever it is written or read -
+and they are what every change to that project is expected to meet whether or not this
+task's ticket mentions them. Read the file, paste its lines into `## Standing criteria`
 unchanged, and hand the same file to `-ReadPath` at Step 4 with a `Read first` line naming the copy,
 exactly like any other settled file. Both, and for different reasons: the paste is in the artefact
 the worker is judged against, so it is what gets complied with, and the copy is what a mid-task
@@ -283,8 +284,8 @@ time even so, and never carry an absence forward from the last brief you wrote: 
 Step 6 creates it the first time a gate finding generalises, so a project with nothing standing
 today has criteria the next dispatch is expected to meet. Where a
 criterion is one this task deliberately sets aside, say so in `Requirements` or `Unchanged` and in
-the gate's `--intent` - the brief wins over the file, and a worker left to work out which source
-wins picks wrong half the time.
+the `Intent` section the gate is handed - the brief wins over the file, and a worker left to work
+out which source wins picks wrong half the time.
 
 Write `$env:KINGSHAND_HOME\data\<id>\brief.md`:
 
@@ -312,7 +313,11 @@ Do NOT touch: <explicit exclusions>
 - <behaviour that must not change>
 
 ## Standing criteria
-<the numbered lines of `data\done-<project>.md`, pasted unchanged>
+<the lines of `data\done-<project>.md`, pasted unchanged>
+
+## Intent
+<the Goal in one line, plus every settled decision and standing criterion this task sets aside,
+and why - this is the string the gate is given verbatim>
 
 ## Repeated findings
 1. While you fix, keep a tally two ways: gate rounds by the file or component they landed in, and
@@ -402,7 +407,7 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   line, `pass` with what you checked, `fixed` with what you changed, or `n/a` with the reason. A
   criterion you cannot check is a criterion to report, not to skip.
 - Run the review gate from inside the worktree and fix what it parks:
-  `no-mistakes axi run --intent "<the Goal above, one line>"`
+  `no-mistakes axi run --intent "<the `Intent` section above, verbatim on one line>"`
 - Drive the pipeline through to a pull request and report its full https:// URL when CI is
   first green. Do not merge it.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
@@ -420,8 +425,10 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   message rather than reporting success.
 ```
 
-`no-mistakes`, where Step 1b answered `no-ci` or `unknown`. Identical but for the third line, which
-is the whole point of the preflight - it ends a wait that would otherwise have no end:
+`no-mistakes`, where Step 1b answered `no-ci` or `unknown`. Identical but for the `Drive the
+pipeline` line, which is the whole point of the preflight - it ends a wait that would otherwise have
+no end. Named by its text and never by its position: bullets get inserted above it, and an ordinal
+that has gone stale points a Hand at the gate-run bullet instead:
 
 ```markdown
 - Implemented and committed on this worktree's branch.
@@ -430,7 +437,7 @@ is the whole point of the preflight - it ends a wait that would otherwise have n
   line, `pass` with what you checked, `fixed` with what you changed, or `n/a` with the reason. A
   criterion you cannot check is a criterion to report, not to skip.
 - Run the review gate from inside the worktree and fix what it parks:
-  `no-mistakes axi run --intent "<the Goal above, one line>"`
+  `no-mistakes axi run --intent "<the `Intent` section above, verbatim on one line>"`
 - Drive the pipeline through to a pull request and stop there.
   Checks may not report on this repository at all, so when the pipeline's `ci` step has been
   waiting more than fifteen minutes with no checks reported, report the pull request's full
@@ -451,9 +458,9 @@ is the whole point of the preflight - it ends a wait that would otherwise have n
   message rather than reporting success.
 ```
 
-That third line is `$ci.briefLine` from Step 1b, and taking it from there rather than retyping it is
-the point: the two must agree, and only one of them is computed from what the repository actually
-has. **Do not decide between the two blocks yourself** - a repository with no workflow file may
+That `Drive the pipeline` line is `$ci.briefLine` from Step 1b, and taking it from there rather than
+retyping it is the point: the two must agree, and only one of them is computed from what the
+repository actually has. **Do not decide between the two blocks yourself** - a repository with no workflow file may
 still get checks from outside it, which is exactly the case a reading-by-eye gets wrong.
 
 **The no-interactive-prompts rule is absolute, and it is there because a worker hung on it for
@@ -498,8 +505,11 @@ because nothing could leave the machine; a project registered `no-mistakes` has 
 full pipeline. Never add them back for a `no-mistakes` project, and never remove the push
 prohibition from the `local-only` variant.
 
-**Say in `--intent` what this task deliberately sets aside.** The two `no-mistakes` blocks take the
-Goal in one line; add to it the settled decisions and standing criteria this work breaks, and why.
+**Say in `--intent` what this task deliberately sets aside.** You write that string, not the worker:
+it is the `Intent` section of the brief, and the two `no-mistakes` blocks hand it to the gate
+verbatim. Start from the Goal in one line and add to it the settled decisions and standing criteria
+this work breaks, and why. Leaving the section to say only what the Goal says is how a set-aside
+recorded in `Requirements` or `Unchanged` never reaches the gate at all.
 `emgee-apex-design` named all seven of its settled decisions there and came back with engineering
 findings only and no ask-user finding at all, where `kh-decision-carry` left a stale intent string
 and the gate duly raised a finding against the mismatch.
@@ -904,7 +914,7 @@ it apply to the next unrelated change to this project? A one-off defect in one f
 and belongs in the report or a backlog item, however real it was - the file is pasted into every
 brief for the project, so a line that does not generalise is one every future worker reads, works
 through and records `n/a` against forever. Where it passes that test, add it in the same turn you
-read the report, in that file's own form of one line naming how it is checked, editing the file in
+read the report, in that file's one form of a `-` bullet naming how it is checked, editing the file in
 place where it already exists or writing it with `Write-DataFile` from `bin\Index.psm1` where it
 does not. Retire a line the same way you add one, in the turn the evidence arrives: when the code it
 guarded is gone, when it has stopped discriminating because the practice is now enforced by a test
