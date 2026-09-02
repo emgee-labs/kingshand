@@ -127,6 +127,27 @@ For critical safety, routing, and gating behavior generally, prefer deterministi
 relying on agent memory alone. Keep the prose as the authority and discovery layer, and make the
 test the thing that notices when the prose is gone.
 
+## Match the form to the failure
+
+**Where this comes from:** an external project's measurements on its own skill material. It is
+unverified against kingshand's, so treat it as guidance for the next rule you write rather than a
+law, and do not reopen an existing rule to match it.
+
+Name the failure before choosing the form. A **shaping** failure is output coming out the wrong
+shape rather than a rule being skipped; write a recipe there, saying what the output should look
+like, because a prohibition reportedly backfires - producing more of the unwanted thing than a
+positive instruction, and trending worse than no guidance at all. A **discipline** failure is a
+rule understood and skipped anyway; a prohibition is right there, and it lands better paired with
+the rationalisations it is meant to catch, so the reader recognises their own reasoning
+mid-sentence.
+
+Two corollaries. **Do not append a nuance clause to a recipe that works** - it degrades the recipe.
+And **an exemption clause does not scope**: "this limit does not apply to code blocks" still
+suppresses code blocks, so say what to do in that case instead of carving it out. `CLAUDE.md` hard
+rule 5 is the worked example on our own material, a length prohibition with two exemptions hung
+off it - and it stays as written, because this guidance shapes the next rule rather than
+reopening one already in force.
+
 ## Style rules
 
 - Use `-`, never the long dash (U+2014). `tests\Docs.Tests.ps1` asserts this for every skill and
