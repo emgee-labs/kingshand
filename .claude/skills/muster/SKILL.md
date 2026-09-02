@@ -278,8 +278,10 @@ the worker is judged against, so it is what gets complied with, and the copy is 
 re-read reaches. Where the project has no such file yet, write `- Nothing standing for this project
 yet.` rather than dropping the section, so an empty list is a decision someone made - and in that
 case write no `Read first` line for it and pass no `-ReadPath` for it either, because Step 4 refuses
-a brief naming a file that is not there and the refusal costs a whole dispatch. No project has one
-of these files yet, so that is the ordinary case rather than the exception. Where a
+a brief naming a file that is not there and the refusal costs a whole dispatch. Read the file every
+time even so, and never carry an absence forward from the last brief you wrote: the fold-back at
+Step 6 creates it the first time a gate finding generalises, so a project with nothing standing
+today has criteria the next dispatch is expected to meet. Where a
 criterion is one this task deliberately sets aside, say so in `Requirements` or `Unchanged` and in
 the gate's `--intent` - the brief wins over the file, and a worker left to work out which source
 wins picks wrong half the time.
@@ -346,11 +348,11 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
 
 ```markdown
 - Implemented and committed on this worktree's branch.
-- Stop on the branch. Do not push. Do not open a PR. Do not merge.
 - Before you invoke the gate - or before you stop on the branch where there is no gate - work the
   `Standing criteria` section above line by line and record the result in `report.md`: for each
   line, `pass` with what you checked, `fixed` with what you changed, or `n/a` with the reason. A
   criterion you cannot check is a criterion to report, not to skip.
+- Stop on the branch. Do not push. Do not open a PR. Do not merge.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
   required every time, including when the work succeeded plainly with nothing surprising in it.
 - Never call `AskUserQuestion`, and never open any interactive prompt, menu or confirmation of
@@ -370,12 +372,12 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
 
 ```markdown
 - Implemented and committed on this worktree's branch.
-- Push the branch and open a pull request against the default branch.
-- Do not merge it. Report the pull request's full https:// URL in your final message.
 - Before you invoke the gate - or before you stop on the branch where there is no gate - work the
   `Standing criteria` section above line by line and record the result in `report.md`: for each
   line, `pass` with what you checked, `fixed` with what you changed, or `n/a` with the reason. A
   criterion you cannot check is a criterion to report, not to skip.
+- Push the branch and open a pull request against the default branch.
+- Do not merge it. Report the pull request's full https:// URL in your final message.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
   required every time, including when the work succeeded plainly with nothing surprising in it.
 - Never call `AskUserQuestion`, and never open any interactive prompt, menu or confirmation of
@@ -890,7 +892,8 @@ round-one findings are two readings of the same change, so compare them. Both ar
 the `Repeated findings` section of the brief made the worker record every round there as it landed,
 and the first pass as `round 1: no findings` where it raised none, so a report carrying a self-check
 block and no rounds at all is one to ask about rather than one
-with nothing to fold back. On a `local-only` or `direct-PR` project there is no gate and no round to
+with nothing to fold back. On a `local-only` or `direct-PR` project - including a
+`no-mistakes-prod-only` project whose task resolved to `direct-PR` - there is no gate and no round to
 compare against, so this loop does not fire - read the self-check block anyway, because a criterion
 the worker recorded `n/a`, or could not check, is the same wording problem arriving from the other
 side. A finding that matches a

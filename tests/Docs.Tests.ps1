@@ -4222,8 +4222,9 @@ Describe 'a project has a standing definition of done, and repeated findings are
         $script:CritTemplateText = if ($script:CritTemplate.Count -eq 1) {
             ConvertTo-NormalisedText $script:CritTemplate[0]
         } else { '' }
-        $script:CritDoneBlocks = @(Get-CodeFence $script:MusterMd |
-            Where-Object { $_.Contains("Implemented and committed on this worktree's branch.") } |
+        $script:CritDoneBlocksRaw = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains("Implemented and committed on this worktree's branch.") })
+        $script:CritDoneBlocks = @($script:CritDoneBlocksRaw |
             ForEach-Object { ConvertTo-NormalisedText $_ })
     }
 
@@ -4273,6 +4274,19 @@ Describe 'a project has a standing definition of done, and repeated findings are
                      'because Step 4 refuses a brief naming a file that is not there')
     }
 
+    # The empty case is the one a Hand starts believing. Step 6's fold-back writes this file the
+    # first time a gate finding generalises, so any count of how many projects have one is false
+    # from that turn - and false in the direction where the criteria just recorded never reach the
+    # next worker, which is the loop this whole change exists to close.
+    It 'the read is unconditional and no absence is carried forward' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('Read the file every time even so, and never carry an absence forward from ' +
+                     'the last brief you wrote')
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase ('a project with nothing standing today has criteria the next dispatch is ' +
+                     'expected to meet')
+    }
+
     # The file is a standing list and the brief is this task's instruction, so the brief has to win
     # or a worker deciding for itself picks wrong half the time. The intent string is the other half:
     # a criterion broken silently is what the review gate raises a finding about.
@@ -4297,16 +4311,21 @@ Describe 'a project has a standing definition of done, and repeated findings are
     }
 
     # "Before you invoke the gate" is what the bullet says; where the bullet sits is what a worker
-    # working the list top-down actually does. Below the gate bullets it self-checks code the gate
-    # has already made it fix, records `pass` on a criterion that genuinely caught something, and
-    # Step 6 then rewords a criterion that was working.
-    It 'the self-check bullet precedes the gate bullet in the blocks that have one' {
-        $gated = @($script:CritDoneBlocks | Where-Object { $_.Contains('no-mistakes axi run') })
-        $gated.Count | Should -Be 2 -Because 'only the two no-mistakes blocks run a gate'
-        foreach ($block in $gated) {
-            $block.IndexOf('Before you invoke the gate') |
-                Should -BeLessThan $block.IndexOf('Run the review gate from inside the worktree') `
-                    -Because 'a list worked top-down has to reach the self-check first'
+    # working the list top-down actually does. Below the delivery bullets it self-checks code it has
+    # already gated, pushed or opened a pull request against - a criterion it then records `fixed`
+    # is a commit the delivered PR does not contain, and on a gated block it records `pass` on a
+    # criterion the gate itself had just caught, which sends Step 6 off to reword a working line.
+    # Asserted on all four blocks by position rather than on the two with a gate: the bullet is
+    # copied four times, and the last round repositioned two of them and left two.
+    It 'the self-check is the second bullet of every Done-means block' {
+        $script:CritDoneBlocksRaw.Count |
+            Should -Be 4 -Because 'one Done-means block per delivery mode'
+        foreach ($block in $script:CritDoneBlocksRaw) {
+            $bullets = @($block -split "`n" | Where-Object { $_ -match '^- ' })
+            $bullets[0] | Should -BeLike "- Implemented and committed on this worktree's branch.*" `
+                -Because 'there is nothing to check until the work exists'
+            $bullets[1] | Should -BeLike '- Before you invoke the gate*' `
+                -Because 'every bullet below this one delivers, gates or stops the work'
         }
     }
 
@@ -4462,11 +4481,15 @@ Describe 'a project has a standing definition of done, and repeated findings are
 
     # Twenty of the twenty-two registered projects have no review gate, so an unqualified compare
     # is an instruction that cannot be carried out for most of the fleet. The self-check still gets
-    # read there - an `n/a` is the same wording problem arriving from the other side.
+    # read there - an `n/a` is the same wording problem arriving from the other side. The prod-only
+    # half is named because that mode resolves per task, so the two registered prod-only projects
+    # produce gateless runs the registry alone does not account for.
     It 'the fold-back says it does not fire where there is no gate' {
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
-            -Phrase ('On a `local-only` or `direct-PR` project there is no gate and no round to ' +
-                     'compare against, so this loop does not fire - read the self-check block anyway')
+            -Phrase ('On a `local-only` or `direct-PR` project - including a ' +
+                     '`no-mistakes-prod-only` project whose task resolved to `direct-PR` - there ' +
+                     'is no gate and no round to compare against, so this loop does not fire - ' +
+                     'read the self-check block anyway')
     }
 
     It 'Step 6 escalates a round tally as a finding rather than filing it as progress' {
