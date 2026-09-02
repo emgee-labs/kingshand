@@ -351,9 +351,12 @@ and why - this is the string the gate is given verbatim>
    clean.
 2. On the third round of findings in one component, or the third failed attempt at one bug, **carry
    on fixing every finding as normal.** Nothing here caps the rounds or lets you stop early.
-3. Additionally write into `report.md` the tally, what each round found there, and the design
-   question: what that component is doing that keeps producing findings, and what the alternative
-   is. Say it in your final message too, so it arrives as a finding rather than a completion notice.
+3. Additionally write into `report.md` the tally, what each round or attempt found, and the design
+   question: what keeps producing them - the component that goes on raising findings, or the bug
+   that will not stay fixed - and what the alternative is. Whichever of the two triggers fired is
+   the one to write up, and on a brief that runs no review gate the failed attempts are the only
+   trigger there is. Say it in your final message too, so it arrives as a finding rather than a
+   completion notice.
 
 ## Done means
 <the block for this project's mode - see below>

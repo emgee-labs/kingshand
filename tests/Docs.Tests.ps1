@@ -4532,10 +4532,31 @@ Describe 'a project has a standing definition of done, and repeated findings are
 
     It 'the tripwire reports the tally and the design question, in the report and in the message' {
         $t = $script:CritTemplateText
-        $t.Contains('Additionally write into `report.md` the tally, what each round found there, and the design question: what that component is doing that keeps producing findings, and what the alternative is.') |
+        $t.Contains('Additionally write into `report.md` the tally, what each round or attempt found, and the design question: what keeps producing them') |
             Should -BeTrue -Because 'a tally with no design question beside it is just a number'
         $t.Contains('Say it in your final message too, so it arrives as a finding rather than a completion notice.') |
             Should -BeTrue -Because 'a report nobody is told to read arrives after the Hand has moved on'
+    }
+
+    # Item 2 fires on either trigger, and on the gateless majority of the fleet only the second one
+    # can: there are no rounds to count. Written up in round-and-component terms alone, item 3 asks
+    # a gateless worker for a record item 1 just told it never to keep, and the design question the
+    # tripwire exists to surface never leaves the worktree - while Step 6, which names both
+    # triggers, is looking for it.
+    It 'the write-up covers the failed-attempt trigger, not rounds alone' {
+        $t = $script:CritTemplateText
+        $t.Contains('what each round or attempt found') |
+            Should -BeTrue -Because 'three failed attempts at one bug produce no rounds to write up'
+        $t.Contains('on a brief that runs no review gate the failed attempts are the only trigger there is') |
+            Should -BeTrue -Because 'the gateless worker has to know which trigger is still live'
+
+        # Both triggers Step 6 escalates on have to be writable from the brief, or the owner is
+        # looking for a write-up the artefact never asked for.
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('Where the worker reports three rounds of findings in one component or three ' +
+                     'failed attempts at one bug')
+        $t.Contains('or the third failed attempt at one bug') |
+            Should -BeTrue -Because 'the brief has to arm the trigger Step 6 escalates'
     }
 
     # The rule was stated in `petition` step 7, proposed again for the tripwire, and reached us a
