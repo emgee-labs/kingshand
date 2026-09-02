@@ -606,9 +606,9 @@ worker looks like, but only this wait's completion brings you back to look:
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
 $w = Wait-HerdrAgentProgress -Name "<worker id>" -TimeoutMs 2700000
-if ($w.settled) { "WAKE <worker id> state=$($w.state) awaitingInput=$($w.awaitingInput) readable=$($w.signalReadable) last: $($w.lastActivity)" }
-elseif ($w.stalled) { "STALLED <worker id> $($w.quietMinutes)m with no movement - last seen: $($w.lastActivity)" }
-else { "NOT SETTLED <worker id> reason=$($w.reason) readable=$($w.signalReadable)" }
+if ($w.settled) { "WAKE <worker id> state=$($w.state) awaitingInput=$($w.awaitingInput) readable=$($w.signalReadable) box='$($w.promptBox)' last: $($w.lastActivity)" }
+elseif ($w.stalled) { "STALLED <worker id> $($w.quietMinutes)m with no movement - box='$($w.promptBox)' last seen: $($w.lastActivity)" }
+else { "NOT SETTLED <worker id> reason=$($w.reason) readable=$($w.signalReadable) box='$($w.promptBox)'" }
 ```
 
 **Print every field you will need, because the printed line is all that survives.** The wait runs as
