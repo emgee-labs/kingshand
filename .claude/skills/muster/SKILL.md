@@ -441,8 +441,13 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   any kind. You are a background agent with nobody attached: there is no one to answer, and the
   run hangs until it is killed.
 - When you reach a decision your brief does not settle, write the question into
-  `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
-  would need in order to choose - then stop and say so in your final message.
+  `$env:KINGSHAND_HOME\data\<id>\report.md` under the heading `## Waiting on a decision` - the
+  question, the options you can see, and what you would need in order to choose - then say so in
+  your final message and end your turn. That heading is what tells the Hand you are waiting rather
+  than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
+  comes back to you as an ordinary prompt and you carry on from there, so leave everything where
+  it is: do not undo what you have done, do not pick a different task, and do not report the work
+  as failed.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping.
 - Never mention Claude, AI, or an assistant in any commit message or file.
@@ -468,8 +473,13 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   any kind. You are a background agent with nobody attached: there is no one to answer, and the
   run hangs until it is killed.
 - When you reach a decision your brief does not settle, write the question into
-  `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
-  would need in order to choose - then stop and say so in your final message.
+  `$env:KINGSHAND_HOME\data\<id>\report.md` under the heading `## Waiting on a decision` - the
+  question, the options you can see, and what you would need in order to choose - then say so in
+  your final message and end your turn. That heading is what tells the Hand you are waiting rather
+  than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
+  comes back to you as an ordinary prompt and you carry on from there, so leave everything where
+  it is: do not undo what you have done, do not pick a different task, and do not report the work
+  as failed.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping.
 - Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
@@ -494,6 +504,13 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   handed a mangled sentence and no error. Run the line in PowerShell and double any single quote
   inside the section - doubling is PowerShell's escape, and in a POSIX shell the same two
   characters close and reopen the string, so the apostrophe is deleted instead.
+- A finding the gate classifies `ask-user` is a decision your brief does not settle, so it takes
+  the bullet below. **Leave the run parked while you wait.** `axi run` returned at that gate rather
+  than holding your terminal, so the run still owns the branch and every fix commit it has already
+  made, and nothing is being lost by waiting. Do not abort it, do not start a second run, and never
+  pass `--yes` - that flag decides ask-user findings itself with no escalation, which is the one
+  thing you may not do. When the answer reaches you, apply it with `no-mistakes axi respond` on
+  that same run and carry on.
 - Drive the pipeline through to a pull request and report its full https:// URL when CI is
   first green. Do not merge it.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
@@ -502,8 +519,13 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   any kind. You are a background agent with nobody attached: there is no one to answer, and the
   run hangs until it is killed.
 - When you reach a decision your brief does not settle, write the question into
-  `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
-  would need in order to choose - then stop and say so in your final message.
+  `$env:KINGSHAND_HOME\data\<id>\report.md` under the heading `## Waiting on a decision` - the
+  question, the options you can see, and what you would need in order to choose - then say so in
+  your final message and end your turn. That heading is what tells the Hand you are waiting rather
+  than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
+  comes back to you as an ordinary prompt and you carry on from there, so leave everything where
+  it is: do not undo what you have done, do not pick a different task, and do not report the work
+  as failed.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping.
 - Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
@@ -531,6 +553,13 @@ that has gone stale points a Hand at the gate-run bullet instead:
   handed a mangled sentence and no error. Run the line in PowerShell and double any single quote
   inside the section - doubling is PowerShell's escape, and in a POSIX shell the same two
   characters close and reopen the string, so the apostrophe is deleted instead.
+- A finding the gate classifies `ask-user` is a decision your brief does not settle, so it takes
+  the bullet below. **Leave the run parked while you wait.** `axi run` returned at that gate rather
+  than holding your terminal, so the run still owns the branch and every fix commit it has already
+  made, and nothing is being lost by waiting. Do not abort it, do not start a second run, and never
+  pass `--yes` - that flag decides ask-user findings itself with no escalation, which is the one
+  thing you may not do. When the answer reaches you, apply it with `no-mistakes axi respond` on
+  that same run and carry on.
 - Drive the pipeline through to a pull request and stop there.
   Checks may not report on this repository at all, so when the pipeline's `ci` step has been
   waiting more than fifteen minutes with no checks reported, report the pull request's full
@@ -542,8 +571,13 @@ that has gone stale points a Hand at the gate-run bullet instead:
   any kind. You are a background agent with nobody attached: there is no one to answer, and the
   run hangs until it is killed.
 - When you reach a decision your brief does not settle, write the question into
-  `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
-  would need in order to choose - then stop and say so in your final message.
+  `$env:KINGSHAND_HOME\data\<id>\report.md` under the heading `## Waiting on a decision` - the
+  question, the options you can see, and what you would need in order to choose - then say so in
+  your final message and end your turn. That heading is what tells the Hand you are waiting rather
+  than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
+  comes back to you as an ordinary prompt and you carry on from there, so leave everything where
+  it is: do not undo what you have done, do not pick a different task, and do not report the work
+  as failed.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping.
 - Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
@@ -986,10 +1020,43 @@ prompt box when a turn ends, so a worker that has said everything it is going to
 - exactly like a worker that has just started and been given nothing, and exactly like one holding
 a menu open that herdr failed to classify. Read the three facts above, never the word on its own.
 
-With all three confirmed, **set its stage to `gating`** - the implementation is done and the work
-is waiting on the landing gate at Step 7. Say so in chat as an update: what finished, that the landing gate is now theirs,
-and the one next action. Keep it short because there is little to say, not because a line count
-says so:
+**A worker waiting on a decision passes all three and is not finished either, and only the report
+tells you which you have.** Its turn ended cleanly, so it has settled; nothing is drawn on its
+screen, so it is not awaiting input; and its brief made it write the file, so the report exists.
+What separates it from a delivery is inside that file: a `## Waiting on a decision` section the
+brief made it write, and nothing has answered. So read the report before you act on the three
+facts rather than after, and treat a report carrying that heading as a worker mid-run.
+
+Such a worker is idle rather than hung and costs nothing where it is - the review-gate run it left
+parked keeps the branch and every fix commit already made. **Do not set `gating`, do not close the
+backlog item, and above all do not tear it down.** Teardown ends the process holding that parked
+run, and the answer then has nowhere to go.
+
+**Load `petition` before answering it - whatever the posture, and whether or not the King is at
+the machine.** It owns who may decide this and by what test, including the test that applies when
+he is away, and it is the only place that test is stated. Register the decision under `decree` in
+the same turn you read the report, so an answer he still owes survives this session ending.
+
+With the answer in hand, send it to the worker as one prompt and read the screen back:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
+Send-HerdrPrompt -Name "<worker id>" -Text "<the decision, and the reason for it>"
+Read-HerdrAgent -Name "<worker id>" -Lines 20
+```
+
+`rally` owns the steer itself and says why an unchecked one is not a steer at all. Two things
+about this one in particular. The send is refused outright when that worker's input box already
+holds text this session did not write - the wake reported `promptBox`, so you already know, and
+`rally` owns what to do about it rather than `-AllowNonEmptyBox` being reached for here. And **the
+worker is working again the moment the answer lands, so re-arm the Step 4 wait** - the wait that
+woke you is spent, and a worker resumed with nothing watching it is the silence this whole layer
+exists to prevent.
+
+With all three confirmed and no decision waiting, **set its stage to `gating`** - the
+implementation is done and the work is waiting on the landing gate at Step 7. Say so in chat as an
+update: what finished, that the landing gate is now theirs, and the one next action. Keep it short
+because there is little to say, not because a line count says so:
 
 ```powershell
 Set-CrewStage -State $s -WorkerId "<id>" -Stage 'gating'

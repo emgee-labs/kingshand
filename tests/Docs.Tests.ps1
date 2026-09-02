@@ -412,7 +412,7 @@ Describe 'a background worker never opens an interactive prompt' {
 
     It 'each one sends an unsettled decision to report.md instead of a menu' {
         foreach ($block in $script:PromptBlocks) {
-            $block.Contains('write the question into `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you would need in order to choose - then stop and say so in your final message.') |
+            $block.Contains('write the question into `$env:KINGSHAND_HOME\data\<id>\report.md` under the heading `## Waiting on a decision` - the question, the options you can see, and what you would need in order to choose - then say so in your final message and end your turn.') |
                 Should -BeTrue -Because 'a question that reaches the user is a written one'
         }
     }
@@ -3764,10 +3764,46 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Regency | Should -Match 'holds no new powers'
         }
 
-        It 'never answers a question a worker asked' {
-            $script:Regency | Should -Match 'Record it, never answer it'
+        # The blocked-prompt floor is untouched and these three still pin it. What changed is the
+        # blanket rule that used to sit beside it, and the two cases now have to stay apart: a
+        # prompt drawn on a screen is still never answered, a decision written into a report is
+        # petition's. An assertion on the old phrase would be worthless here - the deliberate-change
+        # note quotes it so a reader can find it in git history - so this pins the new bullet and
+        # the absence of the old one's own heading, which is what a restoration would bring back.
+        It 'never answers a prompt a blocked worker is sitting on' {
             $script:Regency | Should -Match 'Do \*\*not\*\* send it keys'
             $script:Regency | Should -Match 'record the question verbatim'
+            $script:Regency | Should -Match 'A prompt drawn on a worker''s screen is the King''s\s+to answer and nobody else''s'
+        }
+
+        It 'sends a decision written into a report to petition and states the test nowhere itself' {
+            $script:Regency | Should -Match 'A decision\s+a worker \*wrote into its `report\.md`\* is a different case and no longer this one'
+            $script:Regency | Should -Match '`petition`\s+owns whether you may answer that and by what test, and it is the only place the test is\s+stated'
+            # The one-owner rule, asserted as absence: regency must not carry a second copy of the
+            # test. A restatement here is exactly the drift statute forbids, and it would read as
+            # authoritative to anyone who loaded regency without petition.
+            $script:Regency | Should -Not -Match 'reversible in minutes'
+        }
+
+        It 'declares the change deliberate so history does not read as an accident' {
+            $script:Regency | Should -Match '\*\*This rule changed deliberately, on the King''s own instruction'
+            $script:Regency | Should -Match 'should read it as superseded rather\s+than as a rule that went missing'
+            # The old bullet's own heading. Restoring the blanket rule brings this back with it,
+            # and nothing else in the file would notice.
+            $script:Regency | Should -Not -Match '\*\*Answering a question a worker asked\.\*\*'
+        }
+
+        It 'says plainly that the change bought no authority over the floors' {
+            $script:Regency | Should -Match 'this bought no authority\s+at all over a land, a delete, a cost, or anything destructive, irreversible or security-sensitive'
+        }
+
+        It 'carries the parked worker into the away-mode handling rather than leaving it unnamed' {
+            $script:Regency | Should -Match '\*\*A worker is parked on an ask-user finding\.\*\*'
+            $script:Regency | Should -Match 'ended its turn, so nothing is hanging and nothing is lost while you think'
+        }
+
+        It 'puts what was decided in his stead, and on what basis, into the return digest' {
+            $script:Regency | Should -Match '\*\*Every finding you decided in his stead,\s+with the reasoning and whether it rested on a recorded position or on your own judgement\*\*'
         }
 
         It 'adds nothing to the landing authority the posture already carries' {
@@ -5809,5 +5845,285 @@ Describe 'a project carries standing rules that reach every worker without being
                      'attached for the resolved project')
         $g.Contains('it never adds a line to a brief') |
             Should -BeFalse -Because 'the dispatcher does add lines to a brief now'
+    }
+}
+
+Describe 'a parked decision reaches the Hand, and the answer reaches the worker back' {
+    # A worker is a detached process with nobody attached. `petition` said it routes an ask-user
+    # finding to the Hand and nothing implemented that route, so on 2026-09-01 a worker decided five
+    # of them itself - correctly, by breaking the rule, because following it meant hanging. The route
+    # below is built entirely from what already existed: `report.md` is written mid-run, the Step 4
+    # wait already wakes on a settled worker, `axi run` already returns at the gate leaving the run
+    # parked, and `Send-HerdrPrompt` already steers a live worker. Nothing here is a new channel, and
+    # the two properties it has to keep are that the worker is not stuck and the run is not lost.
+    BeforeAll {
+        $script:RouteBlocks = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains("Implemented and committed on this worktree's branch.") } |
+            ForEach-Object { ConvertTo-NormalisedText $_ })
+        $script:RouteStep6 = Get-MusterStep 'Step 6 - Completion'
+        $script:RouteHold  = Get-DocText $script:HoldMd
+    }
+
+    # The heading is the whole discriminator. A parked worker settles, shows no prompt and has
+    # written its report, so it passes Step 6's three facts exactly as a delivery does - without a
+    # fixed string in the file there is nothing to tell them apart, and the Hand tears down a worker
+    # that is mid-run.
+    It 'all four Done-means blocks name the exact heading a waiting worker writes' {
+        $script:RouteBlocks.Count | Should -Be 4
+        foreach ($block in $script:RouteBlocks) {
+            $block.Contains('under the heading `## Waiting on a decision`') |
+                Should -BeTrue -Because 'the Hand tells waiting from finished by that heading and nothing else'
+            $block.Contains('That heading is what tells the Hand you are waiting rather than finished, so write it exactly.') |
+                Should -BeTrue -Because 'a worker that paraphrases the heading is invisible to Step 6'
+        }
+    }
+
+    # The load-bearing half for the worker: ending a turn is not the same as ending the work. A
+    # worker that reads it as "stop" undoes its own change or reports failure, and the parked run
+    # loses everything it was holding.
+    It 'all four say ending the turn is not ending the work, and forbid unwinding it' {
+        foreach ($block in $script:RouteBlocks) {
+            $block.Contains('**Ending your turn is not the end of your work.**') |
+                Should -BeTrue -Because 'stopping and waiting are different, and the worker has to be told which'
+            $block.Contains('The answer comes back to you as an ordinary prompt and you carry on from there') |
+                Should -BeTrue -Because 'the worker must know an answer is coming, or it will not wait for one'
+            $block.Contains('do not undo what you have done, do not pick a different task, and do not report the work as failed') |
+                Should -BeTrue -Because 'a worker that unwinds its own change while waiting loses the run'
+        }
+    }
+
+    # Only the two no-mistakes blocks have a gate, so only they carry the parked-run half. Pinned at
+    # two rather than four so moving it into a block with no gate fails here.
+    It 'the two no-mistakes blocks leave the gate run parked rather than aborting it' {
+        $parked = @($script:RouteBlocks | Where-Object { $_.Contains('**Leave the run parked while you wait.**') })
+        $parked.Count | Should -Be 2 -Because 'a review gate exists only in the two no-mistakes variants'
+        foreach ($block in $parked) {
+            $block.Contains('the run still owns the branch and every fix commit it has already made') |
+                Should -BeTrue -Because 'the reason to leave it parked is what stops someone aborting it'
+            $block.Contains('Do not abort it, do not start a second run') |
+                Should -BeTrue -Because 'an abort strands the gate fix commits in its own staging repo'
+            $block.Contains('apply it with `no-mistakes axi respond` on that same run') |
+                Should -BeTrue -Because 'the answer continues the parked run rather than starting a new one'
+        }
+    }
+
+    # --yes is the exact flag that lets a worker decide its own ask-user findings: the tool documents
+    # it as auto-resolving every gate including ask-user findings, with no escalation. Naming it is
+    # the difference between a prohibition a worker can apply and one it cannot.
+    It 'and forbid the one flag that would let a worker decide the finding itself' {
+        $parked = @($script:RouteBlocks | Where-Object { $_.Contains('**Leave the run parked while you wait.**') })
+        foreach ($block in $parked) {
+            $block.Contains('never pass `--yes` - that flag decides ask-user findings itself with no escalation, which is the one thing you may not do') |
+                Should -BeTrue -Because 'the worker never decides its own ask-user finding, and this is how it would'
+        }
+    }
+
+    It 'Step 6 refuses to read a waiting worker as a finished one' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**A worker waiting on a decision passes all three and is not finished ' +
+                     'either, and only the report tells you which you have.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase 'a `## Waiting on a decision` section the brief made it write, and nothing has answered'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase 'read the report before you act on the three facts rather than after'
+    }
+
+    # Teardown is the irreversible one. It ends the process holding the parked run, so the answer
+    # has nowhere to go and the gate's own fix commits are left in its staging repo.
+    It 'Step 6 forbids advancing or tearing down a worker that is still waiting' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**Do not set `gating`, do not close the backlog item, and above all do not ' +
+                     'tear it down.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase 'Teardown ends the process holding that parked run, and the answer then has nowhere to go.'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase 'With all three confirmed and no decision waiting, **set its stage to `gating`**'
+    }
+
+    It 'Step 6 loads petition before answering and registers the decision under decree' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**Load `petition` before answering it - whatever the posture, and whether or ' +
+                     'not the King is at the machine.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase 'it is the only place that test is stated'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('Register the decision under `decree` in the same turn you read the report, ' +
+                     'so an answer he still owes survives this session ending.')
+    }
+
+    # The answer travels by the steer that already exists. Asserted as runnable text rather than as
+    # prose about a steer: this is the one command the route depends on, and a described command is
+    # one nobody has run.
+    It 'Step 6 carries a runnable steer, not a description of one' {
+        $fence = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains('Send-HerdrPrompt -Name "<worker id>" -Text "<the decision, and the reason for it>"') })
+        $fence.Count | Should -Be 1 -Because 'the answer goes back by one steer, stated once'
+        $fence[0].Contains('Read-HerdrAgent -Name "<worker id>" -Lines 20') |
+            Should -BeTrue -Because 'a steer nobody read back is not a steer'
+    }
+
+    # Two failure modes of the steer itself, both already real in this repository: a prompt box
+    # holding text nobody sent refuses the send outright, and a resumed worker with no wait armed is
+    # the exact silence the Step 4 wait exists to prevent.
+    It 'Step 6 names the refused send and re-arms the wait on a resumed worker' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ("The send is refused outright when that worker's input box already holds " +
+                     'text this session did not write')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase '`rally` owns what to do about it rather than `-AllowNonEmptyBox` being reached for here'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**the worker is working again the moment the answer lands, so re-arm the ' +
+                     'Step 4 wait**')
+    }
+
+    It 'decree stops describing the worker as stopped, and routes the answer back into its own item' {
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ('Ending a turn is not the end of the work - `muster` Step 6 owns the route ' +
+                     "that carries the Hand's answer back into a worker still waiting on one.")
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ("**Where the answer went back into a worker already running on this work's " +
+                     'own item, that item is the dependent one and no second is created**')
+    }
+}
+
+Describe "the reversibility test owns what may be answered in the King's stead" {
+    # This is the rule most likely to be softened by a later editor into "only answer what you know",
+    # which reintroduces the failure it was written to end: the Hand stuck every night on SEO details
+    # and copy fixes while a worker sits parked on them. So the mis-statement is named in the skill
+    # and pinned here, and every branch of the test is pinned word for word rather than by theme.
+    BeforeAll { $script:Away = Get-DocText $script:AskUserMd }
+
+    It 'states the test as reversibility and refuses the knowledge reading by name' {
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase '**The test is reversibility, not knowledge.**'
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('Not what the two of you have discussed, not what you happen to know, not ' +
+                     'how confident you feel - whether a wrong call can be undone in minutes.')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('Writing it as a knowledge test is the mis-statement to refuse: "answer only ' +
+                     'what you know" parks every small consistency and copy finding until morning')
+    }
+
+    # All four exclusions, and the "away or present, discussed or not" clause that keeps presence out
+    # of the test. Dropping any one of the four widens the branch silently.
+    It 'the decide-it branch keeps all four exclusions and the presence clause' {
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('**Decide it** - away or present, discussed or not - when the call is ' +
+                     'reversible in minutes and is **none of**: a delete, a cost, ' +
+                     'security-sensitive, or a material expansion of what the work was accepted ' +
+                     'to deliver.')
+    }
+
+    # "regardless of what is known" is the mirror of the test above and the half a softened rewrite
+    # drops first: it is what stops a well-evidenced guess authorising a delete.
+    It 'the wait branch holds regardless of what is known' {
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('**Wait for him** on a delete, a cost or anything security-sensitive, ' +
+                     '**regardless of what is known**, and on a major or irreversible call where ' +
+                     'nothing records his position.')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase 'Those are the floors hard rule 2 already carries, and being away never lowers them.'
+    }
+
+    # The third of the three is the one that reads like decoration and is not. Without it a decision
+    # recorded afterwards is indistinguishable from a fact somebody established, so the King can
+    # review the outcome but never the reasoning behind it.
+    It 'requires the decision, the reasoning, and the basis it rested on' {
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('**Record all three, every time: the decision, the reasoning, and whether it ' +
+                     'rested on a recorded position or on your own judgement.**')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase 'it is what turns a wrong call into a learning instead of a surprise'
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('A decision recorded without it reads afterwards as a fact somebody ' +
+                     'established rather than a call somebody made.')
+    }
+
+    # Closed list, deliberately. An open one lets a reviewer's language or an inferred pattern count
+    # as the King's position, which is how a guess becomes a recorded fact.
+    It 'closes the list of what counts as a recorded position' {
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('A recorded position is one of exactly these: `data\done-<project>.md`, an ' +
+                     "answered hold's note in the backlog, a settled decision file under " +
+                     '`data\`, `data\king.md`, or an explicit statement in this session.')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('Reviewer language is not one, and neither is a pattern you inferred from an ' +
+                     'earlier task.')
+    }
+
+    # The branch fires off the durable flag regency writes, not off a judgement about whether the
+    # King seems to be around. A flag survives a session restart and a feeling does not.
+    It 'reads the away state from the durable flag rather than inferring it' {
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('He is away when `$env:KINGSHAND_HOME\state\.afk` exists; `regency` writes ' +
+                     'that flag and owns everything else about the mode.')
+    }
+
+    It 'says why an unreachable escalation is not a safe default' {
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('an escalation that cannot land is not a safe default - it is the five-hour ' +
+                     'hang arriving by a different route')
+    }
+
+    # The existing authority analysis is unchanged, and step 1 has to say where the new branch
+    # attaches or it goes on claiming no autonomous answer is ever authorised.
+    It 'step 1 points at the branch rather than going on denying it exists' {
+        Assert-Phrase -Text $script:Away -Where 'petition step 1' `
+            -Phrase ('that escalation rather than authorize an autonomous answer - except where ' +
+                     'the escalation cannot reach him at all, which `When the King is not there` ' +
+                     'below owns and nothing else does.')
+    }
+
+    # The worker's side of the boundary did not move: it still never decides. What changed is that
+    # its finding now goes somewhere and comes back.
+    It 'the worker still never decides its own finding, and the route is named not restated' {
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('It parks at the finding, routes the decision to the Hand through its ' +
+                     '`report.md`, and applies only the decision that comes back, on the same ' +
+                     'review-gate run it left parked.')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase '`muster` owns both halves of that route and nothing here restates it.'
+    }
+
+    # The population this was designed against: five findings on one run, every one a consistency or
+    # copy problem rather than anything the King had settled.
+    It 'classifies the finding shape it was designed against' {
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('is reversible in minutes and is none of the four, so it is decided rather ' +
+                     'than parked, away or present. Five of exactly that shape came back on one run.')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('Deleting a guard test to make a new assertion pass is a delete, so it waits ' +
+                     'however obvious the reasoning looks')
+    }
+}
+
+Describe 'CLAUDE.md keeps the away boundary to a pointer' {
+    BeforeAll { $script:AwayHand = Get-DocText $script:HandMd }
+
+    # The always-loaded file outranks every skill, so a stale blanket rule here could not be
+    # corrected from petition at all - that is the one reason this change touches CLAUDE.md. It is
+    # narrowed to the blocked-prompt case, which is still absolute, plus one pointer.
+    It 'narrows the never-answer rule to the prompt case and points the rest at petition' {
+        Assert-Phrase -Text $script:AwayHand -Where 'CLAUDE.md' `
+            -Phrase 'never answers a prompt a worker is blocked on'
+        Assert-Phrase -Text $script:AwayHand -Where 'CLAUDE.md' `
+            -Phrase ("A blocked worker's question is recorded verbatim and waits; a decision a " +
+                     'worker wrote into its report is decided under `petition`, never here.')
+    }
+
+    # Absence, because the failure is a second copy rather than a missing one. The test lives in
+    # petition and CLAUDE.md must not grow a paraphrase of it.
+    It 'does not restate the test itself' {
+        $script:AwayHand.Contains('reversible in minutes') |
+            Should -BeFalse -Because 'the reversibility test is stated once, in petition'
+    }
+
+    # Single-quoted on purpose, and the backticks around yolo are why: in a double-quoted string the
+    # backtick is PowerShell's escape character and they silently vanish from the pattern, so the
+    # assertion stops matching the literal line it was copied from.
+    It 'the petition trigger fires whether or not the King is at the machine' {
+        Assert-Phrase -Text $script:AwayHand -Where 'the CLAUDE.md Skills section' `
+            -Phrase ('`petition` - load before deciding any ask-user finding, whatever the ' +
+                     'project''s `yolo` posture and whether or not the King is at the machine.')
     }
 }

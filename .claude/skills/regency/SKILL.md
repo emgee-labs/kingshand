@@ -1,6 +1,6 @@
 ---
 name: regency
-description: Hold the fleet while the King is away from the machine. Use when the user says they are going afk, stepping out, going to bed, back in an hour, "watch this while I'm gone", invokes /regency or /afk, or when state\.afk already exists at session start. Keeps workers supervised, batches everything that does not need them, records every question they must answer rather than answering it, and ends the moment they speak again.
+description: Hold the fleet while the King is away from the machine. Use when the user says they are going afk, stepping out, going to bed, back in an hour, "watch this while I'm gone", invokes /regency or /afk, or when state\.afk already exists at session start. Keeps workers supervised, batches everything that does not need them, never answers a prompt a blocked worker is sitting on, decides a parked worker's ask-user finding only on petition's reversibility test, and ends the moment they speak again.
 ---
 
 # Regency
@@ -15,9 +15,10 @@ Being away is not consent. Every one of these still waits for the King, however 
 - **A landing that is not already authorised.** `+yolo` already permits landing green work inside
   the brief's accepted criteria; that stands and is unchanged. Regency adds nothing to it. A
   project without `+yolo` lands nothing while they are away.
-- **Answering a question a worker asked.** A worker that stops to ask has hit something its brief
-  did not settle. Answering it on the King's behalf is exactly the judgement they stepped away
-  from. Record it, never answer it - see the blocked-worker rule below.
+- **Anything a blocked worker is sitting on.** A prompt drawn on a worker's screen is the King's
+  to answer and nobody else's - see the blocked-worker rule below, which is unchanged. A decision
+  a worker *wrote into its `report.md`* is a different case and no longer this one: `petition`
+  owns whether you may answer that and by what test, and it is the only place the test is stated.
 - **Anything destructive or irreversible.** Force-push, history rewrite, deleting a branch or a
   worktree holding unlanded work, dropping data. None of it, whatever the posture.
 - **Anything security-sensitive.** Credentials, tokens, permissions, published artifacts, anything
@@ -28,6 +29,14 @@ Being away is not consent. Every one of these still waits for the King, however 
 
 If a choice is close enough that you find yourself building a case for it, that is the signal to
 batch it and stop.
+
+**This rule changed deliberately, on the King's own instruction, and it is not an accident to be
+repaired.** Regency used to say a worker's question was recorded and never answered, full stop.
+Answering nothing woke him for SEO details and copy fixes and parked workers overnight on calls
+that take a minute to undo, so he replaced the knowledge test with a reversibility test. A reader
+who finds `Record it, never answer it` in this file's history should read it as superseded rather
+than as a rule that went missing. Nothing else in the list above moved: this bought no authority
+at all over a land, a delete, a cost, or anything destructive, irreversible or security-sensitive.
 
 ## What regency actually does
 
@@ -69,8 +78,13 @@ Handle each wake and then go quiet again. Nothing routine reaches them.
 posture, exactly as you would with them present. Record it for the return digest. Do not message.
 
 **A worker finished and anything is unclear** - a decision in its `report.md`, scope drift, a
-result you cannot verify, a `no-mistakes` ask-user finding. Set its stage, write the outcome down,
-and batch it. `decree` still owns any unresolved decision and still applies.
+result you cannot verify. Set its stage, write the outcome down, and batch it. `decree` still owns
+any unresolved decision and still applies.
+
+**A worker is parked on an ask-user finding.** It wrote the question into its `report.md` and
+ended its turn, so nothing is hanging and nothing is lost while you think. Load `petition`, which
+owns whether this one is yours to answer, and take the route back into the worker from `muster`
+Step 6. Record what you decided for the return digest and do not message.
 
 **A worker is blocked on a prompt.** This is the case regency exists for and the one to get right.
 
@@ -110,7 +124,9 @@ outranks a durable flag, and wrongly staying in regency is worse than wrongly le
 1. Remove `state\.afk`.
 2. Give the digest **before** answering whatever they just said, unless what they said is urgent.
    Short, and in this order: what landed, what is waiting on them, what broke, what is still
-   running. Every blocked worker's question, quoted.
+   running. Every blocked worker's question, quoted. **Every finding you decided in his stead,
+   with the reasoning and whether it rested on a recorded position or on your own judgement** -
+   that flag is what makes the digest reviewable, and `petition` owns why.
 3. Then answer them.
 
 If nothing happened, say exactly that in one line. "Nothing needed you" is a complete and useful

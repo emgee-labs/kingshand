@@ -10,9 +10,11 @@ This skill is the single policy owner for unresolved decisions that belong to th
 discovered by an investigation or a review. The Hand loads it; nobody invokes it by name.
 
 A worker never loads it. Its brief already tells it to write any decision the brief did not settle
-into `$env:KINGSHAND_HOME\data\<id>\report.md` and stop there, because a background worker cannot reach
-the user. Turning that written question into durable state is the Hand's job, and this skill is
-how it is done.
+into `$env:KINGSHAND_HOME\data\<id>\report.md` and end its turn there, because a background worker
+cannot reach the user. Ending a turn is not the end of the work - `muster` Step 6 owns the route
+that carries the Hand's answer back into a worker still waiting on one. Turning that written
+question into durable state, so it is still owed after this session ends, is the Hand's job, and
+this skill is how it is done.
 
 ## Policy
 
@@ -106,7 +108,10 @@ it was. This is the whole mechanism that keeps a declined proposal distinguishab
 was answered and routed, so it is a convention to follow exactly rather than a suggestion:
 
 - `answered: <the user's decision, in their terms>` - the answer authorised work. A dependent
-  backlog item exists and was blocked by this key before the hold closed.
+  backlog item exists and was blocked by this key before the hold closed. **Where the answer went
+  back into a worker already running on this work's own item, that item is the dependent one and
+  no second is created** - steering the answer in is what routes it, and a new item beside the one
+  already under way files the same work twice.
 - `declined: <the user's decision, in their terms>` - the answer routed no work at all.
 
 Both carry the decision itself, not a pointer to where it was said. Chat does not survive a

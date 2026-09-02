@@ -205,7 +205,7 @@ Sixteen, all project-local. Ten you invoke; six the Hand loads for itself.
 | `rally` | A worker that has stopped making progress |
 | `decree` | Finishing an investigation without losing a decision that is yours |
 | `inquest` | Diagnosing a reported bug before writing its brief |
-| `petition` | Deciding an ask-user finding from the review gate |
+| `petition` | Deciding an ask-user finding from the review gate, including in your stead while you are away |
 | `statute` | Changing kingshand's own tracked material |
 | `witness` | Exercising a front-end change in a real browser, and recording what was seen |
 

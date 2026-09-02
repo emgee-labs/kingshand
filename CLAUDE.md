@@ -224,8 +224,9 @@ hour, or invokes `/regency` or `/afk` - and at session start whenever the digest
 because the flag is durable and outlives the session that set it. It holds the fleet while they are
 gone: workers stay supervised, everything that does not need them is batched, and it ends the moment
 they speak again. **Being away grants nothing.** It never authorises a land the posture did not
-already allow, never answers a question a worker asked, and never touches anything destructive,
-irreversible or security-sensitive. A blocked worker's question is recorded verbatim and waits.
+already allow, never answers a prompt a worker is blocked on, and never touches anything
+destructive, irreversible or security-sensitive. A blocked worker's question is recorded verbatim
+and waits; a decision a worker wrote into its report is decided under `petition`, never here.
 
 Invoke `counsel` when the King asks for a story, a feature or a pile of stories to be broken down,
 analysed or brainstormed before anything is built. It divides the work by the layers that project
@@ -240,8 +241,8 @@ arrives.
 
 - `inquest` - load before writing a brief for a reported bug, and again before acting on what a
   worker's `report.md` concludes about one. Workers load it too.
-- `petition` - load before deciding any ask-user finding, whatever the project's `yolo` posture.
-  Only the `no-mistakes` review gate produces one.
+- `petition` - load before deciding any ask-user finding, whatever the project's `yolo` posture
+  and whether or not the King is at the machine. Only the `no-mistakes` review gate produces one.
 - `decree` - load before treating a worker's investigation or review as complete, before closing
   that work out, and when recording or routing the user's answer. It owns what happens to a
   decision a `report.md` names and nobody has answered.
