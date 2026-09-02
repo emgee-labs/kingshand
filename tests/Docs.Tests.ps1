@@ -4349,8 +4349,10 @@ Describe 'a project has a standing definition of done, and repeated findings are
                 Should -BeFalse -Because 'a double-quoted string eats the backticks the section uses'
             $block.Contains('in a double-quoted PowerShell string a backtick escapes the character after it') |
                 Should -BeTrue -Because 'the next editor has to know why the quotes are single'
-            $block.Contains('Double any single quote inside the section.') |
+            $block.Contains('Run the line in PowerShell and double any single quote inside the section') |
                 Should -BeTrue -Because 'that is the one character a literal string still breaks on'
+            $block.Contains('in a POSIX shell the same two characters close and reopen the string, so the apostrophe is deleted instead') |
+                Should -BeTrue -Because 'a worker with both shells needs to know which one the rule assumes'
         }
     }
 
@@ -4534,8 +4536,8 @@ Describe 'a project has a standing definition of done, and repeated findings are
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
             -Phrase '**Fold back what the standing criteria missed.**'
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
-            -Phrase ('A finding that matches a criterion the worker recorded `pass` means that ' +
-                     'criterion is written too vaguely to check, or was skipped')
+            -Phrase ('A finding that matches a criterion the worker recorded `pass` or `fixed` ' +
+                     'means that criterion did not end the defect')
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
             -Phrase ('so rewrite that line in place in the same turn you read the report, in the ' +
                      'file''s one `-` bullet form, and say what you changed')
@@ -4543,7 +4545,45 @@ Describe 'a project has a standing definition of done, and repeated findings are
             -Phrase ('A finding that matches no criterion at all is a candidate line for ' +
                      '`$env:KINGSHAND_HOME\data\done-<project>.md`')
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
-            -Phrase 'writing it with `Write-DataFile` from `bin\Index.psm1` where it does not'
+            -Phrase ('writing it with `Write-DataFile -Project "<project>"` from `bin\Index.psm1` ' +
+                     'where it does not')
+    }
+
+    # The self-check records one of three values and the fold-back branches on two of them, so the
+    # third has to land somewhere or it falls through both: `fixed` is not `pass`, and it does match
+    # a criterion, so it is not "matches no criterion at all". A criterion the worker acted on and
+    # the gate then caught anyway is the strongest evidence the line is too weak, and it was the one
+    # result that reached neither branch.
+    It 'every self-check result the worker can record reaches a fold-back branch' {
+        $vocabulary = @('pass', 'fixed', 'n/a')
+        foreach ($block in $script:CritDoneBlocks) {
+            foreach ($result in $vocabulary) {
+                $block.Contains("``$result``") |
+                    Should -BeTrue -Because "the worker is offered $result and the Hand must handle it"
+            }
+        }
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase 'recorded `pass` or `fixed`'
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('`fixed` is in that branch deliberately - a criterion the worker acted on and ' +
+                     'the gate then caught anyway is the clearest evidence there is that the line ' +
+                     'does not say enough')
+    }
+
+    # `Write-DataFile` takes -Project as an optional parameter and routes the index entry by it, so
+    # omitting it is silent: the file lands correctly and its index line lands in kingshand's own
+    # index instead of the project's. Asserted against the real parameter set rather than the
+    # sentence alone, so this stays true if the helper's signature changes.
+    It 'the fold-back names the project the index entry belongs to' {
+        Import-Module "$PSScriptRoot\..\bin\Index.psm1" -Force
+        (Get-Command Write-DataFile).Parameters.ContainsKey('Project') |
+            Should -BeTrue -Because 'the routing the instruction has to name is a real parameter'
+        (Get-Command Write-DataFile).Parameters['Project'].Attributes |
+            Where-Object { $_ -is [System.Management.Automation.ParameterAttribute] -and $_.Mandatory } |
+            Should -BeNullOrEmpty -Because 'it is optional, which is exactly why the instruction must name it'
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('name the project, or the entry lands in kingshand''s own `data\index.md` and ' +
+                     'the next session reading `data\index\<project>.md` finds no trace of it')
     }
 
     # Step 2 pastes this file into every brief for the project, so an unfiltered fold-back turns

@@ -419,7 +419,9 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   `no-mistakes axi run --intent '<the `Intent` section above, verbatim on one line>'`
   Single quotes, and keep them: that section names files, modes and postures in backticks, and in a
   double-quoted PowerShell string a backtick escapes the character after it, so the gate would be
-  handed a mangled sentence and no error. Double any single quote inside the section.
+  handed a mangled sentence and no error. Run the line in PowerShell and double any single quote
+  inside the section - doubling is PowerShell's escape, and in a POSIX shell the same two
+  characters close and reopen the string, so the apostrophe is deleted instead.
 - Drive the pipeline through to a pull request and report its full https:// URL when CI is
   first green. Do not merge it.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
@@ -455,7 +457,9 @@ that has gone stale points a Hand at the gate-run bullet instead:
   `no-mistakes axi run --intent '<the `Intent` section above, verbatim on one line>'`
   Single quotes, and keep them: that section names files, modes and postures in backticks, and in a
   double-quoted PowerShell string a backtick escapes the character after it, so the gate would be
-  handed a mangled sentence and no error. Double any single quote inside the section.
+  handed a mangled sentence and no error. Run the line in PowerShell and double any single quote
+  inside the section - doubling is PowerShell's escape, and in a POSIX shell the same two
+  characters close and reopen the string, so the apostrophe is deleted instead.
 - Drive the pipeline through to a pull request and stop there.
   Checks may not report on this repository at all, so when the pipeline's `ci` step has been
   waiting more than fifteen minutes with no checks reported, report the pull request's full
@@ -926,9 +930,12 @@ compare against, so this loop does not fire - read the self-check block anyway, 
 the worker could not check, or recorded `n/a` against for any reason other than a set-aside this
 brief made, is the same wording problem arriving from the other
 side. A finding that matches a
-criterion the worker recorded `pass` means that criterion is written too vaguely to check, or was
-skipped - either way the wording is what needs fixing, so rewrite that line in place in the same
-turn you read the report, in the file's one `-` bullet form, and say what you changed. A criterion
+criterion the worker recorded `pass` or `fixed` means that criterion did not end the defect: written
+too vaguely to check, or skipped, or worked and still leaving the same class of defect behind it.
+Either way the wording is what needs fixing, so rewrite that line in place in the same
+turn you read the report, in the file's one `-` bullet form, and say what you changed. `fixed` is in
+that branch deliberately - a criterion the worker acted on and the gate then caught anyway is the
+clearest evidence there is that the line does not say enough. A criterion
 this brief set aside is not that: the `n/a` is the correct answer and there is nothing to reword.
 A finding that matches no criterion at all
 is a candidate line for `$env:KINGSHAND_HOME\data\done-<project>.md`, and one test decides it: would
@@ -937,8 +944,9 @@ and belongs in the report or a backlog item, however real it was - the file is p
 brief for the project, so a line that does not generalise is one every future worker reads, works
 through and records `n/a` against forever. Where it passes that test, add it in the same turn you
 read the report, in that file's one form of a `-` bullet naming how it is checked, editing the file in
-place where it already exists or writing it with `Write-DataFile` from `bin\Index.psm1` where it
-does not. Retire a line the same way you add one, in the turn the evidence arrives: when the code it
+place where it already exists or writing it with `Write-DataFile -Project "<project>"` from
+`bin\Index.psm1` where it does not - name the project, or the entry lands in kingshand's own
+`data\index.md` and the next session reading `data\index\<project>.md` finds no trace of it. Retire a line the same way you add one, in the turn the evidence arrives: when the code it
 guarded is gone, when it has stopped discriminating because the practice is now enforced by a test
 or a linter, or when workers keep recording it `n/a` on unrelated dispatches for want of anything to
 check, delete it and say so.
