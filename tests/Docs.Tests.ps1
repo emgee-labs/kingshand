@@ -3380,10 +3380,19 @@ Describe 'decree keeps an unresolved decision durable' {
         Assert-Phrase -Text $script:HoldText -Where 'the enforcement section' `
             -Phrase ('Firstmate blocks its teardown on this gate. **Kingshand has nothing ' +
                      'equivalent, and this skill will not pretend otherwise.**')
+        # Narrowed to what is still true: Step 8b now does read one thing, so claiming it reads
+        # nothing would have a Hand skip that check or rebuild it. What has not changed is that
+        # nothing under `bin\` looks for an open hold, and that the report-level check cannot see
+        # a decision nobody wrote into a report - which is the honesty this section exists for.
         Assert-Phrase -Text $script:HoldText -Where 'the enforcement section' `
-            -Phrase ('`muster` Step 8b tears a worker down on landing or push evidence alone and ' +
-                     'reads no decision state, `bin\` contains no check that looks for an open ' +
-                     'hold before cleanup')
+            -Phrase ('`muster` Step 8b now reads one thing before teardown - it refuses to stop a ' +
+                     'worker while any parked entry in its `report.md` carries no answer - and ' +
+                     'that is the whole of it')
+        Assert-Phrase -Text $script:HoldText -Where 'the enforcement section' `
+            -Phrase ('the check reads the worker''s own record and never the queue, so a hold ' +
+                     'this skill opened and nobody wrote into a report stops nothing at all')
+        Assert-Phrase -Text $script:HoldText -Where 'the enforcement section' `
+            -Phrase '`bin\` contains no check that looks for an open hold before cleanup'
         Assert-Phrase -Text $script:HoldText -Where 'the enforcement section' `
             -Phrase ('So this is a discipline the Hand follows, not a check a script performs.')
     }
@@ -6100,9 +6109,31 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase '**Every combination has an outcome, and none of them is left to judgement:**'
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('| nothing at all | unanswered | Nobody has seen this decision yet.')
+        # The floor row. An answer with no queue record has a benign cause and a forbidden one -
+        # the worker answering its own ask-user finding, which the brief bullets forbid outright -
+        # and assuming the benign one files a durable authorisation nobody with authority gave.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('| nothing at all | answered | The decision was answered and applied, and ' +
-                     'only the record is missing.')
+            -Phrase ('| nothing at all | answered | **The one row that stops.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('the record was never written, or the worker answered its own question - ' +
+                     'which its brief forbids outright. Establish which before you do anything, ' +
+                     'and register nothing until you have.')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('Where a session, a closed note or a recorded position accounts for that ' +
+                     'answer, the record was merely missing and you write it.')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('Where nothing does, the worker answered itself: load `rally`, and read ' +
+                     'everything else it claims with the same suspicion a missing report earns.')
+        # The fourth queue state decree carries a repair row for, and the reachable set stated
+        # closed so the next unlisted combination is a test failure rather than a review round.
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('| a closed hold, no note | either | No durable answer exists, so nothing ' +
+                     'here may infer what it was - not from the entry, and not from what looks ' +
+                     'likely. Repair it through `decree`, which owns that, and do not steer until ' +
+                     'it is repaired. |')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('Nothing else is reachable: `decree` closes a hold with `answered:`, with ' +
+                     '`declined:`, or - as the fault it carries a repair for - with no note at all.')
         # The state a restart lands in most often, and the one that was missing: escalated, out
         # with him, nobody has answered. Re-deciding or re-asking here costs him the same question
         # twice, which is exactly what decree exists to prevent.
@@ -6122,6 +6153,26 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('| a closed hold, `answered:` or `declined:` | answered | Settled. Nothing ' +
                      'to steer, and this entry is no reason to hold the work back. |')
+    }
+
+    # The interruption window has an order, and the order picks which row a later session reads.
+    # Send first and an interruption leaves an open hold against an answered entry, whose row puts
+    # the same question to the King twice - the cost decree exists to prevent.
+    It 'Step 6 records and closes the decision before the steer is sent' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**Where you are answering it, the block and the closing note go in before ' +
+                     'the send, not after.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('Close first and it finds a closed note against an entry nobody has ' +
+                     'answered, which sends the answer on once. Send first and it finds an open ' +
+                     'hold against an answered entry, which puts the same question to the King a ' +
+                     'second time.')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase '`decree` owns the sequence itself, block before close.'
+        # decree's own sequence says the same thing without restating the reasoning.
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree operating sequence' `
+            -Phrase ('Where that answer is going back to a parked worker, this close comes before ' +
+                     'the steer is sent; `muster` Step 6 owns that route and why the order matters.')
     }
 
     # Without this the step reads straight on into `gating` over a worker that resumed seconds ago:
@@ -6436,8 +6487,20 @@ Describe "the reversibility test owns what may be answered in the King's stead" 
                      'all` says, and the escalation shape above is written for that finding.')
         $script:Away.Contains('still fires for a gated project alone') |
             Should -BeFalse -Because 'the analysis reads a parked decision on any posture'
+        # The true half is intact; what was cut is the claim that the whole skill never fires for a
+        # non-gated project, which three other places contradict by sending the Hand here for a
+        # parked decision whatever the posture - and which a `local-only` Hand reads first.
         Assert-Phrase -Text $script:Away -Where 'petition' `
-            -Phrase ('it never produces an ask-user finding and this procedure never fires for it')
+            -Phrase ('it never produces an ask-user finding, and what is written here for that ' +
+                     'finding - its classification, and the gate procedure around it - never ' +
+                     'fires for one of those projects.')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase '**The rest of this skill fires on any posture.**'
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('the authority analysis below reads a parked decision on a `local-only` ' +
+                     'project the same way it reads a gated one, and so does the away test')
+        $script:Away.Contains('this procedure never fires for it') |
+            Should -BeFalse -Because 'a parked decision reaches this skill on every posture'
     }
 
     # The symmetric half. muster Step 6 loads petition for a parked decision whatever the posture

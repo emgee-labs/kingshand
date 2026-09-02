@@ -1093,11 +1093,17 @@ question, not a stuck one.
 | under that key | that entry | what it is, and what you do |
 |---|---|---|
 | nothing at all | unanswered | Nobody has seen this decision yet. Load `petition`, register it, and then steer it or escalate it as that leaves it. |
-| nothing at all | answered | The decision was answered and applied, and only the record is missing. Register it and close it with the note that entry carries. Do not steer it and do not decide it again. |
+| nothing at all | answered | **The one row that stops.** An answer with no record has two causes and you cannot tell them apart from here: the record was never written, or the worker answered its own question - which its brief forbids outright. Establish which before you do anything, and register nothing until you have. Where a session, a closed note or a recorded position accounts for that answer, the record was merely missing and you write it. Where nothing does, the worker answered itself: load `rally`, and read everything else it claims with the same suspicion a missing report earns. |
 | an open hold, no note | unanswered | He already has this question and nobody has answered it. It waits: carry it into the digest and never re-escalate it. Do not decide it, do not ask him again, and do not steer. |
 | an open hold, no note | answered | The queue says he has not answered and the report says something was applied. Neither one tells you which, so the hold stays open until he answers it himself - put that entry's answer to him, and land nothing on this work meanwhile. |
+| a closed hold, no note | either | No durable answer exists, so nothing here may infer what it was - not from the entry, and not from what looks likely. Repair it through `decree`, which owns that, and do not steer until it is repaired. |
 | a closed hold, `answered:` or `declined:` | unanswered | The decision has an answer this worker has not recorded. Load `rally`: it owns whether the steer ever arrived, and it delivers it once. Do not decide it again and do not re-send it blind, because a worker told to decide the same thing twice does the work twice. |
 | a closed hold, `answered:` or `declined:` | answered | Settled. Nothing to steer, and this entry is no reason to hold the work back. |
+
+Four queue states and two entry states, and the `no note` close covers both entry states in one
+row because the repair comes first either way. Nothing else is reachable: `decree` closes a hold
+with `answered:`, with `declined:`, or - as the fault it carries a repair for - with no note at
+all.
 
 **Nothing in that table turns on whether you watched `working` arrive.** That lived in the session
 that saw it, and the next session has no way to know it - which is exactly the restart this route
@@ -1116,8 +1122,15 @@ he still owes and an answer you gave in his stead both survive this session endi
 neither one does in chat or in a return digest. `decree` owns what its note has to carry, and how
 that key is composed, and is the only place either is written.
 
-With the answer in hand, send it to the worker as one prompt, read the screen back, and wait for
-the worker to actually pick the answer up:
+**Where you are answering it, the block and the closing note go in before the send, not after.**
+An interruption is not a rare case here - the session can end at any point - and the order decides
+which row above a later session reads. Close first and it finds a closed note against an entry
+nobody has answered, which sends the answer on once. Send first and it finds an open hold against
+an answered entry, which puts the same question to the King a second time. `decree` owns the
+sequence itself, block before close.
+
+With the answer in hand and recorded, send it to the worker as one prompt, read the screen back,
+and wait for the worker to actually pick the answer up:
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force

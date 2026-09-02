@@ -157,17 +157,20 @@ repairing that costs the user the same question a second time.
    second is filed - it is already the dependent item, and the block is still what records that
    the answer authorised the work.
 7. Close the hold with `done` and the `answered:` or `declined:` note, whichever the answer
-   actually was.
+   actually was. Where that answer is going back to a parked worker, this close comes before the
+   steer is sent; `muster` Step 6 owns that route and why the order matters.
 8. Confirm the result in structured state: `tasks-axi ready --include-held` no longer lists the
    closed hold, and any routed work is a real queued item rather than a sentence in a report.
 
 ## No script enforces this gate
 
 Firstmate blocks its teardown on this gate. **Kingshand has nothing equivalent, and this skill will
-not pretend otherwise.** `muster` Step 8b tears a worker down on landing or push evidence alone and
-reads no decision state, `bin\` contains no check that looks for an open hold before cleanup, and
-`tests\Docs.Tests.ps1` pins the rules on this page as text without being able to observe whether a
-decision was ever filed.
+not pretend otherwise.** `muster` Step 8b now reads one thing before teardown - it refuses to stop
+a worker while any parked entry in its `report.md` carries no answer - and that is the whole of it:
+the check reads the worker's own record and never the queue, so a hold this skill opened and
+nobody wrote into a report stops nothing at all. `bin\` contains no check that looks for an open
+hold before cleanup, and `tests\Docs.Tests.ps1` pins the rules on this page as text without being
+able to observe whether a decision was ever filed.
 
 So this is a discipline the Hand follows, not a check a script performs. Nothing downstream
 catches a decision you did not inventory: the worker is gone, its session and transcript are gone,
