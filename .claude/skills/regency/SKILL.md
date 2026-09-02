@@ -77,9 +77,9 @@ Handle each wake and then go quiet again. Nothing routine reaches them.
 **A worker finished, green, inside its brief, on a `+yolo` project.** Land it per the project's
 posture, exactly as you would with them present. Record it for the return digest. Do not message.
 
-**A worker finished and anything is unclear** - a decision in its `report.md`, scope drift, a
-result you cannot verify. Set its stage, write the outcome down, and batch it. `decree` still owns
-any unresolved decision and still applies.
+**A worker finished and anything is unclear** - scope drift, a result you cannot verify. Set its
+stage, write the outcome down, and batch it. `decree` still owns any unresolved decision and still
+applies.
 
 **A worker is parked on an ask-user finding.** It wrote the question into its `report.md` and
 ended its turn, so nothing is hanging and nothing is lost while you think. Load `petition`, which

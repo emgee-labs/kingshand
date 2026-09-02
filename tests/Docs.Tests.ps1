@@ -3802,6 +3802,14 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Regency | Should -Match 'ended its turn, so nothing is hanging and nothing is lost while you think'
         }
 
+        # Two bullets both keyed on a decision in a report, and the broader one is read first: it
+        # said to set the stage on the very worker the parked bullet says to leave mid-run, which
+        # sends unfinished work to the landing gate. Only the parked bullet claims that case now.
+        It 'the earlier unclear-worker bullet no longer claims a report decision as well' {
+            $script:Regency | Should -Match '\*\*A worker finished and anything is unclear\*\* - scope drift, a result you cannot verify'
+            $script:Regency | Should -Not -Match 'a decision in its `report\.md`, scope drift'
+        }
+
         It 'puts what was decided in his stead, and on what basis, into the return digest' {
             $script:Regency | Should -Match '\*\*Every finding you decided in his stead,\s+with the reasoning and whether it rested on a recorded position or on your own judgement\*\*'
         }
@@ -5892,6 +5900,20 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         }
     }
 
+    # The other half of the discriminator, and the one without which the route never completes:
+    # nothing clears that heading, so a worker that was answered and then finished goes on reading
+    # as waiting - the Hand re-reads the report, refuses to advance it, and a fresh session steers a
+    # second answer into a worker that already applied the first. The section stays where it is and
+    # the answer written into it is what stops it matching.
+    It 'all four have the worker record the answer in that same section' {
+        foreach ($block in $script:RouteBlocks) {
+            $block.Contains('**When you apply the answer, rewrite that section to record what was decided**') |
+                Should -BeTrue -Because 'a section nobody rewrites reads as unanswered forever'
+            $block.Contains('the heading stays where it is, and it is the answer written under it that stops the section reading as unanswered') |
+                Should -BeTrue -Because 'the discriminator stays that one heading, answered rather than removed'
+        }
+    }
+
     # Only the two no-mistakes blocks have a gate, so only they carry the parked-run half. Pinned at
     # two rather than four so moving it into a block with no gate fails here.
     It 'the two no-mistakes blocks leave the gate run parked rather than aborting it' {
@@ -5918,6 +5940,21 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         }
     }
 
+    # muster names a Done-means bullet by its text and never by its position, and says so where the
+    # `Drive the pipeline` line is introduced. An ordinal here pointed four bullets short of the one
+    # it meant - at `Drive the pipeline through to a pull request` - so a worker reading literally
+    # drove a parked gate finding to a PR instead of writing it down and waiting.
+    It 'the parked-run bullet names the bullet it defers to by its text' {
+        $parked = @($script:RouteBlocks | Where-Object { $_.Contains('**Leave the run parked while you wait.**') })
+        $parked.Count | Should -Be 2
+        foreach ($block in $parked) {
+            $block.Contains('it takes the `When you reach a decision your brief does not settle` bullet below') |
+                Should -BeTrue -Because 'a bullet named by position points at whatever was inserted above it since'
+            $block.Contains('so it takes the bullet below') |
+                Should -BeFalse -Because 'that ordinal pointed at the pull-request bullet instead'
+        }
+    }
+
     It 'Step 6 refuses to read a waiting worker as a finished one' {
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('**A worker waiting on a decision passes all three and is not finished ' +
@@ -5938,6 +5975,19 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase 'Teardown ends the process holding that parked run, and the answer then has nowhere to go.'
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase 'With all three confirmed and no decision waiting, **set its stage to `gating`**'
+    }
+
+    # The reading half of the same transition. Keyed on the heading alone, every worker the Hand
+    # ever answered stays a waiting worker for good and never reaches the landing gate.
+    It 'Step 6 reads a section that records an answer as a delivery, not a waiting worker' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase '**A section that records an answer is not a waiting worker.**'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('a section saying what was decided is a worker that has already been ' +
+                     'answered and carried on, and it reaches the landing gate like any other ' +
+                     'delivery')
+        $script:RouteStep6.Contains('treat a report carrying that heading as a worker mid-run') |
+            Should -BeFalse -Because 'the heading outlives the answer, so it cannot be the whole test'
     }
 
     It 'Step 6 loads petition before answering and registers the decision under decree' {
@@ -5984,6 +6034,22 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase ("**Where the answer went back into a worker already running on this work's " +
                      'own item, that item is the dependent one and no second is created**')
     }
+
+    # Three places in decree say what happens to an authorised answer, and for a while only one of
+    # them knew about the parked worker: a Hand following the operating sequence literally filed the
+    # same work twice. All three carry the branch now, and the block still happens either way -
+    # block first, close second is what records in the queue that the answer authorised anything.
+    It 'decree says the same thing in the note convention, the command table and the sequence' {
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree command table' `
+            -Phrase '`tasks-axi add <work-id> "<one line>"` where no item holds that work yet'
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree command table' `
+            -Phrase 'skip the `add` and block that existing item'
+        Assert-Phrase -Text $script:RouteHold -Where 'decree step 6' `
+            -Phrase ('Where the answer went back into a worker already running on this ' +
+                     "work's own item, that item is the one to block and no second is filed")
+        Assert-Phrase -Text $script:RouteHold -Where 'decree step 6' `
+            -Phrase 'the block is still what records that the answer authorised the work'
+    }
 }
 
 Describe "the reversibility test owns what may be answered in the King's stead" {
@@ -6013,10 +6079,26 @@ Describe "the reversibility test owns what may be answered in the King's stead" 
                      'security-sensitive, or a material expansion of what the work was accepted ' +
                      'to deliver.')
         # "away or present" is the clause most likely to be read as an accident and edited out, so
-        # the skill says why it is there and this pins the reason with it.
+        # the skill says why it is there and this pins the reason with it: what presence changes is
+        # which rule reaches the finding, never whether a wrong call can be undone.
         Assert-Phrase -Text $script:Away -Where 'petition' `
             -Phrase ('The clause says away or present because presence is not what the test turns ' +
-                     'on')
+                     'on - being at the machine does not make a wrong call any harder to undo.')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('present, steps 3 to 5 already keep a reversible correction inside your ' +
+                     'authority without this section being reached at all')
+    }
+
+    # The section is the away branch and nothing else. Step 1 gives every ask-user finding to the
+    # King with `yolo` off, so a section that also read as authority while he is at the machine left
+    # the Hand holding two rules for one case and no way to choose between them.
+    It 'authorises an answer only where he cannot be reached' {
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('**This section authorises an answer only where he cannot be reached, and it ' +
+                     'is not reached at all while he is at the machine.**')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('steps 3 to 5 keep a reversible correction inside your authority where the ' +
+                     'posture at step 1 leaves it there, and everything else escalates and waits')
     }
 
     # "regardless of what is known" is the mirror of the test above and the half a softened rewrite
@@ -6096,6 +6178,11 @@ Describe "the reversibility test owns what may be answered in the King's stead" 
         Assert-Phrase -Text $script:Away -Where 'petition' `
             -Phrase ('is reversible in minutes and is none of the four, so it is decided rather ' +
                      'than parked, away or present. Five of exactly that shape came back on one run.')
+        # And which rule reaches that verdict, so the example cannot be read as authority while he
+        # is at the machine - with `yolo` off, step 1 gives it to him.
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('Away, the section above is what decides it; present, it is the authority ' +
+                     'analysis, starting at the posture step 1 reads.')
         Assert-Phrase -Text $script:Away -Where 'petition' `
             -Phrase ('Deleting a guard test to make a new assertion pass is a delete, so it waits ' +
                      'however obvious the reasoning looks')

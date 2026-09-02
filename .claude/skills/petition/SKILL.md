@@ -81,6 +81,11 @@ so an escalation that cannot land is not a safe default - it is the five-hour ha
 different route. He is away when `$env:KINGSHAND_HOME\state\.afk` exists; `regency` writes that
 flag and owns everything else about the mode.
 
+**This section authorises an answer only where he cannot be reached, and it is not reached at all
+while he is at the machine.** With him there, an ask-user finding is settled by the authority
+analysis above and by nothing here: steps 3 to 5 keep a reversible correction inside your
+authority where the posture at step 1 leaves it there, and everything else escalates and waits.
+
 **The test is reversibility, not knowledge.** Not what the two of you have discussed, not what you
 happen to know, not how confident you feel - whether a wrong call can be undone in minutes.
 Writing it as a knowledge test is the mis-statement to refuse: "answer only what you know" parks
@@ -91,9 +96,10 @@ end.
 **none of**: a delete, a cost, security-sensitive, or a material expansion of what the work was
 accepted to deliver. SEO details, page wording, a stylesheet comment, website JavaScript and that
 class are his own examples of what you decide rather than ask about. The clause says away or
-present because presence is not what the test turns on: present, the analysis above already keeps
-a reversible correction inside your authority instead of sending it up, and away, this is what
-stops the same call parking a worker until morning.
+present because presence is not what the test turns on - being at the machine does not make a
+wrong call any harder to undo. What presence changes is which rule reaches the finding: present,
+steps 3 to 5 already keep a reversible correction inside your authority without this section being
+reached at all, and away, this section is what stops the same call parking a worker until morning.
 
 **Wait for him** on a delete, a cost or anything security-sensitive, **regardless of what is
 known**, and on a major or irreversible call where nothing records his position. Those are the
@@ -131,6 +137,8 @@ complete, so his answer is still owed after this session ends.
 - A consistency or copy finding - a comment that now states the opposite of the decision it
   describes, a sentence the change itself made false, a plain-text file that has drifted from the
   page beside it - is reversible in minutes and is none of the four, so it is decided rather than
-  parked, away or present. Five of exactly that shape came back on one run.
+  parked, away or present. Five of exactly that shape came back on one run. Away, the section
+  above is what decides it; present, it is the authority analysis, starting at the posture step 1
+  reads.
 - Deleting a guard test to make a new assertion pass is a delete, so it waits however obvious the
   reasoning looks and however well the King's position seems to be known.

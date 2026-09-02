@@ -74,7 +74,7 @@ Run every command from `$env:KINGSHAND_HOME` so `.tasks.toml` resolves.
 |---|---|
 | register the decision | `tasks-axi add <key> "<one line>"`, then `tasks-axi hold <key> --reason "<reason>" --kind captain` |
 | attest the inventory | no verb exists - you state it in the close-out, in words |
-| route an authorised answer | `tasks-axi add <work-id> "<one line>"`, `tasks-axi block <work-id> --by <key>`, then `tasks-axi done <key> --note "answered: <the decision>"` |
+| route an authorised answer | `tasks-axi add <work-id> "<one line>"` where no item holds that work yet, then `tasks-axi block <work-id> --by <key>`, then `tasks-axi done <key> --note "answered: <the decision>"`. Where the answer went back into a worker already running on this work's own item, skip the `add` and block that existing item |
 | record a declined answer | `tasks-axi done <key> --note "declined: <the decision>"`, with no dependent item |
 | repair a hold closed without its answer | `tasks-axi done <key> --note "<answered or declined>: ..."` backfills the note without moving the close date; where authorised work was never routed, `tasks-axi reopen <key>` first, then route it and close normally |
 
@@ -131,8 +131,11 @@ repairing that costs the user the same question a second time.
    this surface contained no unresolved decision.
 5. Relay the choices to the user as decisions, in their own nouns, following `CLAUDE.md`'s
    Escalation and etiquette section. Do not use the word hold in chat; it is an internal label.
-6. If the answer authorises work, file that work as its own backlog item and block it by the hold's
-   key, before closing anything.
+6. If the answer authorises work, block that work by the hold's key before closing anything, and
+   file it as its own backlog item first where no item holds it yet. Where the answer went back
+   into a worker already running on this work's own item, that item is the one to block and no
+   second is filed - it is already the dependent item, and the block is still what records that
+   the answer authorised the work.
 7. Close the hold with `done` and the `answered:` or `declined:` note, whichever the answer
    actually was.
 8. Confirm the result in structured state: `tasks-axi ready --include-held` no longer lists the

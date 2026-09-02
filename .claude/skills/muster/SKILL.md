@@ -447,7 +447,9 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
   comes back to you as an ordinary prompt and you carry on from there, so leave everything where
   it is: do not undo what you have done, do not pick a different task, and do not report the work
-  as failed.
+  as failed. **When you apply the answer, rewrite that section to record what was decided** - the
+  heading stays where it is, and it is the answer written under it that stops the section reading
+  as unanswered.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping.
 - Never mention Claude, AI, or an assistant in any commit message or file.
@@ -479,7 +481,9 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
   comes back to you as an ordinary prompt and you carry on from there, so leave everything where
   it is: do not undo what you have done, do not pick a different task, and do not report the work
-  as failed.
+  as failed. **When you apply the answer, rewrite that section to record what was decided** - the
+  heading stays where it is, and it is the answer written under it that stops the section reading
+  as unanswered.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping.
 - Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
@@ -505,12 +509,13 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   inside the section - doubling is PowerShell's escape, and in a POSIX shell the same two
   characters close and reopen the string, so the apostrophe is deleted instead.
 - A finding the gate classifies `ask-user` is a decision your brief does not settle, so it takes
-  the bullet below. **Leave the run parked while you wait.** `axi run` returned at that gate rather
-  than holding your terminal, so the run still owns the branch and every fix commit it has already
-  made, and nothing is being lost by waiting. Do not abort it, do not start a second run, and never
-  pass `--yes` - that flag decides ask-user findings itself with no escalation, which is the one
-  thing you may not do. When the answer reaches you, apply it with `no-mistakes axi respond` on
-  that same run and carry on.
+  the `When you reach a decision your brief does not settle` bullet below - named by its text,
+  because a bullet named by position points at whatever was inserted above it since. **Leave the
+  run parked while you wait.** `axi run` returned at that gate rather than holding your terminal,
+  so the run still owns the branch and every fix commit it has already made, and nothing is being
+  lost by waiting. Do not abort it, do not start a second run, and never pass `--yes` - that flag
+  decides ask-user findings itself with no escalation, which is the one thing you may not do. When
+  the answer reaches you, apply it with `no-mistakes axi respond` on that same run and carry on.
 - Drive the pipeline through to a pull request and report its full https:// URL when CI is
   first green. Do not merge it.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
@@ -525,7 +530,9 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
   comes back to you as an ordinary prompt and you carry on from there, so leave everything where
   it is: do not undo what you have done, do not pick a different task, and do not report the work
-  as failed.
+  as failed. **When you apply the answer, rewrite that section to record what was decided** - the
+  heading stays where it is, and it is the answer written under it that stops the section reading
+  as unanswered.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping.
 - Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
@@ -554,12 +561,13 @@ that has gone stale points a Hand at the gate-run bullet instead:
   inside the section - doubling is PowerShell's escape, and in a POSIX shell the same two
   characters close and reopen the string, so the apostrophe is deleted instead.
 - A finding the gate classifies `ask-user` is a decision your brief does not settle, so it takes
-  the bullet below. **Leave the run parked while you wait.** `axi run` returned at that gate rather
-  than holding your terminal, so the run still owns the branch and every fix commit it has already
-  made, and nothing is being lost by waiting. Do not abort it, do not start a second run, and never
-  pass `--yes` - that flag decides ask-user findings itself with no escalation, which is the one
-  thing you may not do. When the answer reaches you, apply it with `no-mistakes axi respond` on
-  that same run and carry on.
+  the `When you reach a decision your brief does not settle` bullet below - named by its text,
+  because a bullet named by position points at whatever was inserted above it since. **Leave the
+  run parked while you wait.** `axi run` returned at that gate rather than holding your terminal,
+  so the run still owns the branch and every fix commit it has already made, and nothing is being
+  lost by waiting. Do not abort it, do not start a second run, and never pass `--yes` - that flag
+  decides ask-user findings itself with no escalation, which is the one thing you may not do. When
+  the answer reaches you, apply it with `no-mistakes axi respond` on that same run and carry on.
 - Drive the pipeline through to a pull request and stop there.
   Checks may not report on this repository at all, so when the pipeline's `ci` step has been
   waiting more than fifteen minutes with no checks reported, report the pull request's full
@@ -577,7 +585,9 @@ that has gone stale points a Hand at the gate-run bullet instead:
   than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
   comes back to you as an ordinary prompt and you carry on from there, so leave everything where
   it is: do not undo what you have done, do not pick a different task, and do not report the work
-  as failed.
+  as failed. **When you apply the answer, rewrite that section to record what was decided** - the
+  heading stays where it is, and it is the answer written under it that stops the section reading
+  as unanswered.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping.
 - Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
@@ -1025,7 +1035,15 @@ tells you which you have.** Its turn ended cleanly, so it has settled; nothing i
 screen, so it is not awaiting input; and its brief made it write the file, so the report exists.
 What separates it from a delivery is inside that file: a `## Waiting on a decision` section the
 brief made it write, and nothing has answered. So read the report before you act on the three
-facts rather than after, and treat a report carrying that heading as a worker mid-run.
+facts rather than after, and treat a question still standing under that heading as a worker
+mid-run.
+
+**A section that records an answer is not a waiting worker.** Its brief made it rewrite that
+section as it applied the steer, so the heading outlives the answer and the body underneath is
+what you are reading for: a section saying what was decided is a worker that has already been
+answered and carried on, and it reaches the landing gate like any other delivery. Read the heading
+alone and every worker you have ever answered reads as waiting forever, so the one you steered
+this morning is still being re-steered tonight.
 
 Such a worker is idle rather than hung and costs nothing where it is - the review-gate run it left
 parked keeps the branch and every fix commit already made. **Do not set `gating`, do not close the
