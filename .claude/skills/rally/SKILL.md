@@ -1,6 +1,6 @@
 ---
 name: rally
-description: Reference procedure for a worker that has stopped making progress - a worker reported blocked on an interactive prompt, one whose liveness read comes back dead or has no live process, one reported stalled because nothing on its screen has moved, one looping or repeatedly confused, one asking a question its brief already answers, one that has gone unresponsive, or one still recorded as working after the Hand's session restarted. Reconciles what that worker actually holds before escalating from targeted inspection through a corrective steer, an answered prompt the user decided, a safe relaunch, or a reported failure. The Hand loads it when that situation arrives; nobody invokes it by name.
+description: Reference procedure for a worker that has stopped making progress - a worker reported blocked on an interactive prompt, one whose liveness read comes back dead or has no live process, one reported stalled because nothing on its screen has moved, one found with unexplained text in its input box, one looping or repeatedly confused, one asking a question its brief already answers, one that has gone unresponsive, or one still recorded as working after the Hand's session restarted. Reconciles what that worker actually holds before escalating from targeted inspection through a corrective steer, an answered prompt the user decided, a safe relaunch, or a reported failure. The Hand loads it when that situation arrives; nobody invokes it by name.
 version: 1.0.0
 ---
 
@@ -172,8 +172,8 @@ options you have not read.
 
 A worker's input box can hold a well-formed instruction nobody sent. It is the harness generating
 the prompt a user would plausibly type next and rendering it into the empty box between turns - app
-state rather than input, so it never appears in any transcript and nothing ever submitted it. The
-evidence is in `data\kh-stray-input\report.md`.
+state rather than input, so it never appears in any transcript and nothing ever submitted it.
+`docs\2026-09-02-prompt-box-safety.md` is the record.
 
 **Do not submit it, and do not clear it.** A bare Enter accepts whatever is rendered there, so
 `Send-HerdrKeys -Keys @('enter')` at an idle worker submits a generated instruction as though the

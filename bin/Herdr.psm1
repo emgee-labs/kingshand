@@ -252,8 +252,9 @@ function Read-HerdrAgentScreen {
 # turns. It is app state rather than input, so it cannot concatenate onto anything - the first typed
 # character displaces it - but a bare Enter ACCEPTS it, and a submission whose text equals the
 # suggestion is recorded by the harness as accepted by `enter`. So `Send-HerdrKeys -Keys @('enter')`
-# at an idle worker submits a model-generated instruction as though the Hand had written it. The
-# evidence, down to the resolver in the binary, is in data\kh-stray-input\report.md.
+# at an idle worker submits a model-generated instruction as though the Hand had written it.
+# docs\2026-09-02-prompt-box-safety.md owns why this whole section is shaped the way it is; the
+# fuller investigation it came from is deliberately not in this repository.
 #
 # CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=0 on the pane removes the cause and is set at both places
 # below. The guards stay anyway: they also cover a herdr server kingshand did not start, and typing

@@ -130,11 +130,10 @@ exit $code
     # suggestion, rendered into the empty box after a turn ends - not input, and it cannot
     # concatenate, but a bare Enter submits it as though the Hand had written it.
     #
-    # The shape is copied off the preserved capture of the worker that produced the report,
-    # data\kh-stray-input\2026-09-01-emgee-theme-toggle-prompt-box.txt: a bare U+2500 rule, then the
-    # caret at column 0, then another rule. There are no U+2502 side borders on a real screen, and a
-    # fixture that invents them is a fixture the detector can be tightened against while never
-    # matching a live worker.
+    # The shape is copied off the capture of the worker that produced this, reproduced in
+    # docs\2026-09-02-prompt-box-safety.md: a bare U+2500 rule, then the caret at column 0, then
+    # another rule. There are no U+2502 side borders on a real screen, and a fixture that invents
+    # them is a fixture the detector can be tightened against while never matching a live worker.
     #
     # `u{276F} and `u{00A0} are escaped deliberately. The box line really is `❯` followed by a
     # NO-BREAK space, measured off that capture, and a literal no-break space in a fixture is
@@ -474,7 +473,7 @@ Describe 'Send-HerdrKeys sends one key per call and never batches them' {
 # a turn ended. It is not input and it cannot concatenate - the first typed character displaces it -
 # but a bare Enter ACCEPTS it, so `Send-HerdrKeys -Keys @('enter')` at an idle worker submits a
 # model-generated instruction as though the Hand had written it. `rally` step 3 sends exactly that
-# call to answer a menu. The full evidence is in data\kh-stray-input\report.md.
+# call to answer a menu. docs\2026-09-02-prompt-box-safety.md is the record.
 #
 # Every refusing case below asserts BOTH that it throws AND that nothing reached herdr, so no case
 # can pass vacuously: delete the guard and both assertions fail independently.
