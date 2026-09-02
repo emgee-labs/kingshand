@@ -6052,23 +6052,31 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('An entry is answered when it carries an `Answer:` line under its slug, and ' +
                      'not when the prose around it reads like a conclusion.')
-        # And zero entries under a present heading fails closed. Keyed strictly on slugs, a worker
-        # that wrote the heading and a bare question satisfied "every slug carries an Answer:"
-        # vacuously - so the landing floor passed and teardown killed the process the answer was
-        # coming back to, which is the exact failure the route exists to prevent.
+        # Total rather than enumerated, and that is the assertion. Keyed strictly on slugs, a bare
+        # question under the heading satisfied "every slug carries an Answer:" vacuously - and the
+        # first fix for that said "holds text", which put an empty heading straight back outside
+        # the rule. Stated as anything-that-is-not-a-well-formed-answered-entry it covers every
+        # malformed shape at once and cannot pick up a new hole.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**A section that is there and holds text but yields no `###` entry at all ' +
-                     'is unanswered, never satisfied.**')
+            -Phrase ('**Anything under that heading that is not a well-formed entry carrying its ' +
+                     'own answer is unanswered.**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('Zero entries under a present heading is a malformed report rather than a ' +
-                     'clean one')
+            -Phrase ('A heading with nothing under it, prose with no slug, a slug with no ' +
+                     '`Answer:` line - all of it')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('establish the cause of it before anything irreversible, and treat it as ' +
-                     'unanswered until you have')
-        # Stated once, here, and inherited by both guards rather than restated in either.
+            -Phrase ('it needs no list of malformed shapes, so it cannot acquire a new hole the ' +
+                     'next time a worker deviates in a way nobody thought of')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('Every guard that reads entries inherits this line: the landing floor at ' +
-                     'Step 7 and the teardown at Step 8b both read them')
+            -Phrase ('Establish the cause before anything irreversible, and read it as unanswered ' +
+                     'until you have.')
+        # Stated once and inherited by every reader, named as a property rather than as a list of
+        # steps - a list is what let Step 7, Step 8a and Step 8b drift apart in the first place.
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**This is the one place that says what unanswered means, and it governs ' +
+                     'every path that reads those entries**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('this step''s read, the landing floor, the close-out check, the teardown, ' +
+                     'and whatever is added later, none of which carries its own version')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('a worker that parked, was answered and parked again has an answered entry ' +
                      'sitting above a question nobody has answered')
@@ -6079,9 +6087,12 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase ('read the first entry alone and a second decision nobody answered goes to ' +
                      'the landing gate instead, where approval tears the worker down and takes ' +
                      'the parked run with it')
-        # The delivery side of the same key: every entry answered, and only then a delivery.
+        # The delivery side of the same key, and it needs the at-least-one: "every entry is
+        # answered" is vacuously true of a heading with no entries under it, which read a worker
+        # that had not written its question yet as a finished delivery.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase 'Where every entry carries its own answer'
+            -Phrase ('Where it holds at least one entry and every one of them carries its own ' +
+                     'answer')
     }
 
     # The entry is the worker's own text and the worker can fail to update it, exactly as it can
@@ -6148,11 +6159,22 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
                      'here may infer what it was - not from the entry, and not from what looks ' +
                      'likely. Repair it through `decree`, which owns that, and do not steer until ' +
                      'it is repaired. |')
+        # Totality by default rather than by list, pinned as such: an enumeration that has to be
+        # complete is the defect three rounds in a row found one more member of.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('Nothing else is reachable: an open hold reads its reason, which `decree` ' +
-                     'requires to say which of the two it is, and `decree` closes a hold with ' +
-                     '`answered:`, with `declined:`, or - as the fault it carries a repair for - ' +
-                     'with no note at all.')
+            -Phrase ('**The table is total by construction rather than by enumeration, and that ' +
+                     'is the point.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('every other open hold takes the default, so a reason nobody anticipated is ' +
+                     'safe rather than unmatched')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('`decree` still requires a stead-pass reason to say so - the default is what ' +
+                     'covers the reason that does not, not a licence to leave it out.')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase '**Do not turn the default back into another listed case.**'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('a list that has to be complete is the defect; a default cannot be ' +
+                     'incomplete')
         # The state a restart lands in most often, and the one that was missing: escalated, out
         # with him, nobody has answered. Re-deciding or re-asking here costs him the same question
         # twice, which is exactly what decree exists to prevent.
@@ -6194,8 +6216,24 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
                      'answered | The same pass, interrupted after the steer landed. Confirm the ' +
                      'answer in that entry is the decision the reason records, then close the ' +
                      'note on it and carry on.')
+        # The default row is what makes the split safe: a reason that says neither matched no row
+        # before, and the two candidates took opposite actions - freeze it with the King, or finish
+        # the pass - so the Hand guessed, and guessing wrong parks the worker until morning.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase 'Five queue states and two entry states'
+            -Phrase ('| any other open hold, no note - a reason that does not plainly say which ' +
+                     'of the two it is | either | **The default, and it catches everything the ' +
+                     'two rows above do not.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('The cause is not established, so nothing moves on it: do not steer, do not ' +
+                     'close it, do not re-escalate it, and land nothing on this work. Repair the ' +
+                     'reason through `decree`, which owns what it has to say, and take the row it ' +
+                     'then matches. |')
+        # And decree carries the exit for it, on a field and a verb that already exist.
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree lifecycle table' `
+            -Phrase ('| repair a reason that does not say which of the two open holds it is |')
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree lifecycle table' `
+            -Phrase ('`hold` is idempotent under the same key, so this rewrites the reason ' +
+                     'without opening a second hold or moving anything else')
         # decree owns the reason, and it is text on a field that already exists - no new kind, verb
         # or field. Both causes are `--kind captain`, so the kind cannot carry this.
         Assert-Phrase -Text $script:RouteHold -Where 'decree' `
@@ -6279,8 +6317,9 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
                      'has not.')
         Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
             -Phrase ('**It does mean the one check Step 6 owns has not run, so run it here: a ' +
-                     'worker whose `report.md` holds an entry under `## Waiting on a decision` ' +
-                     'with no `Answer:` line under it is mid-run.**')
+                     'worker whose `report.md` holds anything unanswered under `## Waiting on a ' +
+                     'decision` is mid-run - unanswered by Step 6''s rule and never a reading of ' +
+                     'your own.**')
         Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
             -Phrase ('**A worker holding an unanswered entry under `## Waiting on a decision` is ' +
                      'never torn down either, and a confirmed push does not release that.**')
@@ -6292,20 +6331,24 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         # an unscoped read refuses teardown on a delivered worker over one of those, then Step 6
         # finds nothing waiting and sends it straight back.
         Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
-            -Phrase ('Read its `report.md` for an `Answer:` line under every `###` slug **inside ' +
-                     '`## Waiting on a decision`** before you stop anything')
+            -Phrase ('Read what is **inside `## Waiting on a decision`** before you stop ' +
+                     'anything, and where anything there is unanswered take it to Step 6 instead.')
         Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
-            -Phrase ('Only that section''s slugs count - a report carries `###` headings for ' +
+            -Phrase ('Only that section counts, though: a report carries `###` headings for ' +
                      'other things, the per-round records the `Repeated findings` instruction ' +
                      'asks for among them')
-        # Both guards inherit the malformed-section rule rather than passing vacuously on it.
+        # All three guards defer to the one rule in a line rather than restating a form of it -
+        # restating is exactly what let them drift into three different readings of unanswered.
         Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
-            -Phrase ('**A section holding text with no `###` slug in it at all is missing an ' +
-                     'answer too**, per Step 6, which owns what counts as unanswered')
+            -Phrase ('**Unanswered is Step 6''s rule and never a reading of your own** - this is ' +
+                     'the one place where reading a malformed section as a pass cannot be taken ' +
+                     'back.')
         Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two: approve the landing') `
             -Where 'the landing gate floors' `
-            -Phrase ('Step 6 owns what to do with it - including what counts as unanswered, a ' +
-                     'section holding text but no entry among them')
+            -Phrase ('**Unanswered is Step 6''s rule and never a reading of your own**, and Step ' +
+                     '6 owns what to do with the worker too.')
+        Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
+            -Phrase 'unanswered by Step 6''s rule and never a reading of your own'
     }
 
     # Teardown is the irreversible one. It ends the process holding the parked run, so the answer
