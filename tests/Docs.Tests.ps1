@@ -4658,16 +4658,26 @@ Describe 'a project has a standing definition of done, and repeated findings are
     # Every branch of the fold-back has to say what to write and when, or the one that defers is the
     # one that costs most: a criterion too vague to check keeps returning `pass` while the gate
     # keeps finding the same defect, and the list stops discriminating without ever looking broken.
-    # The deliberate set-aside is carved out of it, since its `n/a` is the correct answer and
-    # rewording a working line on that evidence is the same damage from the other direction.
-    It 'the reword branch writes in the same turn, and a set-aside is not rewordable' {
+    # The `n/a`s that are the correct answer are carved out of it, since rewording a working line on
+    # that evidence is the same damage from the other direction. Most useful criteria are
+    # conditional ("every new X ..."), so a change that touches no X is the common case rather than
+    # the edge, and treating every such `n/a` as a wording defect would rewrite correct criteria on
+    # ordinary dispatches - churning the file this whole loop exists to build. Repetition of that
+    # kind belongs to the retire branch, which the same paragraph already owns.
+    It 'the reword branch writes in the same turn, and a correct n/a is not rewordable' {
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
             -Phrase ('rewrite that line in place in the same turn you read the report')
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
             -Phrase ('A criterion this brief set aside is not that: the `n/a` is the correct ' +
                      'answer and there is nothing to reword')
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
-            -Phrase ('recorded `n/a` against for any reason other than a set-aside this brief made')
+            -Phrase ('A criterion whose subject this change does not touch is answered correctly ' +
+                     'by `n/a`')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('Both are the right answer, and neither is reworded nor recorded')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('A criterion workers keep recording `n/a` against for want of anything to ' +
+                     'check is the retire branch below, once it has happened more than once')
     }
 
     It 'the fold-back filters for generality and says what retires a line' {

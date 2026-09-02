@@ -945,9 +945,16 @@ block and no rounds at all is one to ask about rather than one
 with nothing to fold back. On a `local-only` or `direct-PR` project - including a
 `no-mistakes-prod-only` project whose task resolved to `direct-PR` - there is no gate and no round to
 compare against, so this loop does not fire - read the self-check block anyway, because a criterion
-the worker could not check, or recorded `n/a` against for any reason other than a set-aside this
-brief made, is the same wording problem arriving from the other
-side. A section whose only line is `- Nothing standing for this project yet.` is neither: there was
+the worker could not check - one it could not tell whether this change met, for want of the line
+saying how - is the same wording problem arriving from the other
+side. **Most `n/a`s are not that.** A criterion whose subject this change does not touch is answered
+correctly by `n/a` - `- Every new component has a Storybook story` against a task that fixes a CSS
+bug and adds no component - and so is one this brief set aside. Both are the right answer, and
+neither is reworded nor recorded: most useful criteria are conditional, so rewording every line a
+change happens not to touch would churn the file this loop exists to build, on every unrelated
+dispatch. A criterion workers keep recording `n/a` against for want of anything to check is the
+retire branch below, once it has happened more than once - not a wording problem the first time.
+A section whose only line is `- Nothing standing for this project yet.` is neither: there was
 nothing to check, the `n/a` against it is the only answer available, and it is not a criterion to
 reword or a reason to create the file. A finding that matches a
 criterion the worker recorded `pass` or `fixed` means that criterion did not end the defect: written

@@ -980,6 +980,45 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $msg | Should -BeLike '*every brief for this project passes*'
         }
 
+        # The refusal is the Hand's instruction sheet, so the line it recommends has to be one the
+        # Hand is allowed to write. In this branch the section already hands the worker the criteria
+        # copy, and the literal line would say there is nothing beyond the brief in the same breath -
+        # the contradiction muster rules out. So this branch recommends muster's paraphrase, and
+        # the test above proves the gate takes it.
+        It 'recommends the paraphrase rather than the contradicting literal line' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-criteria-recommends'
+            $name = Register-FixtureProject -Fixture $f -WithIndex
+            $criteria = Join-Path $f.DataPath "done-$name.md"
+            Set-Content -Path $criteria -Value '- Every new prose rule is pinned by a test.' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf "done-$name.md" -From $criteria
+
+            $msg = ''
+            try {
+                & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8025' `
+                    -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $criteria
+            } catch { $msg = $_.Exception.Message }
+            $msg | Should -BeLike ('*The index was checked; nothing in it applies to this task ' +
+                                   'beyond the standing criteria above.*')
+            $msg | Should -Not -BeLike '*Nothing beyond this brief - the index was checked*'
+        }
+
+        # And the ordinary case keeps the literal line, which is true there: the section names no
+        # file at all, so nothing in it contradicts saying there is nothing beyond the brief.
+        It 'still recommends the literal line where no path was passed at all' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-no-path-recommends'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            $msg = ''
+            try {
+                & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8026' `
+                    -BriefPath $f.BriefPath -DataPath $f.DataPath
+            } catch { $msg = $_.Exception.Message }
+            $msg | Should -BeLike '*Nothing beyond this brief - the index was checked and nothing in it applies.*'
+        }
+
         # The way past the discount that muster actually tells the Hand to write. The literal line
         # the refusal quotes would say there is nothing beyond the brief while the bullet above it
         # hands the worker a file, so muster names this paraphrase instead - and a paraphrase is

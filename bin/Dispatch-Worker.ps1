@@ -383,11 +383,21 @@ if ($gates.Count -gt 0) {
         $named = ($gates | ForEach-Object { "$($_.label) at $($_.path), listing $($_.count) file(s)" }) -join '; '
         # Said plainly when the brief DID pass a path, or the Hand reads a refusal denying what it
         # can see it just did and has no way to work out which path was discounted.
+        #
+        # The line recommended below changes with it, and has to. In the ordinary case the section
+        # names no file and the literal line is true. In the discount case the section already hands
+        # the worker the criteria copy, so that same line would tell it there is nothing beyond the
+        # brief in the same breath - the contradiction muster rules out. So this branch recommends
+        # muster's paraphrase, which states both halves and passes the regex above unchanged.
         $discounted = ''
+        $stated = "'- Nothing beyond this brief - the index was checked and nothing in it applies.'"
         if ($staged.Count -gt 0) {
             $discounted = ("The only file this brief passes is the standing-criteria file $byRote, " +
                            "which every brief for this project passes and which therefore says " +
                            "nothing about this task. ")
+            $stated = ("'- The index was checked; nothing in it applies to this task beyond the " +
+                       "standing criteria above.' - which says so without contradicting the " +
+                       "criteria line already in the section.")
         }
         throw ("This dispatch is gated by $named - and this brief neither names a file from them to " +
                "read nor says they were checked. $discounted" +
@@ -395,8 +405,8 @@ if ($gates.Count -gt 0) {
                "no brief names reaches it not at all - which is how a site shipped without the brand " +
                "that was already decided. Open each index named above, then either pass -ReadPath for " +
                "each file this task touches and name the copies under 'Read first', or put one line " +
-               "there saying the index was checked and nothing in it applies - '- Nothing beyond this " +
-               "brief - the index was checked and nothing in it applies.' Nothing was created.")
+               "there saying the index was checked and nothing in it applies - $stated Nothing was " +
+               "created.")
     }
 }
 
