@@ -60,6 +60,13 @@ was checked and nothing in it applies. Reading that one stated line is not the p
 forbids: it counts `-ReadPath` entries that arrived structurally, asks `Index.psm1` what each index
 lists, and looks for a statement - never a file name - in the prose.
 
+*Amended 2026-09-02.* One `-ReadPath` no longer counts towards it - the project's standing-criteria
+file at `data\done-<project>.md`, which `muster` passes on every brief for a project that has one.
+A path passed by rote is no evidence the index was read for this task, and counting it would have
+made this refusal unreachable from the first criteria file onwards. That is still not a parser: the
+path is compared as a path, against one the dispatcher composes itself.
+`bin\Dispatch-Worker.ps1`'s header owns the exact rule, as `2026-08-30-data-index.md` already says.
+
 **Every `-ReadPath` entry exists on disk.** A brief naming a file that is not there is a brief the
 worker cannot carry out.
 

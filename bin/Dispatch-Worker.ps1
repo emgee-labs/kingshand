@@ -86,6 +86,17 @@
   follow is the settled-spec failure at a larger scale and worse, because it looks solved. Neither
   way past is an absence: an empty section, or a heading with nothing under it, still refuses.
 
+  EXACTLY ONE -ReadPath does not count towards it: data\done-<project>.md for the project this
+  dispatch resolved to, the standing-criteria file muster hands over on every brief for a project
+  that has one. Counting a path passed by rote would make this refusal unreachable from the moment
+  the first criteria file is written, and the premise of the whole check is that a -ReadPath is
+  evidence the Hand went through the index for THIS task. Every other path counts, including another
+  file sitting beside it in data\. When the discounted path is the only one the brief passed, the
+  refusal says which path it discounted and why - a message denying what the reader can see it just
+  did is one nobody can act on - and it recommends muster's longer stated line rather than the short
+  one, because the short one would tell the worker there is nothing beyond the brief in the same
+  breath as the section hands it the criteria copy.
+
   EVERY index that could cover the dispatch counts, and the root one counts first. data\index.md is
   where the settled files this gate exists to protect actually land - chronicle, annex and survey all
   write data\<topic>.md with no project - while data\index\<project>.md holds little beyond briefs
