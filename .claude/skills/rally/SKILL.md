@@ -52,9 +52,12 @@ herdr refuses a prompt outright there with `agent_blocked`, and `Send-HerdrPromp
 as a result rather than an error.
 
 **Steering is still not a conversation.** The worker cannot reply to you, its brief still forbids
-it from asking anything, and a steer that needs a decision from the user is still the user's to
-make first. Do not write text into the worktree hoping the worker reads it, and do not describe a
-steer as done without checking `Read-HerdrAgent` afterwards to see that it landed.
+it from asking anything, and a steer that would answer a prompt a worker is blocked on is still
+the King's to make first. A decision the worker *wrote into its `report.md`* is the other case and
+not this one: `petition` owns whether you may answer that and by what test, and it is the only
+place that test is stated, with `muster` Step 6 owning the route the answer takes back. Do not
+write text into the worktree hoping the worker reads it, and do not describe a steer as done
+without checking `Read-HerdrAgent` afterwards to see that it landed.
 
 ## herdr's own state is wrong in both directions, and the screen is the authority
 

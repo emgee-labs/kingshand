@@ -86,8 +86,8 @@ applies.
 is lost while you think. Every posture parks that way, so this is not only the gated ones: a
 review gate's ask-user finding is one route into it and not the only one. Load `petition`, whose
 away-mode test owns whether this one is yours to answer, and take the route back into the worker
-from `muster` Step 6. Register what you decided under `decree`, carry it into the return digest,
-and do not message.
+from `muster` Step 6. Register it under `decree` either way - what you decided, or the question the
+test left standing with him - carry it into the return digest, and do not message.
 
 **A worker is blocked on a prompt.** This is the case regency exists for and the one to get right.
 

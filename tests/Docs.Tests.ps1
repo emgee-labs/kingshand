@@ -1076,6 +1076,25 @@ Describe 'rally states what steering can and cannot do, and protects unlanded wo
                      'afterwards to see that it landed')
     }
 
+    # rally owns the steer, and muster Step 6 sends the Hand here for the mechanics of steering an
+    # answer back into a parked worker. So the blanket "a steer that needs a decision from the user
+    # is the user's to make first" read as a refusal of the very steer that route depends on - the
+    # parked-until-morning failure again. Narrowed the same way CLAUDE.md and regency were, and no
+    # further: the blocked-prompt case is untouched and the test itself lives in petition alone.
+    It 'narrows the never-steer-a-decision rule to the blocked-prompt case' {
+        $text = Get-DocText $script:StuckMd
+        Assert-Phrase -Text $text -Where 'rally' `
+            -Phrase ('a steer that would answer a prompt a worker is blocked on is still the ' +
+                     "King's to make first")
+        Assert-Phrase -Text $text -Where 'rally' `
+            -Phrase ('A decision the worker *wrote into its `report.md`* is the other case and ' +
+                     'not this one: `petition` owns whether you may answer that and by what test')
+        Assert-Phrase -Text $text -Where 'rally' `
+            -Phrase '`muster` Step 6 owning the route the answer takes back'
+        $text.Contains('reversible in minutes') |
+            Should -BeFalse -Because 'the reversibility test is stated once, in petition'
+    }
+
     It 'warns that removing the worktree destroys the work, and gives the safe order' {
         $text = Get-DocText $script:StuckMd
         Assert-Phrase -Text $text -Where 'the removal hazard' `
@@ -3804,7 +3823,9 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Regency | Should -Match '\*\*A worker is parked on a decision its brief did not settle\.\*\*'
             $script:Regency | Should -Match 'ended its turn, so nothing is hanging and nothing\s+is lost while you think'
             $script:Regency | Should -Match 'Every posture parks that way, so this is not only the gated ones'
-            $script:Regency | Should -Match 'Register what you decided under `decree`, carry it into the return digest'
+            # Either way, matching petition and muster Step 6: a call that failed the test is
+            # registered too, or the question survives only in the session that read it.
+            $script:Regency | Should -Match 'Register it under `decree` either way - what you decided, or the question the\s+test left standing with him'
         }
 
         # The digest is session memory and the King's review of what was decided in his name cannot
@@ -6024,6 +6045,28 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase 'Where every entry carries its own answer'
     }
 
+    # The entry is the worker's own text and the worker can fail to update it, exactly as it can
+    # fail to write a report at all - which Step 6 already treats as fallible. Without a
+    # cross-check the Hand re-steers a decision the worker already applied, forever: the work is
+    # finished, nothing errors, and it never reaches the landing gate. The check is the `answered:`
+    # note the Hand itself registered, so no new mechanism is needed to close the loop.
+    It 'Step 6 cross-checks the decree note before steering the same decision twice' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**Before you steer the same decision a second time, read back the note you ' +
+                     'registered under `decree`.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('The entry is text a worker writes, so it can fail that instruction exactly ' +
+                     'as it can fail the one about writing a report at all')
+        # Decided by what was confirmed, not by which looks likelier.
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('no `answered:` note against this work means nothing was ever steered and ' +
+                     'the worker is still waiting, while a closed `answered:` note whose steer ' +
+                     'you confirmed landed - `working` arrived - means the worker applied the ' +
+                     'decision and left its entry alone')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase '**Steer the first. Load `rally` for the second**'
+    }
+
     # Teardown is the irreversible one. It ends the process holding the parked run, so the answer
     # has nowhere to go and the gate's own fix commits are left in its staging repo.
     It 'Step 6 forbids advancing or tearing down a worker that is still waiting' {
@@ -6296,11 +6339,32 @@ Describe "the reversibility test owns what may be answered in the King's stead" 
     # drops first: it is what stops a well-evidenced guess authorising a delete.
     It 'the wait branch holds regardless of what is known' {
         Assert-Phrase -Text $script:Away -Where 'petition' `
-            -Phrase ('**Wait for him** on a delete, a cost or anything security-sensitive, ' +
-                     '**regardless of what is known**, and on a major or irreversible call where ' +
-                     'nothing records his position.')
+            -Phrase ('**Wait for him** on a delete, a cost, anything irreversible or anything ' +
+                     'security-sensitive, **regardless of what is known**, and on a major but ' +
+                     'recoverable call where nothing records his position.')
         Assert-Phrase -Text $script:Away -Where 'petition' `
             -Phrase 'Those are the floors hard rule 2 already carries, and being away never lowers them.'
+    }
+
+    # The floor a later editor would most plausibly soften back, so it is pinned hardest. The
+    # earlier wording put irreversible on the conditional side of the sentence, which left a gap
+    # nothing errored in: a call that cannot be undone, with a position recorded in `king.md`, was
+    # authorised by neither branch and refused by neither. Hard rule 2 carries no such exception -
+    # never irreversibly without the King, regardless of posture - and the intent requires the
+    # floors untouched, so irreversible is unconditional and only the recoverable case reads a
+    # recorded position.
+    It 'no recorded position ever authorises an irreversible call' {
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase '**A recorded position never authorises an irreversible action.**'
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('Irreversible sits with the delete, the cost and the security-sensitive ' +
+                     'call, in the list that waits whatever is known')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('a recorded position is evidence about what he wants, not his word on the ' +
+                     'one kind of call nobody can take back')
+        Assert-Phrase -Text $script:Away -Where 'petition' `
+            -Phrase ('The recorded-position clause above is about the major-but-recoverable case ' +
+                     'and only that one')
     }
 
     # The third of the three is the one that reads like decoration and is not. Without it a decision

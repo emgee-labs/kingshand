@@ -1069,6 +1069,16 @@ you have ever answered reads as waiting forever; read the first entry alone and 
 nobody answered goes to the landing gate instead, where approval tears the worker down and takes
 the parked run with it.
 
+**Before you steer the same decision a second time, read back the note you registered under
+`decree`.** The entry is text a worker writes, so it can fail that instruction exactly as it can
+fail the one about writing a report at all - and then an entry showing only a question means
+either of two opposite things. Your own durable record says which, and what was confirmed decides
+it rather than what looks likely: no `answered:` note against this work means nothing was ever
+steered and the worker is still waiting, while a closed `answered:` note whose steer you confirmed
+landed - `working` arrived - means the worker applied the decision and left its entry alone.
+**Steer the first. Load `rally` for the second**, because a worker sent the same answer twice is a
+worker asked to do the work twice.
+
 Such a worker is idle rather than hung and costs nothing where it is - the review-gate run it left
 parked keeps the branch and every fix commit already made. **Do not set `gating`, do not close the
 backlog item, and above all do not tear it down.** Teardown ends the process holding that parked

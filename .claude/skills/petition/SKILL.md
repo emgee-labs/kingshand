@@ -117,9 +117,15 @@ wrong call any harder to undo. What presence changes is which rule reaches the f
 steps 3 to 5 already keep a reversible correction inside your authority without this section being
 reached at all, and away, this section is what stops the same call parking a worker until morning.
 
-**Wait for him** on a delete, a cost or anything security-sensitive, **regardless of what is
-known**, and on a major or irreversible call where nothing records his position. Those are the
-floors hard rule 2 already carries, and being away never lowers them.
+**Wait for him** on a delete, a cost, anything irreversible or anything security-sensitive,
+**regardless of what is known**, and on a major but recoverable call where nothing records his
+position. Those are the floors hard rule 2 already carries, and being away never lowers them.
+
+**A recorded position never authorises an irreversible action.** Irreversible sits with the delete,
+the cost and the security-sensitive call, in the list that waits whatever is known - a recorded
+position is evidence about what he wants, not his word on the one kind of call nobody can take
+back. The recorded-position clause above is about the major-but-recoverable case and only that
+one, so a later reader cannot rebuild the exception out of it.
 
 **Record all three, every time: the decision, the reasoning, and whether it rested on a recorded
 position or on your own judgement.** That third one is the point of the whole branch rather than
