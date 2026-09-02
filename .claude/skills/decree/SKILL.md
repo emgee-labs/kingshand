@@ -35,12 +35,14 @@ substance of the choice, and never from a customer name, a credential, a path, a
 anything else the queue should not carry. A key that changes between retries files the same
 decision twice; a key shared by two decisions loses one of them.
 
-**Where the decision came from a worker parked under `## Waiting on a decision`, adopt that
-entry's own `###` slug rather than deriving a second identifier.** The worker wrote that slug to be
-the one string naming this decision in its report and here, so a key invented beside it leaves
-nobody able to tell which entry a note answers - which is the whole check `muster` Step 6 makes
-before steering an answer in. Prefix it with the work id where two workers could plausibly pick
-the same slug.
+**Where the decision came from a worker parked under `## Waiting on a decision`, the key is
+`<work-id>-<the entry's own `###` slug>`, composed that way every time.** Both halves are already
+on the page in front of whoever is reading: the work id and the slug the worker wrote above its
+question. So any session can construct the lookup string from what it is reading rather than
+guessing what an earlier session chose - which is the whole check `muster` Step 6 makes before
+steering an answer in, and it is worthless against a key composed by judgement. Never derive a
+second identifier beside that one, and never leave the work id off: a key that is prefixed only
+sometimes is not a lookup.
 
 After inventorying the whole surface, either every unresolved key is registered, or you state
 plainly that the reviewed surface contains no unresolved decision. **Do not let "I found nothing"

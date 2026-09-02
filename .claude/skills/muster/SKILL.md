@@ -1079,22 +1079,29 @@ you have ever answered reads as waiting forever; read the first entry alone and 
 nobody answered goes to the landing gate instead, where approval tears the worker down and takes
 the parked run with it.
 
-**Before you steer any entry, read back what `decree` holds under that entry's own slug.** The
-entry is text a worker writes, so it can fail that instruction exactly as it can fail the one about
-writing a report at all - and an entry showing only a question then means either of two opposite
-things. What tells them apart is a durable pair, read one slug at a time rather than once per
-worker: the entry under that slug, and the note under the same key in the queue.
+**Before you touch any entry, read back what `decree` holds under `<work-id>-<that entry's
+slug>`.** The entry is text a worker writes, so it can fail that instruction exactly as it can fail
+the one about writing a report at all - and an entry showing only a question can mean any of
+several opposite things. What tells them apart is a durable pair, read one key at a time rather
+than once per worker: the entry under that slug in the report, and what the queue holds under that
+key. `decree` owns how the key is composed, and reading it per key is what keeps a worker parked
+twice straight - one key settled and one key nobody has answered is a worker waiting on its second
+question, not a stuck one.
 
-- **No note under that key** is a decision nobody has answered yet. That is the ordinary case this
-  section is about: decide it, register it, and steer it.
-- **A note closed `answered:` while its entry still carries no `Answer:` line** is a worker that
-  did not apply the decision it was given. Load `rally` and do not send it again, because a worker
-  told to decide the same thing twice does the work twice.
+**Every combination has an outcome, and none of them is left to judgement:**
 
-**Nothing here turns on whether you watched `working` arrive.** That lived in the session that saw
-it, and the next session has no way to know it - which is exactly the restart this route exists to
-survive. Reading it per slug is what keeps a worker parked twice straight: one key answered and
-one key with no note is a worker waiting on its second question, not a stuck one.
+| under that key | that entry | what it is, and what you do |
+|---|---|---|
+| nothing at all | unanswered | Nobody has seen this decision yet. Load `petition`, register it, and then steer it or escalate it as that leaves it. |
+| nothing at all | answered | The decision was answered and applied, and only the record is missing. Register it and close it with the note that entry carries. Do not steer it and do not decide it again. |
+| an open hold, no note | unanswered | He already has this question and nobody has answered it. It waits: carry it into the digest and never re-escalate it. Do not decide it, do not ask him again, and do not steer. |
+| an open hold, no note | answered | The queue says he has not answered and the report says something was applied. Neither one tells you which, so the hold stays open until he answers it himself - put that entry's answer to him, and land nothing on this work meanwhile. |
+| a closed hold, `answered:` or `declined:` | unanswered | The decision has an answer this worker has not recorded. Load `rally`: it owns whether the steer ever arrived, and it delivers it once. Do not decide it again and do not re-send it blind, because a worker told to decide the same thing twice does the work twice. |
+| a closed hold, `answered:` or `declined:` | answered | Settled. Nothing to steer, and this entry is no reason to hold the work back. |
+
+**Nothing in that table turns on whether you watched `working` arrive.** That lived in the session
+that saw it, and the next session has no way to know it - which is exactly the restart this route
+exists to survive. Both axes are on disk or in the queue for that reason.
 
 Such a worker is idle rather than hung and costs nothing where it is - the review-gate run it left
 parked keeps the branch and every fix commit already made. **Do not set `gating`, do not close the
@@ -1104,10 +1111,10 @@ run, and the answer then has nowhere to go.
 **Load `petition` before answering it - whatever the posture, and whether or not the King is at
 the machine.** It owns who may decide this and by what test, including the test that applies when
 he is away, and it is the only place that test is stated. **Register the decision under `decree` in
-the same turn you read the report, whichever way it goes, under that entry's own slug** - an answer he still owes and an answer
-you gave in his stead both survive this session ending that way, and neither one does in chat or
-in a return digest. `decree` owns what its note has to carry and is the only place that is
-written.
+the same turn you read the report, whichever way it goes, under that entry's own key** - an answer
+he still owes and an answer you gave in his stead both survive this session ending that way, and
+neither one does in chat or in a return digest. `decree` owns what its note has to carry, and how
+that key is composed, and is the only place either is written.
 
 With the answer in hand, send it to the worker as one prompt, read the screen back, and wait for
 the worker to actually pick the answer up:
@@ -1139,6 +1146,13 @@ things at once: the answer never landed, or herdr stopped answering while the wo
 anyway. **Do not report either one - the null does not say which.** Read the screen and check what
 the worker is actually doing, and load `rally` where the screen cannot tell you, rather than arming
 a wait over a worker that may never have taken the answer.
+
+**This pass ends at that re-armed wait, and nothing below it runs on this one.** The stage stays
+exactly where it is, you go quiet as Step 5 describes, and the next wake re-enters this step from
+the top against the state as it is then. Reading on from here would carry facts gathered before
+the answer was sent into a `gating` the worker has not earned - it started working again seconds
+ago - and on a `+yolo` project Step 7 would then diff and land a worktree that is still being
+written to.
 
 With all three confirmed and no decision waiting, **set its stage to `gating`** - the
 implementation is done and the work is waiting on the landing gate at Step 7. Say so in chat as an
@@ -1598,8 +1612,11 @@ back.
 either, and a confirmed push does not release that.** Teardown ends the live process, and that
 process is what the answer is coming back to: kill it and the decision it is parked on can never
 be applied, while the gate run it left parked keeps its fix commits somewhere nobody will look
-again. Read its `report.md` for an `Answer:` line under every `###` slug before you stop anything,
-and where one is missing take it to Step 6 instead. This is the same shape as the floor above -
+again. Read its `report.md` for an `Answer:` line under every `###` slug **inside
+`## Waiting on a decision`** before you stop anything, and where one is missing take it to Step 6
+instead. Only that section's slugs count - a report carries `###` headings for other things, the
+per-round records the `Repeated findings` instruction asks for among them, and refusing teardown
+over one of those bounces a delivered worker between here and a step that finds nothing waiting. This is the same shape as the floor above -
 both refuse an irreversible cleanup over work that is not finished.
 
 **`report.md` survives teardown, and must never be deleted as part of cleanup.** It lives at

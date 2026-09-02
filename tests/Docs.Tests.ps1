@@ -6069,30 +6069,75 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
     # session after a restart, which is the case the whole route exists to survive.
     It 'Step 6 cross-checks per decision key, on state that survives a restart' {
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**Before you steer any entry, read back what `decree` holds under that ' +
-                     'entry''s own slug.**')
+            -Phrase ('**Before you touch any entry, read back what `decree` holds under ' +
+                     '`<work-id>-<that entry''s slug>`.**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('The entry is text a worker writes, so it can fail that instruction exactly ' +
                      'as it can fail the one about writing a report at all')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('What tells them apart is a durable pair, read one slug at a time rather ' +
-                     'than once per worker: the entry under that slug, and the note under the ' +
-                     'same key in the queue.')
+            -Phrase ('What tells them apart is a durable pair, read one key at a time rather ' +
+                     'than once per worker: the entry under that slug in the report, and what ' +
+                     'the queue holds under that key.')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**No note under that key** is a decision nobody has answered yet.')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**A note closed `answered:` while its entry still carries no `Answer:` ' +
-                     'line** is a worker that did not apply the decision it was given.')
+            -Phrase ('one key settled and one key nobody has answered is a worker waiting on its ' +
+                     'second question, not a stuck one')
         # The session-only signal is named and excluded, so a later editor cannot put it back as
         # the discriminator.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase '**Nothing here turns on whether you watched `working` arrive.**'
+            -Phrase '**Nothing in that table turns on whether you watched `working` arrive.**'
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('That lived in the session that saw it, and the next session has no way to ' +
                      'know it - which is exactly the restart this route exists to survive.')
+    }
+
+    # Enumerated rather than listed. Each of the last two rounds found one more state the prose had
+    # not thought of - the escalated-but-open hold being the one that re-asked the King a question a
+    # previous session had already put to him - so both axes are now stated exhaustively: what the
+    # queue holds under that key crossed with whether the entry carries an answer. An unlisted
+    # combination is the defect this table replaces.
+    It 'Step 6 gives every combination of note and entry a named outcome' {
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('one key answered and one key with no note is a worker waiting on its second ' +
-                     'question, not a stuck one')
+            -Phrase '**Every combination has an outcome, and none of them is left to judgement:**'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('| nothing at all | unanswered | Nobody has seen this decision yet.')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('| nothing at all | answered | The decision was answered and applied, and ' +
+                     'only the record is missing.')
+        # The state a restart lands in most often, and the one that was missing: escalated, out
+        # with him, nobody has answered. Re-deciding or re-asking here costs him the same question
+        # twice, which is exactly what decree exists to prevent.
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('| an open hold, no note | unanswered | He already has this question and ' +
+                     'nobody has answered it. It waits: carry it into the digest and never ' +
+                     're-escalate it. Do not decide it, do not ask him again, and do not steer. |')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('| an open hold, no note | answered | The queue says he has not answered and ' +
+                     'the report says something was applied.')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('the hold stays open until he answers it himself - put that entry''s answer ' +
+                     'to him, and land nothing on this work meanwhile')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('| a closed hold, `answered:` or `declined:` | unanswered | The decision has ' +
+                     'an answer this worker has not recorded. Load `rally`')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('| a closed hold, `answered:` or `declined:` | answered | Settled. Nothing ' +
+                     'to steer, and this entry is no reason to hold the work back. |')
+    }
+
+    # Without this the step reads straight on into `gating` over a worker that resumed seconds ago:
+    # the three facts were confirmed before the steer, and the entry is no longer unanswered because
+    # the Hand just answered it - so the new landing floor does not catch it either, and a `+yolo`
+    # project diffs and lands a worktree still being written to.
+    It 'Step 6 ends the pass at the re-armed wait rather than reading on into gating' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**This pass ends at that re-armed wait, and nothing below it runs on this ' +
+                     'one.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('the next wake re-enters this step from the top against the state as it is ' +
+                     'then')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('on a `+yolo` project Step 7 would then diff and land a worktree that is ' +
+                     'still being written to')
     }
 
     # Step 6 was the only place that protected a parked worker, and Step 0 routes "land / merge /
@@ -6121,6 +6166,17 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
             -Phrase ('Teardown ends the live process, and that process is what the answer is ' +
                      'coming back to')
+        # And the prescribed check is scoped to that one section, like the rule above it. A report
+        # carries `###` headings for other things - the per-round records the brief asks for - and
+        # an unscoped read refuses teardown on a delivered worker over one of those, then Step 6
+        # finds nothing waiting and sends it straight back.
+        Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
+            -Phrase ('Read its `report.md` for an `Answer:` line under every `###` slug **inside ' +
+                     '`## Waiting on a decision`** before you stop anything')
+        Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
+            -Phrase ('Only that section''s slugs count - a report carries `###` headings for ' +
+                     'other things, the per-round records the `Repeated findings` instruction ' +
+                     'asks for among them')
     }
 
     # Teardown is the irreversible one. It ends the process holding the parked run, so the answer
@@ -6160,13 +6216,14 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         # Under the entry's own slug, which is what makes the per-key cross-check readable at all.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('**Register the decision under `decree` in the same turn you read the ' +
-                     "report, whichever way it goes, under that entry's own slug**")
+                     "report, whichever way it goes, under that entry's own key**")
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('an answer he still owes and an answer you gave in his stead both survive ' +
                      'this session ending that way, and neither one does in chat or in a return ' +
                      'digest')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase '`decree` owns what its note has to carry and is the only place that is written.'
+            -Phrase ('`decree` owns what its note has to carry, and how that key is composed, and ' +
+                     'is the only place either is written.')
     }
 
     # The answer travels by the steer that already exists. Asserted as runnable text rather than as
@@ -6253,20 +6310,23 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase 'the block is still what records that the answer authorised the work'
     }
 
-    # decree owns the key, so it is where the key's origin belongs: the slug the worker already
-    # wrote above its parked question. Deriving a second identifier here would break the per-key
-    # cross-check in muster Step 6, which needs one string to name the decision in both places.
-    It 'decree takes the key from the parked entry rather than deriving a second one' {
+    # decree owns the key, so it is where the composition belongs - and it has to be a composition
+    # rather than a judgement. "Adopt the slug, and prefix it with the work id where two workers
+    # could collide" left a note filed as `T-1001-shorter-hero-copy` invisible to a read-back keyed
+    # on `shorter-hero-copy`, which sends muster Step 6 down the no-note row: re-steering a decision
+    # already applied and filing it a second time. One composition, applied every time, is what
+    # makes the lookup a lookup.
+    It 'decree composes the parked decision key the same way every time' {
         Assert-Phrase -Text $script:RouteHold -Where 'decree' `
             -Phrase ('**Where the decision came from a worker parked under `## Waiting on a ' +
-                     'decision`, adopt that entry''s own `###` slug rather than deriving a ' +
-                     'second identifier.**')
+                     'decision`, the key is `<work-id>-<the entry''s own `###` slug>`, composed ' +
+                     'that way every time.**')
         Assert-Phrase -Text $script:RouteHold -Where 'decree' `
-            -Phrase ('a key invented beside it leaves nobody able to tell which entry a note ' +
-                     'answers')
+            -Phrase ('any session can construct the lookup string from what it is reading rather ' +
+                     'than guessing what an earlier session chose')
         Assert-Phrase -Text $script:RouteHold -Where 'decree' `
-            -Phrase ('Prefix it with the work id where two workers could plausibly pick the same ' +
-                     'slug.')
+            -Phrase ('Never derive a second identifier beside that one, and never leave the work ' +
+                     'id off: a key that is prefixed only sometimes is not a lookup.')
     }
 
     # The durable home for a decision made in the King's stead. petition requires three things
@@ -6367,11 +6427,15 @@ Describe "the reversibility test owns what may be answered in the King's stead" 
             -Phrase ('a worker on any posture writes `## Waiting on a decision` into its ' +
                      '`report.md` for any decision its brief did not settle, and while he is away ' +
                      'that decision is answered on the test below or it is answered nowhere')
-        # Only the test widens. The gate procedure above still fires for a gated project alone,
-        # and the scoping section that says so is untouched.
+        # What stays gate-only is the ask-user finding and the escalation written for it - not the
+        # analysis, which the present-King paragraph applies to a parked decision on any posture.
+        # Saying both left two adjacent paragraphs answering the same case opposite ways.
         Assert-Phrase -Text $script:Away -Where 'petition' `
-            -Phrase ('Only the test generalises. The authority analysis above is still the gate ' +
-                     'procedure and still fires for a gated project alone.')
+            -Phrase ('What does not generalise is the ask-user finding itself: only a gated ' +
+                     'project''s review gate ever produces one, exactly as `When this applies at ' +
+                     'all` says, and the escalation shape above is written for that finding.')
+        $script:Away.Contains('still fires for a gated project alone') |
+            Should -BeFalse -Because 'the analysis reads a parked decision on any posture'
         Assert-Phrase -Text $script:Away -Where 'petition' `
             -Phrase ('it never produces an ask-user finding and this procedure never fires for it')
     }
