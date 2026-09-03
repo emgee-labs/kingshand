@@ -726,27 +726,52 @@ $autoLeadIn = ('- The file(s) named directly below were attached by dispatch fro
 # changes nothing. Comparison is whole-line and ordinal against text this script composed itself -
 # never a search for a file name in prose, and no parser of the section.
 #
-# WHERE follows from the lead-in, which exists to scope the bullets and therefore has to stay above
-# them. When the brief already carries it - a project that has grown a second standing file since the
-# last dispatch - the new bullets go directly under that line, not under the heading, or they would
-# land ABOVE the very line that scopes them and the newest file would be the unscoped one. Only when
-# the lead-in is absent is it prepended and the block inserted under the heading. Located by the same
-# whole-line comparison, searched from the heading down so a copy quoted earlier in the brief cannot
-# claim the position.
-$toAdd       = @()
-$insertAfter = $headingIndex
+# WHERE is decided per line rather than for the block as a whole, because the block is not always
+# added as a block. The lead-in scopes the bullets, so it stays above them; and $standing's order -
+# criteria before rules - has to survive the GROWTH CASE, where one file was already named by an
+# earlier dispatch and another has since appeared. Inserting the missing lines together at one anchor
+# under the lead-in put the newest file ABOVE one already there, silently reversing that order.
+#
+# So the composed lines are walked in their own order behind a moving anchor. A line already in the
+# brief moves the anchor onto it; a line that is missing is scheduled just after the current anchor
+# and becomes the anchor itself, so the next missing line lands after it rather than on top of it.
+# The anchor starts at the lead-in when the brief already carries it, and at the heading when it does
+# not, in which case the lead-in is the first thing scheduled and every bullet follows it. That gives
+# heading, lead-in, criteria, rules for a first dispatch with either or both files, and for growth in
+# either direction.
+#
+# Every comparison is whole-line and ordinal against text this script composed itself - never a
+# search for a file name in prose, and no parser of the section. Existing lines are indexed from the
+# heading down, so a copy quoted earlier in the brief cannot claim the position.
+$toAdd = @()
+$plan  = [System.Collections.Generic.Dictionary[int, System.Collections.Generic.List[string]]]::new()
 if ($autoLines.Count -gt 0 -and $headingIndex -ge 0) {
-    $existing = [System.Collections.Generic.HashSet[string]]::new(
-                    [string[]]@($briefLines | ForEach-Object { $_.Trim() }),
-                    [System.StringComparer]::Ordinal)
-    $toAdd = @($autoLines | Where-Object { -not $existing.Contains($_.Trim()) })
-    if ($toAdd.Count -gt 0) {
-        $leadInIndex = -1
-        for ($i = $headingIndex + 1; $i -lt $briefLines.Count; $i++) {
-            if ($briefLines[$i].Trim() -ceq $autoLeadIn.Trim()) { $leadInIndex = $i; break }
+    $seen = [System.Collections.Generic.Dictionary[string, int]]::new([System.StringComparer]::Ordinal)
+    for ($i = $headingIndex + 1; $i -lt $briefLines.Count; $i++) {
+        $t = $briefLines[$i].Trim()
+        if (-not $seen.ContainsKey($t)) { $seen[$t] = $i }
+    }
+
+    if (@($autoLines | Where-Object { -not $seen.ContainsKey($_.Trim()) }).Count -gt 0) {
+        $anchor = $headingIndex
+        if ($seen.ContainsKey($autoLeadIn.Trim())) {
+            $anchor = $seen[$autoLeadIn.Trim()]
+        } else {
+            if (-not $plan.ContainsKey($anchor)) {
+                $plan[$anchor] = [System.Collections.Generic.List[string]]::new()
+            }
+            $plan[$anchor].Add($autoLeadIn)
+            $toAdd += $autoLeadIn
         }
-        if ($leadInIndex -ge 0) { $insertAfter = $leadInIndex }
-        else                    { $toAdd = @($autoLeadIn) + $toAdd }
+
+        foreach ($line in $autoLines) {
+            if ($seen.ContainsKey($line.Trim())) { $anchor = $seen[$line.Trim()]; continue }
+            if (-not $plan.ContainsKey($anchor)) {
+                $plan[$anchor] = [System.Collections.Generic.List[string]]::new()
+            }
+            $plan[$anchor].Add($line)
+            $toAdd += $line
+        }
     }
 }
 
@@ -807,7 +832,7 @@ if ($toAdd.Count -gt 0) {
     $rewritten = [System.Collections.Generic.List[string]]::new()
     for ($i = 0; $i -lt $briefLines.Count; $i++) {
         $rewritten.Add($briefLines[$i])
-        if ($i -eq $insertAfter) { foreach ($l in $toAdd) { $rewritten.Add($l) } }
+        if ($plan.ContainsKey($i)) { foreach ($l in $plan[$i]) { $rewritten.Add($l) } }
     }
     Set-Content -LiteralPath $BriefPath -Encoding utf8 -Value $rewritten.ToArray()
 }

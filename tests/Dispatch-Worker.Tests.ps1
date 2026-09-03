@@ -2036,6 +2036,28 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 param([Parameter(Mandatory)]$Fixture)
                 Get-Content -LiteralPath $Fixture.BriefPath -Raw
             }
+
+            # The whole documented order in one reading, so an ordering test cannot pass on a partial
+            # one: the heading, then the lead-in that scopes the bullets, then the criteria file,
+            # then the rules file - the order $standing composes and every brief is meant to carry.
+            function Get-ReadFirstOrder {
+                param([Parameter(Mandatory)]$Fixture, [Parameter(Mandatory)][string]$Project)
+                $lines = @(Get-Content -LiteralPath $Fixture.BriefPath)
+                $mark  = '*attached by dispatch from this project*'
+                $at    = {
+                    param($pattern)
+                    @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like $pattern })[0]
+                }
+                [pscustomobject]@{
+                    Lines    = $lines
+                    Heading  = @(0..($lines.Count - 1) |
+                                    Where-Object { $lines[$_] -match '^\s*##\s+Read first\s*$' })[0]
+                    LeadIn   = & $at $mark
+                    Criteria = & $at "*read-first\done-$Project.md*"
+                    Rules    = & $at "*read-first\rules-$Project.md*"
+                    LeadIns  = @($lines | Where-Object { $_ -like $mark }).Count
+                }
+            }
         }
 
         It 'attaches the rules file nobody passed, where the worker can reach it' {
@@ -2342,13 +2364,11 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 Should -Be 1
         }
 
-        # The growth case: a project that has one standing file when a ticket is first dispatched
-        # and two by the time it is re-dispatched. The lead-in is already in the brief, so it is not
-        # added again - and the new bullet must go BELOW it. Inserted under the heading instead, the
-        # newest file would sit above the line that scopes it, immediately over the Hand's own
-        # "nothing beyond this brief" line, and the rules file this change exists to deliver would
-        # be the one arriving unscoped.
-        It 'puts a later standing file below the lead-in, not above it' {
+        # The growth case: a project that has one standing file when a ticket is first dispatched and
+        # two by the time it is re-dispatched. The lead-in is already in the brief, so it is not added
+        # again - and the new bullet must land below it AND below the file already named, or the
+        # newest file silently jumps the documented criteria-before-rules order.
+        It 'keeps criteria above rules when the rules file appears after the first dispatch' {
             Set-AgentStartState
             $f = New-DispatchFixture 'standing-grew-a-file'
             $name = Register-FixtureProject -Fixture $f
@@ -2360,20 +2380,56 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
             Invoke-Dispatch -Fixture $f -Name 'T-9023' | Out-Null
 
-            $lines    = @(Get-Content -LiteralPath $f.BriefPath)
-            $heading  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Read first\s*$' })[0]
-            $leadIn   = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like '*attached by dispatch from this project*' })[0]
-            $criteria = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like "*read-first\done-$name.md*" })[0]
-            $rules    = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like "*read-first\rules-$name.md*" })[0]
-
-            ($null -ne $rules) | Should -BeTrue
-            ($leadIn   -gt $heading)  | Should -BeTrue
-            ($criteria -gt $leadIn)   | Should -BeTrue
-            ($rules    -gt $leadIn)   | Should -BeTrue
-            # Still exactly one lead-in, and the copy really did arrive beside the line naming it.
-            @($lines | Where-Object { $_ -like '*attached by dispatch from this project*' }).Count |
-                Should -Be 1
+            $o = Get-ReadFirstOrder -Fixture $f -Project $name
+            ($null -ne $o.Rules) | Should -BeTrue
+            ($o.LeadIn   -gt $o.Heading)  | Should -BeTrue
+            ($o.Criteria -gt $o.LeadIn)   | Should -BeTrue
+            ($o.Rules    -gt $o.Criteria) | Should -BeTrue
+            $o.LeadIns | Should -Be 1
             Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\rules-$name.md") | Should -BeTrue
+        }
+
+        # Growth the other way round, which the single-anchor insertion happened to get right and a
+        # per-line walk must not break: the file that appears later is the one that belongs FIRST, so
+        # it has to be placed above a bullet already in the brief rather than after it.
+        It 'keeps criteria above rules when the criteria file appears after the first dispatch' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-grew-criteria'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Nothing beyond this brief - the index was checked and nothing in it applies.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9027' | Out-Null
+            New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.' | Out-Null
+            Invoke-Dispatch -Fixture $f -Name 'T-9027' | Out-Null
+
+            $o = Get-ReadFirstOrder -Fixture $f -Project $name
+            ($null -ne $o.Criteria) | Should -BeTrue
+            ($o.LeadIn   -gt $o.Heading)  | Should -BeTrue
+            ($o.Criteria -gt $o.LeadIn)   | Should -BeTrue
+            ($o.Rules    -gt $o.Criteria) | Should -BeTrue
+            $o.LeadIns | Should -Be 1
+            Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\done-$name.md") | Should -BeTrue
+        }
+
+        # The order a first dispatch produces, pinned as the baseline both growth cases converge on.
+        It 'names the criteria file above the rules file on a first dispatch with both' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-order-first-dispatch'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "done-$name.md"  -Text '- Pester is green.' | Out-Null
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Nothing beyond this brief - the index was checked and nothing in it applies.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9028' | Out-Null
+
+            $o = Get-ReadFirstOrder -Fixture $f -Project $name
+            ($o.LeadIn   -gt $o.Heading)  | Should -BeTrue
+            ($o.Criteria -gt $o.LeadIn)   | Should -BeTrue
+            ($o.Rules    -gt $o.Criteria) | Should -BeTrue
+            $o.LeadIns | Should -Be 1
         }
 
         # The preflight guards a write. On a re-dispatch that adds nothing there is no write to
