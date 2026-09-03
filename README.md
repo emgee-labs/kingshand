@@ -2,7 +2,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
-[![Tests](https://img.shields.io/badge/tests-1066%20passing-3fb950)](tests)
+[![Tests](https://img.shields.io/badge/tests-1111%20passing-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 # You rule. It executes.
@@ -235,6 +235,9 @@ tests\                  the Pester suite
 tools\herdr\            herdr, fetched and SHA-256 verified by the installer - gitignored,
                         and deliberately not on PATH
 docs\                   the architecture decisions worth keeping
+.no-mistakes.yaml       the branch kingshand's own work integrates into - dev, which every pull
+                        request targets and every worker branches from, deliberately not the
+                        branch a fresh clone lands on
 instructions.example.md the template install.ps1 copies to instructions.md
 install.ps1             prerequisites and config - writes at most four things outside this
                         repository: KINGSHAND_HOME, LAVISH_AXI_PORT, two lines in your global

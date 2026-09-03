@@ -441,11 +441,25 @@ if ($staged.Count -gt 0) {
     }
 }
 
-# The worktree branches from the REMOTE default branch when the repo has one, not the local
-# branch. Local main is often behind origin/main, and diffing the worker's branch against local
-# main then attributes the upstream commits in that gap to the worker - including other people's
-# Co-Authored-By trailers, which trips the attribution check on a colleague's commit. Record the
-# real base at dispatch.
+# WHICH ref this is belongs to Resolve-BaseRef.ps1's header, and nothing here restates it. What
+# matters at this call site is that the one string it returns is used twice below - as the branch
+# point `git worktree add -b` cuts from, and as the base recorded for the landing gate - so on a
+# FIRST dispatch the recorded base is where the worktree actually started, by construction.
+#
+# That holds for the fresh-branch path and only that one. The two re-dispatch paths below do not
+# branch at all: one reuses a registered worktree without touching git, the other checks out a
+# branch that survived its worktree, and in both the branch point is whatever the earlier dispatch
+# chose. Resolve it again after the repository has moved - a `.no-mistakes.yaml` added since, a
+# default branch that changed - and the base recorded here describes a branch cut somewhere else,
+# so `git log "$base..HEAD"` carries commits nobody in this ticket wrote. The landing gate's
+# attribution scan runs over that same range, so any of them carrying a co-author trailer surfaces
+# there - which muster reads as a bad diff base rather than as the worker's doing - but the rest
+# just widen the diff. Closing that gap is possible and is simply not done here: the branch's own
+# reflog records where it was cut from - `git reflog show worktree-<name>` ends at
+# `branch: Created from <ref>`, written by the `-b` add below, so it exists by construction on the
+# reuse path and survives until gc.reflogExpire - and crew.json already holds the base the first
+# dispatch recorded under this same worker id. Either would give the real branch point; both are
+# a behaviour change to make deliberately rather than a line to slip in beside a comment.
 #
 # Resolved BEFORE the spawn on purpose: Resolve-BaseRef refuses rather than inventing a ref, and
 # a refusal after the worker exists would leave an orphaned agent running in the repo.

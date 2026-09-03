@@ -40,6 +40,26 @@ BeforeAll {
         $null = & git -C $RepoPath rev-parse --verify --quiet "$Ref^{commit}" 2>$null
         $LASTEXITCODE -eq 0
     }
+
+    function Set-DeclaredBranch {
+        param([Parameter(Mandatory)][string]$RepoPath, [Parameter(Mandatory)][string]$Yaml)
+        Set-Content -Path (Join-Path $RepoPath '.no-mistakes.yaml') -Value $Yaml -Encoding utf8
+    }
+
+    # A repo declaring another worker's branch as where its work integrates, with that branch
+    # pushed so both forms of it genuinely resolve. The declaration is refused all the same.
+    function New-DeclaredWorkerBranchRepo {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo checkout -q -b 'worktree-other'
+        Set-Content -Path (Join-Path $repo 'other.txt') -Value 'other' -Encoding utf8
+        git -C $repo add -A
+        git -C $repo commit -q -m 'Another worker commit'
+        git -C $repo push -q origin 'worktree-other' 2>&1 | Out-Null
+        git -C $repo checkout -q 'main'
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: worktree-other"
+        $repo
+    }
 }
 
 AfterAll {
@@ -186,6 +206,429 @@ Describe 'Resolve-BaseRef - refusal' {
         try { Resolve-BaseRef -RepoPath $repo } catch { $err = $_.Exception.Message }
         $err | Should -Not -BeNullOrEmpty
         $err | Should -BeLike '*Rejected the worker branch*worktree-only*'
+    }
+}
+
+Describe 'Resolve-BaseRef - the declared integration branch' {
+    # The default branch and the integration branch are two things. A repository can land a
+    # fresh clone on `main` while every pull request targets `dev`, and `origin/HEAD` names only
+    # the first - so a worker resolved from it is cut from a tree its own pull request is not
+    # proposed against. `pr.base_branch` in `.no-mistakes.yaml` is the declaration, and it is the
+    # same key the review gate reads, so one statement serves both.
+
+    BeforeAll {
+        # A repo whose default branch is `main` and whose integration branch is `dev`, with both
+        # pushed, so origin/HEAD and the declaration genuinely point at different refs.
+        function New-SplitBranchRepo {
+            $repo = New-TempRepo -WithOrigin
+            git -C $repo checkout -q -b 'dev'
+            Set-Content -Path (Join-Path $repo 'dev.txt') -Value 'dev' -Encoding utf8
+            git -C $repo add -A
+            git -C $repo commit -q -m 'A commit that exists only on the integration branch'
+            git -C $repo push -q origin 'dev' 2>&1 | Out-Null
+            git -C $repo checkout -q 'main'
+            git -C $repo remote set-head origin -a 2>&1 | Out-Null
+            $repo
+        }
+    }
+
+    It 'follows the declaration rather than origin/HEAD' {
+        $repo = New-SplitBranchRepo
+        # origin/HEAD really does point elsewhere - the declaration is being preferred, not
+        # winning because the alternative was missing.
+        (git -C $repo symbolic-ref --short refs/remotes/origin/HEAD) | Should -Be 'origin/main'
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: dev"
+
+        $base = Resolve-BaseRef -RepoPath $repo
+        $base | Should -Be 'origin/dev'
+        Test-RefResolves -RepoPath $repo -Ref $base | Should -BeTrue
+    }
+
+    It 'takes the local branch when only the local form of the declaration exists' {
+        $repo = New-TempRepo
+        git -C $repo checkout -q -b 'dev'
+        Set-Content -Path (Join-Path $repo 'dev.txt') -Value 'dev' -Encoding utf8
+        git -C $repo add -A
+        git -C $repo commit -q -m 'Integration branch commit'
+        git -C $repo checkout -q 'main'
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: dev"
+
+        $base = Resolve-BaseRef -RepoPath $repo
+        $base | Should -Be 'dev'
+        Test-RefResolves -RepoPath $repo -Ref $base | Should -BeTrue
+    }
+
+    It 'reads a value carrying an inline comment' {
+        $repo = New-SplitBranchRepo
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: dev  # where work integrates"
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/dev'
+    }
+
+    It 'reads a quoted value' {
+        $repo = New-SplitBranchRepo
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: `"dev`""
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/dev'
+    }
+
+    # The two forms together, which is where they used to defeat each other: the comment strip
+    # skipped the value for starting with a quote, and the quote strip skipped it for ending in a
+    # comment, so the declaration came back as `"dev" # ...` and resolved to nothing.
+    It 'reads a quoted value carrying an inline comment' {
+        $repo = New-SplitBranchRepo
+        Set-DeclaredBranch -RepoPath $repo `
+                           -Yaml "pr:`n  base_branch: `"dev`"  # where work integrates"
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/dev'
+    }
+
+    It 'reads a single-quoted value carrying an inline comment' {
+        $repo = New-SplitBranchRepo
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: 'dev' # integration branch"
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/dev'
+    }
+
+    It 'reads a file an editor left a byte-order mark on' {
+        $repo = New-SplitBranchRepo
+        $path = Join-Path $repo '.no-mistakes.yaml'
+        [System.IO.File]::WriteAllText($path, "pr:`r`n  base_branch: dev`r`n",
+                                       (New-Object System.Text.UTF8Encoding $true))
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/dev'
+    }
+}
+
+Describe 'Resolve-BaseRef - a repository that declares nothing' {
+    # Most registered projects declare nothing, and aegis-manager has only `main`. Every one of
+    # them must resolve exactly as it did before any of this reader existed.
+
+    BeforeAll {
+        function New-RepoWithOriginHead {
+            $repo = New-TempRepo -WithOrigin
+            git -C $repo remote set-head origin -a 2>&1 | Out-Null
+            $repo
+        }
+    }
+
+    It 'resolves origin/HEAD when there is no config file at all' {
+        $repo = New-RepoWithOriginHead
+        Test-Path -LiteralPath (Join-Path $repo '.no-mistakes.yaml') | Should -BeFalse
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
+
+    It 'resolves origin/HEAD when the config has no pr block' {
+        $repo = New-RepoWithOriginHead
+        Set-DeclaredBranch -RepoPath $repo -Yaml "intent:`n  enabled: true"
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
+
+    It 'resolves origin/HEAD when the pr block declares no base_branch' {
+        $repo = New-RepoWithOriginHead
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  draft: true"
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
+
+    It 'treats an empty base_branch as no declaration, the way the gate does' {
+        $repo = New-RepoWithOriginHead
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: `"`""
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
+
+    It 'ignores base_branch under some other top-level key' {
+        $repo = New-RepoWithOriginHead
+        Set-DeclaredBranch -RepoPath $repo -Yaml "test:`n  base_branch: dev"
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
+
+    It 'ignores base_branch nested deeper than the pr block itself' {
+        $repo = New-RepoWithOriginHead
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  evidence:`n    base_branch: dev"
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
+
+    # An inline `pr:` naming no branch is refused nowhere, because there is nothing for the
+    # dispatcher and the gate to disagree about - the gate proposes against its own default and so
+    # does this. Refusing it blocked every dispatch into the repository over a line that declares
+    # nothing.
+    It 'reads an empty inline pr mapping as no declaration' {
+        $repo = New-RepoWithOriginHead
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') -Value 'pr: {}' -Encoding utf8
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
+
+    It 'reads a null inline pr value as no declaration' {
+        $repo = New-RepoWithOriginHead
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') -Value 'pr: null' -Encoding utf8
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
+
+    # The refusal is decided on the value, not on the raw line. Searching the line for the word
+    # refused this one for what its own comment says, which blocked every dispatch into the
+    # repository over a declaration that is not there.
+    It 'reads an inline pr mapping whose comment mentions base_branch as no declaration' {
+        $repo = New-RepoWithOriginHead
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') `
+                    -Value 'pr: {} # base_branch is not set here' -Encoding utf8
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
+
+    It 'reads an inline pr mapping of other keys as no declaration' {
+        $repo = New-RepoWithOriginHead
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') `
+                    -Value 'pr: {draft: true}' -Encoding utf8
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
+
+    # A mapping that contains another one still closes on its own line, so refusing it for not
+    # closing said the opposite of what happened - and blocked every dispatch into the repository
+    # over a line that declares no branch for the gate and this reader to disagree about.
+    It 'reads an inline pr mapping containing a nested mapping as no declaration' {
+        $repo = New-RepoWithOriginHead
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') `
+                    -Value 'pr: {draft: true, opts: {a: 1}}' -Encoding utf8
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
+
+    # The same rule the indent check applies to the block form: base_branch under a sub-mapping of
+    # pr: is a different key that happens to share the name.
+    It 'ignores base_branch nested inside a sub-mapping of an inline pr' {
+        $repo = New-RepoWithOriginHead
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') `
+                    -Value 'pr: {opts: {base_branch: dev}}' -Encoding utf8
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
+}
+
+Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
+    It 'skips a declared branch that does not resolve' {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: never-fetched"
+        Test-RefResolves -RepoPath $repo -Ref 'never-fetched' | Should -BeFalse
+
+        $base = Resolve-BaseRef -RepoPath $repo -WarningAction SilentlyContinue
+        $base | Should -Be 'origin/main'
+        Test-RefResolves -RepoPath $repo -Ref $base | Should -BeTrue
+    }
+
+    It 'says out loud which branch it could not honour and what it used instead' {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: never-fetched"
+
+        $warnings = @()
+        $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        ($warnings -join ' ') | Should -BeLike '*never-fetched*'
+        ($warnings -join ' ') | Should -BeLike '*origin/main*'
+        # This repo has an origin, so fetching is a real possibility - the remoteless case below
+        # is the one where that advice would be wrong outright. It is offered as one of two
+        # states rather than asserted, because origin may have no such branch either and nothing
+        # short of a network round trip can tell which this is.
+        ($warnings -join ' ') | Should -BeLike '*Fetch never-fetched*'
+        ($warnings -join ' ') | Should -BeLike '*if origin has it*'
+        ($warnings -join ' ') | Should -BeLike '*If origin has no never-fetched either*'
+    }
+
+    # The fetch advice is the only actionable sentence in that warning, and on a repository with
+    # no origin there is nothing to fetch from and no pull request to misdirect either. Telling
+    # that reader to fetch sends them after an upstream that does not exist.
+    It 'asks for the branch to be created, not fetched, on a remoteless repo' {
+        $repo = New-TempRepo
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: never-created"
+        Test-RefResolves -RepoPath $repo -Ref 'never-created' | Should -BeFalse
+
+        $warnings = @()
+        $base = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        $base | Should -Be 'main'
+        $text = $warnings -join ' '
+        $text | Should -BeLike '*no never-created branch exists here*'
+        $text | Should -BeLike '*no origin to fetch one from*'
+        $text | Should -BeLike '*Create never-created*'
+        $text | Should -Not -BeLike '*Fetch never-created*'
+        $text | Should -Not -BeLike '*pull request*'
+    }
+
+    It 'stays quiet when the declaration was honoured' {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: main"
+
+        $warnings = @()
+        $base = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        $base | Should -Be 'origin/main'
+        $warnings.Count | Should -Be 0
+    }
+
+    It 'rejects a declared worker branch outright, however well it resolves' {
+        $repo = New-DeclaredWorkerBranchRepo
+        Test-RefResolves -RepoPath $repo -Ref 'origin/worktree-other' | Should -BeTrue
+
+        $base = Resolve-BaseRef -RepoPath $repo -WarningAction SilentlyContinue
+        $base | Should -Be 'origin/main'
+        $base | Should -Not -BeLike '*worktree-*'
+    }
+
+    # A declared worker branch is refused in both forms before anything is resolved, so it is not
+    # a missing ref and telling the reader to fetch it sends them after a branch they already
+    # have while the real fault - a declaration pointing at another worker's branch - goes unsaid.
+    It 'says a declared worker branch was refused, not that it is missing' {
+        $repo = New-DeclaredWorkerBranchRepo
+
+        $warnings = @()
+        $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        $text = $warnings -join ' '
+        $text | Should -BeLike '*worktree-other*'
+        $text | Should -BeLike '*worker branch*'
+        $text | Should -Not -BeLike '*neither origin/worktree-other nor worktree-other resolves*'
+        $text | Should -Not -BeLike '*Fetch worktree-other*'
+    }
+
+    It 'says the same thing in the refusal when a declared worker branch is all there is' {
+        $repo = New-TempRepo -Branch 'worktree-only'
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: worktree-only"
+        Test-RefResolves -RepoPath $repo -Ref 'worktree-only' | Should -BeTrue
+
+        $err = $null
+        try { Resolve-BaseRef -RepoPath $repo } catch { $err = $_.Exception.Message }
+        $err | Should -BeLike '*Cannot resolve a base ref*'
+        $err | Should -BeLike '*worktree-only is the branch this repository declares*'
+        $err | Should -BeLike '*refused rather than tried*'
+        $err | Should -Not -BeLike '*tried first in both forms*'
+    }
+
+    It 'still throws when nothing resolves, and says the declaration was tried' {
+        $repo = New-TempRepo -Empty
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: dev"
+        $err = $null
+        try { Resolve-BaseRef -RepoPath $repo } catch { $err = $_.Exception.Message }
+        $err | Should -BeLike '*Cannot resolve a base ref*'
+        $err | Should -BeLike '*dev is the branch this repository declares*'
+        $err | Should -BeLike '*tried first in both forms*'
+    }
+}
+
+Describe 'Resolve-BaseRef - the declared branch honoured only as a local ref' {
+    # origin/$declared is preferred over the local $declared because the local copy is often
+    # behind. Falling through to it on a repo that HAS an origin therefore means the declared
+    # branch was never fetched: the worktree is cut from a stale tree, and every upstream commit
+    # in the gap lands in the worker's diff and attribution scan as if the worker wrote it.
+
+    It 'warns that the local copy is unconfirmed when the repo has a remote' {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        git -C $repo branch dev
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: dev"
+        Test-RefResolves -RepoPath $repo -Ref 'dev'        | Should -BeTrue
+        Test-RefResolves -RepoPath $repo -Ref 'origin/dev' | Should -BeFalse
+
+        $warnings = @()
+        $base = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        # The declaration is still honoured - this is a caution, not a refusal.
+        $base | Should -Be 'dev'
+        ($warnings -join ' ') | Should -BeLike '*origin/dev*'
+        ($warnings -join ' ') | Should -BeLike '*Fetch dev*'
+    }
+
+    # Fetching only closes the gap when origin actually has the branch. This fixture is the other
+    # state - `dev` was created locally and never pushed, so `git fetch origin dev` answers
+    # `couldn't find remote ref dev` and there are no upstream commits to attribute to anyone.
+    # Telling apart the two needs a network round trip on a path that must not hang a dispatch,
+    # so the warning names both rather than asserting the one that happens to be wrong here.
+    It 'names pushing as well as fetching, since origin may not have the branch at all' {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        git -C $repo branch dev
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: dev"
+        # The branch really is local-only: origin has main and nothing else.
+        (git -C $repo ls-remote --heads origin dev) | Should -BeNullOrEmpty
+
+        $warnings = @()
+        $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        $text = $warnings -join ' '
+        $text | Should -BeLike '*if origin has it*'
+        $text | Should -BeLike '*fetching cannot work*'
+        $text | Should -BeLike '*push the branch*'
+    }
+
+    It 'stays quiet on a remoteless repo, where the local ref is the only ref there is' {
+        $repo = New-TempRepo
+        git -C $repo branch dev
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: dev"
+
+        $warnings = @()
+        $base = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        $base | Should -Be 'dev'
+        $warnings.Count | Should -Be 0
+    }
+
+    It 'leaves the caller no stray exit code from the remote probe' {
+        $repo = New-TempRepo
+        git -C $repo branch dev
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: dev"
+
+        $global:LASTEXITCODE = 0
+        $null = Resolve-BaseRef -RepoPath $repo -WarningAction SilentlyContinue
+        $LASTEXITCODE | Should -Be 0
+    }
+}
+
+Describe 'Resolve-BaseRef - a declaration nobody can read is not an absent one' {
+    # Criterion: a fail-closed path names its own failure and never fabricates a value. Falling
+    # through to origin/HEAD here would cut the worker from the default branch while its pull
+    # request is proposed against whatever the unreadable file says - silently, which is the whole
+    # failure this reader closes.
+
+    It 'refuses when the config path is a directory' {
+        $repo = New-TempRepo -WithOrigin
+        New-Item -ItemType Directory -Path (Join-Path $repo '.no-mistakes.yaml') | Out-Null
+        { Resolve-BaseRef -RepoPath $repo } | Should -Throw '*.no-mistakes.yaml is a directory*'
+    }
+
+    It 'refuses when the config cannot be read, naming the file' {
+        $repo = New-TempRepo -WithOrigin
+        $path = Join-Path $repo '.no-mistakes.yaml'
+        Set-Content -Path $path -Value "pr:`n  base_branch: dev" -Encoding utf8
+        # Held open with no sharing at all, which is the one way to make Get-Content fail on a
+        # file that exists. Released in the finally, so the fixture cleanup can still remove it.
+        $lock = [System.IO.File]::Open($path, 'Open', 'Read', 'None')
+        try {
+            { Resolve-BaseRef -RepoPath $repo } | Should -Throw "*Cannot read $path*"
+        } finally { $lock.Dispose() }
+    }
+
+    It 'refuses an inline pr mapping that declares a branch rather than reading past it' {
+        $repo = New-TempRepo -WithOrigin
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') `
+                    -Value 'pr: {base_branch: dev}' -Encoding utf8
+        { Resolve-BaseRef -RepoPath $repo } |
+            Should -Throw '*declares base_branch inline on the pr key*'
+    }
+
+    # A flow mapping that runs past its own line puts its keys where this reader skips them - they
+    # are indented under a key it has already left - so the declaration came back as no
+    # declaration at all, and the worker was based on origin/HEAD while the gate proposed against
+    # `dev`. Unknown contents are refused, the same as an unreadable file.
+    It 'refuses a pr flow mapping that does not close on its own line' {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') -Encoding utf8 `
+                    -Value @('pr: {', '  base_branch: dev', '}')
+        { Resolve-BaseRef -RepoPath $repo } |
+            Should -Throw '*cannot finish reading*'
+    }
+
+    It 'refuses a pr flow mapping left open after a nested one closes' {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') -Encoding utf8 `
+                    -Value @('pr: {opts: {a: 1},', '  base_branch: dev', '}')
+        { Resolve-BaseRef -RepoPath $repo } |
+            Should -Throw '*cannot finish reading*'
+    }
+
+    It 'still refuses a declared branch written beside a nested mapping' {
+        $repo = New-TempRepo -WithOrigin
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') `
+                    -Value 'pr: {base_branch: dev, opts: {a: 1}}' -Encoding utf8
+        { Resolve-BaseRef -RepoPath $repo } |
+            Should -Throw '*declares base_branch inline on the pr key*'
     }
 }
 
@@ -474,6 +917,69 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $start[0] | Should -Not -BeLike '* -- *'
             $start[0] | Should -Not -BeLike '*bypassPermissions*'
             $start[0] | Should -Not -BeLike '*--add-dir*'
+        }
+    }
+
+    # The declaration exists so that a repository can land a fresh clone on `main` while its work
+    # integrates on `dev`. Resolve-BaseRef is exercised on its own above; what a worker is actually
+    # handed is decided here, where the resolved ref becomes both the branch point and the recorded
+    # base. So this asserts the tree the worker opens, not just the string that came back.
+    Context 'a repository whose integration branch is not its default branch' {
+        BeforeAll {
+            Set-AgentStartState
+            $script:Split = New-DispatchFixture 'split-branch'
+
+            # Default `main`, integration `dev`, and a commit that exists only on `dev` - so a
+            # worktree cut from the default branch is missing a file a worktree cut from the
+            # integration branch has, and the two are told apart by what is on disk.
+            $repo = New-TempRepo -WithOrigin
+            git -C $repo checkout -q -b 'dev'
+            Set-Content -Path (Join-Path $repo 'only-on-dev.txt') -Value 'integration' -Encoding utf8
+            git -C $repo add -A
+            git -C $repo commit -q -m 'A commit that exists only on the integration branch'
+            git -C $repo push -q origin 'dev' 2>&1 | Out-Null
+            git -C $repo checkout -q 'main'
+            git -C $repo remote set-head origin -a 2>&1 | Out-Null
+            Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: dev"
+
+            $script:Split.Repo   = $repo
+            $script:SplitResult  = Invoke-Dispatch -Fixture $script:Split -Name 'T-3001'
+        }
+
+        It 'cuts the worker from the declared branch, not from the default one' {
+            # origin/HEAD really does name the other branch, so the declaration is being
+            # preferred rather than winning because the alternative was missing.
+            (git -C $script:Split.Repo symbolic-ref --short refs/remotes/origin/HEAD) |
+                Should -Be 'origin/main'
+
+            $head = (& git -C $script:SplitResult.worktree rev-parse 'HEAD').Trim()
+            $head | Should -Be (& git -C $script:Split.Repo rev-parse 'origin/dev').Trim()
+            $head | Should -Not -Be (& git -C $script:Split.Repo rev-parse 'origin/main').Trim()
+        }
+
+        # What the worker sees when it opens its checkout: the integration branch's tree, with the
+        # work that has landed there present rather than absent.
+        It 'gives the worker a checkout holding the integration branch work' {
+            Test-Path -LiteralPath (Join-Path $script:SplitResult.worktree 'only-on-dev.txt') |
+                Should -BeTrue -Because 'the worker is working on top of what has already integrated'
+        }
+
+        # The recorded base is what the landing gate diffs against, so recording the default
+        # branch here would fold every dev-only commit into the worker's diff.
+        It 'records the declared branch as the base the landing gate will diff against' {
+            $script:SplitResult.base | Should -Be 'origin/dev'
+        }
+
+        # The diff the landing gate actually takes, run against the base this dispatch recorded:
+        # empty on a fresh branch, because the worker has written nothing yet. Against the default
+        # branch it would list the integration branch's file as this worker's work.
+        It 'leaves the landing diff empty until the worker writes something' {
+            $diff = @(& git -C $script:SplitResult.worktree diff --name-only `
+                             "$($script:SplitResult.base)...HEAD" | Where-Object { $_.Trim() })
+            $diff | Should -BeNullOrEmpty
+            @(& git -C $script:SplitResult.worktree diff --name-only 'origin/main...HEAD') |
+                Should -Contain 'only-on-dev.txt' `
+                -Because 'this is the widened diff the declaration exists to avoid'
         }
     }
 

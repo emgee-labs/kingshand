@@ -157,7 +157,7 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, query, save |
 | `bin\Projects.psm1` | the project registry: read an entry and its posture, add one, test importability |
 | `bin\Dispatch-Worker.ps1` | creates one worktree and spawns one worker in it, and returns what Crew.psm1 must record |
-| `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the base ref the landing gate diffs against, always confirmed with `git rev-parse --verify` |
+| `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the one ref a worker branches from and the landing gate diffs against - the integration branch the repo declares in `.no-mistakes.yaml`, and its default branch where it declares none, always confirmed with `git rev-parse --verify` |
 | `bin\Get-CrewStatus.ps1` | joins crew.json with herdr's live agent state |
 | `bin\Get-SurveySnapshot.ps1` | the one bounded gather behind `/survey`: registry, workers joined with live state, reports, un-dispatched briefs. Returns structured data, renders nothing, never throws |
 | `bin\Render-Review.ps1` | structured data to reviewable HTML for lavish |

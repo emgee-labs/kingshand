@@ -4832,3 +4832,82 @@ Describe 'a project has a standing definition of done, and repeated findings are
             -Phrase '"no linter is configured here, so ignore lint"'
     }
 }
+
+Describe 'the default branch and the integration branch are two things' {
+    # A repository can land a fresh clone on `main` while every pull request targets `dev` and
+    # every worker branches from `dev`. `origin/HEAD` names only the first, so the tooling table
+    # has to say which of the two the dispatcher follows - otherwise the next reader assumes the
+    # default branch, which is the assumption that cuts a worker from the wrong tree.
+    It 'the CLAUDE.md tooling table says the dispatcher follows the declared integration branch' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
+            -Phrase ('| `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the one ref a ' +
+                     'worker branches from and the landing gate diffs against - the integration ' +
+                     'branch the repo declares in `.no-mistakes.yaml`, and its default branch ' +
+                     'where it declares none, always confirmed with `git rev-parse --verify` |')
+    }
+
+    # Base resolution warns rather than refusing when it could not honour a declaration, or
+    # honoured it only as a local copy - and on a `+yolo` project the Hand is the warning's sole
+    # reader, so nothing else stops to show it. Delete the relay rule and work lands measured
+    # against a stale base with nothing having said so, which no other test would notice.
+    It 'muster Step 4 makes the Hand relay a base-resolution warning' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase '**Relay any warning that call prints.**'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('On a `+yolo` project nothing else stops to show it, so an unrelayed ' +
+                     'warning is work landed against a stale base.')
+    }
+
+    # The recorded base and the branch point are one ref only where the dispatch actually branched.
+    # Re-dispatching a ticket whose branch survived does not branch again, so a repository that has
+    # declared an integration branch since - which is what this change makes likely - leaves the
+    # base naming one tree and the branch cut from another. The Hand reads step 7's diff, so it is
+    # the reader that has to know: without this, a widened diff looks like the worker's doing.
+    It 'muster warns that a re-dispatched ticket can be diffed against the wrong base' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('**On a re-dispatch the two can disagree, so read step 7''s diff knowing ' +
+                     'that.**')
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'A widened diff on a re-dispatched ticket is that, not the worker''s doing.'
+    }
+
+    # The claim in that row that a reviewer cannot check by reading: that the two consumers of the
+    # declaration read the same key from the same file. A row saying so while the gate read
+    # something else would be worse than a row saying nothing.
+    #
+    # Asserted by running the real reader over this repository's own file, not by looking for a
+    # string in it. A substring both false-passes and false-fails: `# base_branch: dev` left
+    # commented out matches while the repository declares nothing, and `base_branch: "dev"` -
+    # a form the reader honours - does not match at all.
+    It 'the repository declares that branch where the review gate reads it' {
+        $declared = Join-Path $script:Root '.no-mistakes.yaml'
+        Test-Path -LiteralPath $declared | Should -BeTrue -Because 'the tooling table names this file'
+
+        # A throwaway repo carrying this repository's declaration and nothing else, so what the
+        # reader returns is decided by the file rather than by whatever refs this checkout holds.
+        # No origin and a `main` default, so an undeclared repo resolves to `main` and only an
+        # honoured declaration can come back as `dev`.
+        $probe = Join-Path ([System.IO.Path]::GetTempPath()) `
+                           ('declared-base-' + [guid]::NewGuid().ToString('N'))
+        try {
+            git init -b main $probe -q
+            git -C $probe config user.name  'Test'
+            git -C $probe config user.email 'test@example.invalid'
+            Set-Content -Path (Join-Path $probe 'base.txt') -Value 'base' -Encoding utf8
+            git -C $probe add -A
+            git -C $probe commit -q -m 'Initial commit'
+            git -C $probe branch dev
+            Copy-Item -LiteralPath $declared -Destination (Join-Path $probe '.no-mistakes.yaml')
+
+            . (Join-Path $script:Root 'bin\Resolve-BaseRef.ps1')
+            Resolve-BaseRef -RepoPath $probe |
+                Should -Be 'dev' -Because 'kingshand integrates on dev, whatever its default branch becomes'
+        } finally {
+            if (Test-Path -LiteralPath $probe) {
+                Remove-Item -LiteralPath $probe -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+}
