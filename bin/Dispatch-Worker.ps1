@@ -86,16 +86,24 @@
   follow is the settled-spec failure at a larger scale and worse, because it looks solved. Neither
   way past is an absence: an empty section, or a heading with nothing under it, still refuses.
 
-  EXACTLY ONE -ReadPath does not count towards it: data\done-<project>.md for the project this
-  dispatch resolved to, the standing-criteria file muster hands over on every brief for a project
-  that has one. Counting a path passed by rote would make this refusal unreachable from the moment
-  the first criteria file is written, and the premise of the whole check is that a -ReadPath is
-  evidence the Hand went through the index for THIS task. Every other path counts, including another
-  file sitting beside it in data\. When the discounted path is the only one the brief passed, the
-  refusal says which path it discounted and why - a message denying what the reader can see it just
-  did is one nobody can act on - and it recommends muster's longer stated line rather than the short
-  one, because the short one would tell the worker there is nothing beyond the brief in the same
-  breath as the section hands it the criteria copy.
+  THREE -ReadPaths do not count towards it, and all for one reason: muster passes each of them by
+  rote rather than because this task touches it. The first is data\done-<project>.md for the project
+  this dispatch resolved to, the standing-criteria file muster hands over on every brief for a
+  project that has one. The other two are .claude\skills\witness\SKILL.md and bin\BrowserVerify.psm1,
+  the browser procedure and the module it imports, which muster hands over on every brief carrying a
+  `## Browser checks` section - a worker reaches its own worktree and the brief's directory and
+  nowhere else, and it cannot load a skill from this repository at all, so both travel as copies.
+  Those two discounts apply ONLY to a brief carrying that section, which is the one place the files
+  are passed by rote: a kingshand task to change the procedure itself passes it because it is
+  the subject, carries no browser checks, and engages the gate like any other chosen file.
+  Counting a path passed by rote would make this refusal unreachable from the moment the first
+  criteria file is written, and the premise of the whole check is that a -ReadPath is evidence the
+  Hand went through the index for THIS task. Every other path counts, including another file sitting
+  beside it in data\. When the discounted paths are the only ones the brief passed, the refusal says
+  which it discounted and why - a message denying what the reader can see it just did is one nobody
+  can act on - and it recommends muster's longer stated line rather than the short one, because the
+  short one would tell the worker there is nothing beyond the brief in the same breath as the section
+  hands it those copies.
 
   EVERY index that could cover the dispatch counts, and the root one counts first. data\index.md is
   where the settled files this gate exists to protect actually land - chronicle, annex and survey all
@@ -119,6 +127,13 @@
   That check parses nothing about paths either. It counts -ReadPath entries, which arrived
   structurally, asks Index.psm1 what each index lists, and looks at the section's own lines for one
   stated sentence. Nothing in it turns prose into a file name.
+
+  A brief carrying a `## Browser checks` section is refused unless it passes BOTH the browser
+  procedure and the module, because that section points the worker at copies under read-first and
+  those copies exist only where -ReadPath put them. Forget either and the worker follows its brief
+  to a file that is not there, then drives a browser with none of the rules the section carries.
+  Prose said so first and prose is not a mechanism; this is the same principle as the rest of the
+  gate, that a check a forgotten argument switches off is not a check.
 
   Everything else refused here is about -ReadPath itself, where the path is known exactly and
   nothing is being read out of anything: a path that is not on disk, a directory where a file was
@@ -222,7 +237,13 @@ foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
 # accepts. That is the whole of what is read out of them: no path, no file name, no comparison
 # against -ReadPath. The section ends at the next heading, and a fenced block inside it is quoted
 # text there too - a template a brief quotes cannot make a statement on that brief's behalf.
+#
+# Whether the brief carries a `## Browser checks` section is read here too, and for one purpose
+# only: it is what tells the index gate below that the browser procedure was passed by rote rather
+# than because this task is about that file. Read under the same fence rule, so a brief quoting
+# muster's template does not acquire a browser step it never asked for.
 $hasSection   = $false
+$hasBrowser   = $false
 $inSection    = $false
 $inFence      = $false
 $sectionLines = [System.Collections.Generic.List[string]]::new()
@@ -232,6 +253,7 @@ foreach ($line in @(Get-Content -LiteralPath $BriefPath)) {
         continue
     }
     if ($inFence) { continue }
+    if ($line -match '^\s*##\s+Browser checks\b') { $hasBrowser = $true }
     if ($line -match '^\s*##\s+Read first\s*$') {
         $hasSection = $true
         $inSection  = $true
@@ -257,6 +279,45 @@ if (-not $hasSection) {
            "'- Nothing beyond this brief - the index was checked and nothing in it applies.' when " +
            "the index turns up nothing this task touches, so that it reads as a decision rather " +
            "than an omission. Nothing was created.")
+}
+
+# The two files a browser step is carried out with: the procedure the worker reads and the module
+# it imports. Rooted off this script rather than off the data root, because both are part of the
+# installation rather than of anybody's data, and resolved so every comparison below sees the same
+# shape Resolve-Path gave the staged copies.
+$procedurePath = [System.IO.Path]::GetFullPath(
+    (Join-Path $PSScriptRoot '..\.claude\skills\witness\SKILL.md'))
+$modulePath    = [System.IO.Path]::GetFullPath(
+    (Join-Path $PSScriptRoot 'BrowserVerify.psm1'))
+
+# A brief that asks for browser checks has to hand both of them over, and prose saying so is not
+# the mechanism - this is. A worker reaches its own worktree and the brief's directory and nowhere
+# else, and it cannot load a skill from this repository at all, so the section points it at copies
+# under read-first and those copies exist only because -ReadPath was passed. Forget either and the
+# worker follows the section to a file that is not there, then either stops with the browser step
+# dead or drives a browser with no read-only boundary, no dialog rule, no credential rule and no
+# record format. That is the failure the whole file-delivery mechanism was added to close, and a
+# gate a forgotten argument switches off is not a gate.
+if ($hasBrowser) {
+    $needed = [ordered]@{
+        'browser procedure' = $procedurePath
+        'browser module'    = $modulePath
+    }
+    $absent = @(foreach ($k in $needed.Keys) {
+        $p = $needed[$k]
+        $there = @($staged.Values | Where-Object {
+            $_.Equals($p, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+        if (-not $there) { "the $k at $p" }
+    })
+    if ($absent.Count -gt 0) {
+        throw ("The brief at $BriefPath carries a '## Browser checks' section and passes no " +
+               "-ReadPath for " + ($absent -join ' or ') + ". A worker reaches its own worktree " +
+               "and the brief's directory and nowhere else, so a section naming a file outside " +
+               "both delivers nothing and would send it into a browser with none of the rules " +
+               "attached. Pass each of those files to -ReadPath and name the copies under " +
+               "'Read first' - or drop the '## Browser checks' section, which is the whole opt-in " +
+               "and belongs only on a task that renders something to look at. Nothing was created.")
+    }
 }
 
 # The index gate. The section exists; this asks whether the index behind it was actually consulted.
@@ -393,9 +454,26 @@ if ($gates.Count -gt 0) {
     if ($project) {
         $byRote = Join-Path (Resolve-IndexDataPath -DataPath $DataPath) "done-$project.md"
     }
-    $engaged = @($staged.Values | Where-Object {
-        -not ($byRote -and $_.Equals($byRote, [System.StringComparison]::OrdinalIgnoreCase))
-    })
+
+    # The browser procedure and its module are the other two files muster passes by rote, on every
+    # brief carrying a `## Browser checks` section - and by the refusal above, every such brief
+    # passes both.
+    #
+    # Discounted only on a brief that carries that section, because only there are they passed by
+    # rote. On a kingshand task to change the procedure itself, that file IS the subject and the
+    # brief carries no browser checks - so it counts, exactly as any other file the Hand chose
+    # would. A discount keyed on the path alone refused that dispatch and told it a reason that
+    # was not true of it.
+    $procedure = if ($hasBrowser) { $procedurePath } else { '' }
+    $module    = if ($hasBrowser) { $modulePath }    else { '' }
+
+    $discountedPaths = @(@($byRote, $procedure, $module) | Where-Object { $_ })
+    $isByRote = {
+        param($path)
+        @($discountedPaths | Where-Object {
+            $path.Equals($_, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+    }
+    $engaged = @($staged.Values | Where-Object { -not (& $isByRote $_) })
 
     if ($engaged.Count -eq 0 -and -not $statesIndexChecked) {
         # Every index that triggered this is named with its path, because the refusal is the Hand's
@@ -409,15 +487,55 @@ if ($gates.Count -gt 0) {
         # the worker the criteria copy, so that same line would tell it there is nothing beyond the
         # brief in the same breath - the contradiction muster rules out. So this branch recommends
         # muster's paraphrase, which states both halves and passes the regex above unchanged.
+        # Every clause stands on its own, because any of them can be the first one written. An
+        # earlier version had the browser clause open with "for the same reason" and end with
+        # "either", which on a project with no criteria file referred back to a sentence that was
+        # never there.
+        $wasPassed = {
+            param($path)
+            $path -and @($staged.Values | Where-Object {
+                $_.Equals($path, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+        }
+        $passedCriteria  = [bool](& $wasPassed $byRote)
+        $passedProcedure = [bool](& $wasPassed $procedure)
+        $passedModule    = [bool](& $wasPassed $module)
+
+        $clauses = @()
+        $beyond  = @()
+        if ($passedCriteria) {
+            $clauses += ("the standing-criteria file $byRote, which every brief for this project " +
+                         'passes')
+            $beyond  += 'the standing criteria'
+        }
+        if ($passedProcedure) {
+            $clauses += ("the browser procedure $procedure, which every brief carrying browser " +
+                         'checks passes')
+            $beyond  += 'the browser procedure'
+        }
+        if ($passedModule) {
+            $clauses += ("the browser module $module, which every brief carrying browser checks " +
+                         'passes')
+            $beyond  += 'the browser module'
+        }
+
         $discounted = ''
         $stated = "'- Nothing beyond this brief - the index was checked and nothing in it applies.'"
-        if ($staged.Count -gt 0) {
-            $discounted = ("The only file this brief passes is the standing-criteria file $byRote, " +
-                           "which every brief for this project passes and which therefore says " +
-                           "nothing about this task. ")
-            $stated = ("'- The index was checked; nothing in it applies to this task beyond the " +
-                       "standing criteria above.' - which says so without contradicting the " +
-                       "criteria line already in the section.")
+        if ($clauses.Count -gt 0) {
+            $lead = if ($clauses.Count -eq 1) { 'The only file this brief passes is' }
+                    else { 'The only files this brief passes are' }
+            $discounted = ("$lead " + ($clauses -join '; and ') + " - each passed by rote, so " +
+                           'none of them says anything about this task. ')
+        }
+
+        # The recommended line names every copy the section already hands over, because a line
+        # saying nothing applies beyond one of them, written beside a section naming two, is the
+        # same self-contradiction this branch exists to keep out of the brief.
+        if ($beyond.Count -gt 0) {
+            $beyondText = if ($beyond.Count -le 2) { $beyond -join ' and ' }
+                          else { ($beyond[0..($beyond.Count - 2)] -join ', ') + ' and ' + $beyond[-1] }
+            $stated = ("'- The index was checked; nothing in it applies to this task beyond " +
+                       "$beyondText above.' - which says so without contradicting " +
+                       'what the section already hands the worker.')
         }
         throw ("This dispatch is gated by $named - and this brief neither names a file from them to " +
                "read nor says they were checked. $discounted" +
