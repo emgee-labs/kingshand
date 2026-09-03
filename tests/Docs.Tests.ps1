@@ -3073,6 +3073,8 @@ Describe 'no long dash' {
         @{ file = 'docs\2026-08-31-read-first-declared-not-parsed.md' }
         @{ file = 'docs\2026-09-01-stall-detection.md' }
         @{ file = 'docs\2026-09-02-prompt-box-safety.md' }
+        @{ file = '.claude\skills\update\SKILL.md' }
+        @{ file = 'docs\2026-09-03-versioning-and-update.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
@@ -3389,7 +3391,7 @@ Describe 'survey puts an open decision in King''s Call and only there' {
 }
 
 Describe 'the setup skill ships inside the repo so a fresh clone can bootstrap itself' {
-    # Every skill is project-local, under .claude\skills\, so all thirteen are readable the moment
+    # Every skill is project-local, under .claude\skills\, so all fourteen are readable the moment
     # someone opens Claude Code in this directory and none of them is reachable from anywhere
     # else on the machine. That is what lets "set it up" be the first thing anyone types.
     BeforeAll { $script:SetupText = Get-DocText $script:SetupMd }
@@ -3790,7 +3792,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
 
     It 'every skill directory lives under .claude\skills\' {
         $skills = @(Get-ChildItem (Join-Path $script:Root '.claude\skills') -Directory)
-        $skills.Count | Should -Be 13 -Because 'twelve skills plus setup, all project-local'
+        $skills.Count | Should -Be 14 -Because 'thirteen skills plus setup, all project-local'
         @($skills.Name) | Should -Contain 'herald' -Because 'output shape has an owner the user can turn on'
         foreach ($s in $skills) {
             Test-Path -LiteralPath (Join-Path $s.FullName 'SKILL.md') |
@@ -4830,5 +4832,273 @@ Describe 'a project has a standing definition of done, and repeated findings are
             -Phrase '"the King has already declined findings of this class"'
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
             -Phrase '"no linter is configured here, so ignore lint"'
+    }
+}
+
+Describe 'the default branch and the integration branch are two things' {
+    # A repository can land a fresh clone on `main` while every pull request targets `dev` and
+    # every worker branches from `dev`. `origin/HEAD` names only the first, so the tooling table
+    # has to say which of the two the dispatcher follows - otherwise the next reader assumes the
+    # default branch, which is the assumption that cuts a worker from the wrong tree.
+    It 'the CLAUDE.md tooling table says the dispatcher follows the declared integration branch' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
+            -Phrase ('| `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the one ref a ' +
+                     'worker branches from and the landing gate diffs against - the integration ' +
+                     'branch the repo declares in `.no-mistakes.yaml`, and its default branch ' +
+                     'where it declares none, always confirmed with `git rev-parse --verify` |')
+    }
+
+    # Base resolution warns rather than refusing when it could not honour a declaration, or
+    # honoured it only as a local copy - and on a `+yolo` project the Hand is the warning's sole
+    # reader, so nothing else stops to show it. Delete the relay rule and work lands measured
+    # against a stale base with nothing having said so, which no other test would notice.
+    It 'muster Step 4 makes the Hand relay a base-resolution warning' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase '**Relay any warning that call prints.**'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('On a `+yolo` project nothing else stops to show it, so an unrelayed ' +
+                     'warning is work landed against a stale base.')
+    }
+
+    # The recorded base and the branch point are one ref only where the dispatch actually branched.
+    # Re-dispatching a ticket whose branch survived does not branch again, so a repository that has
+    # declared an integration branch since - which is what this change makes likely - leaves the
+    # base naming one tree and the branch cut from another. The Hand reads step 7's diff, so it is
+    # the reader that has to know: without this, a widened diff looks like the worker's doing.
+    It 'muster warns that a re-dispatched ticket can be diffed against the wrong base' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('**On a re-dispatch the two can disagree, so read step 7''s diff knowing ' +
+                     'that.**')
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'A widened diff on a re-dispatched ticket is that, not the worker''s doing.'
+    }
+
+    # The claim in that row that a reviewer cannot check by reading: that the two consumers of the
+    # declaration read the same key from the same file. A row saying so while the gate read
+    # something else would be worse than a row saying nothing.
+    #
+    # Asserted by running the real reader over this repository's own file, not by looking for a
+    # string in it. A substring both false-passes and false-fails: `# base_branch: dev` left
+    # commented out matches while the repository declares nothing, and `base_branch: "dev"` -
+    # a form the reader honours - does not match at all.
+    It 'the repository declares that branch where the review gate reads it' {
+        $declared = Join-Path $script:Root '.no-mistakes.yaml'
+        Test-Path -LiteralPath $declared | Should -BeTrue -Because 'the tooling table names this file'
+
+        # A throwaway repo carrying this repository's declaration and nothing else, so what the
+        # reader returns is decided by the file rather than by whatever refs this checkout holds.
+        # No origin and a `main` default, so an undeclared repo resolves to `main` and only an
+        # honoured declaration can come back as `dev`.
+        $probe = Join-Path ([System.IO.Path]::GetTempPath()) `
+                           ('declared-base-' + [guid]::NewGuid().ToString('N'))
+        try {
+            git init -b main $probe -q
+            git -C $probe config user.name  'Test'
+            git -C $probe config user.email 'test@example.invalid'
+            Set-Content -Path (Join-Path $probe 'base.txt') -Value 'base' -Encoding utf8
+            git -C $probe add -A
+            git -C $probe commit -q -m 'Initial commit'
+            git -C $probe branch dev
+            Copy-Item -LiteralPath $declared -Destination (Join-Path $probe '.no-mistakes.yaml')
+
+            . (Join-Path $script:Root 'bin\Resolve-BaseRef.ps1')
+            Resolve-BaseRef -RepoPath $probe |
+                Should -Be 'dev' -Because 'kingshand integrates on dev, whatever its default branch becomes'
+        } finally {
+            if (Test-Path -LiteralPath $probe) {
+                Remove-Item -LiteralPath $probe -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+}
+
+# Kingshand had no version at all: nothing said which copy you were running, and `git pull` - which
+# takes whatever was pushed last - was the only way to move. The rules below are what replaced that,
+# and every one of them is prose that nothing else in the suite would miss if it were deleted.
+Describe 'the installation has a version, and one command moves it to a release' {
+    BeforeAll {
+        $script:UpdateMd   = Join-Path $script:Root '.claude\skills\update\SKILL.md'
+        $script:UpdateText = Get-DocText $script:UpdateMd
+        $script:VersionDoc = Get-DocText (Join-Path $script:Root 'docs\2026-09-03-versioning-and-update.md')
+    }
+
+    It 'ships a VERSION file holding one version and nothing else' {
+        $path = Join-Path $script:Root 'VERSION'
+        Test-Path -LiteralPath $path | Should -BeTrue -Because 'the version is a file, not a claim in prose'
+        $lines = @(Get-Content -Path $path | Where-Object { $_.Trim() })
+        $lines.Count | Should -Be 1 -Because 'a second line in it is a second thing to disagree with'
+        $lines[0].Trim() | Should -Match '^\d+\.\d+\.\d+'
+    }
+
+    It 'names the version as one line of the session-start digest' {
+        Assert-Phrase -Text (Get-HandSection 'Session start') -Where 'CLAUDE.md Session start' `
+            -Phrase 'The digest carries six things: this installation''s version on one `VERSION:` line'
+    }
+
+    It 'declares the update skill trigger inline, with its refusals' {
+        $skills = Get-HandSection 'Skills'
+        Assert-Phrase -Text $skills -Where 'CLAUDE.md Skills' `
+            -Phrase ('Invoke `update` when the user invokes `/update` or asks to move kingshand itself ' +
+                     'to the latest version.')
+        Assert-Phrase -Text $skills -Where 'CLAUDE.md Skills' `
+            -Phrase ('It fast-forwards this installation to the latest tagged release, re-runs ' +
+                     '`install.ps1`, and says which version it moved from and to.')
+        Assert-Phrase -Text $skills -Where 'CLAUDE.md Skills' `
+            -Phrase ('It refuses rather than proceeding on a dirty tree, on any live worker, off the ' +
+                     'release branch, or where no release has been tagged yet.')
+        Assert-Phrase -Text $skills -Where 'CLAUDE.md Skills' `
+            -Phrase 'Never run it on the King''s behalf.'
+    }
+
+    It 'counts every skill that now loads' {
+        Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'CLAUDE.md Skills' `
+            -Phrase 'so all fourteen load when Claude Code runs here'
+    }
+
+    It 'gives the version and the update their own owners in the tooling table' {
+        $tooling = Get-HandSection 'Tooling'
+        Assert-Phrase -Text $tooling -Where 'the CLAUDE.md tooling table' `
+            -Phrase ('| `bin\Version.psm1` | the `VERSION` file at the repo root: this installation''s ' +
+                     'version, read and validated in one place, and never fabricated when it cannot be read |')
+        Assert-Phrase -Text $tooling -Where 'the CLAUDE.md tooling table' `
+            -Phrase ('| `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the ' +
+                     'latest release tag, and the commit subjects between two releases |')
+    }
+
+    It 'has frontmatter that parses, with the trigger in the description' {
+        $fm = Get-Frontmatter $script:UpdateMd
+        $fm['name']    | Should -Be 'update' -Because 'the frontmatter name must match the skill directory'
+        $fm['version'] | Should -Be '1.0.0'
+        $fm['description'].Contains('"/update"') |
+            Should -BeTrue -Because 'the slash command has to fire the skill'
+        $fm['description'].Contains('"am I on the latest?"') |
+            Should -BeTrue -Because 'a skill reached only by its own name is reached by nobody'
+    }
+
+    It 'says this is not project work and needs no worker' {
+        Assert-Phrase -Text $script:UpdateText -Where 'the update skill' `
+            -Phrase '**This is not project work and it needs no worker.**'
+        Assert-Phrase -Text $script:UpdateText -Where 'the update skill' `
+            -Phrase 'so do not write a brief, do not dispatch, and do not load `muster`'
+        Assert-Phrase -Text $script:UpdateText -Where 'the update skill' `
+            -Phrase '**Run it only when the user asks.**'
+    }
+
+    It 'updates to a tag and never to a branch head' {
+        Assert-Phrase -Text $script:UpdateText -Where 'the update skill' `
+            -Phrase '**It never updates to a branch head.**'
+        Assert-Phrase -Text $script:UpdateText -Where 'the update skill' `
+            -Phrase 'A release is a tag - a deliberate act - and a branch head is whatever was pushed last.'
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase '### `/update` moves to the latest TAG, never to a branch head'
+    }
+
+    It 'names all four refusals as refusals' {
+        Assert-Phrase -Text $script:UpdateText -Where 'the update skill' -Phrase '**A dirty working tree.**'
+        Assert-Phrase -Text $script:UpdateText -Where 'the update skill' -Phrase '**A live worker.**'
+        Assert-Phrase -Text $script:UpdateText -Where 'the update skill' -Phrase '**Not on the release branch.**'
+        Assert-Phrase -Text $script:UpdateText -Where 'the update skill' -Phrase '**No release has been tagged yet.**'
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase '### Four refusals, and none of them is an edge case'
+    }
+
+    It 'reads liveness from herdr rather than from the durable record' {
+        Assert-Phrase -Text $script:UpdateText -Where 'the update skill' `
+            -Phrase ('Liveness is read from herdr rather than from the durable record, because the two ' +
+                     'disagree exactly when it matters')
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase '**Live workers are read from herdr, never from `state\crew.json`.**'
+    }
+
+    It 'tells a herdr that is down apart from a herdr that could not be asked' {
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase '**The guard tells three states apart, and never collapses the third into the first.**'
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('A herdr whose server is not running has no live worker, and that is a fact ' +
+                     'rather than a guess, because a pane dies with the server it belongs to.')
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('the ordinary agent-list reader deliberately answers an unreachable herdr with ' +
+                     'an empty list, which every status view wants and this guard must never accept')
+    }
+
+    It 'reads the server state itself as three-valued rather than as a boolean' {
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('**Every read on the way to that answer is three-valued too, not just the last ' +
+                     'one.**')
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('the guard reads the server state as *running*, *stopped* or *unknown*, off ' +
+                     '`herdr status --json` rather than off a regex over prose, and only *stopped* ' +
+                     'means no workers')
+    }
+
+    It 'believes what herdr said over what it exited with, and says why' {
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('**What herdr said decides that read, and what it exited with does not.**')
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('the exit code for a server that is *down* has never been measured - seeing it ' +
+                     'would mean stopping a server that was hosting live workers at the time')
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('*Unknown* is therefore kept for a reply nobody can read at all')
+    }
+
+    It 'treats the no-releases path as the common path rather than an edge case' {
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase '**There were zero tags when this was written, so the no-releases path is the common path.**'
+        Assert-Phrase -Text $script:UpdateText -Where 'the update skill' `
+            -Phrase ('the alternative - quietly pulling whatever was pushed last - is the thing this ' +
+                     'deliberately does not do')
+    }
+
+    It 'creates no tag itself, and points at the procedure that does' {
+        Assert-Phrase -Text $script:UpdateText -Where 'the update skill' `
+            -Phrase '**It never creates or pushes a tag.**'
+        Assert-Phrase -Text $script:UpdateText -Where 'the update skill' `
+            -Phrase '`docs\2026-09-03-versioning-and-update.md` is where that procedure is written down'
+    }
+
+    It 'folds the release into the merge the King already performs' {
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase '**That merge is the release.**'
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('The tag is cut on it, as one more step in a thing already being done, rather than ' +
+                     'as a separate ceremony on its own schedule.')
+    }
+
+    It 'says a pre-release tag is not a release anybody is moved to' {
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('**A pre-release tag is deliberately not a release `/update` will move anyone ' +
+                     'to.**')
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('git''s own version ordering ranks `v1.0.0-rc1` *above* `v1.0.0` unless ' +
+                     '`versionsort.suffix` is configured')
+    }
+
+    It 'reports what changed as commit subjects, with no parser anywhere' {
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('### "What changed" is the commit subjects between the two releases, and there is ' +
+                     'no parser')
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase '**No changelog parser.**'
+    }
+
+    It 'never forces, stashes or discards, and never reports success it did not have' {
+        Assert-Phrase -Text $script:UpdateText -Where 'the update skill' `
+            -Phrase '**It never forces, stashes, resets, rebases or merges non-linearly.**'
+        Assert-Phrase -Text $script:UpdateText -Where 'the update skill' `
+            -Phrase '**It never reports success it did not have.**'
+        Assert-Phrase -Text $script:UpdateText -Where 'the update skill' `
+            -Phrase '**It never touches the user''s own state.**'
+    }
+
+    It 'states what a future change must not undo' {
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase '**The version stays in one file.**'
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase '**Updates stay tagged.**'
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('nothing may convert "cannot tell whether a worker is live" into "no workers are ' +
+                     'live"')
     }
 }

@@ -2,7 +2,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
-[![Tests](https://img.shields.io/badge/tests-1066%20passing-3fb950)](tests)
+[![Tests](https://img.shields.io/badge/tests-1211%20passing-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 # You rule. It executes.
@@ -41,9 +41,13 @@ reads.
   rather than inferred.
 - **A durable queue.** Work items, dependencies and held decisions survive a restart, because a
   decision that lives only in the conversation is a decision you will lose.
-- **A session-start digest.** Registered projects, live workers, the queue, the index of everything
-  the tool holds for you, your standing instructions and the curated memory, printed once at
-  session open. A restart is meant to be a non-event.
+- **A session-start digest.** The version you are on, registered projects, live workers, the queue,
+  the index of everything the tool holds for you, your standing instructions and the curated
+  memory, printed once at session open. A restart is meant to be a non-event.
+- **A version, and one command to move it.** `/update` fast-forwards this installation to the
+  latest tagged release, re-runs the installer, and tells you what you moved from, what you moved
+  to, and what changed. It updates to a release rather than to whatever was pushed last, and it
+  refuses outright while a worker is live or your tree is dirty.
 - **Nothing settled goes unread.** Every durable file the tool keeps for you gets one line in an
   index, and every brief names the files its worker must read before it starts - so a decision you
   already made cannot sit in a file nobody opens while the work ships without it.
@@ -54,7 +58,7 @@ reads.
   and is the switch.
 - **Your preferences stay yours.** `instructions.md` is read every session and never written by the
   tool - enforced by the permission layer, not just asked for in prose.
-- **Your other projects are untouched.** All thirteen skills live in this repository's own
+- **Your other projects are untouched.** All fourteen skills live in this repository's own
   `.claude\skills\`. Nothing is written into `~\.claude\`, so a session anywhere else on the machine
   behaves exactly as it did before.
 
@@ -182,11 +186,12 @@ astray - neither of which a detached background session allows.
 
 ## Built-in skills
 
-Thirteen, all project-local. Eight you invoke; five the Hand loads for itself.
+Fourteen, all project-local. Nine you invoke; five the Hand loads for itself.
 
 | Skill | What it is for |
 |---|---|
 | `setup` | Install and configure kingshand on this machine |
+| `update` | Move this installation to the latest release, and say what changed |
 | `annex` | Register a repository and its delivery posture. Never clones |
 | `muster` | Dispatch and supervise workers across tickets and repos |
 | `survey` | Where everything stands - the catch-up digest |
@@ -229,12 +234,17 @@ great many prompts.
 
 ```
 CLAUDE.md               the Hand's always-loaded instructions - identity, hard rules, contracts
-bin\                    dispatch, worker state, registry, snapshot, digest, herdr, workspace prep
-.claude\skills\         thirteen project-local skills. They load only in this directory
+VERSION                 this installation's version, and the only place it is written down
+bin\                    dispatch, worker state, registry, snapshot, digest, herdr, workspace prep,
+                        version and self-update
+.claude\skills\         fourteen project-local skills. They load only in this directory
 tests\                  the Pester suite
 tools\herdr\            herdr, fetched and SHA-256 verified by the installer - gitignored,
                         and deliberately not on PATH
 docs\                   the architecture decisions worth keeping
+.no-mistakes.yaml       the branch kingshand's own work integrates into - dev, which every pull
+                        request targets and every worker branches from, deliberately not the
+                        branch a fresh clone lands on
 instructions.example.md the template install.ps1 copies to instructions.md
 install.ps1             prerequisites and config - writes at most four things outside this
                         repository: KINGSHAND_HOME, LAVISH_AXI_PORT, two lines in your global
