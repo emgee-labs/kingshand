@@ -1,9 +1,9 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  The once-per-session digest: toolchain problems, fleet state, the queue, where the data index is
-  and how far it has drifted, the King's own standing instructions, and the two curated memory
-  files, rendered as one block a session can read and trust.
+  The once-per-session digest: this installation's version, toolchain problems, fleet state, the
+  queue, where the data index is and how far it has drifted, the King's own standing instructions,
+  and the two curated memory files, rendered as one block a session can read and trust.
 .DESCRIPTION
   This is operational input, not a report. It runs from a SessionStart hook and its whole purpose
   is to make a restart a non-event: everything a fresh session needs to orient itself is printed
@@ -14,7 +14,8 @@
   startup facts nobody asked for, read once at session open. Neither calls the other, and nothing
   runs survey on the user's behalf.
 
-  Bounded on purpose. The fleet, queue and index sections are counts and one-liners; only
+  Bounded on purpose. The version is one line, the fleet, queue and index sections are counts and
+  one-liners; only
   `instructions.md` and the two memory files are printed in full, and only the two memory files are
   accounted against the startup-memory budget. A digest that grew with the fleet would be the
   session-start bulk this deliberately avoids - the registry line is name, posture and path, never
@@ -51,6 +52,8 @@
   config\startup-memory-budget - the one validated startup-memory budget, absent meaning default.
 .PARAMETER InstructionsPath
   instructions.md at the repo root - the King's own standing instructions. Read, never written.
+.PARAMETER VersionPath
+  the VERSION file at the repo root - this installation's version. One line of the digest.
 .PARAMETER PrereqScript
   the toolchain check. Detect-only: a clean run prints nothing at all.
 .PARAMETER QueueRoot
@@ -69,6 +72,7 @@ param(
     [string]$RegistryPath,
     [string]$BudgetPath,
     [string]$InstructionsPath,
+    [string]$VersionPath,
     [string]$PrereqScript = (Join-Path $PSScriptRoot 'Test-CrewPrereqs.ps1'),
     [string]$QueueRoot,
     [switch]$Json
@@ -179,6 +183,29 @@ if ($script:NotSetUp) {
     Add-Line '  and configures this machine. Nothing else here works until it has run.'
     Add-Line '  Say that before anything else, and do not send the reader to a skill whose'
     Add-Line '  prerequisites and configuration are not in place yet.'
+}
+
+# --------------------------------------------------------------------------------
+# 0b. Version - which release this copy is, in one line.
+#
+#     A user who cannot say which version they are on cannot say whether a fix
+#     they were promised is in it, and `git log` is not an answer anyone should
+#     have to give. It is one line rather than a section because that is the whole
+#     fact; `bin\Version.psm1` owns the file and what an unreadable one means.
+#
+#     The module import and the path default both live in here rather than at the
+#     top with the others, because this digest must never throw: a missing module
+#     costs this one line and nothing else.
+# --------------------------------------------------------------------------------
+Add-Line ''
+try {
+    Import-Module (Join-Path $PSScriptRoot 'Version.psm1') -Force -ErrorAction Stop
+    if (-not $VersionPath) { $VersionPath = Get-VersionFilePath -Root $script:Root }
+    Add-Line ("VERSION: " + (Get-KingshandVersion -Path $VersionPath))
+} catch {
+    # Unreadable reads as unreadable. A version invented here would be quoted back by the reader
+    # as the one they are running.
+    Add-Line ("VERSION: unreadable - " + (Format-Fault $_.Exception.Message))
 }
 
 # --------------------------------------------------------------------------------
