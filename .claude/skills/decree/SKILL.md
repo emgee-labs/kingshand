@@ -121,6 +121,14 @@ Six mechanical facts this depends on, each confirmed against the tool rather tha
   session reads to tell them apart, and `petition` owns what each one does next: a question that
   is genuinely with him waits, and an interrupted stead pass is re-entered on that skill's test and
   finished.
+- **A reason that says neither is not a third branch to take - it is a cause not yet established,
+  and that is the default for every reason nobody anticipated.** Nothing is steered, nothing is
+  closed and nothing is re-escalated while it stands: establish which of the two it was, repair the
+  reason with the row above, and only then take the branch the repaired reason names. Guessing is
+  what this default exists to stop, because the two guesses are not symmetric - guessing that the
+  question is his parks a worker until morning over a decision the Hand already had the authority
+  to answer. Stated as a default rather than as one more case, so a reason shaped in a way nobody
+  here thought of is safe rather than unmatched.
 - **`--kind captain` is what marks the hold as the King's own.** The other kinds - `external`,
   `load`, `parked`, `future` - wait on something that is not the King, and `survey` routes them to
   a different section. `chronicle` files its pinned-offload approvals the same way, so stay

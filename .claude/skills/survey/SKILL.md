@@ -165,11 +165,13 @@ Map the snapshot onto the four buckets like this, and nowhere else:
     this also means that brief was not followed.
   - `idle` means the worker's turn ended. Usually it finished. It may instead have stopped by
     design, having reached a decision its brief did not settle, written the question into
-    `data\<id>\report.md` and stopped as instructed. **`waitingOn` says which of the two it is**,
-    so there is nothing to guess here: set, it names the hold carrying that decision, and the
-    decision itself already renders from the backlog. Point at the report - an `idle` worker has
-    already said what it needed to, and describing it as hung sends the user chasing a decision
-    that is written down.
+    `data\<id>\report.md` and stopped as instructed. **`waitingOn` answers one side of that and
+    not the other.** Set, it names the hold carrying that decision, and the decision itself
+    already renders from the backlog. **Null never means the worker finished** - the field is only
+    written by a Hand who has read that report, so a worker that parked overnight and has not been
+    woken since is still null, and the question is still only in the report. Point at the report -
+    an `idle` worker has already said what it needed to, and describing it as hung sends the user
+    chasing a decision that is written down.
 
   Never describe an `idle` worker as hung, and never describe a `blocked` one as having finished.
 - A worker at stage `ready` - it is waiting at the landing gate for the user's approval.

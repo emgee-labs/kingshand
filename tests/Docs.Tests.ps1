@@ -756,11 +756,20 @@ Describe 'a blocked worker is never reported as healthy' {
     It 'sends an idle worker to its report rather than calling it hung' {
         Assert-Phrase -Text $script:SurveyText -Where 'the survey idle case' `
             -Phrase '`idle` means the worker''s turn ended.'
-        # The snapshot carries the answer now, so this case stopped being a guess between finished
-        # and parked. Naming the field is all this bucket does with it - which section an item
-        # lands in is unchanged.
+        # The snapshot carries half the answer, and the bucket must claim exactly that half. Set
+        # names the hold. Null is silence, not a completion: the field is written by a Hand who
+        # read the report, so a worker that parked overnight is null until somebody looks. A
+        # bucket that read null as finished would drop the question out of every section of the
+        # digest, on the one surface built for coming back to the machine cold.
         Assert-Phrase -Text $script:SurveyText -Where 'the survey idle case' `
-            -Phrase '**`waitingOn` says which of the two it is**, so there is nothing to guess here'
+            -Phrase '**`waitingOn` answers one side of that and not the other.**'
+        Assert-Phrase -Text $script:SurveyText -Where 'the survey idle case' `
+            -Phrase ('**Null never means the worker finished** - the field is only written by a ' +
+                     'Hand who has read that report, so a worker that parked overnight and has ' +
+                     'not been woken since is still null, and the question is still only in the ' +
+                     'report.')
+        $script:SurveyText.Contains('so there is nothing to guess here') |
+            Should -BeFalse -Because 'a null pointer is exactly the case this bucket still has to read the report for'
         Assert-Phrase -Text $script:SurveyText -Where 'the survey idle case' `
             -Phrase ('Point at the report - an `idle` worker has already said what it needed to, ' +
                      'and describing it as hung sends the user chasing a decision that is written ' +
@@ -6472,6 +6481,33 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text $script:RouteHold -Where 'the decree lifecycle table' `
             -Phrase ('`hold` is idempotent under the same key, so this rewrites the reason ' +
                      'without opening a second hold or moving anything else')
+    }
+
+    # The repair row gives the command but a Hand has to know which of the two it is before it can
+    # be run - so without an outcome for the ambiguous reason itself, the Hand guesses. This is the
+    # default, and it has to be written AS a default: an enumeration of two branches plus a third
+    # named case is the shape that spent nine rounds acquiring one more member.
+    It 'decree gives an ambiguous reason a safe default rather than a third branch' {
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ('**A reason that says neither is not a third branch to take - it is a cause ' +
+                     'not yet established, and that is the default for every reason nobody ' +
+                     'anticipated.**')
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ('Nothing is steered, nothing is closed and nothing is re-escalated while it ' +
+                     'stands')
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ('establish which of the two it was, repair the reason with the row above, ' +
+                     'and only then take the branch the repaired reason names')
+        # The asymmetry is the reason the default is the safe one rather than either guess, and it
+        # is the failure a previous round removed once already.
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ('guessing that the question is his parks a worker until morning over a ' +
+                     'decision the Hand already had the authority to answer')
+        # And the totality itself, so a later edit that turns the default back into one more listed
+        # case fails here rather than in a tenth review round.
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ('Stated as a default rather than as one more case, so a reason shaped in a ' +
+                     'way nobody here thought of is safe rather than unmatched.')
     }
 
     # The durable home for a decision made in the King's stead. petition requires three things

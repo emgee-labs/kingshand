@@ -131,6 +131,43 @@ Describe 'a session with nothing recorded still gets a digest' {
     }
 }
 
+# The digest is this session's whole picture of the fleet, and CLAUDE.md tells the Hand to trust it
+# rather than re-read the fleet behind it. A worker parked on a decision the King owes has settled,
+# so it is live and idle and prints identically to one still working - crew.json's pointer is the
+# only thing that separates them, and dropping it from the line puts the guess back on the surface
+# the field was added to take it off.
+Describe 'a worker parked on a decision is not printed as a worker still working' {
+    BeforeAll {
+        $script:Parked = New-Fixture 'parked'
+        @{
+            workers = @{
+                'w-parked'  = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-web'; stage = 'implementing'
+                                 waiting_on = 'T-1001-shorter-hero-copy' }
+                'w-running' = @{ ticket = 'T-1002'; kind = 'ticket'; repo = 'acme-api'; stage = 'implementing' }
+            }
+        } | ConvertTo-Json -Depth 10 | Set-Content -Path $script:Parked.State -Encoding utf8
+        $script:ParkedText = Get-Digest $script:Parked
+    }
+
+    It 'names the decision the parked worker is waiting on, on its own line' {
+        $line = @($script:ParkedText -split "`r?`n" | Where-Object { $_ -match '^\s*- w-parked ' })[0]
+        $line | Should -Not -BeNullOrEmpty -Because 'a recorded worker is always listed'
+        $line.Contains('waiting on decision T-1001-shorter-hero-copy') |
+            Should -BeTrue -Because 'the pointer is the only thing that separates it from a worker making progress'
+    }
+
+    It 'adds nothing to the line of a worker parked on nothing' {
+        $line = @($script:ParkedText -split "`r?`n" | Where-Object { $_ -match '^\s*- w-running ' })[0]
+        $line | Should -Not -BeNullOrEmpty
+        $line.Contains('waiting on decision') |
+            Should -BeFalse -Because 'a null pointer is no decision recorded, not an empty one'
+    }
+
+    It 'still renders without throwing, which is the whole contract of this script' {
+        { Get-Digest $script:Parked } | Should -Not -Throw
+    }
+}
+
 # The SessionStart hook ships inside the repository, so this digest fires on a fresh clone before
 # anything is installed. The skills load from .claude\skills\ and are readable at once, but the
 # toolchain and local directories every one of them depends on are not there yet. A digest that

@@ -322,6 +322,11 @@ try {
     # The agent word appended after the slash is herdr's (idle, working, blocked, done, unknown)
     # corrected by the worker's own screen, and `idle` there means "not mid-turn", never
     # "finished" - a worker reads idle from the moment it starts.
+    #
+    # A worker parked on a decision the King owes settles cleanly, so it is live and `idle` and
+    # prints identically to one still working. crew.json's `waiting_on` pointer is the only thing
+    # that separates them, so the line carries it: the digest is this session's whole picture of
+    # the fleet, and a worker waiting on an answer must not read as a worker making progress.
     $workers = @($snap.crew.workers)
     if ($workers.Count -eq 0) {
         Add-Line '  Workers: none recorded.'
@@ -332,7 +337,9 @@ try {
             $agent    = Get-Field $_ 'agentState'
             if ($agent) { $liveText += "/$agent" }
             $rep = if ($_.hasReport) { ', report on disk' } else { '' }
-            "- $($_.id) $($_.ticket) ($($_.repo)) stage $($_.stage), $liveText$rep"
+            $held = Get-Field $_ 'waitingOn'
+            $park = if ($held) { ", waiting on decision $held" } else { '' }
+            "- $($_.id) $($_.ticket) ($($_.repo)) stage $($_.stage), $liveText$park$rep"
         })
     }
 
