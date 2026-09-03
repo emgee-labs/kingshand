@@ -5012,6 +5012,17 @@ Describe 'the installation has a version, and one command moves it to a release'
             -Phrase '**Live workers are read from herdr, never from `state\crew.json`.**'
     }
 
+    It 'tells a herdr that is down apart from a herdr that could not be asked' {
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase '**The guard tells three states apart, and never collapses the third into the first.**'
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('A herdr whose server is not running has no live worker, and that is a fact ' +
+                     'rather than a guess, because a pane dies with the server it belongs to.')
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('the ordinary agent-list reader deliberately answers an unreachable herdr with ' +
+                     'an empty list, which every status view wants and this guard must never accept')
+    }
+
     It 'treats the no-releases path as the common path rather than an edge case' {
         Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
             -Phrase '**There were zero tags when this was written, so the no-releases path is the common path.**'
@@ -5033,6 +5044,15 @@ Describe 'the installation has a version, and one command moves it to a release'
         Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
             -Phrase ('The tag is cut on it, as one more step in a thing already being done, rather than ' +
                      'as a separate ceremony on its own schedule.')
+    }
+
+    It 'says a pre-release tag is not a release anybody is moved to' {
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('**A pre-release tag is deliberately not a release `/update` will move anyone ' +
+                     'to.**')
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('git''s own version ordering ranks `v1.0.0-rc1` *above* `v1.0.0` unless ' +
+                     '`versionsort.suffix` is configured')
     }
 
     It 'reports what changed as commit subjects, with no parser anywhere' {

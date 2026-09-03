@@ -67,6 +67,13 @@ recorded as torn down but still alive is precisely the case this guard exists to
 `CLAUDE.md` states that precedence. A herdr that cannot be reached is *unknown*, which is not the
 same as none, so it refuses too.
 
+**The guard tells three states apart, and never collapses the third into the first.** No herdr
+installed at all is unknown and refuses. A herdr whose server is not running has no live worker,
+and that is a fact rather than a guess, because a pane dies with the server it belongs to. A server
+that is running is asked, and an answer that could not be read refuses. The reason the third one
+needs saying is that the ordinary agent-list reader deliberately answers an unreachable herdr with
+an empty list, which every status view wants and this guard must never accept.
+
 **Fast-forward only.** Never a force, a stash, a reset, a rebase or a non-linear merge. An
 installation that has diverged holds work nobody here may discard, so it is refused with git's own
 reason and left exactly as it was. This half is taken from firstmate's `updatefirstmate`, which
@@ -111,6 +118,15 @@ So, in order:
 The tag name is `v` plus the version in `VERSION`, and the two must agree: `/update` reads the
 version out of the release's own `VERSION` file rather than off the tag name, and a tag whose file
 cannot be read is refused rather than reported.
+
+**A pre-release tag is deliberately not a release `/update` will move anyone to.** `v1.0.0-rc1` and
+`v1.0.0+build3` are ignored; only `v1.0.0` counts. Tag a candidate freely if you want one - it just
+does not become what anybody's `/update` selects. The reason is that git's own version ordering
+ranks `v1.0.0-rc1` *above* `v1.0.0` unless `versionsort.suffix` is configured, so treating a
+pre-release as a release would have made the candidate outrank the release that followed it, and
+`/update` would have named the rc as the latest release and moved people back to its older commit.
+Narrowing what counts fixes that everywhere, where a git setting would only fix it on machines that
+had been configured.
 
 Nothing automates any of this, deliberately. A release is a judgement about whether the work is
 ready, and the only mechanical part - the tag - is one command in a procedure that already exists.

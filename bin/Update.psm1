@@ -16,6 +16,10 @@ Set-StrictMode -Version Latest
 # `git merge --ff-only`, which is the honest outcome; filtering it out instead would silently pick
 # an OLDER release and report that as the latest, which is the one failure here nobody would spot.
 #
+# A PRE-RELEASE TAG IS NOT A RELEASE `/update` WILL MOVE ANYBODY TO. `v1.0.0-rc1` and
+# `v1.0.0+build3` are not releases here, only `v1.0.0` is; `$script:ReleaseTagPattern` below owns
+# the reason.
+#
 # FOUR REFUSALS, and none of them is an edge case. A dirty tree, a live worker, a checkout on the
 # wrong branch and a repository with no releases yet each stop the update where it stands and name
 # themselves. Nothing here forces, stashes, resets, merges non-linearly or deletes anything: the
@@ -35,11 +39,20 @@ Import-Module (Join-Path $PSScriptRoot 'Herdr.psm1')
 # the procedure. Stated once as the default for every function below that needs it.
 $script:DefaultReleaseBranch = 'main'
 
-# A release tag: `v` and a semantic version. The glob is what git filters on and the anchored
-# pattern is what actually decides, so a tag like `v2-backup` or `vendor-drop` is not mistaken for
-# a release.
+# A release tag: `v` and three numbers, and nothing after them. The glob is what git filters on and
+# the anchored pattern is what actually decides, so a tag like `v2-backup` or `vendor-drop` is not
+# mistaken for a release.
+#
+# A PRE-RELEASE IS DELIBERATELY NOT A RELEASE. `v1.0.0-rc1` and `v1.0.0+build3` are refused by this
+# pattern, so `/update` never moves anybody to one. That is not tidiness: git's own `-v:refname`
+# ordering ranks `v1.0.0-rc1` ABOVE `v1.0.0` unless `versionsort.suffix` is configured, so admitting
+# a suffix would make the release candidate outrank the release it preceded and `/update` would
+# report an rc as the latest release and fast-forward to its older commit - a wrong value with no
+# error anywhere. Narrowing the pattern fixes that here, rather than depending on a git setting on
+# every reader's machine. The VERSION file pattern in `bin\Version.psm1` stays wider on purpose: a
+# copy may legitimately be running 1.0.0-rc.1, it just is not something `/update` moves anybody to.
 $script:ReleaseTagGlob    = 'v*'
-$script:ReleaseTagPattern = '^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$'
+$script:ReleaseTagPattern = '^v\d+\.\d+\.\d+$'
 
 # How many dirty paths a refusal names before it stops listing. Enough to recognise the work,
 # short enough to stay one readable line.
@@ -59,18 +72,31 @@ function Get-ReleaseBranchName {
 # guard that must not update `bin\` and the skills underneath a working worker needs the second
 # one. A worker recorded as torn down but still alive is exactly the case this catches.
 #
-# A herdr that cannot be reached is UNKNOWN, and unknown is not none: it comes back as a throw so
-# the update refuses rather than proceeding on the assumption that nobody is working.
+# THREE STATES, AND THE THIRD IS NEVER COLLAPSED INTO THE FIRST:
+#
+#   no herdr at all      - liveness is UNKNOWN. Throws, so the update refuses. An installation
+#                          with no herdr may still have been dispatching from a herdr that was
+#                          uninstalled or moved out from under it, and this cannot tell.
+#   herdr, server down   - no live workers, as a FACT rather than a guess. A herdr pane dies with
+#                          its server, so a server that is not running has no worker in it;
+#                          `bin\Get-CrewStatus.ps1` states the same thing.
+#   herdr, server up     - ask, and throw if the answer could not be read.
+#
+# The last one is why this does not call `Get-HerdrAgents`: that one deliberately answers an
+# unreachable herdr with an empty list, which reads here as "nobody is working" and would let the
+# update proceed straight over a live worker. `Get-HerdrAgentInventory` keeps the failure visible,
+# and `bin\Herdr.psm1` owns the command line for both.
 function Get-LiveWorkerNames {
     [CmdletBinding()]
     param()
 
-    # Deliberately NOT wrapped in @(). Get-HerdrAgents returns via the leading-comma idiom, so the
-    # assignment hands back the intact agents array as one object; @() would nest it a second time
-    # and a live worker would then not be seen at all - which is the one wrong answer this guard
-    # must never give. Same rule as `bin\Get-CrewStatus.ps1`.
-    $agents = Get-HerdrAgents
-    @($agents |
+    if (-not (Get-HerdrCommandPath)) { throw (Get-HerdrCommandHint) }
+    if (-not (Test-HerdrServer)) { return @() }
+
+    $inventory = Get-HerdrAgentInventory
+    if (-not $inventory.ok) { throw $inventory.error }
+
+    @($inventory.agents |
       Where-Object { $_ -and $_.PSObject.Properties.Name -contains 'name' -and $_.name } |
       ForEach-Object { "$($_.name)" })
 }
@@ -91,16 +117,27 @@ function Get-DirtyPaths {
       ForEach-Object { ($_ -split '\s+', 2)[-1] })
 }
 
-# The checked-out branch, or an empty string on a detached HEAD - which is not the release branch
-# and is therefore refused by the caller, with a name a reader recognises.
+# The checked-out branch, an empty string on a detached HEAD, or a throw when git could not answer.
+#
+# THREE ANSWERS, NOT TWO. A detached HEAD is a state git reported - it replies with the literal
+# `HEAD` - and the caller names it as one. A git that exited non-zero reported nothing at all, and
+# folding that into the same empty string made the refusal say "on a detached HEAD" about a
+# checkout whose branch was never established. Both still refuse, so this is about the refusal
+# telling the truth rather than about what it allows.
 function Get-CheckedOutBranch {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepoPath)
 
     $PSNativeCommandUseErrorActionPreference = $false
 
-    $out = (& git -C $RepoPath rev-parse --abbrev-ref HEAD 2>$null | Out-String).Trim()
+    $raw  = @(& git -C $RepoPath rev-parse --abbrev-ref HEAD 2>&1)
+    $code = $LASTEXITCODE
     $global:LASTEXITCODE = 0
+    $out = ($raw | Out-String).Trim()
+    if ($code -ne 0) {
+        throw ("The branch checked out at $RepoPath could not be read - " +
+               "$(($out -replace '\s+', ' ').Trim())")
+    }
     if ($out -eq 'HEAD') { return '' }
     $out
 }
@@ -314,7 +351,11 @@ function Invoke-KingshandUpdate {
 
     # Guard 3 - the wrong branch. Releases are tagged on the release branch, so an update from
     # anywhere else would be a merge into work that is not a release.
-    $branch = Get-CheckedOutBranch -RepoPath $Root
+    try {
+        $branch = Get-CheckedOutBranch -RepoPath $Root
+    } catch {
+        return & $refuse ("$($_.Exception.Message), so nothing was updated.")
+    }
     if ($branch -ne $ReleaseBranch) {
         $where = if ($branch) { "on $branch" } else { 'on a detached HEAD' }
         return & $refuse ("$Root is $where, not on the release branch $ReleaseBranch, so nothing " +

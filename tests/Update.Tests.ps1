@@ -13,11 +13,26 @@ Set-StrictMode -Version Latest
 # than no guard at all.
 #
 # Liveness is mocked at herdr's own boundary - Invoke-Herdr, the one place that knows its command
-# line - so the real Get-HerdrAgents and the real guard run, with no herdr server, no pane and no
-# worker anywhere. Mocking the guard's own reader instead would prove nothing about the guard.
+# line - so the real Get-HerdrAgentInventory and the real guard run, with no herdr server, no pane
+# and no worker anywhere. Mocking the guard's own reader instead would prove nothing about the guard.
+#
+# The two reads the guard makes BEFORE that boundary - is herdr installed, is its server up - run
+# the binary rather than going through Invoke-Herdr, so they are mocked too, and every case that
+# reaches the guard says herdr is installed and running unless it is the case about one of those.
+# Without that this suite would pass only on a machine that happens to have herdr installed with its
+# server up, which is exactly the coupling the rest of it avoids.
+#
+# Each of those two is mocked in Update rather than in Herdr, because that is where the call
+# resolves: Get-LiveWorkerNames calls them directly, and Pester replaces a function in the scope
+# doing the calling. Invoke-Herdr is the other way round - Get-HerdrAgentInventory calls it from
+# inside Herdr - so that one is mocked there, which is what lets the real inventory reader run.
 
 BeforeAll {
     $script:Root = Split-Path $PSScriptRoot -Parent
+
+    # A path, not a binary. Nothing here executes it: it exists so the guard's "is herdr installed"
+    # read answers yes without the machine needing an actual herdr.
+    $script:StubHerdrPath = 'C:\not-a-real-place\herdr.exe'
 
     # Herdr first, then Update. Update imports Herdr as a nested module without -Force, so a -Force
     # import of Herdr AFTERWARDS would remove the copy Update is holding and take its functions
@@ -134,6 +149,14 @@ Describe 'the release branch is named in one place' {
 }
 
 Describe 'liveness comes from herdr, and unknown is not none' {
+    # Three states, and the whole point is that the third never reads as the first. A server that is
+    # down HAS no workers, because a pane dies with it. A herdr that could not be asked does not
+    # know, and an update that proceeds on not knowing is the failure this guard exists to prevent.
+    BeforeEach {
+        Mock -ModuleName Update Get-HerdrCommandPath { $script:StubHerdrPath }
+        Mock -ModuleName Update Test-HerdrServer { $true }
+    }
+
     It 'reports no workers when herdr knows of none' {
         Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } }
         @(Get-LiveWorkerNames).Count | Should -Be 0
@@ -149,9 +172,31 @@ Describe 'liveness comes from herdr, and unknown is not none' {
         @(Get-LiveWorkerNames) | Should -Be @('t-9001', 't-9002')
     }
 
-    It 'throws rather than reporting none when herdr cannot be asked' {
-        Mock -ModuleName Herdr Invoke-Herdr { throw (Get-HerdrCommandHint) }
+    It 'throws rather than reporting none when herdr is not installed at all' {
+        Mock -ModuleName Update Get-HerdrCommandPath { $null }
         { Get-LiveWorkerNames } | Should -Throw -ExpectedMessage '*herdr was not found*'
+    }
+
+    It 'reports no workers when herdr is installed but its server is not running' {
+        Mock -ModuleName Update Test-HerdrServer { $false }
+        Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached with the server down' }
+
+        @(Get-LiveWorkerNames).Count |
+            Should -Be 0 -Because 'a pane dies with its server, so a server that is down holds no worker'
+    }
+
+    It 'throws rather than reporting none when the running server could not be asked' {
+        Mock -ModuleName Herdr Invoke-Herdr {
+            [pscustomobject]@{ error = [pscustomobject]@{ code = 'timeout'; message = 'no reply' } }
+        }
+
+        { Get-LiveWorkerNames } |
+            Should -Throw -ExpectedMessage '*timeout*' -Because 'an error from agent list is not an empty list'
+    }
+
+    It 'throws rather than reporting none when the server answered nothing readable' {
+        Mock -ModuleName Herdr Invoke-Herdr { $null }
+        { Get-LiveWorkerNames } | Should -Throw -ExpectedMessage '*nothing that could be read*'
     }
 }
 
@@ -175,6 +220,32 @@ Describe 'the latest release is the highest version tag, and only a release tag 
         git -C $script:TagRepo tag 'v2-backup'
         git -C $script:TagRepo tag 'vendor-drop'
         Get-LatestReleaseTag -RepoPath $script:TagRepo | Should -Be 'v0.10.0'
+    }
+
+    It 'never picks a pre-release, which git''s own ordering ranks above the release' {
+        # Not hypothetical: `git tag --sort=-v:refname` really does list v1.0.0-rc1 before v1.0.0
+        # unless versionsort.suffix is configured, so a pattern that admitted the suffix would have
+        # selected the candidate and moved people back to its older commit.
+        git -C $script:TagRepo tag 'v1.0.0'
+        git -C $script:TagRepo tag 'v1.0.0-rc1'
+        git -C $script:TagRepo tag 'v1.0.0+build3'
+
+        Get-LatestReleaseTag -RepoPath $script:TagRepo |
+            Should -Be 'v1.0.0' -Because 'only a plain three-number tag is a release'
+    }
+
+    It 'refuses by name where the only tags are pre-releases' {
+        $rc = Join-Path $TestDrive 'onlyprereleases'
+        git init -b main $rc -q
+        git -C $rc config user.name  'Test'
+        git -C $rc config user.email 'test@example.invalid'
+        Set-Content -LiteralPath (Join-Path $rc 'VERSION') -Value '1.0.0-rc.1' -Encoding utf8
+        Add-Commit -RepoPath $rc -Message 'Seed the repository'
+        git -C $rc tag 'v1.0.0-rc1'
+
+        { Get-LatestReleaseTag -RepoPath $rc } |
+            Should -Throw -ExpectedMessage '*No release has been tagged in this repository yet*' `
+                -Because 'a candidate is something to try, not something to update everybody to'
     }
 
     It 'refuses by name where nothing has been tagged at all' {
@@ -259,7 +330,11 @@ Describe 'a session is told to re-read only what an update actually moved' {
 }
 
 Describe 'an update that can happen moves the installation and reports the move' {
-    BeforeEach { Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } } }
+    BeforeEach {
+        Mock -ModuleName Update Get-HerdrCommandPath { $script:StubHerdrPath }
+        Mock -ModuleName Update Test-HerdrServer { $true }
+        Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } }
+    }
 
     It 'fast-forwards to the latest release and names both versions and every change' {
         $f = New-Installation -Name 'happy'
@@ -334,7 +409,11 @@ Describe 'an update that can happen moves the installation and reports the move'
 }
 
 Describe 'every refusal names itself and leaves the installation exactly as it was' {
-    BeforeEach { Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } } }
+    BeforeEach {
+        Mock -ModuleName Update Get-HerdrCommandPath { $script:StubHerdrPath }
+        Mock -ModuleName Update Test-HerdrServer { $true }
+        Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } }
+    }
 
     It 'refuses a dirty working tree' {
         $f = New-Installation -Name 'dirty'
@@ -368,8 +447,25 @@ Describe 'every refusal names itself and leaves the installation exactly as it w
         Get-Head -RepoPath $f.Path | Should -Be $before
     }
 
-    It 'refuses when whether a worker is live could not be established' {
-        Mock -ModuleName Herdr Invoke-Herdr { throw (Get-HerdrCommandHint) }
+    It 'refuses when there is no herdr to ask whether a worker is live' {
+        Mock -ModuleName Update Get-HerdrCommandPath { $null }
+        $f = New-Installation -Name 'noherdratall'
+        Publish-Release -Fixture $f -Version '0.2.0' -Subjects @('Change a thing')
+
+        $before = Get-Head -RepoPath $f.Path
+        $r = Invoke-KingshandUpdate -Root $f.Path
+
+        $r.status | Should -Be 'refused'
+        $r.reason | Should -Match 'could not be established'
+        $r.reason | Should -Match 'herdr was not found'
+        Get-Head -RepoPath $f.Path |
+            Should -Be $before -Because 'unknown liveness must never be read as no workers'
+    }
+
+    It 'refuses when the herdr that is running could not be asked' {
+        Mock -ModuleName Herdr Invoke-Herdr {
+            [pscustomobject]@{ error = [pscustomobject]@{ code = 'timeout'; message = 'no reply' } }
+        }
         $f = New-Installation -Name 'nolivenessanswer'
         Publish-Release -Fixture $f -Version '0.2.0' -Subjects @('Change a thing')
 
@@ -378,8 +474,38 @@ Describe 'every refusal names itself and leaves the installation exactly as it w
 
         $r.status | Should -Be 'refused'
         $r.reason | Should -Match 'could not be established'
+        $r.reason | Should -Match 'timeout'
         Get-Head -RepoPath $f.Path |
-            Should -Be $before -Because 'unknown liveness must never be read as no workers'
+            Should -Be $before -Because 'an unreadable answer is not an answer of none'
+    }
+
+    It 'updates when herdr is installed but its server is down, which really is no workers' {
+        Mock -ModuleName Update Test-HerdrServer { $false }
+        Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached with the server down' }
+        $f = New-Installation -Name 'serverdown'
+        Publish-Release -Fixture $f -Version '0.2.0' -Subjects @('Change a thing')
+
+        $r = Invoke-KingshandUpdate -Root $f.Path
+
+        $r.status | Should -Be 'updated' -Because 'a pane dies with its server, so this is a fact rather than a guess'
+        $r.reason | Should -Be ''
+    }
+
+    It 'refuses when the checked-out branch could not be read at all' {
+        # Not the same state as a detached HEAD, and it used to be reported as one: git failing
+        # returned the same empty string the detached case does, so the refusal named a branch
+        # position nothing had established.
+        $f = New-Installation -Name 'unreadablebranch'
+        Publish-Release -Fixture $f -Version '0.2.0' -Subjects @('Change a thing')
+        Mock -ModuleName Update Get-CheckedOutBranch { throw 'The branch checked out could not be read - fatal: not a git repository' }
+
+        $before = Get-Head -RepoPath $f.Path
+        $r = Invoke-KingshandUpdate -Root $f.Path
+
+        $r.status | Should -Be 'refused'
+        $r.reason | Should -Match 'could not be read'
+        $r.reason | Should -Not -Match 'detached HEAD'
+        Get-Head -RepoPath $f.Path | Should -Be $before
     }
 
     It 'refuses a checkout that is not on the release branch' {
@@ -515,6 +641,17 @@ Describe 'the guard readers answer for themselves' {
 
         git -C $f.Path checkout -q --detach 2>&1 | Out-Null
         Get-CheckedOutBranch -RepoPath $f.Path | Should -Be ''
+    }
+
+    It 'throws rather than answering an empty string when git could not say' {
+        # The empty string means one specific thing - git replied HEAD, so the checkout is detached.
+        # A git that failed said nothing at all, and answering the same empty string for both is how
+        # a refusal came to call a checkout detached when nothing had established that it was.
+        $plain = Join-Path $TestDrive 'branchreader-notarepo'
+        New-Item -ItemType Directory -Force -Path $plain | Out-Null
+
+        { Get-CheckedOutBranch -RepoPath $plain } |
+            Should -Throw -ExpectedMessage '*could not be read*'
     }
 
     It 'refuses to resolve a ref that names no commit' {

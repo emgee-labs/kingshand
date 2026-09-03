@@ -464,6 +464,48 @@ function Get-HerdrAgents {
     , @($r.agents)
 }
 
+# The same `agent list`, with the failure kept rather than collapsed:
+#
+#   .ok      the list was actually read
+#   .agents  what herdr answered, empty whenever .ok is false
+#   .error   herdr's own code and message, or the shape problem, empty when .ok is true
+#
+# Get-HerdrAgents above stays exactly as it is, and both are exported. A status view -
+# `bin\Get-CrewStatus.ps1`, `bin\Get-SurveySnapshot.ps1` - wants that collapse, because it still
+# has the durable record to render and an unreachable herdr must not stop it rendering. A guard
+# that refuses an action wants this one instead, because "could not ask" and "nobody is there" are
+# different answers and only one of them is safe to act on.
+function Get-HerdrAgentInventory {
+    [CmdletBinding()]
+    param()
+
+    $r = Invoke-Herdr -AllowError -Arguments @('agent', 'list')
+
+    if (-not $r) {
+        return [pscustomobject]@{
+            ok     = $false
+            agents = @()
+            error  = 'herdr answered agent list with nothing that could be read as a result.'
+        }
+    }
+    if ($r.PSObject.Properties.Name -contains 'error') {
+        return [pscustomobject]@{
+            ok     = $false
+            agents = @()
+            error  = "herdr agent list: $($r.error.code) - $($r.error.message)"
+        }
+    }
+    if ($r.PSObject.Properties.Name -notcontains 'agents') {
+        return [pscustomobject]@{
+            ok     = $false
+            agents = @()
+            error  = 'herdr answered agent list without an agents list in it.'
+        }
+    }
+
+    [pscustomobject]@{ ok = $true; agents = @($r.agents); error = '' }
+}
+
 # Submits a prompt. With -Wait it returns only once the agent has settled, which is what makes
 # an armed dispatch wake the Hand instead of a polling loop.
 #
@@ -1017,7 +1059,8 @@ function Remove-HerdrPane {
 
 Export-ModuleMember -Function Get-HerdrCommandPath, Get-HerdrCommandHint, ConvertTo-HerdrAgentName,
                               Invoke-Herdr, Test-HerdrServer, Start-HerdrServer, New-HerdrPane,
-                              Start-HerdrAgent, Get-HerdrAgent, Get-HerdrAgents, Send-HerdrPrompt,
+                              Start-HerdrAgent, Get-HerdrAgent, Get-HerdrAgents,
+                              Get-HerdrAgentInventory, Send-HerdrPrompt,
                               Wait-HerdrAgent, Read-HerdrAgent, Send-HerdrKeys, Stop-HerdrAgent,
                               Remove-HerdrPane, Test-HerdrAgentAwaitingInput, Get-HerdrAgentState,
                               Wait-HerdrAgentSettled, Test-HerdrAgentReadable,

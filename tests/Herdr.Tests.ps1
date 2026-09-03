@@ -356,6 +356,62 @@ Describe 'Get-HerdrCommandHint tells the reader what to run' {
     }
 }
 
+Describe 'Get-HerdrAgentInventory keeps the failure that Get-HerdrAgents throws away' {
+    # Two readers of the same `agent list` on purpose. Get-HerdrAgents answers an unreachable herdr
+    # with an empty list, which is what a status view wants; this one says it could not read the
+    # list, which is what a guard that refuses an action needs. Collapsing the second into the first
+    # is how "could not ask" becomes "nobody is working" - see bin\Update.psm1's liveness guard.
+
+    It 'reports the agents herdr listed' {
+        Mock -ModuleName Herdr Invoke-Herdr {
+            [pscustomobject]@{ agents = @(
+                [pscustomobject]@{ name = 't-9001'; state = 'working' }
+                [pscustomobject]@{ name = 't-9002'; state = 'idle' }
+            ) }
+        }
+
+        $inventory = Get-HerdrAgentInventory
+        $inventory.ok    | Should -BeTrue
+        $inventory.error | Should -Be ''
+        @($inventory.agents).Count | Should -Be 2
+        @($inventory.agents | ForEach-Object { $_.name }) | Should -Be @('t-9001', 't-9002')
+    }
+
+    It 'reports an empty list as a list that was read, not as a failure' {
+        Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } }
+
+        $inventory = Get-HerdrAgentInventory
+        $inventory.ok | Should -BeTrue -Because 'herdr answered, and its answer was that nobody is there'
+        @($inventory.agents).Count | Should -Be 0
+    }
+
+    It 'reports herdr''s own error rather than an empty list' {
+        Mock -ModuleName Herdr Invoke-Herdr { New-HerdrError -Code 'server_unavailable' -Message 'no server' }
+
+        $inventory = Get-HerdrAgentInventory
+        $inventory.ok    | Should -BeFalse
+        $inventory.error | Should -Match 'server_unavailable'
+        $inventory.error | Should -Match 'no server'
+        @($inventory.agents).Count | Should -Be 0
+    }
+
+    It 'reports a reply that could not be read at all' {
+        Mock -ModuleName Herdr Invoke-Herdr { $null }
+
+        $inventory = Get-HerdrAgentInventory
+        $inventory.ok    | Should -BeFalse
+        $inventory.error | Should -Match 'nothing that could be read'
+    }
+
+    It 'reports a reply that carried no agents list' {
+        Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ panes = @() } }
+
+        $inventory = Get-HerdrAgentInventory
+        $inventory.ok    | Should -BeFalse -Because 'a reply with no agents in it did not answer the question'
+        $inventory.error | Should -Match 'without an agents list'
+    }
+}
+
 Describe 'Send-HerdrPrompt routes a blocked worker rather than throwing at it' {
     # agent_blocked is a state, not a fault: the worker is sitting on an interactive prompt and
     # cannot take text until it is answered. Throwing would make every caller wrap this in a
