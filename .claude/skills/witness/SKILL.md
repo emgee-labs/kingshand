@@ -53,10 +53,12 @@ $tools.available
 $tools.reason
 ```
 
-**The brief names that path in full, and it is the one to use.** `$env:KINGSHAND_HOME` is not
-reliably set in a worker's session - a worker inherits the environment of a server that started
-before the variable existed, which is the same trap the credential rule below is about - so an
-import written against it silently names no file at all.
+**The brief names that path in full, and it is the one to use.** It is a copy sitting beside this
+file in the brief's own directory, which with your worktree is the whole of what you can reach -
+the installation's own `bin\` is not. `$env:KINGSHAND_HOME` is no help either: it is not reliably
+set in a worker's session, because a worker inherits the environment of a server that started
+before the variable existed, which is the same trap the credential rule below is about. An import
+written against either silently names no file at all.
 
 **The server is genuinely unreliable and its absence is an ordinary Tuesday.** It connected and
 disconnected twice inside one conversation on 2026-09-03. So there is no retry loop here and no

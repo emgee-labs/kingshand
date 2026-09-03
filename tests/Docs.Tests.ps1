@@ -2960,9 +2960,9 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
                      'the standing-criteria file nor the browser procedure counts towards that ' +
                      'one, per Step 2, which owns the rule - a brief carrying a ' +
                      '`## Browser checks` section that passes no `-ReadPath` for the browser ' +
-                     'procedure, a path that does not exist, a directory where a file was meant, ' +
-                     'and two different files whose names would land on top of each other in the ' +
-                     'staging directory.')
+                     'procedure or for the module it imports, a path that does not exist, a ' +
+                     'directory where a file was meant, and two different files whose names would ' +
+                     'land on top of each other in the staging directory.')
     }
 
     # A single quoted placeholder is filled in with two paths in one string, which names no file
@@ -5443,8 +5443,10 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
             Should -BeTrue -Because 'the browser step needs a slot in the artefact the worker reads'
         $t.Contains('read-first\SKILL.md') |
             Should -BeTrue -Because 'the worker is pointed at the copy it can actually open'
-        $t.Contains('bin\BrowserVerify.psm1') |
-            Should -BeTrue -Because '$env:KINGSHAND_HOME is not reliably set in a worker session'
+        $t.Contains('read-first\BrowserVerify.psm1') |
+            Should -BeTrue -Because 'the module travels the same way, into the one place it reaches'
+        $t | Should -Not -Match 'read-first\\SKILL\.md[\s\S]*?\\bin\\BrowserVerify\.psm1' `
+            -Because 'the installation''s own bin\ is not a place a worker can reach'
         $t.IndexOf('## Browser checks') | Should -BeLessThan $t.IndexOf('## Done means')
 
         # Both paths in that slot, not just the module one. A worker inherits a server environment
@@ -5485,9 +5487,9 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
         Assert-Phrase -Text $step2 -Where 'muster Step 2' `
             -Phrase '**`Browser checks` is the one optional section, and it is optional both ways.**'
         Assert-Phrase -Text $step2 -Where 'muster Step 2' `
-            -Phrase '**hand the worker the procedure itself rather than its name**'
+            -Phrase ('**hand the worker the two files the step runs on rather than their names**')
         Assert-Phrase -Text $step2 -Where 'muster Step 2' `
-            -Phrase '**That copy does not discharge the index line.**'
+            -Phrase '**Those copies do not discharge the index line.**'
     }
 
 

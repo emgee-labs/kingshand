@@ -652,6 +652,10 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         $script:DispatchScript = "$PSScriptRoot\..\bin\Dispatch-Worker.ps1"
         $script:ProcedureFile  = (Resolve-Path (Join-Path (Split-Path $PSScriptRoot -Parent) `
                                                           '.claude\skills\witness\SKILL.md')).Path
+        $script:ModuleFile     = (Resolve-Path (Join-Path (Split-Path $PSScriptRoot -Parent) `
+                                                          'bin\BrowserVerify.psm1')).Path
+        # What muster passes on every browser brief, and what dispatch therefore discounts.
+        $script:BrowserFiles   = @($script:ProcedureFile, $script:ModuleFile)
         $script:SavedPath      = $env:PATH
         $script:SavedProfile   = $env:USERPROFILE
 
@@ -1570,39 +1574,45 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\done-$name.md") | Should -BeTrue
         }
 
-        # The browser procedure is the other path passed by rote: muster hands it over on every
-        # brief carrying browser checks, because a worker in another repo's worktree cannot load a
-        # skill and has to be given the file. Counting it would open this gate on exactly those
-        # briefs, which is the failure the criteria discount already exists to prevent.
-        It 'refuses an indexed project whose only -ReadPath is the browser procedure' {
+        # The browser procedure and its module are the other paths passed by rote: muster hands
+        # both over on every brief carrying browser checks, because a worker reaches its worktree
+        # and the brief's directory and nowhere else. Counting them would open this gate on
+        # exactly those briefs, which is the failure the criteria discount already exists to
+        # prevent - and each clause has to stand on its own, since either can be the first written.
+        It 'refuses an indexed project whose only -ReadPath is the browser pair' {
             Set-AgentStartState
             $f = New-DispatchFixture 'index-procedure-only'
             Register-FixtureProject -Fixture $f -WithIndex | Out-Null
-            Set-ReadFirstBrief -Fixture $f -Leaf 'SKILL.md' -From $script:ProcedureFile -BrowserChecks
+            Set-ReadFirstBrief -Fixture $f -Leaf @('SKILL.md', 'BrowserVerify.psm1') `
+                -From $script:ProcedureFile -BrowserChecks
 
             $msg = ''
             try {
                 & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8028' `
-                    -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $script:ProcedureFile
+                    -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $script:BrowserFiles
             } catch { $msg = $_.Exception.Message }
             $msg | Should -BeLike '*neither names a file from them to read*'
             $msg | Should -BeLike '*browser procedure*' -Because 'the refusal says what it discounted'
-            $msg | Should -BeLike '*browser checks passes it*'
+            $msg | Should -BeLike '*browser module*'
+            $msg | Should -BeLike '*The only files this brief passes are*'
+            $msg | Should -Not -BeLike '*for the same reason*' -Because 'no criteria sentence precedes it'
         }
 
-        It 'dispatches when a file this task touches is passed beside the browser procedure' {
+        It 'dispatches when a file this task touches is passed beside the browser pair' {
             Set-AgentStartState
             $f = New-DispatchFixture 'index-procedure-plus'
             Register-FixtureProject -Fixture $f -WithIndex | Out-Null
             $brand = Join-Path $f.DataPath 'brand.md'
             Set-Content -Path $brand -Value 'teal, not amber' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Leaf @('SKILL.md', 'brand.md') -From $brand -BrowserChecks
+            Set-ReadFirstBrief -Fixture $f -Leaf @('SKILL.md', 'BrowserVerify.psm1', 'brand.md') `
+                -From $brand -BrowserChecks
 
             $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8029' `
                 -BriefPath $f.BriefPath -DataPath $f.DataPath `
-                -ReadPath @($script:ProcedureFile, $brand)
+                -ReadPath (@($script:BrowserFiles) + $brand)
             $r.id | Should -Be 'T-8029'
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\SKILL.md') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\BrowserVerify.psm1') | Should -BeTrue
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') | Should -BeTrue
         }
 
@@ -1639,12 +1649,12 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $r.id | Should -Be 'T-8031'
         }
 
-        # The section is the whole opt-in, and the copy under read-first is the only way the rules
-        # attached to it reach a worker: skills live in this repository and a worker runs in the
-        # target project's worktree. Forget the -ReadPath and the worker follows the brief to a
-        # file that is not there, then drives a browser with no read-only boundary and no record
-        # format - which is the failure the file delivery was added to close.
-        It 'refuses a brief that asks for browser checks and hands over no procedure' {
+        # The section is the whole opt-in, and the copies under read-first are the only way the
+        # rules and the module reach a worker: it gets its own worktree and the brief's directory
+        # and nothing else. Forget either -ReadPath and the worker follows the brief to a file that
+        # is not there, then drives a browser with no read-only boundary and no record format -
+        # which is the failure the file delivery was added to close.
+        It 'refuses a brief that asks for browser checks and hands over neither file' {
             Set-AgentStartState
             $f = New-DispatchFixture 'browser-no-procedure'
             Register-FixtureProject -Fixture $f -WithIndex | Out-Null
@@ -1659,13 +1669,32 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             } catch { $msg = $_.Exception.Message }
             $msg | Should -BeLike '*## Browser checks*'
             $msg | Should -BeLike "*$script:ProcedureFile*" -Because 'the refusal names the path to pass'
+            $msg | Should -BeLike "*$script:ModuleFile*"
             $msg | Should -BeLike '*Nothing was created*'
             Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-8032') | Should -BeFalse
             (Get-CallLines $f).Count | Should -Be 0
         }
 
+        # The procedure's first instruction is to import the module, so handing over one of the two
+        # leaves the browser step dead one line further down than handing over neither.
+        It 'refuses a browser brief that hands over the procedure but not the module' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'browser-no-module'
+            Set-ReadFirstBrief -Fixture $f -Leaf 'SKILL.md' -From $script:ProcedureFile -BrowserChecks
+
+            $msg = ''
+            try {
+                & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8036' `
+                    -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $script:ProcedureFile
+            } catch { $msg = $_.Exception.Message }
+            $msg | Should -BeLike '*browser module*'
+            $msg | Should -BeLike "*$script:ModuleFile*"
+            $msg | Should -Not -BeLike '*browser procedure*' -Because 'that one was handed over'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+        }
+
         # And it is not the index gate wearing another hat: a project with nothing indexed at all
-        # still has to hand the procedure over.
+        # still has to hand both files over.
         It 'refuses the same brief on a project with no index to check' {
             Set-AgentStartState
             $f = New-DispatchFixture 'browser-no-procedure-unindexed'
@@ -1675,34 +1704,39 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 Should -Throw '*passes no -ReadPath for*'
         }
 
-        It 'dispatches a browser brief that hands the procedure over' {
+        It 'dispatches a browser brief that hands both files over' {
             Set-AgentStartState
             $f = New-DispatchFixture 'browser-with-procedure'
-            Set-ReadFirstBrief -Fixture $f -Leaf 'SKILL.md' -From $script:ProcedureFile -BrowserChecks
+            Set-ReadFirstBrief -Fixture $f -Leaf @('SKILL.md', 'BrowserVerify.psm1') `
+                -From $script:ProcedureFile -BrowserChecks
 
             $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8034' `
-                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $script:ProcedureFile
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $script:BrowserFiles
             $r.id | Should -Be 'T-8034'
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\SKILL.md') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\BrowserVerify.psm1') |
+                Should -BeTrue -Because 'the module the procedure imports travels the same way'
         }
 
-        # Both copies are in the section, so a line saying nothing applies beyond one of them
-        # contradicts the other - the same contradiction the criteria paraphrase exists to avoid.
-        It 'recommends a line naming both copies when both were discounted' {
+        # Every copy is in the section, so a line saying nothing applies beyond one of them
+        # contradicts the others - the same contradiction the criteria paraphrase exists to avoid.
+        It 'recommends a line naming every copy that was discounted' {
             Set-AgentStartState
             $f = New-DispatchFixture 'index-both-discounted'
             $name = Register-FixtureProject -Fixture $f -WithIndex
             $criteria = Join-Path $f.DataPath "done-$name.md"
             Set-Content -Path $criteria -Value '- Every new prose rule is pinned by a test.' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Leaf @("done-$name.md", 'SKILL.md') -From $criteria -BrowserChecks
+            Set-ReadFirstBrief -Fixture $f `
+                -Leaf @("done-$name.md", 'SKILL.md', 'BrowserVerify.psm1') -From $criteria -BrowserChecks
 
             $msg = ''
             try {
                 & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8035' `
                     -BriefPath $f.BriefPath -DataPath $f.DataPath `
-                    -ReadPath @($criteria, $script:ProcedureFile)
+                    -ReadPath (@($criteria) + $script:BrowserFiles)
             } catch { $msg = $_.Exception.Message }
-            $msg | Should -BeLike ('*beyond the standing criteria and the browser procedure above.*')
+            $msg | Should -BeLike ('*beyond the standing criteria, the browser procedure and the ' +
+                                   'browser module above.*')
             $msg | Should -Not -BeLike '*Nothing beyond this brief - the index was checked*'
         }
 

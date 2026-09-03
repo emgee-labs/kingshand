@@ -306,22 +306,24 @@ the file, and a worker left to work out which source wins picks wrong half the t
 **`Browser checks` is the one optional section, and it is optional both ways.** Leave it out
 entirely unless this task changes something a browser renders and you can state what to look at -
 most tasks change nothing of the kind, and a browser step nobody asked for is cost with no answer
-attached. Where you do write it, load `witness` first, and then **hand the worker the procedure
-itself rather than its name**: pass `$env:KINGSHAND_HOME\.claude\skills\witness\SKILL.md` to
-`-ReadPath` at Step 4 and name the copy under `Read first`, exactly as you would any other settled
-file. Naming the skill is not delivery - skills live in kingshand's own repository and a worker
-runs in the target project's worktree, where none of them exists - so a list of things to look at
-with a pointer the worker cannot follow sends it into a browser without the read-only boundary,
-the credential rule or the record every check has to end up in, and the change comes back
-asserted, which is the one outcome the section exists to prevent. Write both paths in that section
-resolved - the copy the worker opens and the module it imports - the same way the report path is:
-`$env:KINGSHAND_HOME` is often unset in a worker's session, so either path written against it
-names no file at all, and the browser step dies on the first line of the procedure it never read.
+attached. Where you do write it, load `witness` first, and then **hand the worker the two files the
+step runs on rather than their names**: pass both
+`$env:KINGSHAND_HOME\.claude\skills\witness\SKILL.md` and
+`$env:KINGSHAND_HOME\bin\BrowserVerify.psm1` to `-ReadPath` at Step 4 and name both copies under
+`Read first`, exactly as you would any other settled file. Naming them where they live is not
+delivery - a worker reaches its own worktree and the brief's directory and nowhere else, and it
+cannot load one of kingshand's skills at all - so a list of things to look at pointing at files
+outside both sends it into a browser without the read-only boundary, the credential rule or the
+record every check has to end up in, and the change comes back asserted, which is the one outcome
+the section exists to prevent. Write both paths in that section resolved, the same way the report
+path is: `$env:KINGSHAND_HOME` is often unset in a worker's session, so either path written
+against it names no file at all, and the browser step dies on the first line of the procedure it
+never read.
 
-**That copy does not discharge the index line.** Dispatch discounts it exactly as it discounts the
-standing-criteria file, and for the same reason - every brief carrying browser checks passes it,
-so it is evidence of nothing about this task. It also refuses the dispatch outright where the
-section is there and the file was not passed, before anything is created, because a section
+**Those copies do not discharge the index line.** Dispatch discounts them exactly as it discounts
+the standing-criteria file, and for the same reason - every brief carrying browser checks passes
+them, so they are evidence of nothing about this task. It also refuses the dispatch outright where
+the section is there and either file was not passed, before anything is created, because a section
 pointing at a copy that does not exist is the delivery failure this whole route was built to end. It is the one section in the template carrying a delete marker for that reason: every
 other section stays in every brief, and this one arriving by accident is a browser step on a
 migration. Give each line an id - `C-001`, `C-002` - because the worker copies those ids out
@@ -358,7 +360,8 @@ Read `<the resolved KINGSHAND_HOME>\data\<id>\read-first\SKILL.md` - the browser
 under `Read first` above - in full before you touch a browser tool. It owns how the browser is driven,
 what you may not do to a live server, how a login is read, and the record each check below has to
 end up in: every one of them answered by its id in `report.md`, verified, failed or not checked.
-The module it tells you to import is at `<the resolved KINGSHAND_HOME>\bin\BrowserVerify.psm1`.
+The module it tells you to import is beside it, at
+`<the resolved KINGSHAND_HOME>\data\<id>\read-first\BrowserVerify.psm1`.
 - C-001 <one thing to look at, stated as something observable in a browser>
 
 ## Standing criteria
@@ -723,9 +726,9 @@ There are six, and each is refused by name: a brief with no `## Read first` sect
 brief that passes no `-ReadPath` and does not say the index was checked when anything at all is
 indexed - and neither the standing-criteria file nor the browser procedure counts towards that one,
 per Step 2, which owns the rule - a brief carrying a `## Browser checks` section that passes no
-`-ReadPath` for the browser procedure, a path that does not exist, a directory where a file was
-meant, and two different files whose names would land on top of each other in the staging
-directory.
+`-ReadPath` for the browser procedure or for the module it imports, a path that does not exist, a
+directory where a file was meant, and two different files whose names would land on top of each
+other in the staging directory.
 
 **Dispatch does not read the paths out of the brief's prose, and nothing may make it start.** An
 earlier version did, comparing what it parsed there against `-ReadPath`, and it cost six review
