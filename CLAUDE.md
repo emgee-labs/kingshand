@@ -171,7 +171,7 @@ rather than trusting a list; a list here goes stale and has twice.
 
 ## Skills
 
-Every skill lives in `.claude\skills\` inside this repository, so all fourteen load when Claude Code
+Every skill lives in `.claude\skills\` inside this repository, so all fifteen load when Claude Code
 runs here and none of them exists in a session started anywhere else. Nothing links or copies them
 into `~\.claude\skills\`, and nothing may start doing so.
 
@@ -214,6 +214,13 @@ gone: workers stay supervised, everything that does not need them is batched, an
 they speak again. **Being away grants nothing.** It never authorises a land the posture did not
 already allow, never answers a question a worker asked, and never touches anything destructive,
 irreversible or security-sensitive. A blocked worker's question is recorded verbatim and waits.
+
+Invoke `counsel` when the King asks for a story, a feature or a pile of stories to be broken down,
+analysed or brainstormed before anything is built. It divides the work by the layers that project
+actually has, names the edge cases before anyone codes, and finds where several stories touch one
+area so they collapse into a single task. **Never launch it unprompted** - the King asks for it,
+Intake judgement still forbids you volunteering a design exercise beside a good-enough answer, and
+the skill's own frontmatter is what enforces that.
 
 Five more are reference procedures. Nobody invokes them by name; load each when its situation
 arrives.

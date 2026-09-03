@@ -3075,6 +3075,8 @@ Describe 'no long dash' {
         @{ file = 'docs\2026-09-02-prompt-box-safety.md' }
         @{ file = '.claude\skills\update\SKILL.md' }
         @{ file = 'docs\2026-09-03-versioning-and-update.md' }
+        @{ file = '.claude\skills\counsel\SKILL.md' }
+        @{ file = 'docs\2026-09-04-story-analysis-split.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
@@ -3391,7 +3393,7 @@ Describe 'survey puts an open decision in King''s Call and only there' {
 }
 
 Describe 'the setup skill ships inside the repo so a fresh clone can bootstrap itself' {
-    # Every skill is project-local, under .claude\skills\, so all fourteen are readable the moment
+    # Every skill is project-local, under .claude\skills\, so all fifteen are readable the moment
     # someone opens Claude Code in this directory and none of them is reachable from anywhere
     # else on the machine. That is what lets "set it up" be the first thing anyone types.
     BeforeAll { $script:SetupText = Get-DocText $script:SetupMd }
@@ -3792,7 +3794,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
 
     It 'every skill directory lives under .claude\skills\' {
         $skills = @(Get-ChildItem (Join-Path $script:Root '.claude\skills') -Directory)
-        $skills.Count | Should -Be 14 -Because 'thirteen skills plus setup, all project-local'
+        $skills.Count | Should -Be 15 -Because 'fourteen skills plus setup, all project-local'
         @($skills.Name) | Should -Contain 'herald' -Because 'output shape has an owner the user can turn on'
         foreach ($s in $skills) {
             Test-Path -LiteralPath (Join-Path $s.FullName 'SKILL.md') |
@@ -4954,7 +4956,7 @@ Describe 'the installation has a version, and one command moves it to a release'
 
     It 'counts every skill that now loads' {
         Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'CLAUDE.md Skills' `
-            -Phrase 'so all fourteen load when Claude Code runs here'
+            -Phrase 'so all fifteen load when Claude Code runs here'
     }
 
     It 'gives the version and the update their own owners in the tooling table' {
@@ -5100,5 +5102,220 @@ Describe 'the installation has a version, and one command moves it to a release'
         Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
             -Phrase ('nothing may convert "cannot tell whether a worker is live" into "no workers are ' +
                      'live"')
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# Story analysis. The King asked for a breakdown skill after kingshand's own audit had already
+# concluded that an external brainstorming skill was not for us, for three independent reasons -
+# one of them structural, because a worker cannot address the user and so cannot hold a dialogue
+# at all. The resolution is a split: the dialogue is the Hand's, the reading is a worker's, and
+# the skill is user-invoked only so the Intake rule against volunteering a design exercise keeps
+# its force. Every line of that is prose, and prose is what nothing else in this suite would miss.
+# ---------------------------------------------------------------------------------------------
+Describe 'counsel splits the dialogue from the reading, and only the King starts it' {
+    BeforeAll {
+        $script:CounselMd   = Join-Path $script:Root '.claude\skills\counsel\SKILL.md'
+        $script:CounselText = Get-DocText $script:CounselMd
+        $script:CounselDoc  = Get-DocText (Join-Path $script:Root 'docs\2026-09-04-story-analysis-split.md')
+    }
+
+    It 'exists as a project-local skill with frontmatter that parses' {
+        Test-Path -LiteralPath $script:CounselMd |
+            Should -BeTrue -Because 'a skill nothing can load is not a skill'
+        $fm = Get-Frontmatter $script:CounselMd
+        $fm['name']    | Should -Be 'counsel' -Because 'the frontmatter name must match the skill directory'
+        $fm['version'] | Should -Be '1.0.0'
+    }
+
+    # The whole resolution of the audit's rejection rests on this pair: the King may ask, the Hand
+    # may not offer. A frontmatter key is what makes that mechanical rather than a promise, so its
+    # removal has to fail a test rather than pass quietly.
+    It 'is user-invoked only, in frontmatter as well as in prose' {
+        $fm = Get-Frontmatter $script:CounselMd
+        $fm['disable-model-invocation'] |
+            Should -Be 'true' -Because 'the Hand must not be able to launch a design exercise on its own'
+        $fm['user-invocable'] |
+            Should -Be 'true' -Because 'the King is the only way in, so his way in must stay open'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('`disable-model-invocation: true` in the frontmatter above makes that mechanical ' +
+                     'rather than a promise: the Hand cannot invoke this skill at all, so the only way ' +
+                     'in is the King asking.')
+    }
+
+    It 'the description fires on the situation and on <trigger>' -ForEach @(
+        @{ trigger = '"/counsel"' }
+        @{ trigger = '"break this story down"' }
+        @{ trigger = '"brainstorm this with me"' }
+        @{ trigger = '"where do these stories overlap"' }
+    ) {
+        $description = (Get-Frontmatter $script:CounselMd)['description']
+        $description.Contains($trigger) |
+            Should -BeTrue -Because "a skill reached only by its own name is reached by nobody, so $trigger must fire it"
+    }
+
+    It 'names the contradiction it resolves rather than routing around it' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**That is a resolution of a contradiction, not an oversight, and it is written ' +
+                     'down here so nobody quietly reverses it.**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'concluded **not for us**, for three independent reasons'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'workers never address the user, so that dialogue cannot happen inside a dispatch at all'
+    }
+
+    It 'resolves the Intake rule by who may ask, without weakening it' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase '**the Intake rule binds what the Hand offers, never what the King may ask for.**'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('The Hand does not volunteer an analysis beside an answer that is already good ' +
+                     'enough, and does not run one to look thorough.')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase '**An analysis authorises nothing.**'
+    }
+
+    # Hard rule 1 is the one this skill is most exposed to: the reading half is exactly the work a
+    # busy Hand would do itself in one file open.
+    It 'gives the dialogue to the Hand and the reading to a worker, at every step' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('| Narrowing the problem, asking what is ambiguous, agreeing the division | the ' +
+                     'Hand, with the King | A worker never addresses the user, so it can ask him ' +
+                     'nothing |')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('| Opening the stories, the tickets and the code, finding what overlaps | a ' +
+                     'worker | Hard rule 1: the Hand routes, and never reads a project''s source |')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**A pass that has the Hand open the repository to see how the stories divide has ' +
+                     'broken it**')
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase '**The dialogue belongs to the Hand**, because only the Hand can reach the King.'
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase '**The reading belongs to a worker**, because it is a project''s own material.'
+    }
+
+    # The skill ships to strangers. One reader's layers are front end, back end and database; the
+    # next reader's are not, and a set written into the skill would be invisibly wrong for them.
+    It 'treats the layer set as a per-project fact and never as a constant' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**Which layers this project divides into.** This is a per-project fact and never ' +
+                     'a constant.')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('This skill ships to strangers, so it carries no project''s layer set, no product ' +
+                     'name and no real story as an example.')
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase '**No hardcoded layer set.**'
+    }
+
+    # Fail closed: an unstated layer set reads as unstated. Filling it in from another project is
+    # the failure that produces several wrong tasks with a tidy shape and no visible cause.
+    It 'stops on an unstated layer set rather than guessing one' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**Where the project states no layer set and the King is not there to answer, say ' +
+                     'the layer set is unstated and stop. Never fill it in from another project, and ' +
+                     'never let a guessed set reach a brief.**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('A decomposition divided along layers this project does not have is several wrong ' +
+                     'tasks wearing a tidy shape.')
+    }
+
+    # Seventeen stories pasted into one session exhausted the window. Worker isolation alone does
+    # not fix it, and one worker per story cannot see an overlap at all, so the map's shape and its
+    # size contract are the load-bearing parts.
+    It 'reads a whole story set in one worker and returns a short map' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**Worker isolation alone does not fix it**, because somebody still has to hold ' +
+                     'all seventeen at once to see an overlap at all.')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**The shape that works, and the one to use every time: one worker reads the whole ' +
+                     'set in its own full window and writes back a short map. The Hand reads the map ' +
+                     'and never the stories.**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'The map is short by contract, because a map as long as the stories has solved nothing'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'The overlap question is a whole-set question, so it is one worker.'
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase ('**What a future change must not undo:** the map''s size contract, and the rule ' +
+                     'that the Hand reads the map rather than the stories.')
+    }
+
+    It 'makes exactness checkable rather than asserted' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase '**A wrong decomposition is expensive in a way a slow one is not.**'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**The requirement ledger** - every requirement the worker read, each one marked ' +
+                     'as covered by a named task, judged ambiguous, or assumed with the assumption ' +
+                     'written out.')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'A requirement missing from the ledger is a requirement nobody read'
+    }
+
+    It 'sends an unsettled ambiguity to the decision owner instead of settling it' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('An ambiguity the analysis could not settle and the King has to is a decision, and ' +
+                     '`decree` owns what happens to it.')
+    }
+
+    It 'keeps brainstorming inside this skill rather than making a second one' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('two skills with overlapping descriptions means the wrong one loads, which ' +
+                     '`statute`''s trigger hygiene owns')
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase '**No second skill for brainstorming.**'
+    }
+
+    # The audit's one genuinely missing piece. It lives here and only here, and it deliberately
+    # does not reach a reported bug, which inquest already owns.
+    It 'owns the trigger for an analysis dispatch before an implementation dispatch' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase '**Dispatch an analysis before the implementation when any one of these is true:**'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'With none of them true, write the implementation brief and skip this entirely.'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase '**This trigger covers a story or a feature and nothing else.**'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('`inquest` owns the diagnosis procedure, and `CLAUDE.md` already says a diagnosis ' +
+                     'is evidence rather than authorization')
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase ('It was placed there rather than in `muster` because the situation it fires in is ' +
+                     'a story that has not been divided yet')
+    }
+
+    # Roughly 22 review rounds across three tasks went into hand-written parsers of open-ended
+    # formats here. A story is prose, so this is the one hazard this skill could not be allowed to
+    # walk into.
+    It 'builds no story parser' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**Nothing in this skill extracts structure from story text with a regex, a line ' +
+                     'scan or a hand-written parser.**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'A parser for prose has no round after which it is finished'
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase '**No story parser.**'
+    }
+
+    It 'assumes no ticket system, and keeps hard rule 3 over whatever it reaches' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase '**A ticket system is not assumed.**'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'Azure DevOps is an optional integration and absent by default'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('nothing landing in a ticket, a commit message or a pull request names an agent or ' +
+                     'its tooling')
+    }
+
+    It 'renders the decomposition and dispatches nothing by having read it' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase '**Nothing is dispatched by having been read.**'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'An accepted decomposition is a queue, not a licence.'
+    }
+
+    It 'declares its trigger inline in CLAUDE.md, with the rule that nothing volunteers it' {
+        $skills = Get-HandSection 'Skills'
+        Assert-Phrase -Text $skills -Where 'CLAUDE.md Skills' `
+            -Phrase ('Invoke `counsel` when the King asks for a story, a feature or a pile of stories ' +
+                     'to be broken down, analysed or brainstormed before anything is built.')
+        Assert-Phrase -Text $skills -Where 'CLAUDE.md Skills' `
+            -Phrase '**Never launch it unprompted**'
     }
 }
