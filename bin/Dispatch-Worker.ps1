@@ -291,7 +291,11 @@ if ($project) {
     $standing["done-$project.md"]  = @{
         path = Join-Path $dataRoot "done-$project.md"
         what = "the standing definition of done for $project"
-        how  = 'Read it in full. Its lines are also pasted into this brief, and you work them one by one.'
+        # Says only what is true from HERE. muster usually pastes these lines into the brief as well
+        # and writes its own line saying so, but this script never reads the brief's body, so a claim
+        # about what the body contains is one it cannot stand behind - and it would be wrong in
+        # exactly the case this attachment is the backstop for, where nobody pasted anything.
+        how  = 'Read it in full. It is this project''s standing definition of done, and you work its lines one by one.'
     }
     $standing["rules-$project.md"] = @{
         path = Join-Path $dataRoot "rules-$project.md"
@@ -685,15 +689,48 @@ $autoLines = foreach ($a in $autoStaged) {
 }
 $autoLines = @($autoLines)
 
+# The one line that goes above them, and the reason the block can be inserted into a section that
+# already says there is nothing to read. The Hand writes `- Nothing beyond this brief - the index was
+# checked and nothing in it applies.` when the index turns up nothing, and that line is true about
+# the index at the moment it was written; these copies arrive afterwards and from somewhere else. So
+# the block SCOPES ITSELF rather than editing what the Hand wrote - nothing here parses the section
+# looking for a sentence to rewrite, and nothing suppresses the attachment, because a standing file
+# that reaches nobody is the whole failure this exists to close.
+#
+# One physical line, like the bullets, so the idempotence check below is a whole-line comparison.
+$autoLeadIn = ('- The file(s) named directly below were attached by dispatch from this project''s ' +
+               'own standing files, not by hand. They apply as well as everything else in this ' +
+               'section, including any line saying nothing beyond this brief was named - that line ' +
+               'was written before these were attached. Read them.')
+
 # Refused BEFORE anything is created, like every other refusal here. A brief that cannot be written
 # to would leave the copies on disk with nothing telling the worker to open them - the failure this
 # attachment exists to close, arrived at through the attachment itself.
+#
+# The brief is OPENED for writing rather than inspected for its read-only flag. The flag is one cause
+# among several and not the common one: another process holding the file, or an ACL denying write,
+# reaches the Set-Content below exactly the same way and used to abort it with the copies already on
+# disk and no line naming them. Disposed at once - this asks the question, it is not the write.
+#
+# The residual this cannot close is a failure BETWEEN here and the write - a full disk, or another
+# process taking the file in that window. A retry is idempotent: the copies are overwritten in place
+# and the insertion is checked line by line against what the brief already carries, so nothing is
+# duplicated by running the dispatch again.
 if ($autoLines.Count -gt 0) {
-    $briefItem = Get-Item -LiteralPath $BriefPath
-    if ($briefItem.IsReadOnly) {
+    try { [System.IO.File]::Open($BriefPath, 'Open', 'ReadWrite', 'None').Dispose() }
+    catch {
+        $why = $_.Exception.Message
+        # Read back after the failure, so the read-only case keeps saying so plainly instead of
+        # being folded into a generic access message the reader has to interpret.
+        $readOnly = $false
+        try { $readOnly = (Get-Item -LiteralPath $BriefPath).IsReadOnly } catch { }
+        $cause = if ($readOnly) { 'that file is read-only' }
+                 else           { "that file could not be opened for writing ($why)" }
+        $fix   = if ($readOnly) { 'Clear the read-only flag on the brief.' }
+                 else           { 'Close whatever is holding it open, or fix its permissions.' }
         throw ("Project $project's standing files have to be named in $BriefPath under 'Read first' " +
-               "and that file is read-only, so the worker would be handed copies nothing tells it " +
-               "to read. Clear the read-only flag on the brief. Nothing was created.")
+               "and $cause, so the worker would be handed copies nothing tells it to read. $fix " +
+               "Nothing was created.")
     }
 }
 
@@ -721,11 +758,18 @@ if ($staged.Count -gt 0 -or $autoStaged.Count -gt 0) {
 #
 # Inserted directly under the heading this script already located, and only for lines the brief does
 # not already carry verbatim. A second dispatch of the same ticket therefore changes nothing.
+#
+# The lead-in is inside that same check, and it is added only when a bullet is actually being added -
+# so a re-dispatch adds neither, and a project that grows a second standing file later gets the new
+# bullet without a second copy of the lead-in above it.
 if ($autoLines.Count -gt 0 -and $headingIndex -ge 0) {
     $existing = [System.Collections.Generic.HashSet[string]]::new(
                     [string[]]@($briefLines | ForEach-Object { $_.Trim() }),
                     [System.StringComparer]::Ordinal)
     $toAdd = @($autoLines | Where-Object { -not $existing.Contains($_.Trim()) })
+    if ($toAdd.Count -gt 0 -and -not $existing.Contains($autoLeadIn.Trim())) {
+        $toAdd = @($autoLeadIn) + $toAdd
+    }
     if ($toAdd.Count -gt 0) {
         $rewritten = [System.Collections.Generic.List[string]]::new()
         for ($i = 0; $i -lt $briefLines.Count; $i++) {

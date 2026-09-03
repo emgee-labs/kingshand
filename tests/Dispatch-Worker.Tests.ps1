@@ -2258,6 +2258,77 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             (Get-BriefText -Fixture $f) | Should -Be $after
         }
 
+        # The section the Hand actually writes when the index turns up nothing says there is nothing
+        # beyond the brief. Attaching a copy underneath that line without a word of explanation hands
+        # the worker a file and tells it in the next breath that no such file exists - and a worker
+        # that believes the second line skips the project's standing rules entirely.
+        It 'scopes the attachment so a nothing-beyond-this-brief section still reads coherently' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-leadin'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Nothing beyond this brief - the index was checked and nothing in it applies.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9019' | Out-Null
+            $lines   = @(Get-Content -LiteralPath $f.BriefPath)
+            $heading = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Read first\s*$' })[0]
+            $leadIn  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like '*attached by dispatch from this project*' })[0]
+            $bullet  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like "*read-first\rules-$name.md*" })[0]
+            # Located by the tail of the Hand's own sentence, not by 'Nothing beyond this brief' -
+            # the lead-in quotes that phrase itself, so the looser match finds the lead-in.
+            $nothing = @(0..($lines.Count - 1) | Where-Object {
+                $lines[$_] -like '*the index was checked and nothing in it applies*' })[0]
+
+            ($null -ne $leadIn) | Should -BeTrue
+            ($leadIn -gt $heading) | Should -BeTrue
+            ($bullet -gt $leadIn)  | Should -BeTrue
+            # The line the Hand wrote is left exactly as it was - nothing here rewrites the section -
+            # and the lead-in reaches the worker before it.
+            ($null -ne $nothing)   | Should -BeTrue
+            ($nothing -gt $leadIn) | Should -BeTrue
+            $lines[$leadIn] | Should -BeLike '*as well as everything else in this section*'
+        }
+
+        # The lead-in belongs to the same block as the bullets, so a re-dispatch adds neither.
+        It 'adds no second lead-in when the same ticket is dispatched again' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-leadin-redispatch'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Nothing beyond this brief - the index was checked and nothing in it applies.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9020' | Out-Null
+            $after = Get-BriefText -Fixture $f
+            Invoke-Dispatch -Fixture $f -Name 'T-9020' | Out-Null
+            (Get-BriefText -Fixture $f) | Should -Be $after
+            @(@(Get-Content -LiteralPath $f.BriefPath) |
+                Where-Object { $_ -like '*attached by dispatch from this project*' }).Count |
+                Should -Be 1
+        }
+
+        # This script never reads the brief's body, so it may not assert anything about what is in
+        # it. muster usually pastes the criteria in and says so in its own line - but the backstop
+        # exists precisely for the dispatch where nobody did, and there the claim would be false.
+        It 'does not claim the criteria file is pasted into the brief' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-criteria-claim'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.' | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9021' | Out-Null
+            $line = @(@(Get-Content -LiteralPath $f.BriefPath) |
+                        Where-Object { $_ -like "*read-first\done-$name.md*" })[0]
+            ($null -ne $line) | Should -BeTrue
+            $line | Should -Not -BeLike '*pasted into this brief*'
+            # It still has to say what the file IS and how it is worked, or the worker is handed a
+            # copy with no idea it is the one thing it self-reports against.
+            $line | Should -BeLike '*standing definition of done*'
+            $line | Should -BeLike '*one by one*'
+        }
+
         # A brief that cannot be written to would leave the copies on disk with nothing telling the
         # worker to open them, which is the failure this attachment exists to close.
         It 'refuses before creating anything when the brief cannot be written to' {
@@ -2272,6 +2343,36 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 { Invoke-Dispatch -Fixture $f -Name 'T-9016' } | Should -Throw '*read-only*'
                 Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
             } finally { $item.IsReadOnly = $false }
+        }
+
+        # The read-only flag is not the only way the write fails, and it is not the common one. A
+        # lock or an ACL denial used to sail past the flag check and abort at the write itself, with
+        # the copies already staged and no line in the brief naming them.
+        #
+        # Held with FileShare.Read rather than None on purpose: None blocks the dispatcher's own
+        # earlier read of the brief, so the run would fail on the missing-section refusal and prove
+        # nothing about this preflight. Read is also the truthful shape of the case - another
+        # process reading the file while holding it against writers.
+        It 'refuses before creating anything when another process holds the brief against writing' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-locked-brief'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+            $before = Get-BriefText -Fixture $f
+
+            $held = [System.IO.File]::Open($f.BriefPath, 'Open', 'Read', 'Read')
+            try {
+                $msg = ''
+                try { Invoke-Dispatch -Fixture $f -Name 'T-9022' } catch { $msg = $_.Exception.Message }
+                $msg | Should -BeLike "*$($f.BriefPath)*"
+                $msg | Should -BeLike '*could not be opened for writing*'
+                $msg | Should -BeLike '*Nothing was created*'
+            } finally { $held.Dispose() }
+
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+            (Get-BriefText -Fixture $f) | Should -Be $before
+            @(Get-CallLines -Fixture $f) | Should -BeNullOrEmpty
         }
 
         # The composed name can hold no separator and no traversal, because the resolution loop
