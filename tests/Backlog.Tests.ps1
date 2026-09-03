@@ -305,4 +305,104 @@ Describe 'a pruned decision hold leaves the tool but not the disk' {
         $archive.Contains('answered: the shorter wording') |
             Should -BeTrue -Because 'the closing note is what says what was decided'
     }
+
+    # The archive is read with Select-String, so the match is written by hand and a bare substring
+    # says "answered" over any longer key that merely starts the same way. At the teardown guard
+    # that turns a record which has gone missing - explicitly "a cause to establish, never a pass" -
+    # into permission to stop a worker. This drives the two patterns against the real archived line.
+    It 'a bare archive match claims a longer key''s answer, and the anchored one does not' -Skip:(-not $HasTasksAxi) {
+        Invoke-PruneAxi 'add' 't-100-copy-length' 'the longer sibling key' | Out-Null
+        Invoke-PruneAxi 'hold' 't-100-copy-length' '--reason' 'his to choose' '--kind' 'captain' | Out-Null
+        Invoke-PruneAxi 'done' 't-100-copy-length' '--note' 'answered: went long' | Out-Null
+        Invoke-PruneAxi 'add' 'filler-to-force-a-prune' 'filler' | Out-Null
+        Invoke-PruneAxi 'done' 'filler-to-force-a-prune' '--note' 'shipped' | Out-Null
+
+        # `t-100-copy` was never registered at all, so every read of it must come back empty.
+        $missing = 't-100-copy'
+        @(Select-String -Path $script:ArchiveFile -SimpleMatch -Pattern $missing).Count |
+            Should -BeGreaterThan 0 -Because 'this is the false positive: the bare match finds the longer key'
+        @(Select-String -Path $script:ArchiveFile -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($missing))\s+-").Count |
+            Should -Be 0 -Because 'anchored to a whole entry, an unregistered key is correctly absent'
+
+        # And the anchor still finds the key that really is there, or it would fail closed on every
+        # answered decision instead.
+        $real = 't-100-copy-length'
+        @(Select-String -Path $script:ArchiveFile -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($real))\s+-").Count |
+            Should -Be 1 -Because 'the archived entry renders as `- [x] <key> - <title>`'
+    }
+}
+
+# Two facts the route's instructions state about the tool and the shell. Both were wrong once, and
+# both fail silently rather than loudly: a lookup that errors reads as "no hold covers this", and a
+# replayed hold reads as inert while it overwrites the reason the whole discriminator rests on.
+Describe 'the tool facts the parked-decision route depends on' {
+    BeforeAll {
+        $script:FactRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("kingshand-facts-" + [guid]::NewGuid().ToString('N').Substring(0, 12))
+        New-Item -ItemType Directory -Path (Join-Path $script:FactRoot 'data') -Force | Out-Null
+        Set-Content -Path (Join-Path $script:FactRoot '.tasks.toml') -Encoding utf8 -Value @(
+            'backend = "markdown"'
+            ''
+            '[markdown]'
+            'path = "data/backlog.md"'
+            'archive = "data/done-archive.md"'
+            'done_keep = 200'
+        )
+
+        function Invoke-FactAxi {
+            param([Parameter(Mandatory, ValueFromRemainingArguments)][string[]]$Arguments)
+            Push-Location $script:FactRoot
+            try { (& tasks-axi @Arguments 2>&1 | Out-String) }
+            finally { Pop-Location }
+        }
+    }
+
+    AfterAll {
+        if ($script:FactRoot -and (Test-Path $script:FactRoot)) {
+            Remove-Item -Path $script:FactRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'refuses an unquoted comma-separated field list, which PowerShell splits' -Skip:(-not $HasTasksAxi) {
+        Invoke-FactAxi 'add' 'fk-1' 'a decision' | Out-Null
+        Invoke-FactAxi 'hold' 'fk-1' '--reason' 'the question is with him' '--kind' 'captain' | Out-Null
+
+        # Passed as PowerShell parses a bare `hold_kind,hold_reason`: a two-element array, which
+        # reaches the native command as one space-joined token.
+        $unquoted = Invoke-FactAxi 'list' '--state' 'held' '--fields' @('hold_kind', 'hold_reason')
+        $unquoted.Contains('VALIDATION_ERROR') |
+            Should -BeTrue -Because 'the fence must quote the field list or this lookup returns no rows at all'
+        $unquoted.Contains('fk-1') |
+            Should -BeFalse -Because 'a validation error reads to the Hand as no hold covering the decision'
+
+        $quoted = Invoke-FactAxi 'list' '--state' 'held' '--fields' 'hold_kind,hold_reason'
+        $quoted.Contains('fk-1') | Should -BeTrue
+        $quoted.Contains('the question is with him') |
+            Should -BeTrue -Because 'hold_reason is the whole point of asking for these fields'
+    }
+
+    It 'leaves add inert on replay but rewrites a hold''s reason and kind' -Skip:(-not $HasTasksAxi) {
+        Invoke-FactAxi 'add' 'fk-2' 'first title' | Out-Null
+        Invoke-FactAxi 'hold' 'fk-2' '--reason' 'the question is with him: shorter or longer' '--kind' 'captain' | Out-Null
+
+        $addAgain = Invoke-FactAxi 'add' 'fk-2' 'a completely different title'
+        $addAgain.Contains('already: true') | Should -BeTrue -Because 'add is the half that really is idempotent'
+        $addAgain.Contains('a completely different title') |
+            Should -BeFalse -Because 'a replayed add must not even change the title'
+
+        $holdAgain = Invoke-FactAxi 'hold' 'fk-2' '--reason' 'boilerplate second reason' '--kind' 'external'
+        $holdAgain.Contains('already: true') |
+            Should -BeFalse -Because 'hold reports a write, and the instructions must not call it inert'
+
+        # This fixture holds more than one item, so read the row for this key rather than the
+        # whole listing - another item's reason would otherwise satisfy the absence assertion.
+        $after = Invoke-FactAxi 'list' '--state' 'held' '--fields' 'hold_kind,hold_reason'
+        $row = @($after -split "`r?`n" | Where-Object { $_ -match '^\s*fk-2,' })[0]
+        $row | Should -Not -BeNullOrEmpty -Because 'the replay must leave the item held, not unhold it'
+        $row.Contains('boilerplate second reason') |
+            Should -BeTrue -Because 'this is the overwrite: the replay replaced the reason in place'
+        $row.Contains('the question is with him') |
+            Should -BeFalse -Because 'and the discriminator the route reads is what it destroyed'
+        $row.Contains('external') |
+            Should -BeTrue -Because 'the kind is overwritten with it, so a captain hold stops being one'
+    }
 }

@@ -1065,8 +1065,10 @@ and `petition` owns who may answer it:
 
 ```powershell
 Set-Location $env:KINGSHAND_HOME
-tasks-axi show <the key the pointer names> --full
-Select-String -Path data\done-archive.md -SimpleMatch -Pattern '<the key the pointer names>' -ErrorAction SilentlyContinue
+$key = $w.waiting_on
+tasks-axi show $key --full
+Select-String -Path data\done-archive.md -ErrorAction SilentlyContinue `
+  -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($key))\s+-"
 ```
 
 **`NOT_FOUND` from `show` is not an answer on its own - a closed hold gets pruned out of the
@@ -1076,6 +1078,14 @@ the tool itself never reads back, so a decision answered long enough ago is miss
 second line of the lookup for exactly that, and only a closed hold is ever archived - so a key
 found there is answered, and a key in neither place is a record that has gone missing rather than
 a decision nobody made.
+
+**Every archive read is anchored to the whole key on its own entry, never a bare substring.** The
+archive renders one entry per line as `- [x] <key> - <title> (done <date>) (hold: <reason>)`, and
+a bare match for `t-100-copy` finds `t-100-copy-length` in it - so an unregistered decision reads
+as answered, and at the teardown a record that has gone missing reads as one that is fine. That is
+the same delimiter mistake the work-id enumeration below already refuses, and the anchor is what
+refuses it here. `[regex]::Escape` is not decoration either: a key may carry a `.`, which is a
+wildcard unescaped.
 
 **So the order is fixed. After the three facts, read the pointer - and unless it names a hold that
 is still open, read `$env:KINGSHAND_HOME\data\<id>\report.md` before you may treat that worker as
@@ -1122,10 +1132,18 @@ they are answered - do not go back to the report for a key:
 
 ```powershell
 Set-Location $env:KINGSHAND_HOME
-tasks-axi list --state held --fields hold_kind,hold_reason
-tasks-axi list --state done --fields closed
-Select-String -Path data\done-archive.md -SimpleMatch -Pattern '<work-id>-' -ErrorAction SilentlyContinue
+$work = "<work id>"
+tasks-axi list --state held --fields 'hold_kind,hold_reason'
+tasks-axi list --state done --fields 'closed'
+Select-String -Path data\done-archive.md -ErrorAction SilentlyContinue `
+  -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($work))-"
 ```
+
+**Quote the field list, and every field list.** PowerShell reads a bare `hold_kind,hold_reason` as
+a two-element array and hands the native command one space-joined token, which `tasks-axi` refuses
+with `VALIDATION_ERROR` and no rows at all - so the lookup returns nothing and the Hand reads it as
+no hold covering the decision, then files a second one. `hold_reason` is the whole point of this
+line, because `decree` makes that reason the thing that says whose question an open hold is.
 
 **The archive line is not optional, for the reason the pointer read-back names**: a hold pruned out
 of the backlog is invisible to `list` and still answered, and skipping it is how a decision the
@@ -1143,11 +1161,19 @@ ago, and whoever gave it - so it is neither registered again nor read as a quest
 answered itself. Filing it a second time puts it to the King twice and writes a second `answered:`
 note asserting an authorisation nobody gave.
 
-**Where an open `--kind captain` hold for this work is already there, re-register under that same
-key rather than filing a second one.** `add` and `hold` are idempotent, so the replay changes
-nothing and the pointer ends up naming the hold that already exists. File a second and the King is
-asked the same question twice, while the first is orphaned with no pointer naming it and nothing
+**Where an open `--kind captain` hold for this work is already there, point the record at that same
+key rather than filing a second one.** `add` under an existing key changes nothing, so replaying it
+is safe and the pointer ends up naming the hold that already exists. File a second key and the King
+is asked the same question twice, while the first is orphaned with no pointer naming it and nothing
 that will ever close it.
+
+**Do not replay `hold` on a hold that is already open.** It is a write, not a no-op - `decree`'s
+mechanical facts say what it does - and it overwrites the reason with whatever the replay passes.
+That reason is the only thing recording whose question the hold is, so a boilerplate replacement
+leaves a correctly escalated decision looking like a pass nobody can classify, and it freezes until
+somebody establishes why. The hold is open and its reason is already right: leave it alone. Where
+something does have to be re-run on it, pass back the reason it already carries rather than a new
+one.
 
 Register the decision there, and record the key it was registered under in the same turn:
 
@@ -1729,15 +1755,18 @@ $key = (Get-CrewWorker -State $s -WorkerId "<id>").waiting_on
 if ($key) {
     Set-Location $env:KINGSHAND_HOME
     tasks-axi show $key --full
-    Select-String -Path data\done-archive.md -SimpleMatch -Pattern $key -ErrorAction SilentlyContinue
+    Select-String -Path data\done-archive.md -ErrorAction SilentlyContinue `
+      -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($key))\s+-"
 }
 ```
 
 **`NOT_FOUND` from `show` is not permission to tear down.** Only a closed hold is ever archived, so
-a key the archive holds is answered and this worker may be stopped. A key in neither place is a
-record that has gone missing - a mistyped key, a queue file that moved - and at the one guard that
-cannot be taken back that is a cause to establish, never a pass. Step 6's rules are what read a
-missing record; nothing here decides it.
+a key the archive holds **on its own entry** is answered and this worker may be stopped. A key in
+neither place is a record that has gone missing - a mistyped key, a queue file that moved - and at
+the one guard that cannot be taken back that is a cause to establish, never a pass. Step 6's rules
+are what read a missing record; nothing here decides it. The anchor in that pattern is doing that
+work: matched as a bare substring, a longer key sharing this one's opening reads as this one's
+answer, and the guard passes on a record nobody has actually found.
 
 **Read those two and nothing else.** This is the one place where a wrong read cannot be taken
 back, and neither of them can be malformed - which is exactly why the route stopped keeping this

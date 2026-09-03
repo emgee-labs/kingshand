@@ -3303,11 +3303,17 @@ Describe 'decree keeps an unresolved decision durable' {
     }
 
     It 'keeps the stable-key rule, with the slug shape a tasks-axi id needs' {
+        # The key's job is stated without calling the registration idempotent. Only `add` is; a
+        # `hold` replay overwrites the reason, and the mechanical facts below own that difference
+        # rather than this sentence quietly promising the whole retry is free.
         Assert-Phrase -Text $script:HoldText -Where 'the stable-key rule' `
             -Phrase ('Give each distinct unresolved decision a **stable, privacy-safe key**, and ' +
-                     'register it under that key, so registering it a second time on a retry is ' +
-                     'idempotent while two different decisions keep two different durable ' +
-                     'identities.')
+                     'register it under that key, so a retry lands on the same durable item ' +
+                     'rather than filing a second one while two different decisions keep two ' +
+                     'different durable identities.')
+        Assert-Phrase -Text $script:HoldText -Where 'the stable-key rule' `
+            -Phrase ('Which half of that registration a retry may safely replay is the mechanical ' +
+                     'facts'' business, below, and the two verbs do not behave alike.')
         Assert-Phrase -Text $script:HoldText -Where 'the stable-key rule' `
             -Phrase ('`tasks-axi` ids are slug-shaped - letters, digits, `.`, `_` and `-`, with ' +
                      'no spaces - so the key must be too.')
@@ -6099,7 +6105,7 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase ('Two sources, each owning its own half. `decree` owns the hold''s lifecycle ' +
                      'and `petition` owns who may answer it')
         # And the read itself is runnable, because a described command is one nobody has run.
-        @($script:RouteFences | Where-Object { $_.Contains('tasks-axi show <the key the pointer names> --full') }).Count |
+        @($script:RouteFences | Where-Object { $_.Contains('$key = $w.waiting_on') }).Count |
             Should -Be 1 -Because 'the open-or-closed half is read from the queue, not guessed'
     }
 
@@ -6462,7 +6468,8 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
                      'that reads as unanswered')
         # The hold read has to be runnable at the guard that cannot be taken back, or "still open"
         # is a judgement rather than a lookup.
-        @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('tasks-axi show $key --full') }).Count |
+        @(Get-CodeFence $script:MusterMd | Where-Object {
+            $_.Contains('$key = (Get-CrewWorker -State $s -WorkerId "<id>").waiting_on') }).Count |
             Should -Be 1 -Because 'the teardown decides on the hold it reads, not on the field alone'
     }
 
@@ -6525,9 +6532,11 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
                      'the window where there is no pointer yet.**')
         Assert-Phrase -Text $script:RouteHold -Where 'decree' `
             -Phrase ('It looks the work id up in the queue before registering anything, and ' +
-                     're-registers under the key already open there - `add` and `hold` are ' +
-                     'idempotent, so the replay changes nothing and the pointer ends up on the ' +
-                     'hold that exists.')
+                     'points the record at the key already open there - replaying `add` under an ' +
+                     'existing key changes nothing, so the pointer ends up on the hold that exists.')
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ('It does not replay `hold`: that one is a write, and it would overwrite the ' +
+                     'reason the open hold is already carrying.')
         Assert-Phrase -Text $script:RouteHold -Where 'decree' `
             -Phrase ('**That recovery is a queue lookup and never a reading of report prose**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
@@ -6537,8 +6546,8 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase ('a null pointer over a report naming a decision has two causes: nobody ' +
                      'registered it, or somebody did and the pass ended before the pointer went in')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**Where an open `--kind captain` hold for this work is already there, ' +
-                     're-register under that same key rather than filing a second one.**')
+            -Phrase ('**Where an open `--kind captain` hold for this work is already there, point ' +
+                     'the record at that same key rather than filing a second one.**')
         # And the lookup is the queue's, not the report's - stated in muster too, because that is
         # where the temptation is: the report is already open on the screen at this point.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
@@ -6585,9 +6594,72 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase ('a key found there is answered, and a key in neither place is a record that ' +
                      'has gone missing rather than a decision nobody made')
         @($script:RouteFences | Where-Object {
-            $_.Contains('tasks-axi show <the key the pointer names> --full') -and
-            $_.Contains('data\done-archive.md') }).Count |
+            $_.Contains('$key = $w.waiting_on') -and $_.Contains('data\done-archive.md') }).Count |
             Should -Be 1 -Because 'the pointer read-back is the other lookup that goes blind on a prune'
+    }
+
+    # Two mechanical facts this round's instructions got wrong against the real tool, both of which
+    # produce a wrong outcome silently. Backlog.Tests.ps1 drives tasks-axi and PowerShell to prove
+    # each one; these pin that the instructions match what was proven.
+    It 'the field lists are quoted, because PowerShell splits a bare comma list' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase '**Quote the field list, and every field list.**'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('PowerShell reads a bare `hold_kind,hold_reason` as a two-element array and ' +
+                     'hands the native command one space-joined token, which `tasks-axi` refuses ' +
+                     'with `VALIDATION_ERROR` and no rows at all')
+        $lookup = @($script:RouteFences | Where-Object { $_.Contains('tasks-axi list --state held') })
+        $lookup.Count | Should -Be 1
+        $lookup[0].Contains("--fields 'hold_kind,hold_reason'") |
+            Should -BeTrue -Because 'unquoted, the command returns a validation error and no holds'
+        $lookup[0] -match '--fields\s+hold_kind,hold_reason' |
+            Should -BeFalse -Because 'that exact form is the one that fails'
+    }
+
+    It 'nothing replays hold on an open hold, because the replay overwrites its reason' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase '**Do not replay `hold` on a hold that is already open.**'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('That reason is the only thing recording whose question the hold is, so a ' +
+                     'boilerplate replacement leaves a correctly escalated decision looking like ' +
+                     'a pass nobody can classify')
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree mechanical facts' `
+            -Phrase '**`add` is idempotent under the same key. `hold` is not.**'
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree mechanical facts' `
+            -Phrase ('it prints `ok: hold <key> -> held (<kind>)`, never `already: true`, and it ' +
+                     'overwrites both `hold_reason` and `hold_kind` with whatever the replay passed')
+        # The claim that was wrong, asserted as an absence in both files that leaned on it.
+        foreach ($text in @($script:RouteHold, $script:RouteStep6)) {
+            $text.Contains('`add` and `hold` are idempotent') |
+                Should -BeFalse -Because 'only add is, and the difference destroys the reason discriminator'
+            $text.Contains('`add` and `hold` are both idempotent') |
+                Should -BeFalse -Because 'the same claim in its other wording'
+        }
+    }
+
+    # The archive lines are read with Select-String, so they are the one place in this route where
+    # a match is written by hand rather than answered by the tool - and a bare substring there says
+    # "answered" over a longer key that merely starts the same way.
+    It 'every archive read is anchored to a whole entry rather than a substring' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**Every archive read is anchored to the whole key on its own entry, never a ' +
+                     'bare substring.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('a bare match for `t-100-copy` finds `t-100-copy-length` in it - so an ' +
+                     'unregistered decision reads as answered, and at the teardown a record that ' +
+                     'has gone missing reads as one that is fine')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('`[regex]::Escape` is not decoration either: a key may carry a `.`, which is ' +
+                     'a wildcard unescaped.')
+        # Every fence that reads the archive anchors it, and none of them is left on -SimpleMatch.
+        $archiveFences = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('done-archive.md') })
+        $archiveFences.Count | Should -Be 3 -Because 'the pointer read-back, the enumeration and the teardown all read it'
+        foreach ($fence in $archiveFences) {
+            $fence.Contains('^\s*-\s*\[x\]\s*') |
+                Should -BeTrue -Because 'the archived entry begins the line, and that is what bounds the match'
+            $fence.Contains('-SimpleMatch') |
+                Should -BeFalse -Because 'a simple match cannot be anchored, which is how the bug got in'
+        }
     }
 
     # A key is `<work-id>-<slug>`, so a bare-prefix match for T-100 also selects every T-1001- key.
@@ -6617,15 +6689,22 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
             -Phrase '**`NOT_FOUND` from `show` is not permission to tear down.**'
         Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
-            -Phrase ('Only a closed hold is ever archived, so a key the archive holds is answered ' +
-                     'and this worker may be stopped.')
+            -Phrase ('Only a closed hold is ever archived, so a key the archive holds **on its ' +
+                     'own entry** is answered and this worker may be stopped.')
         Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
             -Phrase ('A key in neither place is a record that has gone missing - a mistyped key, ' +
                      'a queue file that moved - and at the one guard that cannot be taken back ' +
                      'that is a cause to establish, never a pass.')
         @(Get-CodeFence $script:MusterMd | Where-Object {
-            $_.Contains('tasks-axi show $key --full') -and $_.Contains('data\done-archive.md') }).Count |
+            $_.Contains('$key = (Get-CrewWorker -State $s -WorkerId "<id>").waiting_on') -and
+            $_.Contains('data\done-archive.md') }).Count |
             Should -Be 1 -Because 'the irreversible guard reads the archive too, or it goes blind on a prune'
+        # And the anchor is named at the guard as well, because this is where a spurious match is
+        # read as permission to stop a worker.
+        Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
+            -Phrase ('matched as a bare substring, a longer key sharing this one''s opening reads ' +
+                     'as this one''s answer, and the guard passes on a record nobody has actually ' +
+                     'found')
     }
 
     # The open-hold ambiguity is decree's, not muster's: both causes are `--kind captain` and
@@ -6650,8 +6729,9 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text $script:RouteHold -Where 'the decree lifecycle table' `
             -Phrase '| repair a reason that does not say which of the two open holds it is |'
         Assert-Phrase -Text $script:RouteHold -Where 'the decree lifecycle table' `
-            -Phrase ('`hold` is idempotent under the same key, so this rewrites the reason ' +
-                     'without opening a second hold or moving anything else')
+            -Phrase ('re-running `hold` under the same key rewrites the reason in place without ' +
+                     'opening a second hold or moving anything else, which is why this is a ' +
+                     'repair and not something to run by habit')
     }
 
     # The repair row gives the command but a Hand has to know which of the two it is before it can

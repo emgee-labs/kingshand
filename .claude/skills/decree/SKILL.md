@@ -28,8 +28,9 @@ requires it to name any decision its brief did not settle, so a report carrying 
 exactly this skill's trigger.
 
 Give each distinct unresolved decision a **stable, privacy-safe key**, and register it under that
-key, so registering it a second time on a retry is idempotent while two different decisions keep
-two different durable identities. `tasks-axi` ids are slug-shaped - letters, digits, `.`, `_` and
+key, so a retry lands on the same durable item rather than filing a second one while two different
+decisions keep two different durable identities. Which half of that registration a retry may
+safely replay is the mechanical facts' business, below, and the two verbs do not behave alike. `tasks-axi` ids are slug-shaped - letters, digits, `.`, `_` and
 `-`, with no spaces - so the key must be too. Derive it from the originating work id and the
 substance of the choice, and never from a customer name, a credential, a path, a ticket body or
 anything else the queue should not carry. A key that changes between retries files the same
@@ -46,8 +47,9 @@ owns the key itself.
 is no pointer yet.** Registering the hold and writing the pointer are two commands, so a session
 that ends between them leaves an open hold that no pointer names, and the next session finds a
 report naming a decision with a null pointer. It looks the work id up in the queue before
-registering anything, and re-registers under the key already open there - `add` and `hold` are
-idempotent, so the replay changes nothing and the pointer ends up on the hold that exists.
+registering anything, and points the record at the key already open there - replaying `add` under
+an existing key changes nothing, so the pointer ends up on the hold that exists. It does not replay
+`hold`: that one is a write, and it would overwrite the reason the open hold is already carrying.
 **That lookup matches the full key, or the work id with the `-` that follows it, and never a bare
 prefix.** The composition above puts a `-` between the two halves precisely so it can be matched
 on: without it, `T-100` selects every `T-1001-` key as well, and the recovery re-registers a worker
@@ -98,14 +100,20 @@ Run every command from `$env:KINGSHAND_HOME` so `.tasks.toml` resolves.
 | route an authorised answer | `tasks-axi add <work-id> "<one line>"` where no item holds that work yet, then `tasks-axi block <work-id> --by <key>`, then `tasks-axi done <key> --note "answered: <the decision>"`. Where the answer went back into a worker already running on this work's own item, skip the `add` and block that existing item |
 | record a declined answer | `tasks-axi done <key> --note "declined: <the decision>"`, with no dependent item |
 | record a decision the Hand answered in the King's stead | `tasks-axi add <key> "<one line>"`, `tasks-axi hold <key> --reason "<reason>" --kind captain`, `tasks-axi block <work-id> --by <key>` against the item the parked worker is already running under, then `tasks-axi done <key> --note "answered: <the decision, the reasoning, and whether it rested on a recorded position or on your own judgement>"` - registered and closed in the same pass, because there is nobody to wait for, and the block is still what makes that `answered:` note true |
-| repair a reason that does not say which of the two open holds it is | `tasks-axi hold <key> --reason "<the reason, restated to say either that the question is with him and what he has to choose, or that you are answering it in his stead under petition's test and which way>"` - `hold` is idempotent under the same key, so this rewrites the reason without opening a second hold or moving anything else |
+| repair a reason that does not say which of the two open holds it is | `tasks-axi hold <key> --reason "<the reason, restated to say either that the question is with him and what he has to choose, or that you are answering it in his stead under petition's test and which way>"` - re-running `hold` under the same key rewrites the reason in place without opening a second hold or moving anything else, which is why this is a repair and not something to run by habit |
 | repair a hold closed without its answer | `tasks-axi done <key> --note "<answered or declined>: ..."` backfills the note without moving the close date; where authorised work was never routed, `tasks-axi reopen <key>` first, then route it and close normally |
 
 Seven mechanical facts this depends on, each confirmed against the tool rather than assumed:
 
-- **`add` and `hold` are both idempotent under the same key.** Re-running either reports
-  `already: true` and changes nothing, which is what makes a stable key safe to replay after a
-  failed or interrupted pass.
+- **`add` is idempotent under the same key. `hold` is not.** Re-running `add` prints
+  `already: true` and changes nothing, not even the title, which is what makes a stable key safe to
+  replay after a failed or interrupted pass. Re-running `hold` opens no second hold, but it is a
+  write rather than a no-op: it prints `ok: hold <key> -> held (<kind>)`, never `already: true`, and
+  it overwrites both `hold_reason` and `hold_kind` with whatever the replay passed. The repair row
+  above depends on exactly that. So does the harm: the reason is the only thing recording whose
+  question an open hold is, so replaying `hold` with a fresh reason over an open one destroys the
+  discriminator and freezes a decision that was already registered correctly. Replay `add` freely;
+  leave an open hold's reason alone unless you are deliberately repairing it.
 - **`--reason` may not contain parentheses.** `tasks-axi` reserves them for its own markdown hold
   tags and refuses the whole command with a validation error. Rewrite the reason rather than
   quoting around it.
