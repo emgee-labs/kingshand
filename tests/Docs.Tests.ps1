@@ -5129,18 +5129,21 @@ Describe 'counsel splits the dialogue from the reading, and only the King starts
     }
 
     # The whole resolution of the audit's rejection rests on this pair: the King may ask, the Hand
-    # may not offer. A frontmatter key is what makes that mechanical rather than a promise, so its
-    # removal has to fail a test rather than pass quietly.
+    # may not offer. The guard is the written rule, and the mechanical version of it was rejected
+    # because it takes the skill out of the Hand's listing altogether, so both halves are pinned.
     It 'is user-invoked only, in frontmatter as well as in prose' {
         $fm = Get-Frontmatter $script:CounselMd
-        $fm['disable-model-invocation'] |
-            Should -Be 'true' -Because 'the Hand must not be able to launch a design exercise on its own'
+        $fm.ContainsKey('disable-model-invocation') |
+            Should -BeFalse -Because 'that key would kill the situational triggers statute requires a description to fire on'
         $fm['user-invocable'] |
             Should -Be 'true' -Because 'the King is the only way in, so his way in must stay open'
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
-            -Phrase ('`disable-model-invocation: true` in the frontmatter above makes that mechanical ' +
-                     'rather than a promise: the Hand cannot invoke this skill at all, so the only way ' +
-                     'in is the King asking.')
+            -Phrase ('**The guard is a rule, not a mechanism.** The Hand loads this skill only when the ' +
+                     'King asks for it, and never beside an answer that is already good enough. The ' +
+                     'mechanical alternative was tried and rejected: `disable-model-invocation: true` ' +
+                     'removes the skill from the Hand''s own listing entirely, so the Hand could not act ' +
+                     'on the King''s request in his own words, and every situational trigger in the ' +
+                     'description above would be dead.')
     }
 
     It 'the description fires on the situation and on <trigger>' -ForEach @(

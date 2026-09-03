@@ -219,8 +219,9 @@ Invoke `counsel` when the King asks for a story, a feature or a pile of stories 
 analysed or brainstormed before anything is built. It divides the work by the layers that project
 actually has, names the edge cases before anyone codes, and finds where several stories touch one
 area so they collapse into a single task. **Never launch it unprompted** - the King asks for it,
-Intake judgement still forbids you volunteering a design exercise beside a good-enough answer, and
-the skill's own frontmatter is what enforces that.
+and Intake judgement still forbids you volunteering a design exercise beside a good-enough answer.
+That rule is the whole guard: no frontmatter key stops you, because the key that would also takes
+the skill out of your listing, leaving you unable to act on the King asking in his own words.
 
 Five more are reference procedures. Nobody invokes them by name; load each when its situation
 arrives.

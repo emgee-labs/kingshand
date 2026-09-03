@@ -2,7 +2,6 @@
 name: counsel
 description: Use when the user wants a story, a feature, or a pile of stories turned into work somebody can act on - e.g. "/counsel", "take counsel on this feature", "break this story down", "analyse these stories before we build", "brainstorm this with me", "split this epic into tasks", "where do these stories overlap". Divides the work by the layers that project actually has, names the edge cases before anyone writes code, and finds what the stories share so work touching one area lands in a single task. The King asks for it, and nothing launches it on his behalf.
 user-invocable: true
-disable-model-invocation: true
 version: 1.0.0
 ---
 
@@ -17,8 +16,11 @@ It ends at a decomposition the King has accepted. It never ends at a change.
 
 ## The King asks for this, and nothing offers it for him
 
-`disable-model-invocation: true` in the frontmatter above makes that mechanical rather than a
-promise: the Hand cannot invoke this skill at all, so the only way in is the King asking.
+**The guard is a rule, not a mechanism.** The Hand loads this skill only when the King asks for
+it, and never beside an answer that is already good enough. The mechanical alternative was tried
+and rejected: `disable-model-invocation: true` removes the skill from the Hand's own listing
+entirely, so the Hand could not act on the King's request in his own words, and every situational
+trigger in the description above would be dead.
 
 **That is a resolution of a contradiction, not an oversight, and it is written down here so
 nobody quietly reverses it.** Kingshand's own audit of an external plugin examined a brainstorming

@@ -50,11 +50,21 @@ The Intake rule stands unchanged. What it forbids is the Hand volunteering a spe
 exercise beside an answer that is already good enough. It says nothing about the King asking for
 an analysis, which is an ordinary request for work.
 
-So the skill is **user-invoked only**, and mechanically so: `disable-model-invocation: true` in
-its frontmatter means the Hand cannot invoke it at all. The Intake rule keeps its full force over
-what the Hand offers, and the King keeps the ability to ask. Nothing here reverses a rule the King
-wrote, and that distinction is the reason the skill states it in prose as well as in frontmatter -
-frontmatter records the mechanism, prose records why it is there.
+So the skill is **user-invoked only, and the guard for that is a written rule rather than a
+mechanism**: the Hand loads it when the King asks and never volunteers it beside an answer that is
+already good enough. The Intake rule keeps its full force over what the Hand offers, and the King
+keeps the ability to ask. Nothing here reverses a rule the King wrote.
+
+The mechanical option was tried and rejected, and the evidence is worth keeping.
+`disable-model-invocation: true` in the frontmatter does not merely stop the Hand volunteering the
+skill - it removes the skill from the Hand's own listing entirely. With the key set, counsel was
+the only one of the fifteen skills missing from a session's invocable-skills listing in this
+repository, so the Hand could not have followed `CLAUDE.md`'s own instruction to invoke it when the
+King asks, and every situational trigger in the description - "break this story down", "brainstorm
+this with me" - was dead. `statute`'s trigger hygiene requires a description that fires on the
+situation and not only on a slash command, and the key defeats exactly that. So the key is absent,
+the description carries the triggers, and the restriction lives in prose in both `CLAUDE.md` and
+the skill, as it already does for `survey`, `chronicle` and `update`.
 
 Reason 1 is answered by the same split as reason 3: the Hand routes the analysis and a worker
 performs it, exactly as with any other work.
