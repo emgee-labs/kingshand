@@ -193,10 +193,13 @@ repairing that costs the user the same question a second time.
 ## No script enforces this gate
 
 Firstmate blocks its teardown on this gate. **Kingshand has nothing equivalent, and this skill will
-not pretend otherwise.** `muster` Step 8b now reads one thing before teardown - it refuses to stop
-a worker whose record still points at a hold - and that is the whole of it: the check reads that
-one pointer and never the queue, so a decision nobody registered here has no pointer and stops
-nothing at all. `bin\` contains no check that looks for an open hold before cleanup, and
+not pretend otherwise.** `muster` Step 8b reads two recorded things before teardown - the pointer
+on the worker's record, and the hold that pointer names - and refuses only where that hold is
+still open. The pointer says which decision, the hold says whether it is still owed, and a closed
+one stops nothing: the pointer is never cleared, so a set field on its own would refuse cleanup of
+every worker that ever parked, for the rest of its life. What neither read can catch is a decision
+nobody registered here - it has no hold and no pointer, so it stops nothing at all. `bin\` contains
+no check that looks for an open hold before cleanup, and
 `tests\Docs.Tests.ps1` pins the rules on this page as text without being able to observe whether a
 decision was ever filed.
 

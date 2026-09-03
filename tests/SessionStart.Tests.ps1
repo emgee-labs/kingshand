@@ -152,8 +152,17 @@ Describe 'a worker parked on a decision is not printed as a worker still working
     It 'names the decision the parked worker stopped on, on its own line' {
         $line = @($script:ParkedText -split "`r?`n" | Where-Object { $_ -match '^\s*- w-parked ' })[0]
         $line | Should -Not -BeNullOrEmpty -Because 'a recorded worker is always listed'
-        $line.Contains('parked on decision T-1001-shorter-hero-copy') |
+        $line.Contains('last parked on decision T-1001-shorter-hero-copy') |
             Should -BeTrue -Because 'the pointer is the only thing that separates it from a worker making progress'
+    }
+
+    # The pointer is never cleared, so it names that key for the rest of the worker's life. A line
+    # that asserted a live park would tell the King a decision is waiting on him that he answered
+    # hours ago - on the surface CLAUDE.md tells the Hand to trust without re-reading the fleet.
+    It 'says the park is the last one rather than asserting it is still open' {
+        $line = @($script:ParkedText -split "`r?`n" | Where-Object { $_ -match '^\s*- w-parked ' })[0]
+        $line -match ',\s*parked on decision' |
+            Should -BeFalse -Because 'a worker answered hours ago still carries this key'
     }
 
     It 'adds nothing to the line of a worker that has never parked' {

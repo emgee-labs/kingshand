@@ -3399,16 +3399,22 @@ Describe 'decree keeps an unresolved decision durable' {
         Assert-Phrase -Text $script:HoldText -Where 'the enforcement section' `
             -Phrase ('Firstmate blocks its teardown on this gate. **Kingshand has nothing ' +
                      'equivalent, and this skill will not pretend otherwise.**')
-        # Narrowed to what is still true: Step 8b now does read one thing, so claiming it reads
-        # nothing would have a Hand skip that check or rebuild it. What has not changed is that
-        # nothing under `bin\` looks for an open hold, and that a pointer nobody set stops nothing -
-        # which is the honesty this section exists for.
+        # Narrowed to what is still true: Step 8b does read, so claiming it reads nothing would
+        # have a Hand skip that check or rebuild a weaker one. And it reads BOTH sources - stating
+        # the guard as the pointer alone would refuse cleanup of every worker that ever parked,
+        # because the pointer is never cleared. What has not changed is that nothing under `bin\`
+        # looks for an open hold, and that a decision nobody registered stops nothing - which is
+        # the honesty this section exists for.
         Assert-Phrase -Text $script:HoldText -Where 'the enforcement section' `
-            -Phrase ('`muster` Step 8b now reads one thing before teardown - it refuses to stop a ' +
-                     'worker whose record still points at a hold - and that is the whole of it')
+            -Phrase ('`muster` Step 8b reads two recorded things before teardown - the pointer on ' +
+                     'the worker''s record, and the hold that pointer names - and refuses only ' +
+                     'where that hold is still open.')
         Assert-Phrase -Text $script:HoldText -Where 'the enforcement section' `
-            -Phrase ('the check reads that one pointer and never the queue, so a decision nobody ' +
-                     'registered here has no pointer and stops nothing at all')
+            -Phrase ('the pointer is never cleared, so a set field on its own would refuse cleanup ' +
+                     'of every worker that ever parked, for the rest of its life')
+        Assert-Phrase -Text $script:HoldText -Where 'the enforcement section' `
+            -Phrase ('What neither read can catch is a decision nobody registered here - it has no ' +
+                     'hold and no pointer, so it stops nothing at all.')
         Assert-Phrase -Text $script:HoldText -Where 'the enforcement section' `
             -Phrase '`bin\` contains no check that looks for an open hold before cleanup'
         Assert-Phrase -Text $script:HoldText -Where 'the enforcement section' `
@@ -6506,8 +6512,8 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text $script:RouteHold -Where 'decree' `
             -Phrase ('**That recovery is a queue lookup and never a reading of report prose**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**Look for a hold already open under this work''s id before registering ' +
-                     'anything.**')
+            -Phrase ('**Look up every hold this work already has before registering anything - ' +
+                     'the closed ones as much as an open one.**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('a null pointer over a report naming a decision has two causes: nobody ' +
                      'registered it, or somebody did and the pass ended before the pointer went in')
@@ -6517,7 +6523,33 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         # And the lookup is the queue's, not the report's - stated in muster too, because that is
         # where the temptation is: the report is already open on the screen at this point.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase 'the queue is the only place it is answered - do not go back to the report for the key'
+            -Phrase 'the queue is the only place they are answered - do not go back to the report for a key'
+    }
+
+    # A second park replaces the key rather than keeping a list, which is intended - the earlier
+    # decisions stay durable as their own closed holds with the answers on them. But a lookup that
+    # returns only OPEN holds cannot see those, so every decision but the most recent reads as one
+    # no hold covers: the Hand either re-files an answered question, putting it to the King twice
+    # and writing an `answered:` note nobody authorised, or accuses delivered work of answering
+    # itself. The lookup has to reach the closed ones for the trigger to mean anything.
+    It 'the lookup reaches closed holds, so an answered decision is not re-filed' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('the pointer is a link to the current decision rather than a log of them, so ' +
+                     'a worker parked twice names only its second while the first stays durable ' +
+                     'as its own closed hold carrying the answer it was given')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**A decision a closed hold already covers is answered** - however long ago, ' +
+                     'and whoever gave it - so it is neither registered again nor read as a ' +
+                     'question the worker answered itself.')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('Filing it a second time puts it to the King twice and writes a second ' +
+                     '`answered:` note asserting an authorisation nobody gave.')
+        # And the enumeration is runnable and covers both states. `ready --include-held` returns
+        # queued and held work only, so on its own it can never answer "was this already decided".
+        $lookup = @($script:RouteFences | Where-Object { $_.Contains('tasks-axi list --state done') })
+        $lookup.Count | Should -Be 1 -Because 'a closed hold is how an answered decision is recorded'
+        $lookup[0].Contains('tasks-axi list --state held') |
+            Should -BeTrue -Because 'the open half is read in the same lookup, not a separate pass'
     }
 
     # The open-hold ambiguity is decree's, not muster's: both causes are `--kind captain` and
@@ -6922,7 +6954,20 @@ Describe 'CLAUDE.md keeps the away boundary to a pointer' {
     # assertion stops matching the literal line it was copied from.
     It 'the petition trigger fires whether or not the King is at the machine' {
         Assert-Phrase -Text $script:AwayHand -Where 'the CLAUDE.md Skills section' `
-            -Phrase ('`petition` - load before deciding any ask-user finding, whatever the ' +
-                     'project''s `yolo` posture and whether or not the King is at the machine.')
+            -Phrase ('`petition` - load before deciding any ask-user finding, and before deciding ' +
+                     'any decision a worker parked on because its brief did not settle it - ' +
+                     'whatever the project''s posture, and whether or not the King is at the machine.')
+    }
+
+    # The always-loaded inventory is what a Hand reads before deciding whether to load the skill at
+    # all, so a stub narrower than the skill it points at is the skill going unloaded. petition now
+    # has two triggers and only one of them needs a review gate - on the eighteen registered
+    # projects with no gate, the parked worker is the only way it is ever reached.
+    It 'the petition stub carries the parked-decision trigger, not the gate one alone' {
+        Assert-Phrase -Text $script:AwayHand -Where 'the CLAUDE.md Skills section' `
+            -Phrase ('Only the `no-mistakes` review gate produces an ask-user finding; a parked ' +
+                     'worker happens on any posture.')
+        $script:AwayHand.Contains('Only the `no-mistakes` review gate produces one.') |
+            Should -BeFalse -Because 'that scoped the whole skill to the gate, and half of it fires without one'
     }
 }

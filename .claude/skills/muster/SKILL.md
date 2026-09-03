@@ -1100,17 +1100,26 @@ covers it, that is `decree`'s trigger and nobody has pulled it yet.** A first pa
 a null pointer and a second with a pointer naming the closed hold of the decision before it; both
 are the same trigger, and both end with the pointer naming the new hold.
 
-**Look for a hold already open under this work's id before registering anything.** Registering the
-hold and writing the pointer are two commands and a session can end between them, so a null
-pointer over a report naming a decision has two causes: nobody registered it, or somebody did and
-the pass ended before the pointer went in. `decree` prefixes every key with the work id precisely
-so the queue answers that, and the queue is the only place it is answered - do not go back to the
-report for the key:
+**Look up every hold this work already has before registering anything - the closed ones as much as
+an open one.** Registering the hold and writing the pointer are two commands and a session can end
+between them, so a null pointer over a report naming a decision has two causes: nobody registered
+it, or somebody did and the pass ended before the pointer went in. And the pointer is a link to the
+current decision rather than a log of them, so a worker parked twice names only its second while
+the first stays durable as its own closed hold carrying the answer it was given. `decree` prefixes
+every key with the work id precisely so the queue answers both, and the queue is the only place
+they are answered - do not go back to the report for a key:
 
 ```powershell
 Set-Location $env:KINGSHAND_HOME
-tasks-axi ready --include-held
+tasks-axi list --state held --fields hold_kind,hold_reason
+tasks-axi list --state done --fields closed
 ```
+
+**Match on the work-id prefix, and read from each hold what it covers.** A decision the report
+names that no hold under this work covers is the trigger above. **A decision a closed hold already
+covers is answered** - however long ago, and whoever gave it - so it is neither registered again
+nor read as a question the worker answered itself. Filing it a second time puts it to the King
+twice and writes a second `answered:` note asserting an authorisation nobody gave.
 
 **Where an open `--kind captain` hold for this work is already there, re-register under that same
 key rather than filing a second one.** `add` and `hold` are idempotent, so the replay changes
