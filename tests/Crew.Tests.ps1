@@ -81,6 +81,83 @@ Describe 'Set-CrewStage' {
     }
 }
 
+# waiting_on records which tasks-axi hold a worker is parked on, and its presence is the whole
+# state - set means a decision is outstanding, null means none is. It is deliberately not a stage:
+# the six stages are a lifecycle a worker moves along, while waiting is a condition that can
+# happen at any of them and resolves back to the one the worker was already at.
+Describe 'waiting_on points at a hold and is never a stage' {
+    BeforeEach {
+        $script:s = New-CrewState
+        Add-CrewWorker -State $script:s -WorkerId 'a1' -Ticket 'x' -Kind 'adhoc' -Repo 'r' -Worktree 'w' -Branch 'b' -Brief 'f'
+    }
+
+    It 'is null on a freshly dispatched worker' {
+        $script:s.workers['a1'].waiting_on | Should -BeNullOrEmpty
+    }
+
+    It 'names the hold once the worker parks' {
+        Set-CrewWaitingOn -State $script:s -WorkerId 'a1' -HoldKey 'T-1001-shorter-hero-copy'
+        $script:s.workers['a1'].waiting_on | Should -Be 'T-1001-shorter-hero-copy'
+    }
+
+    It 'goes back to null when the answer is recorded' {
+        Set-CrewWaitingOn -State $script:s -WorkerId 'a1' -HoldKey 'T-1001-shorter-hero-copy'
+        Clear-CrewWaitingOn -State $script:s -WorkerId 'a1'
+        $script:s.workers['a1'].waiting_on | Should -BeNullOrEmpty
+    }
+
+    # A second parking is the same field with a new key, not a second slot and not a history.
+    # There is one worker, waiting on one decision, and nothing to enumerate.
+    It 'a second parking replaces the key rather than adding to it' {
+        Set-CrewWaitingOn -State $script:s -WorkerId 'a1' -HoldKey 'T-1001-shorter-hero-copy'
+        Clear-CrewWaitingOn -State $script:s -WorkerId 'a1'
+        Set-CrewWaitingOn -State $script:s -WorkerId 'a1' -HoldKey 'T-1001-drop-the-banner'
+        $script:s.workers['a1'].waiting_on | Should -Be 'T-1001-drop-the-banner'
+    }
+
+    It 'leaves the stage where it was, because waiting is not a lifecycle position' {
+        Set-CrewStage -State $script:s -WorkerId 'a1' -Stage 'implementing'
+        Set-CrewWaitingOn -State $script:s -WorkerId 'a1' -HoldKey 'T-1001-shorter-hero-copy'
+        $script:s.workers['a1'].stage | Should -Be 'implementing'
+    }
+
+    It 'is not a stage Set-CrewStage will accept' {
+        { Set-CrewStage -State $script:s -WorkerId 'a1' -Stage 'waiting' } | Should -Throw '*stage*'
+    }
+
+    # tasks-axi ids have no spaces, so a key that could never name a hold is refused where it is
+    # written rather than stored and found to match nothing a session later.
+    It 'refuses a key that could not be a tasks-axi id' {
+        { Set-CrewWaitingOn -State $script:s -WorkerId 'a1' -HoldKey 'shorter hero copy' } |
+            Should -Throw '*hold key*'
+    }
+
+    It 'refuses an unknown worker on both verbs' {
+        { Set-CrewWaitingOn -State $script:s -WorkerId 'nope' -HoldKey 'k' } | Should -Throw '*not found*'
+        { Clear-CrewWaitingOn -State $script:s -WorkerId 'nope' } | Should -Throw '*not found*'
+    }
+
+    It 'survives a save and reload, which is the point of storing it at all' {
+        $p = Join-Path $TestDrive 'crew-waiting.json'
+        Set-CrewWaitingOn -State $script:s -WorkerId 'a1' -HoldKey 'T-1001-shorter-hero-copy'
+        Save-CrewState -State $script:s -Path $p
+        (Import-CrewState -Path $p).workers['a1'].waiting_on | Should -Be 'T-1001-shorter-hero-copy'
+    }
+
+    # Absent and null must be the same thing on the way in. A record written before the field
+    # existed would otherwise be a third case, and a third case is exactly what this field was
+    # added to stop anyone having to enumerate.
+    It 'reads a record written without the field as null rather than as absent' {
+        $p = Join-Path $TestDrive 'crew-legacy.json'
+        @{ workers = @{ old = @{ ticket = 'x'; stage = 'implementing' } } } |
+            ConvertTo-Json -Depth 10 | Set-Content -Path $p -Encoding utf8
+
+        $r = Import-CrewState -Path $p
+        $r.workers['old'].ContainsKey('waiting_on') | Should -BeTrue
+        $r.workers['old'].waiting_on | Should -BeNullOrEmpty
+    }
+}
+
 Describe 'Get-CrewByStage' {
     It 'returns only workers in that stage, each carrying its id' {
         $s = New-CrewState
