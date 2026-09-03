@@ -306,11 +306,20 @@ the file, and a worker left to work out which source wins picks wrong half the t
 **`Browser checks` is the one optional section, and it is optional both ways.** Leave it out
 entirely unless this task changes something a browser renders and you can state what to look at -
 most tasks change nothing of the kind, and a browser step nobody asked for is cost with no answer
-attached. Where you do write it, load `witness` first and name it in the section: the worker reads
-its brief and nothing else, so a list of things to look at with no pointer to the procedure sends
-it into a browser without the read-only boundary, the credential rule or the record every check
-has to end up in - and the change comes back asserted, which is the one outcome the section exists
-to prevent. It is the one section in the template carrying a delete marker for that reason: every
+attached. Where you do write it, load `witness` first, and then **hand the worker the procedure
+itself rather than its name**: pass `$env:KINGSHAND_HOME\.claude\skills\witness\SKILL.md` to
+`-ReadPath` at Step 4 and name the copy under `Read first`, exactly as you would any other settled
+file. Naming the skill is not delivery - skills live in kingshand's own repository and a worker
+runs in the target project's worktree, where none of them exists - so a list of things to look at
+with a pointer the worker cannot follow sends it into a browser without the read-only boundary,
+the credential rule or the record every check has to end up in, and the change comes back
+asserted, which is the one outcome the section exists to prevent. Name the module's absolute path
+in the section too, resolved the same way the report path is: `$env:KINGSHAND_HOME` is often unset
+in a worker's session, and an import written against it names no file.
+
+**That copy does not discharge the index line.** Dispatch discounts it exactly as it discounts the
+standing-criteria file, and for the same reason - every brief carrying browser checks passes it,
+so it is evidence of nothing about this task. It is the one section in the template carrying a delete marker for that reason: every
 other section stays in every brief, and this one arriving by accident is a browser step on a
 migration. Give each line an id - `C-001`, `C-002` - because the worker copies those ids out
 before it starts and the record answers on every one of them, which is what stops a check it never
@@ -342,9 +351,11 @@ Do NOT touch: <explicit exclusions>
 - <behaviour that must not change>
 
 ## Browser checks  <- delete this whole section unless the task renders something to look at
-Load the `witness` skill before you touch a browser tool. It owns how the browser is driven, what
-you may not do to a live server, how a login is read, and the record each check below has to end
-up in - every one of them answered by its id in `report.md`, verified, failed or not checked.
+Read `$env:KINGSHAND_HOME\data\<id>\read-first\SKILL.md` - the browser procedure, named under
+`Read first` above - in full before you touch a browser tool. It owns how the browser is driven,
+what you may not do to a live server, how a login is read, and the record each check below has to
+end up in: every one of them answered by its id in `report.md`, verified, failed or not checked.
+The module it tells you to import is at `<the resolved KINGSHAND_HOME>\bin\BrowserVerify.psm1`.
 - C-001 <one thing to look at, stated as something observable in a browser>
 
 ## Standing criteria
@@ -707,9 +718,9 @@ read. Drop the parameter only when the section states there is nothing to read.
 Every refusal comes before anything at all is created, so a mistake here costs nothing to fix.
 There are five, and each is refused by name: a brief with no `## Read first` section at all, a
 brief that passes no `-ReadPath` and does not say the index was checked when anything at all is
-indexed - and the standing-criteria file does not count towards that one, per Step 2, which owns
-the rule - a path that does not exist, a directory where a file was meant, and two different files
-whose names would land on top of each other in the staging directory.
+indexed - and neither the standing-criteria file nor the browser procedure counts towards that one,
+per Step 2, which owns the rule - a path that does not exist, a directory where a file was meant,
+and two different files whose names would land on top of each other in the staging directory.
 
 **Dispatch does not read the paths out of the brief's prose, and nothing may make it start.** An
 earlier version did, comparing what it parsed there against `-ReadPath`, and it cost six review

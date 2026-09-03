@@ -2956,11 +2956,11 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase ('There are five, and each is refused by name: a brief with no ' +
                      '`## Read first` section at all, a brief that passes no `-ReadPath` and does ' +
-                     'not say the index was checked when anything at all is indexed - and the ' +
-                     'standing-criteria file does not count towards that one, per Step 2, which ' +
-                     'owns the rule - a path that does not exist, a directory where a file was ' +
-                     'meant, and two different files whose names would land on top of each other ' +
-                     'in the staging directory.')
+                     'not say the index was checked when anything at all is indexed - and neither ' +
+                     'the standing-criteria file nor the browser procedure counts towards that ' +
+                     'one, per Step 2, which owns the rule - a path that does not exist, a ' +
+                     'directory where a file was meant, and two different files whose names would ' +
+                     'land on top of each other in the staging directory.')
     }
 
     # A single quoted placeholder is filled in with two paths in one string, which names no file
@@ -5423,12 +5423,14 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
             -Phrase 'Six more are reference procedures'
     }
 
-    # A skill nothing delivers is a skill nobody follows. The worker reads its brief and nothing
-    # else, so the section that asks for a browser is also what has to carry the procedure - and
-    # the slot has to sit above `## Done means`, which is the line the worker delivers on.
-    It 'reaches the worker through the brief that asked for the browser step' {
+    # A skill nothing delivers is a skill nobody follows, and naming one delivers nothing: skills
+    # live in this repository and a worker runs in the target project's worktree. So the procedure
+    # travels as a file, through the same Read-first copy every other settled file uses, and the
+    # slot naming it sits above `## Done means`, which is the line the worker delivers on.
+    It 'reaches the worker as a file, because a skill does not travel to another repo' {
         Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'the CLAUDE.md Skills section' `
-            -Phrase 'name it inside that section so the worker driving the browser loads it too'
+            -Phrase ('hand the worker the file itself under `Read first` rather than naming the ' +
+                     'skill: skills exist in this repository only')
 
         $musterMd = Join-Path $script:Root '.claude\skills\muster\SKILL.md'
         $template = @(Get-CodeFence $musterMd |
@@ -5437,8 +5439,10 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
         $t = $template[0]
         $t.Contains('## Browser checks') |
             Should -BeTrue -Because 'the browser step needs a slot in the artefact the worker reads'
-        $t.Contains('Load the `witness` skill before you touch a browser tool.') |
-            Should -BeTrue -Because 'the brief is the only thing that delivers the procedure'
+        $t.Contains('read-first\SKILL.md') |
+            Should -BeTrue -Because 'the worker is pointed at the copy it can actually open'
+        $t.Contains('bin\BrowserVerify.psm1') |
+            Should -BeTrue -Because '$env:KINGSHAND_HOME is not reliably set in a worker session'
         $t.IndexOf('## Browser checks') | Should -BeLessThan $t.IndexOf('## Done means')
 
         # Every other section of the template stays in every brief. This one arriving by accident
@@ -5473,8 +5477,11 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
         Assert-Phrase -Text $step2 -Where 'muster Step 2' `
             -Phrase '**`Browser checks` is the one optional section, and it is optional both ways.**'
         Assert-Phrase -Text $step2 -Where 'muster Step 2' `
-            -Phrase 'Where you do write it, load `witness` first and name it in the section'
+            -Phrase '**hand the worker the procedure itself rather than its name**'
+        Assert-Phrase -Text $step2 -Where 'muster Step 2' `
+            -Phrase '**That copy does not discharge the index line.**'
     }
+
 
     # The server disconnected twice inside one conversation, so this path runs often. An absent
     # browser has exactly one honest outcome and it is not a quiet one.

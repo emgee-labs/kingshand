@@ -650,6 +650,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Projects.psm1') -Force
 
         $script:DispatchScript = "$PSScriptRoot\..\bin\Dispatch-Worker.ps1"
+        $script:ProcedureFile  = (Resolve-Path (Join-Path (Split-Path $PSScriptRoot -Parent) `
+                                                          '.claude\skills\witness\SKILL.md')).Path
         $script:SavedPath      = $env:PATH
         $script:SavedProfile   = $env:USERPROFILE
 
@@ -1562,6 +1564,42 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $r.id | Should -Be 'T-8023'
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') | Should -BeTrue
             Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\done-$name.md") | Should -BeTrue
+        }
+
+        # The browser procedure is the other path passed by rote: muster hands it over on every
+        # brief carrying browser checks, because a worker in another repo's worktree cannot load a
+        # skill and has to be given the file. Counting it would open this gate on exactly those
+        # briefs, which is the failure the criteria discount already exists to prevent.
+        It 'refuses an indexed project whose only -ReadPath is the browser procedure' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-procedure-only'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Leaf 'SKILL.md' -From $script:ProcedureFile
+
+            $msg = ''
+            try {
+                & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8028' `
+                    -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $script:ProcedureFile
+            } catch { $msg = $_.Exception.Message }
+            $msg | Should -BeLike '*neither names a file from them to read*'
+            $msg | Should -BeLike '*browser procedure*' -Because 'the refusal says what it discounted'
+            $msg | Should -BeLike '*browser checks passes it*'
+        }
+
+        It 'dispatches when a file this task touches is passed beside the browser procedure' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-procedure-plus'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            $brand = Join-Path $f.DataPath 'brand.md'
+            Set-Content -Path $brand -Value 'teal, not amber' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf @('SKILL.md', 'brand.md') -From $brand
+
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8029' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath `
+                -ReadPath @($script:ProcedureFile, $brand)
+            $r.id | Should -Be 'T-8029'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\SKILL.md') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') | Should -BeTrue
         }
 
         # The discount has to survive a relative -DataPath, because the two ways of rooting one

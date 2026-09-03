@@ -86,16 +86,20 @@
   follow is the settled-spec failure at a larger scale and worse, because it looks solved. Neither
   way past is an absence: an empty section, or a heading with nothing under it, still refuses.
 
-  EXACTLY ONE -ReadPath does not count towards it: data\done-<project>.md for the project this
-  dispatch resolved to, the standing-criteria file muster hands over on every brief for a project
-  that has one. Counting a path passed by rote would make this refusal unreachable from the moment
-  the first criteria file is written, and the premise of the whole check is that a -ReadPath is
-  evidence the Hand went through the index for THIS task. Every other path counts, including another
-  file sitting beside it in data\. When the discounted path is the only one the brief passed, the
-  refusal says which path it discounted and why - a message denying what the reader can see it just
-  did is one nobody can act on - and it recommends muster's longer stated line rather than the short
-  one, because the short one would tell the worker there is nothing beyond the brief in the same
-  breath as the section hands it the criteria copy.
+  TWO -ReadPaths do not count towards it, and both for one reason: muster passes each of them by
+  rote rather than because this task touches it. The first is data\done-<project>.md for the project
+  this dispatch resolved to, the standing-criteria file muster hands over on every brief for a
+  project that has one. The second is .claude\skills\witness\SKILL.md, the browser procedure muster
+  hands over on every brief carrying a `## Browser checks` section - skills exist only in this
+  repository, so a worker in another repo's worktree can be given that file and cannot load it.
+  Counting a path passed by rote would make this refusal unreachable from the moment the first
+  criteria file is written, and the premise of the whole check is that a -ReadPath is evidence the
+  Hand went through the index for THIS task. Every other path counts, including another file sitting
+  beside it in data\. When the discounted paths are the only ones the brief passed, the refusal says
+  which it discounted and why - a message denying what the reader can see it just did is one nobody
+  can act on - and it recommends muster's longer stated line rather than the short one, because the
+  short one would tell the worker there is nothing beyond the brief in the same breath as the section
+  hands it those copies.
 
   EVERY index that could cover the dispatch counts, and the root one counts first. data\index.md is
   where the settled files this gate exists to protect actually land - chronicle, annex and survey all
@@ -393,9 +397,21 @@ if ($gates.Count -gt 0) {
     if ($project) {
         $byRote = Join-Path (Resolve-IndexDataPath -DataPath $DataPath) "done-$project.md"
     }
-    $engaged = @($staged.Values | Where-Object {
-        -not ($byRote -and $_.Equals($byRote, [System.StringComparison]::OrdinalIgnoreCase))
-    })
+
+    # The browser procedure is the other file muster passes by rote, on every brief carrying a
+    # `## Browser checks` section. Rooted off this script rather than off the data root, because it
+    # is part of the installation rather than of anybody's data, and resolved so the comparison
+    # below sees the same shape Resolve-Path gave the staged copy.
+    $procedure = [System.IO.Path]::GetFullPath(
+        (Join-Path $PSScriptRoot '..\.claude\skills\witness\SKILL.md'))
+
+    $discountedPaths = @(@($byRote, $procedure) | Where-Object { $_ })
+    $isByRote = {
+        param($path)
+        @($discountedPaths | Where-Object {
+            $path.Equals($_, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+    }
+    $engaged = @($staged.Values | Where-Object { -not (& $isByRote $_) })
 
     if ($engaged.Count -eq 0 -and -not $statesIndexChecked) {
         # Every index that triggered this is named with its path, because the refusal is the Hand's
@@ -411,13 +427,30 @@ if ($gates.Count -gt 0) {
         # muster's paraphrase, which states both halves and passes the regex above unchanged.
         $discounted = ''
         $stated = "'- Nothing beyond this brief - the index was checked and nothing in it applies.'"
-        if ($staged.Count -gt 0) {
-            $discounted = ("The only file this brief passes is the standing-criteria file $byRote, " +
+        $passedCriteria  = $byRote -and @($staged.Values | Where-Object {
+            $_.Equals($byRote, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+        $passedProcedure = @($staged.Values | Where-Object {
+            $_.Equals($procedure, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+
+        if ($passedCriteria) {
+            $lead = if ($passedProcedure) { 'One file this brief passes is' }
+                    else { 'The only file this brief passes is' }
+            $discounted = ("$lead the standing-criteria file $byRote, " +
                            "which every brief for this project passes and which therefore says " +
                            "nothing about this task. ")
             $stated = ("'- The index was checked; nothing in it applies to this task beyond the " +
                        "standing criteria above.' - which says so without contradicting the " +
                        "criteria line already in the section.")
+        }
+        if ($passedProcedure) {
+            $discounted += ("The browser procedure $procedure is discounted for the same reason: " +
+                            "every brief carrying browser checks passes it, so it says nothing " +
+                            "about this task either. ")
+            if (-not $passedCriteria) {
+                $stated = ("'- The index was checked; nothing in it applies to this task beyond " +
+                           "the browser procedure above.' - which says so without contradicting " +
+                           "the line already in the section.")
+            }
         }
         throw ("This dispatch is gated by $named - and this brief neither names a file from them to " +
                "read nor says they were checked. $discounted" +

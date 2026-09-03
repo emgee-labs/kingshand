@@ -416,6 +416,23 @@ Describe 'every declared check gets an outcome, and a pass has to be earned' {
         $r.summary        | Should -Match 'no checks were declared'
     }
 
+    # With no ids copied out there is no item to carry the reason, so the one line the report
+    # shows would otherwise blame the brief for declaring nothing while an absent server was the
+    # whole story.
+    It 'names the absent browser in the summary when nothing else can carry it' {
+        $status = Get-BrowserToolStatus -Loaded @()
+        $r = Get-BrowserVerificationRecord -Unavailable $status.reason
+        @($r.items).Count | Should -Be 0
+        $r.verdict        | Should -Be 'not verified'
+        $r.verified       | Should -BeFalse
+        $r.summary        | Should -Match 'Browser verification did not happen'
+        $r.summary        | Should -Not -Match 'no checks were declared'
+    }
+
+    It 'still blames nothing but the empty list when no browser reason was given' {
+        (Get-BrowserVerificationRecord -Check @()).summary | Should -Match 'no checks were declared'
+    }
+
     It 'does not read a missing check list as a pass either' {
         $r = Get-BrowserVerificationRecord
         @($r.items).Count | Should -Be 0

@@ -22,6 +22,14 @@ The brief is also the only artefact a worker actually reads. A registry field wo
 to be copied into the brief to reach anyone, so the field would have been a second place to state
 the same thing - and the two would disagree the first time one of them was edited.
 
+The same fact settles how the procedure reaches the worker: it travels as a file, not as a name.
+Skills live in kingshand's own `.claude\skills\`, and a worker runs in the target project's
+worktree, where none of them exists - so a brief telling a worker to load `witness` would name
+something it cannot open, and it would drive a browser with none of the rules attached. The brief
+hands over the skill file itself through the `Read first` copy every settled file already uses,
+and dispatch discounts that copy from the index gate for the same reason it discounts the
+standing-criteria file: a path passed on every brief of one shape is evidence about none of them.
+
 So `## Browser checks` in the brief is the whole mechanism: absent means no browser step, and a
 project's standing browser rules are pasted into it the way standing criteria already are. Nothing
 in `bin\Projects.psm1`, the registry format or `/annex` changed, and no registered project acquired

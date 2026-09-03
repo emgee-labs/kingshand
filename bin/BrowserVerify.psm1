@@ -336,7 +336,12 @@ function Get-BrowserVerificationRecord {
         'verified'
     }
 
-    $summary = if ($items.Count -eq 0) {
+    $summary = if ($items.Count -eq 0 -and $browserAbsent) {
+        # The one line the report carries has to name the absent server rather than blame the
+        # brief: the caller has just said verification did not happen, and with no ids copied out
+        # there is no item to carry that sentence instead.
+        "not verified - $absent"
+    } elseif ($items.Count -eq 0) {
         'not verified - no checks were declared, so nothing was verified.'
     } else {
         ("$verdict - $($items.Count) checks: $($counts.verified) verified, " +

@@ -1,6 +1,6 @@
 ---
 name: witness
-description: Reference procedure for exercising a front-end change in a real browser and recording what was seen as evidence. A worker loads it when its brief carries a `## Browser checks` section, and the Hand loads it before writing that section into a brief. Owns the browser opt-in, the read-only boundary, the credential rule, and the record of what was verified, what failed and what could not be checked.
+description: Reference procedure for exercising a front-end change in a real browser and recording what was seen as evidence. The Hand loads it before writing a `## Browser checks` section into a brief, and hands the file itself to the worker that carries it out. Owns the browser opt-in, the read-only boundary, the credential rule, and the record of what was verified, what failed and what could not be checked.
 version: 1.0.0
 ---
 
@@ -9,9 +9,12 @@ version: 1.0.0
 A change to a web front end can be asserted or it can be seen. This is how it gets seen, and how
 what was seen survives the worker that saw it.
 
-Two readers load this. **A worker** loads it when its brief carries a `## Browser checks` section,
-before touching a browser tool. **The Hand** loads it before writing that section into a brief, to
-know what a check has to say to be checkable.
+Two readers get this. **The Hand** loads it as a skill, before writing a `## Browser checks`
+section into a brief, to know what a check has to say to be checkable. **A worker** reads it as a
+file, because it cannot load it: skills live in this repository and a worker runs in the target
+project's worktree, where no skill of kingshand's exists. So the Hand hands this file over the way
+it hands over any other settled file - copied into the brief's own directory and named under
+`Read first` - and the worker reads that copy before touching a browser tool.
 
 ## The opt-in is the brief, and there is no other one
 
@@ -44,11 +47,16 @@ Then settle availability mechanically rather than by eye, passing the names that
 back:
 
 ```powershell
-Import-Module $env:KINGSHAND_HOME\bin\BrowserVerify.psm1 -Force
+Import-Module '<the BrowserVerify.psm1 path the brief names>' -Force
 $tools = Get-BrowserToolStatus -Loaded @('<the tool names ToolSearch returned>')
 $tools.available
 $tools.reason
 ```
+
+**The brief names that path in full, and it is the one to use.** `$env:KINGSHAND_HOME` is not
+reliably set in a worker's session - a worker inherits the environment of a server that started
+before the variable existed, which is the same trap the credential rule below is about - so an
+import written against it silently names no file at all.
 
 **The server is genuinely unreliable and its absence is an ordinary Tuesday.** It connected and
 disconnected twice inside one conversation on 2026-09-03. So there is no retry loop here and no
@@ -183,9 +191,12 @@ no item in the record is ever a bare word. And a declared id your list never men
 a list built at the end from what you remember doing is exactly how a check goes missing.
 
 Then write it into `report.md` under `## Browser verification`: the summary line first, then one
-short block per item in `$record.items`, in order, none omitted. Nothing reads that back - it is
-prose for whoever picks the work up next, not a format - so keep each block to the check, its
-outcome, what was observed, and the one console or network line that shows it.
+short block per item in `$record.items`, in order, none omitted. **Two things there are fixed:**
+that exact heading, and `$record.summary` on its own line under it, unedited. Those two are read
+back when the work is called done, and a report that reworded either reads as one that never did
+the browser step at all. Everything under them is prose for whoever picks the work up next rather
+than a format, so keep each block to the check, its outcome, what was observed, and the one
+console or network line that shows it.
 
 ```markdown
 ## Browser verification
