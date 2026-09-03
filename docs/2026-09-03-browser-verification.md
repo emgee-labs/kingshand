@@ -26,9 +26,13 @@ The same fact settles how the procedure reaches the worker: it travels as a file
 Skills live in kingshand's own `.claude\skills\`, and a worker runs in the target project's
 worktree, where none of them exists - so a brief telling a worker to load `witness` would name
 something it cannot open, and it would drive a browser with none of the rules attached. The brief
-hands over the skill file itself through the `Read first` copy every settled file already uses,
-and dispatch discounts that copy from the index gate for the same reason it discounts the
-standing-criteria file: a path passed on every brief of one shape is evidence about none of them.
+hands over the skill file itself, and `bin\BrowserVerify.psm1` with it, through the `Read first`
+copy every settled file already uses - the installation's own `bin\` is no more reachable than its
+skills, so the module the procedure imports has to travel the same way. Dispatch discounts both
+copies from the index gate for the same reason it discounts the standing-criteria file - a path
+passed on every brief of one shape is evidence about none of them - and refuses, before anything
+is created, a brief carrying the section that did not pass both, because a section pointing at a
+copy nobody made delivers exactly the nothing this route was built to end.
 
 So `## Browser checks` in the brief is the whole mechanism: absent means no browser step, and a
 project's standing browser rules are pasted into it the way standing criteria already are. Nothing
