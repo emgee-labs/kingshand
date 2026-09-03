@@ -4859,6 +4859,20 @@ Describe 'the default branch and the integration branch are two things' {
                      'warning is work landed against a stale base.')
     }
 
+    # The recorded base and the branch point are one ref only where the dispatch actually branched.
+    # Re-dispatching a ticket whose branch survived does not branch again, so a repository that has
+    # declared an integration branch since - which is what this change makes likely - leaves the
+    # base naming one tree and the branch cut from another. The Hand reads step 7's diff, so it is
+    # the reader that has to know: without this, a widened diff looks like the worker's doing.
+    It 'muster warns that a re-dispatched ticket can be diffed against the wrong base' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('**On a re-dispatch the two can disagree, so read step 7''s diff knowing ' +
+                     'that.**')
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'A widened diff on a re-dispatched ticket is that, not the worker''s doing.'
+    }
+
     # The claim in that row that a reviewer cannot check by reading: that the two consumers of the
     # declaration read the same key from the same file. A row saying so while the gate read
     # something else would be worse than a row saying nothing.
