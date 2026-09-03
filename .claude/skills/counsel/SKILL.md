@@ -109,6 +109,26 @@ Two things the brief must also say, because an analysis dispatch is unlike an im
 - **Where two shapes are live, compare them.** Two or three approaches, their trade-offs, and a
   recommendation. That is the brainstorming half, and its own section below owns it.
 
+### How an analysis dispatch ends
+
+`muster`'s close-out is written around work that lands or pushes, and this dispatch produces no
+commits at all, so where it ends is said here. Nothing below changes a step of `muster`.
+
+- **Completion is `muster` Step 6's three facts, unchanged.** The third of them - `report.md`
+  exists - is the whole deliverable here rather than corroboration for a diff, so a settled worker
+  with no report is exactly the suspicious case that step already refuses to advance.
+- **There is nothing to land, so `muster` Step 7's landing gate is not run for an analysis
+  dispatch.** No commits, no push, no pull request, and no diff to render, whatever posture the
+  project is registered with. What takes its place is Step 4 of this skill: the King reads the
+  rendered decomposition and decides.
+- **Teardown is safe here, and it satisfies `muster` Step 8b rather than excepting it.** That rule
+  exists so the only copy of unlanded work is never destroyed, and an analysis dispatch leaves
+  nothing in the worktree - its deliverable is `report.md`, which sits outside the worktree and
+  which `muster` already says survives teardown. The check before tearing down is that the worktree
+  carries no commits beyond its base ref.
+- **A worktree that does carry commits means the brief was exceeded.** `muster` Step 8b then
+  applies unchanged: do not tear it down, and put it to the King.
+
 ## Step 3 - The overlap map, and why the obvious shape fails
 
 The overlap map is the part the King actually needs, and it exists to solve a context problem
@@ -218,7 +238,7 @@ Whatever the destination, hard rule 3 holds for every word that reaches it: noth
 ticket, a commit message or a pull request names an agent or its tooling. Write the decomposition
 in the words the reader would use for their own work.
 
-## Then render it, and stop there
+## Step 4 - Then render it, and stop there
 
 A decomposition is something the King scans, compares and decides on, so it renders rather than
 growing a chat message - hard rule 5, and `bin\Render-Review.ps1` is the renderer `muster`'s

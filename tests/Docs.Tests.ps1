@@ -5306,6 +5306,22 @@ Describe 'counsel splits the dialogue from the reading, and only the King starts
                      'its tooling')
     }
 
+    # muster's close-out is written around work that lands or pushes, and this dispatch makes no
+    # commits at all. Without these three sentences a finished analysis is a worker nothing may
+    # tear down, held open at the landing gate forever.
+    It 'says how a dispatch that produces no commits ends' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**There is nothing to land, so `muster` Step 7''s landing gate is not run for an ' +
+                     'analysis dispatch.**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**Teardown is safe here, and it satisfies `muster` Step 8b rather than excepting ' +
+                     'it.** That rule exists so the only copy of unlanded work is never destroyed, and ' +
+                     'an analysis dispatch leaves nothing in the worktree')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**A worktree that does carry commits means the brief was exceeded.** `muster` Step ' +
+                     '8b then applies unchanged: do not tear it down, and put it to the King.')
+    }
+
     It 'renders the decomposition and dispatches nothing by having read it' {
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
             -Phrase '**Nothing is dispatched by having been read.**'
