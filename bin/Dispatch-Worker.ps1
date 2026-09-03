@@ -789,17 +789,34 @@ foreach ($idx in $sectionIndexes) {
 # asserting they came from a file that is no longer there. Both are cleared instead, and the whole
 # thing is reversible: restore the file, re-dispatch, and both come back.
 #
-# Scoped as tightly as it can be. Only a leaf THIS script composes for this project's standing files
-# is ever considered, only when the source is now absent, and never one the Hand passed through
-# -ReadPath - that copy is the Hand's own file under the same name, and the line naming it is a line
-# the Hand wrote, neither of which this may touch. The line removed is the exact text this script
-# would have written for that file, composed again rather than searched for.
+# Scoped as tightly as it can be, by TWO conditions that are only safe together.
+#
+# The first is the -ReadPath guard, and it covers this dispatch: a leaf the Hand passed is the Hand's
+# own file staged under the same name, and the line naming it is a line the Hand wrote. Neither is
+# this script's to touch.
+#
+# The second covers every EARLIER dispatch, which the first cannot see. `read-first\<leaf>` is one
+# directory shared by both routes, so the copy on disk carries no record of who put it there - and
+# muster passes `data\done-<project>.md` through -ReadPath on every brief it writes, with a bullet
+# of its own wording. Retire that file and re-dispatch, and the leaf looks exactly like an abandoned
+# auto-attachment: absent source, copy present, nothing passed this time. Deleting it on that
+# evidence removed the Hand's file while the Hand's differently-worded bullet survived, leaving the
+# brief naming a file that is gone - the very thing -ReadPath is refused for above, reached through
+# the pruning meant to prevent staleness.
+#
+# So the discriminator is this script's OWN composed bullet for that leaf being in the Read first
+# section. That line is written by nothing else, so its presence is the only available evidence that
+# this script staged the copy. Where it is absent - the Hand's own line is there instead, or no line
+# at all - nothing is removed and the copy is left alone: the copy is then not this script's to
+# delete, and a stale copy a line correctly names is better than a live line naming nothing.
 $staleBullets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
 $staleCopies  = [System.Collections.Generic.List[string]]::new()
 foreach ($leaf in $standing.Keys) {
     if ($staged.ContainsKey($leaf)) { continue }
     if (Test-Path -LiteralPath $standing[$leaf].path) { continue }
-    $null = $staleBullets.Add((New-AutoLine -Leaf $leaf -Entry $standing[$leaf]).Trim())
+    $bullet = (New-AutoLine -Leaf $leaf -Entry $standing[$leaf]).Trim()
+    if (-not $seen.ContainsKey($bullet)) { continue }
+    $null = $staleBullets.Add($bullet)
     $copy = Join-Path $readFirstDir $leaf
     if (Test-Path -LiteralPath $copy -PathType Leaf) { $staleCopies.Add($copy) }
 }
@@ -892,11 +909,6 @@ if ($staged.Count -gt 0 -or $autoStaged.Count -gt 0) {
     }
 }
 
-# The copy of a standing file that is no longer there. Each path was composed above from a leaf this
-# script owns and confirmed to be a file, so this removes something this script itself staged and
-# nothing else.
-foreach ($copy in $staleCopies) { Remove-Item -LiteralPath $copy -Force }
-
 # And the brief is told, because a copy nothing names reaches nobody. Written AFTER the copies, so
 # the brief never names a file that failed to arrive. What goes in and where it goes were both
 # decided above, so nothing is recomputed here.
@@ -908,6 +920,15 @@ if ($toAdd.Count -gt 0 -or $removeIndexes.Count -gt 0) {
     }
     Set-Content -LiteralPath $BriefPath -Encoding utf8 -Value $rewritten.ToArray()
 }
+
+# The copy of a standing file that is no longer there. Each path was composed above from a leaf this
+# script owns, confirmed to be a file, and confirmed to be named by this script's own bullet, so this
+# removes something this script itself staged and nothing else.
+#
+# Deleted AFTER the rewrite, which is the safe order for a removal: an addition writes the line only
+# once the file has arrived, and a removal deletes the file only once the line naming it has gone.
+# Fail in between either way and the brief still describes what is on disk.
+foreach ($copy in $staleCopies) { Remove-Item -LiteralPath $copy -Force }
 
 # WHICH ref this is belongs to Resolve-BaseRef.ps1's header, and nothing here restates it. What
 # matters at this call site is that the one string it returns is used twice below - as the branch

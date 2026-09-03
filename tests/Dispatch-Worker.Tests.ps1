@@ -2574,6 +2574,39 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\rules-$name.md") | Should -BeTrue
         }
 
+        # The prune must survive the gap between dispatches, where the -ReadPath guard cannot see.
+        # muster passes data\done-<project>.md on every brief and writes its own bullet for it, so a
+        # retired criteria file leaves a leaf that looks exactly like an abandoned auto-attachment:
+        # source gone, copy present, nothing passed this time. Deleting it on that evidence took the
+        # Hand's file while the Hand's own line survived, leaving the brief naming a file that is not
+        # there - worse than the staleness the prune exists for.
+        It 'leaves a copy the Hand passed on an earlier dispatch, and the line naming it' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-hand-passed-earlier'
+            $name = Register-FixtureProject -Fixture $f
+            $criteria = New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.'
+            # muster's own wording, which is not the line this script composes.
+            $handLine = "- ``$($f.BriefDir)\read-first\done-$name.md`` - the standing criteria for " +
+                        "$name, copied from ``$criteria``. Work its lines one by one."
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                $handLine,
+                '- The index was checked; nothing in it applies to this task beyond the standing criteria above.')
+
+            & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9034' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $criteria | Out-Null
+            $copy = Join-Path $f.BriefDir "read-first\done-$name.md"
+            Test-Path -LiteralPath $copy | Should -BeTrue
+
+            # The criteria file is retired, and muster now passes no -ReadPath for it.
+            Remove-Item -LiteralPath $criteria -Force
+            Invoke-Dispatch -Fixture $f -Name 'T-9034' | Out-Null
+
+            # The copy the Hand staged is not this script's to delete, and the Hand's line stands.
+            Test-Path -LiteralPath $copy | Should -BeTrue
+            $text = Get-BriefText -Fixture $f
+            $text.Contains($handLine) | Should -BeTrue
+        }
+
         # A file the Hand passed lives under the same staging name and its line is the Hand's own.
         # Pruning must never reach either, even when the project's standing file of that name is gone.
         It 'leaves a hand-passed file alone when the standing file of that name is absent' {
