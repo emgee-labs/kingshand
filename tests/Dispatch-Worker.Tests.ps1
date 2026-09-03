@@ -270,6 +270,22 @@ Describe 'Resolve-BaseRef - the declared integration branch' {
         Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/dev'
     }
 
+    # The two forms together, which is where they used to defeat each other: the comment strip
+    # skipped the value for starting with a quote, and the quote strip skipped it for ending in a
+    # comment, so the declaration came back as `"dev" # ...` and resolved to nothing.
+    It 'reads a quoted value carrying an inline comment' {
+        $repo = New-SplitBranchRepo
+        Set-DeclaredBranch -RepoPath $repo `
+                           -Yaml "pr:`n  base_branch: `"dev`"  # where work integrates"
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/dev'
+    }
+
+    It 'reads a single-quoted value carrying an inline comment' {
+        $repo = New-SplitBranchRepo
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: 'dev' # integration branch"
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/dev'
+    }
+
     It 'reads a file an editor left a byte-order mark on' {
         $repo = New-SplitBranchRepo
         $path = Join-Path $repo '.no-mistakes.yaml'
@@ -324,6 +340,22 @@ Describe 'Resolve-BaseRef - a repository that declares nothing' {
     It 'ignores base_branch nested deeper than the pr block itself' {
         $repo = New-RepoWithOriginHead
         Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  evidence:`n    base_branch: dev"
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
+
+    # An inline `pr:` naming no branch is refused nowhere, because there is nothing for the
+    # dispatcher and the gate to disagree about - the gate proposes against its own default and so
+    # does this. Refusing it blocked every dispatch into the repository over a line that declares
+    # nothing.
+    It 'reads an empty inline pr mapping as no declaration' {
+        $repo = New-RepoWithOriginHead
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') -Value 'pr: {}' -Encoding utf8
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
+
+    It 'reads a null inline pr value as no declaration' {
+        $repo = New-RepoWithOriginHead
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') -Value 'pr: null' -Encoding utf8
         Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
     }
 }
@@ -478,12 +510,12 @@ Describe 'Resolve-BaseRef - a declaration nobody can read is not an absent one' 
         } finally { $lock.Dispose() }
     }
 
-    It 'refuses an inline pr mapping rather than reading past it' {
+    It 'refuses an inline pr mapping that declares a branch rather than reading past it' {
         $repo = New-TempRepo -WithOrigin
         Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') `
                     -Value 'pr: {base_branch: dev}' -Encoding utf8
         { Resolve-BaseRef -RepoPath $repo } |
-            Should -Throw '*writes the pr key with a value on the same line*'
+            Should -Throw '*declares base_branch inline on the pr key*'
     }
 }
 

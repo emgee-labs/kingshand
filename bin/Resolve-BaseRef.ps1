@@ -52,9 +52,11 @@
   cautionary tale is in Dispatch-Worker.ps1's header, where reading paths back out of a brief's
   prose cost six review rounds and never ran out of bugs. Two things follow. Anything this reader
   does not recognise as a declaration reads as no declaration, which degrades to the old chain and
-  is therefore safe. And the one form that would be BOTH plausible and silently divergent - `pr:`
-  written inline, as a flow mapping the gate honours and this does not - is refused by name rather
-  than ignored.
+  is therefore safe. And the one form that would be BOTH plausible and silently divergent - a
+  `base_branch` written inline on the `pr:` key, as a flow mapping the gate honours and this does
+  not - is refused by name rather than ignored. An inline `pr:` that names no `base_branch` at all,
+  `pr: {}` or `pr: null`, declares nothing for either reader to disagree about, so it reads as no
+  declaration rather than blocking every dispatch into that repository.
 
   An unresolvable base is worse than a wrong one. `git log "$base..HEAD"` and
   `git diff "$base...HEAD"` against a ref that does not exist both fail to stderr and write
@@ -147,15 +149,22 @@ function Resolve-BaseRef {
                 $key  = $Matches['key'].Trim()
                 $rest = $Matches['rest'].Trim()
                 if ($key -ne 'pr') { $inPr = $false; continue }
-                # `pr: {base_branch: dev}` and `pr: dev` are forms the gate reads and this does
-                # not. Ignoring them would put the dispatcher and the gate on different branches
-                # with nothing said about it, so they are refused by name.
                 if ($rest -and -not $rest.StartsWith('#')) {
-                    throw ("$path writes the pr key with a value on the same line: " +
-                           "$($line.Trim()). This reads only the block form, so an inline " +
-                           "mapping would leave the dispatcher basing workers somewhere the " +
-                           "review gate does not propose them. Write it as a block instead - " +
-                           "pr: on its own line, with base_branch: <branch> beneath it.")
+                    # `pr: {base_branch: dev}` is a form the gate reads and this does not.
+                    # Ignoring it would put the dispatcher and the gate on different branches with
+                    # nothing said about it, so it is refused by name.
+                    if ($rest -match 'base_branch') {
+                        throw ("$path declares base_branch inline on the pr key: " +
+                               "$($line.Trim()). This reads only the block form, so an inline " +
+                               "mapping would leave the dispatcher basing workers somewhere the " +
+                               "review gate does not propose them. Write it as a block instead - " +
+                               "pr: on its own line, with base_branch: <branch> beneath it.")
+                    }
+                    # `pr: {}` and `pr: null` name no branch, so there is nothing for the two
+                    # readers to disagree about and no reason to refuse. It reads as no
+                    # declaration, and an inline value has no children to read either way.
+                    $inPr = $false
+                    continue
                 }
                 $inPr     = $true
                 $prIndent = -1
@@ -173,12 +182,15 @@ function Resolve-BaseRef {
 
             if ($line -match '^\s+base_branch\s*:(?<val>.*)$') {
                 $val = $Matches['val'].Trim()
-                # An unquoted scalar ends at a comment. A quoted one does not, so the quotes are
-                # stripped after, and only as a matched pair.
-                if ($val -notmatch '^["'']') { $val = ($val -replace '\s+#.*$', '').Trim() }
-                if ($val.Length -ge 2 -and
-                    ($val[0] -eq '"' -or $val[0] -eq "'") -and $val[-1] -eq $val[0]) {
-                    $val = $val.Substring(1, $val.Length - 2)
+                # A quoted scalar ends at its own closing quote, so the value is what sits between
+                # the pair and everything after it is discarded - an inline comment, usually,
+                # which is why the two cannot be handled in sequence: stripping the comment first
+                # never sees the quotes as a pair, and stripping the quotes first never sees the
+                # comment. An unquoted scalar has no closing quote and ends at the comment instead.
+                if ($val -match '^(?<q>["''])(?<inner>[^"'']*)\k<q>') {
+                    $val = $Matches['inner']
+                } else {
+                    $val = ($val -replace '\s+#.*$', '')
                 }
                 # `base_branch:` with nothing after it declares nothing, which is how the gate
                 # itself reads an empty value.

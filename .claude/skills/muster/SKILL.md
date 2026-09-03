@@ -728,11 +728,18 @@ tasks-axi start "<id>"
 it back so the recording above does not change shape. There is no before-and-after listing to diff
 and nothing to look up: use `$r.id` and never invent a second identifier for the same worker.
 
-Pass `-Base $r.base` every time. Where the repo has a remote the worktree branches from the
-*remote* default branch, and the landing gate needs that ref rather than the local one - see
-step 7. The dispatcher confirms whatever it returns with `git rev-parse --verify`, and on a
-remoteless repo returns the repo's *local* default branch rather than inventing an `origin/...`
-name that would resolve to nothing at the gate.
+Pass `-Base $r.base` every time. It is the one ref the worktree was actually cut from, and the
+landing gate in step 7 diffs against that same ref - so the two cannot disagree. **Which ref that
+is belongs to `bin\Resolve-BaseRef.ps1`'s header, and nothing here restates it**; it is not always
+the default branch, because a repository can declare a separate integration branch that every
+pull request targets. The dispatcher confirms whatever it returns with `git rev-parse --verify`
+and refuses rather than inventing a name that would resolve to nothing at the gate.
+
+**Relay any warning that call prints.** Base resolution warns when it could not honour a
+repository's declared integration branch, or honoured it only as a local copy nothing has
+confirmed is current - and either one means the landing diff in step 7 is measured against the
+wrong tree. On a `+yolo` project nothing else stops to show it, so an unrelayed warning is work
+landed against a stale base. One line to the user naming the branch and what was used instead.
 
 The dispatcher passes the brief by path, not by value. Keep it that way. Long text does now
 survive the trip intact - a 3,374-character prompt arrived whole - but a path is one line, it does
@@ -1100,10 +1107,11 @@ git -C $w.worktree --no-pager diff --stat "$base...HEAD"
 git -C $w.worktree --no-pager log --oneline "$base..HEAD"
 ```
 
-**Use `$w.base`, never the local default branch.** The dispatcher creates the worktree from the
-*remote* default branch where there is one. When the local branch is behind - which is normal -
-diffing against it folds every upstream commit in that gap into what looks like the worker's work.
-In the first real run this made a 1-file change appear as 6 files across 3 commits.
+**Use `$w.base`, never the local default branch.** It is the ref the worktree was actually cut
+from, which is usually a remote-tracking one and is not always the default branch. When a local
+branch is behind - which is normal - diffing against it folds every upstream commit in that gap
+into what looks like the worker's work. In the first real run this made a 1-file change appear as
+6 files across 3 commits.
 
 Check the commits for attribution before showing anything:
 
