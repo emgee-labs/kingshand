@@ -95,8 +95,8 @@ authority where the posture at step 1 leaves it there, and everything else escal
 
 **Its test governs any decision a parked worker has left you, however the worker reached it.**
 `When this applies at all` above is about where an ask-user finding comes from and it is unchanged
-- only a gated project produces one - but parking is not: a worker on any posture writes
-`## Waiting on a decision` into its `report.md` for any decision its brief did not settle, and
+- only a gated project produces one - but parking is not: a worker on any posture writes the
+question into its `report.md` and ends its turn for any decision its brief did not settle, and
 while he is away that decision is answered on the test below or it is answered nowhere. What does
 not generalise is the ask-user finding itself: only a gated project's review gate ever produces
 one, exactly as `When this applies at all` says, and the escalation shape above is written for

@@ -35,14 +35,12 @@ substance of the choice, and never from a customer name, a credential, a path, a
 anything else the queue should not carry. A key that changes between retries files the same
 decision twice; a key shared by two decisions loses one of them.
 
-**Where the decision came from a worker parked under `## Waiting on a decision`, the key is
-`<work-id>-<the entry's own `###` slug>`, composed that way every time.** Both halves are already
-on the page in front of whoever is reading: the work id and the slug the worker wrote above its
-question. So any session can construct the lookup string from what it is reading rather than
-guessing what an earlier session chose - which is the whole check `muster` Step 6 makes before
-steering an answer in, and it is worthless against a key composed by judgement. Never derive a
-second identifier beside that one, and never leave the work id off: a key that is prefixed only
-sometimes is not a lookup.
+**Where the decision came from a parked worker, the key does not have to be re-derivable, because
+nothing re-derives it.** `muster` Step 6 writes the key you registered onto that worker's own
+record the same turn it registers the decision, so a later session looks the key up rather than
+reconstructing it from what a worker happened to write. That is the whole reason the pointer
+exists; `muster` owns it and this skill owns the key itself. Prefix the key with the work id all
+the same - a decision that outlives the worker still has to be findable in the queue on its own.
 
 After inventorying the whole surface, either every unresolved key is registered, or you state
 plainly that the reviewed surface contains no unresolved decision. **Do not let "I found nothing"
@@ -109,8 +107,10 @@ Six mechanical facts this depends on, each confirmed against the tool rather tha
   the reason states it in words: that the question is with him and what he has to choose, or that
   you are answering it in his stead under `petition`'s test and which way. A reason that records
   only the choice leaves a later session unable to tell a question he owes from a pass that was
-  interrupted, and it freezes the second as though it were the first. `muster` Step 6 reads that
-  reason and owns what each one does next.
+  interrupted, and it freezes the second as though it were the first. The reason is what a later
+  session reads to tell them apart, and `petition` owns what each one does next: a question that
+  is genuinely with him waits, and an interrupted stead pass is re-entered on that skill's test and
+  finished.
 - **`--kind captain` is what marks the hold as the King's own.** The other kinds - `external`,
   `load`, `parked`, `future` - wait on something that is not the King, and `survey` routes them to
   a different section. `chronicle` files its pinned-offload approvals the same way, so stay
@@ -176,11 +176,11 @@ repairing that costs the user the same question a second time.
 
 Firstmate blocks its teardown on this gate. **Kingshand has nothing equivalent, and this skill will
 not pretend otherwise.** `muster` Step 8b now reads one thing before teardown - it refuses to stop
-a worker while any parked entry in its `report.md` carries no answer - and that is the whole of it:
-the check reads the worker's own record and never the queue, so a hold this skill opened and
-nobody wrote into a report stops nothing at all. `bin\` contains no check that looks for an open
-hold before cleanup, and `tests\Docs.Tests.ps1` pins the rules on this page as text without being
-able to observe whether a decision was ever filed.
+a worker whose record still points at a hold - and that is the whole of it: the check reads that
+one pointer and never the queue, so a decision nobody registered here has no pointer and stops
+nothing at all. `bin\` contains no check that looks for an open hold before cleanup, and
+`tests\Docs.Tests.ps1` pins the rules on this page as text without being able to observe whether a
+decision was ever filed.
 
 So this is a discipline the Hand follows, not a check a script performs. Nothing downstream
 catches a decision you did not inventory: the worker is gone, its session and transcript are gone,

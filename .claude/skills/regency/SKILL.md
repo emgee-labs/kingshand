@@ -82,7 +82,7 @@ stage, write the outcome down, and batch it. `decree` still owns any unresolved 
 applies.
 
 **A worker is parked on a decision its brief did not settle.** It wrote the question into its
-`report.md` under `## Waiting on a decision` and ended its turn, so nothing is hanging and nothing
+`report.md` and ended its turn, so nothing is hanging and nothing
 is lost while you think. Every posture parks that way, so this is not only the gated ones: a
 review gate's ask-user finding is one route into it and not the only one. Load `petition`, whose
 away-mode test owns whether this one is yours to answer, and take the route back into the worker

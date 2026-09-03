@@ -412,7 +412,7 @@ Describe 'a background worker never opens an interactive prompt' {
 
     It 'each one sends an unsettled decision to report.md instead of a menu' {
         foreach ($block in $script:PromptBlocks) {
-            $block.Contains('write the question into `$env:KINGSHAND_HOME\data\<id>\report.md` under the heading `## Waiting on a decision` - the question, the options you can see, and what you would need in order to choose - then say so in your final message and end your turn.') |
+            $block.Contains('write the question into `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you would need in order to choose - then say so in your final message and end your turn.') |
                 Should -BeTrue -Because 'a question that reaches the user is a written one'
         }
     }
@@ -3382,15 +3382,14 @@ Describe 'decree keeps an unresolved decision durable' {
                      'equivalent, and this skill will not pretend otherwise.**')
         # Narrowed to what is still true: Step 8b now does read one thing, so claiming it reads
         # nothing would have a Hand skip that check or rebuild it. What has not changed is that
-        # nothing under `bin\` looks for an open hold, and that the report-level check cannot see
-        # a decision nobody wrote into a report - which is the honesty this section exists for.
+        # nothing under `bin\` looks for an open hold, and that a pointer nobody set stops nothing -
+        # which is the honesty this section exists for.
         Assert-Phrase -Text $script:HoldText -Where 'the enforcement section' `
             -Phrase ('`muster` Step 8b now reads one thing before teardown - it refuses to stop a ' +
-                     'worker while any parked entry in its `report.md` carries no answer - and ' +
-                     'that is the whole of it')
+                     'worker whose record still points at a hold - and that is the whole of it')
         Assert-Phrase -Text $script:HoldText -Where 'the enforcement section' `
-            -Phrase ('the check reads the worker''s own record and never the queue, so a hold ' +
-                     'this skill opened and nobody wrote into a report stops nothing at all')
+            -Phrase ('the check reads that one pointer and never the queue, so a decision nobody ' +
+                     'registered here has no pointer and stops nothing at all')
         Assert-Phrase -Text $script:HoldText -Where 'the enforcement section' `
             -Phrase '`bin\` contains no check that looks for an open hold before cleanup'
         Assert-Phrase -Text $script:HoldText -Where 'the enforcement section' `
@@ -5902,29 +5901,46 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
     # A worker is a detached process with nobody attached. `petition` said it routes an ask-user
     # finding to the Hand and nothing implemented that route, so on 2026-09-01 a worker decided five
     # of them itself - correctly, by breaking the rule, because following it meant hanging. The route
-    # below is built entirely from what already existed: `report.md` is written mid-run, the Step 4
-    # wait already wakes on a settled worker, `axi run` already returns at the gate leaving the run
-    # parked, and `Send-HerdrPrompt` already steers a live worker. Nothing here is a new channel, and
-    # the two properties it has to keep are that the worker is not stuck and the run is not lost.
+    # is built entirely from what already existed: `report.md` is written mid-run, the Step 4 wait
+    # already wakes on a settled worker, `axi run` already returns at the gate leaving the run
+    # parked, and `Send-HerdrPrompt` already steers a live worker.
+    #
+    # What the route's *state* rides on was replaced after nine review rounds. It used to be a fixed
+    # heading and an entry protocol inside `report.md`, read as prose - so every round turned up one
+    # more shape nobody had listed, and the rules for reading it ended up longer than the route
+    # itself. It is now `waiting_on` on the worker's own crew record: a nullable pointer at the
+    # tasks-axi hold carrying the decision. Its presence is the state, so there is nothing to
+    # enumerate and no next shape to discover.
     BeforeAll {
         $script:RouteBlocks = @(Get-CodeFence $script:MusterMd |
             Where-Object { $_.Contains("Implemented and committed on this worktree's branch.") } |
             ForEach-Object { ConvertTo-NormalisedText $_ })
-        $script:RouteStep6 = Get-MusterStep 'Step 6 - Completion'
-        $script:RouteHold  = Get-DocText $script:HoldMd
+        $script:RouteStep6  = Get-MusterStep 'Step 6 - Completion'
+        $script:RouteHold   = Get-DocText $script:HoldMd
+        $script:RouteFences = @(Get-CodeFence $script:MusterMd)
     }
 
-    # The heading is the whole discriminator. A parked worker settles, shows no prompt and has
-    # written its report, so it passes Step 6's three facts exactly as a delivery does - without a
-    # fixed string in the file there is nothing to tell them apart, and the Hand tears down a worker
-    # that is mid-run.
-    It 'all four Done-means blocks name the exact heading a waiting worker writes' {
+    It 'all four Done-means blocks send an unsettled decision to the report as prose' {
         $script:RouteBlocks.Count | Should -Be 4
         foreach ($block in $script:RouteBlocks) {
-            $block.Contains('under the heading `## Waiting on a decision`') |
-                Should -BeTrue -Because 'the Hand tells waiting from finished by that heading and nothing else'
-            $block.Contains('That heading is what tells the Hand you are waiting rather than finished, so write it exactly.') |
-                Should -BeTrue -Because 'a worker that paraphrases the heading is invisible to Step 6'
+            $block.Contains('**Write it as prose, the way you would put it to a colleague at their desk.**') |
+                Should -BeTrue -Because 'the report carries the question and the reasoning, which is what prose is for'
+            $block.Contains('Nothing parses this file, so there is no heading to match exactly, no slug to keep and no marker to get wrong') |
+                Should -BeTrue -Because 'a worker told to write a marker exactly is a worker that can get it wrong'
+        }
+    }
+
+    # The whole point of the replacement, asserted as an absence. Every one of these strings was a
+    # thing a worker had to produce exactly so the Hand could parse it back, and each was a state
+    # some review round found one more shape of.
+    It 'no block asks a worker to write a marker the Hand parses back' {
+        foreach ($block in $script:RouteBlocks) {
+            $block.Contains('## Waiting on a decision') |
+                Should -BeFalse -Because 'the route stopped reading its state out of the report'
+            $block.Contains('`###` sub-heading') |
+                Should -BeFalse -Because 'an entry protocol is a format, and a format has malformed cases'
+            $block.Contains('on a line starting `Answer:`') |
+                Should -BeFalse -Because 'whether a decision is answered is the hold, not a line in a file'
         }
     }
 
@@ -5939,37 +5955,8 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
                 Should -BeTrue -Because 'the worker must know an answer is coming, or it will not wait for one'
             $block.Contains('do not undo what you have done, do not pick a different task, and do not report the work as failed') |
                 Should -BeTrue -Because 'a worker that unwinds its own change while waiting loses the run'
-        }
-    }
-
-    # The other half of the discriminator, and the one without which the route never completes:
-    # nothing clears that heading, so a worker that was answered and then finished goes on reading
-    # as waiting - the Hand re-reads the report, refuses to advance it, and a fresh session steers a
-    # second answer into a worker that already applied the first. The section stays where it is and
-    # the answer written into it is what stops it matching.
-    #
-    # One entry per decision, because one slot cannot hold two. A worker answered on round one and
-    # parked again on round two writes the second question into the same section, and a single-slot
-    # section then either reads as a delivery - landing gate, then teardown, and the second decision
-    # is answered nowhere - or has the first decision overwritten to make room for the new question.
-    # The entry gets the same treatment as the section heading, and for the same reason: Step 6's
-    # read is a string match, so "its own entry" as free prose left the boundary undecidable - one
-    # paragraph saying "decided X, which raises Y" is a single entry both answered and not. A `###`
-    # slug per decision plus an `Answer:` line makes the read as mechanical as the heading match,
-    # and the slug is also the key the decision is registered under, so one string names it in the
-    # report and in the queue.
-    It 'all four give each decision its own slug sub-heading and answer line' {
-        foreach ($block in $script:RouteBlocks) {
-            $block.Contains('**Each decision is its own `###` sub-heading under that section, named with a short slug for the decision - `### shorter-hero-copy` - and written exactly, for the same reason the section heading is.**') |
-                Should -BeTrue -Because 'an entry boundary the Hand has to guess at is not a boundary'
-            $block.Contains("That slug is the one string naming this decision in your report and in the Hand's own records") |
-                Should -BeTrue -Because 'the slug is the key the decision is registered under'
-            $block.Contains('write the decision under that same slug on a line starting `Answer:` and leave the sub-heading alone') |
-                Should -BeTrue -Because 'answered has to be readable without interpreting prose'
-            $block.Contains('A new question is always a new sub-heading appended last, never folded into one already answered') |
-                Should -BeTrue -Because 'folding the new question in destroys the record of the last decision'
-            $block.Contains('park twice and the section holds two, the decision you were given still readable above the one nobody has answered yet') |
-                Should -BeTrue -Because 'the parked-twice case is the one this shape exists for'
+            $block.Contains('A second question later is just another question, written the same way.') |
+                Should -BeTrue -Because 'parking twice needed a rule of its own only while the report held the state'
         }
     }
 
@@ -6011,7 +5998,7 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
                 Should -BeTrue -Because 'the ordinary case still prefers a recorded assumption to stopping'
             $block.Contains('**A finding the gate classified `ask-user` is never one of those.**') |
                 Should -BeTrue -Because 'an assumption stated over one of those is the worker answering it itself'
-            $block.Contains('park it under the heading above and wait, however obvious the answer looks from here') |
+            $block.Contains('write it down as the bullet above says and wait, however obvious the answer looks from here') |
                 Should -BeTrue -Because 'the worker needs the alternative named, not only the prohibition'
         }
     }
@@ -6031,324 +6018,114 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         }
     }
 
-    It 'Step 6 refuses to read a waiting worker as a finished one' {
+    # A parked worker settles, shows no prompt and has written its report, so it passes Step 6's
+    # three facts exactly as a delivery does. Something has to tell them apart or the Hand tears
+    # down a worker that is mid-run - and that something is now a field rather than a file.
+    It 'Step 6 tells a parked worker from a finished one by the pointer, not the report' {
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**A worker waiting on a decision passes all three and is not finished ' +
-                     'either, and only the report tells you which you have.**')
+            -Phrase '**A worker parked on a decision passes all three and is not finished either.**'
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase 'a `## Waiting on a decision` section the brief made it write, and nothing has answered'
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase 'read the report before you act on the three facts rather than after'
+            -Phrase ('What separates it from a delivery is not in that file at all - **it is ' +
+                     '`waiting_on` on the worker''s own record:**')
     }
 
-    # The read has to be per entry, or a worker answered once and parked again reads as a delivery -
-    # and the landing gate's approval then tears it down with a decision nobody answered inside it.
-    It 'Step 6 keys on an unanswered entry rather than on what the section appears to say' {
+    # Two values and no third, which is the property the whole change was made for. Absent is
+    # normalised to null on the way in by Crew.psm1, so nobody downstream gets a third case to
+    # handle and nobody has to enumerate one.
+    It 'the pointer has two values, and absent is not a third' {
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**Read every `###` entry under that heading, and key on whether any one of ' +
-                     'them is unanswered.**')
-        # Answered is the `Answer:` line, not a reading of the prose - the same reason the entry
-        # marker is pinned at all.
+            -Phrase '**The field is set or it is not, and there is no third value.**'
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('An entry is answered when it carries an `Answer:` line under its slug, and ' +
-                     'not when the prose around it reads like a conclusion.')
-        # Total rather than enumerated, and that is the assertion. Keyed strictly on slugs, a bare
-        # question under the heading satisfied "every slug carries an Answer:" vacuously - and the
-        # first fix for that said "holds text", which put an empty heading straight back outside
-        # the rule. Stated as anything-that-is-not-a-well-formed-answered-entry it covers every
-        # malformed shape at once and cannot pick up a new hole.
+            -Phrase ('`Import-CrewState` gives every record the field whether or not it was saved ' +
+                     'with one, so absent and null are one case rather than two.')
+        # It points at a decision; it does not describe one. Reading more into it is how a pointer
+        # turns back into a state machine.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**Anything under that heading that is not a well-formed entry carrying its ' +
-                     'own answer is unanswered.**')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('A heading with nothing under it, prose with no slug, a slug with no ' +
-                     '`Answer:` line - all of it')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('it needs no list of malformed shapes, so it cannot acquire a new hole the ' +
-                     'next time a worker deviates in a way nobody thought of')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('Establish the cause before anything irreversible, and read it as unanswered ' +
-                     'until you have.')
-        # Stated once and inherited by every reader, named as a property rather than as a list of
-        # steps - a list is what let Step 7, Step 8a and Step 8b drift apart in the first place.
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**This is the one place that says what unanswered means, and it governs ' +
-                     'every path that reads those entries**')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('this step''s read, the landing floor, the close-out check, the teardown, ' +
-                     'and whatever is added later, none of which carries its own version')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('a worker that parked, was answered and parked again has an answered entry ' +
-                     'sitting above a question nobody has answered')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**One unanswered entry means a worker mid-run**, whatever else that section ' +
-                     'records.')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('read the first entry alone and a second decision nobody answered goes to ' +
-                     'the landing gate instead, where approval tears the worker down and takes ' +
-                     'the parked run with it')
-        # The delivery side of the same key, and it needs the at-least-one: "every entry is
-        # answered" is vacuously true of a heading with no entries under it, which read a worker
-        # that had not written its question yet as a finished delivery.
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('Where it holds at least one entry and every one of them carries its own ' +
-                     'answer')
+            -Phrase ('it says which decision, never how that decision is going. `decree` owns the ' +
+                     'hold and `petition` owns who may answer it.')
     }
 
-    # The entry is the worker's own text and the worker can fail to update it, exactly as it can
-    # fail to write a report at all - which Step 6 already treats as fallible. Without a
-    # cross-check the Hand re-steers a decision the worker already applied, forever: the work is
-    # finished, nothing errors, and it never reaches the landing gate.
-    #
-    # Both halves of the pair have to be durable and per decision. Keyed on "any note against this
-    # work" it misroutes the parked-twice case - one answered decision made a brand-new question
-    # read as a stuck worker - and keyed on "`working` arrived" it decides nothing at all in the
-    # session after a restart, which is the case the whole route exists to survive.
-    It 'Step 6 cross-checks per decision key, on state that survives a restart' {
+    # Said in the file itself, so a reader who finds the old heading in git history reads it as
+    # superseded rather than as a rule somebody lost - and so a later editor knows that putting the
+    # state back into the report is a reversal rather than a tidy-up.
+    It 'Step 6 says the prose state it replaced was replaced deliberately' {
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**Before you touch any entry, read back what `decree` holds under ' +
-                     '`<work-id>-<that entry''s slug>`.**')
+            -Phrase ('**This replaced a heading the Hand used to read out of `report.md`, and the ' +
+                     'replacement was deliberate.**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('The entry is text a worker writes, so it can fail that instruction exactly ' +
-                     'as it can fail the one about writing a report at all')
+            -Phrase ('every review round turned up one more shape nobody had listed - an empty ' +
+                     'section, a worker parked twice, an answer with no record - and the rules for ' +
+                     'reading it ended up longer than the route itself. A field has no shapes.')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('What tells them apart is a durable pair, read one key at a time rather ' +
-                     'than once per worker: the entry under that slug in the report, and what ' +
-                     'the queue holds under that key.')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('one key settled and one key nobody has answered is a worker waiting on its ' +
-                     'second question, not a stuck one')
-        # The session-only signal is named and excluded, so a later editor cannot put it back as
-        # the discriminator.
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase '**Nothing in that table turns on whether you watched `working` arrive.**'
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('That lived in the session that saw it, and the next session has no way to ' +
-                     'know it - which is exactly the restart this route exists to survive.')
+            -Phrase ('The report still carries the question and the reasoning, which is what prose ' +
+                     'is good for; it stopped being where the system reads whether.')
     }
 
-    # Enumerated rather than listed. Each of the last two rounds found one more state the prose had
-    # not thought of - the escalated-but-open hold being the one that re-asked the King a question a
-    # previous session had already put to him - so both axes are now stated exhaustively: what the
-    # queue holds under that key crossed with whether the entry carries an answer. An unlisted
-    # combination is the defect this table replaces.
-    It 'Step 6 gives every combination of note and entry a named outcome' {
+    # The one place the report is still read for this, and the turn the pointer is set. Registering
+    # without pointing leaves the decision durable but the worker unmarked, so the landing gate and
+    # the teardown both read it as delivered.
+    It 'Step 6 sets the pointer in the same turn it registers the decision' {
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase '**Every combination has an outcome, and none of them is left to judgement:**'
+            -Phrase ('**Where the field is null and the report names a decision the worker''s brief ' +
+                     'did not settle, that is `decree`''s trigger and nobody has pulled it yet.**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('| nothing at all | unanswered | Nobody has seen this decision yet.')
-        # The floor row. An answer with no queue record has a benign cause and a forbidden one -
-        # the worker answering its own ask-user finding, which the brief bullets forbid outright -
-        # and assuming the benign one files a durable authorisation nobody with authority gave.
+            -Phrase 'Register the decision there, and record the key it was registered under in the same turn'
+        # Once, on the turn it parks - not on every read afterwards. That is the difference between
+        # a person reading a question and a check parsing a file, and it is what nine rounds of
+        # findings were all downstream of.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('| nothing at all | answered | **The one row that stops.**')
+            -Phrase ('**That read of the report happens once, on the turn the worker parks, and it ' +
+                     'is a person reading a question rather than a check parsing a file.**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('the record was never written, or the worker answered its own question - ' +
-                     'which its brief forbids outright. Establish which before you do anything, ' +
-                     'and register nothing until you have.')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('Where a session, a closed note or a recorded position accounts for that ' +
-                     'answer, the record was merely missing and you write it.')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('Where nothing does, the worker answered itself: load `rally`, and read ' +
-                     'everything else it claims with the same suspicion a missing report earns.')
-        # The fourth queue state decree carries a repair row for, and the reachable set stated
-        # closed so the next unlisted combination is a test failure rather than a review round.
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('| a closed hold, no note | either | No durable answer exists, so nothing ' +
-                     'here may infer what it was - not from the entry, and not from what looks ' +
-                     'likely. Repair it through `decree`, which owns that, and do not steer until ' +
-                     'it is repaired. |')
-        # Totality by default rather than by list, pinned as such: an enumeration that has to be
-        # complete is the defect three rounds in a row found one more member of.
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**The table is total by construction rather than by enumeration, and that ' +
-                     'is the point.**')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('every other open hold takes the default, so a reason nobody anticipated is ' +
-                     'safe rather than unmatched')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('`decree` still requires a stead-pass reason to say so - the default is what ' +
-                     'covers the reason that does not, not a licence to leave it out.')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase '**Do not turn the default back into another listed case.**'
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('a list that has to be complete is the defect; a default cannot be ' +
-                     'incomplete')
-        # The state a restart lands in most often, and the one that was missing: escalated, out
-        # with him, nobody has answered. Re-deciding or re-asking here costs him the same question
-        # twice, which is exactly what decree exists to prevent.
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('| an open hold, no note, reason says the question is his | unanswered | He ' +
-                     'already has this question and nobody has answered it. It waits: carry it ' +
-                     'into the digest and never re-escalate it. Do not decide it, do not ask him ' +
-                     'again, and do not steer. |')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('| an open hold, no note, reason says the question is his | answered | The ' +
-                     'queue says he has not answered and the report says something was applied.')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('the hold stays open until he answers it himself - put that entry''s answer ' +
-                     'to him, and land nothing on this work meanwhile')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('| a closed hold, `answered:` or `declined:` | unanswered | The decision has ' +
-                     'an answer this worker has not recorded. Load `rally`')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('| a closed hold, `answered:` or `declined:` | answered | Settled. Nothing ' +
-                     'to steer, and this entry is no reason to hold the work back. |')
+            -Phrase ('a restart, a compaction or a session that dispatched nothing reads a value ' +
+                     'instead of re-deriving one from prose')
     }
 
-    # The stead pass opens a hold before it closes one, and the session can end in that window -
-    # this change says so itself. Keyed on the open hold alone, a later session read that as a
-    # question the King already had: it froze, the worker parked until morning, and he was asked a
-    # reversible copy question petition says is the Hand's. The reason is what tells the two apart,
-    # so the rows key on it and decree requires it to be there.
-    It 'Step 6 splits an open hold on what its reason records' {
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('| an open hold, no note, reason says you are answering it in his stead | ' +
-                     'unanswered | A stead pass was interrupted before its note went in. He was ' +
-                     'never asked, so nothing here is waiting on him: re-enter `petition`''s test ' +
-                     'on that decision, finish the pass, and close it.')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('Never carry it into the digest as a question he owes - freezing it here is ' +
-                     'the parked-until-morning failure this route exists to end. |')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('| an open hold, no note, reason says you are answering it in his stead | ' +
-                     'answered | The same pass, interrupted after the steer landed. Confirm the ' +
-                     'answer in that entry is the decision the reason records, then close the ' +
-                     'note on it and carry on.')
-        # The default row is what makes the split safe: a reason that says neither matched no row
-        # before, and the two candidates took opposite actions - freeze it with the King, or finish
-        # the pass - so the Hand guessed, and guessing wrong parks the worker until morning.
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('| any other open hold, no note - a reason that does not plainly say which ' +
-                     'of the two it is | either | **The default, and it catches everything the ' +
-                     'two rows above do not.**')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('The cause is not established, so nothing moves on it: do not steer, do not ' +
-                     'close it, do not re-escalate it, and land nothing on this work. Repair the ' +
-                     'reason through `decree`, which owns what it has to say, and take the row it ' +
-                     'then matches. |')
-        # And decree carries the exit for it, on a field and a verb that already exist.
-        Assert-Phrase -Text $script:RouteHold -Where 'the decree lifecycle table' `
-            -Phrase ('| repair a reason that does not say which of the two open holds it is |')
-        Assert-Phrase -Text $script:RouteHold -Where 'the decree lifecycle table' `
-            -Phrase ('`hold` is idempotent under the same key, so this rewrites the reason ' +
-                     'without opening a second hold or moving anything else')
-        # decree owns the reason, and it is text on a field that already exists - no new kind, verb
-        # or field. Both causes are `--kind captain`, so the kind cannot carry this.
-        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
-            -Phrase ('**The reason says which of the two open holds this is, and that is not ' +
-                     'optional.**')
-        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
-            -Phrase ('he genuinely has the question, or the Hand was answering it in his stead ' +
-                     'and the pass ended before the note went in')
-        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
-            -Phrase ('the reason states it in words: that the question is with him and what he ' +
-                     'has to choose, or that you are answering it in his stead under ' +
-                     '`petition`''s test and which way')
-        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
-            -Phrase '`muster` Step 6 reads that reason and owns what each one does next.'
+    # Both writes are runnable, because a described command is one nobody has run - and because the
+    # two verbs are the only way the field is ever written. A Hand editing crew.json by hand is a
+    # Hand writing a key that matches no hold.
+    It 'Step 6 carries runnable calls for setting and clearing the pointer' {
+        $set = @($script:RouteFences | Where-Object {
+            $_.Contains('Set-CrewWaitingOn -State $s -WorkerId "<id>" -HoldKey "<the key decree registered it under>"') })
+        $set.Count | Should -Be 1 -Because 'the pointer is set in one place, when the decision is registered'
+        $set[0].Contains('Save-CrewState -State $s -Path $env:KINGSHAND_HOME\state\crew.json') |
+            Should -BeTrue -Because 'a pointer that was never saved does not survive the session it was set in'
+
+        $clear = @($script:RouteFences | Where-Object {
+            $_.Contains('Clear-CrewWaitingOn -State $s -WorkerId "<id>"') })
+        $clear.Count | Should -Be 1 -Because 'the pointer is cleared in one place, when the answer has landed'
+        $clear[0].Contains('Save-CrewState -State $s -Path $env:KINGSHAND_HOME\state\crew.json') |
+            Should -BeTrue -Because 'the same reason, from the other end'
     }
 
-    # Row six and rally pointed at each other and neither delivered. One owner each: rally says
-    # whether the worker can take a steer, this step's send block delivers it, and the closed
-    # decision is not blocked or noted a second time.
-    It 'row six delivers the answer from this step rather than bouncing to rally' {
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('Load `rally` for the worker''s condition - whether the steer ever landed ' +
-                     'and whether it can take one now - then send that closed note''s answer with ' +
-                     'the block below, once.')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('The route back is this step''s, so no second block and no second note are ' +
-                     'filed: the decision is closed already.')
+    # No table, and that is the assertion. Nine rounds of findings were each one more row nobody had
+    # listed; a field that is set or null has no rows. If a later edit rebuilds an enumeration over
+    # this state, this fails.
+    It 'Step 6 enumerates no states at all' {
+        $script:RouteStep6.Contains('Every combination has an outcome') |
+            Should -BeFalse -Because 'an enumeration that has to be complete is the defect this replaced'
+        $script:RouteStep6.Contains('| unanswered |') |
+            Should -BeFalse -Because 'the state table went with the prose state it was reading'
+        $script:RouteStep6.Contains('## Waiting on a decision') |
+            Should -BeFalse -Because 'nothing reads that heading any more'
+        $script:RouteStep6.Contains('`Answer:` line') |
+            Should -BeFalse -Because 'answered is what the hold records, not what the report is formatted like'
     }
 
-    # The interruption window has an order, and the order picks which row a later session reads.
-    # Send first and an interruption leaves an open hold against an answered entry, whose row puts
-    # the same question to the King twice - the cost decree exists to prevent.
-    It 'Step 6 records and closes the decision before the steer is sent' {
+    # The floor the state table used to carry as its stopping row. It survives as a rule about a
+    # breach rather than as a row: a worker that resolved a decision nobody registered answered its
+    # own question, which its brief forbids outright.
+    It 'Step 6 still refuses to ratify a worker that answered its own question' {
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**Where you are answering it, the block and the closing note go in before ' +
-                     'the send, not after.**')
+            -Phrase ('**A worker that carried on past a decision its brief did not settle, with no ' +
+                     'hold ever registered for it, answered its own question - and its brief ' +
+                     'forbids that outright.**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('Close first and it finds a closed note against an entry nobody has ' +
-                     'answered, which sends the answer on once. Send first and it finds an open ' +
-                     'hold against an answered entry, which puts the same question to the King a ' +
-                     'second time.')
+            -Phrase ('Load `rally`, and read everything else it claims with the same suspicion a ' +
+                     'missing report earns.')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase '`decree` owns the sequence itself, block before close.'
-        # decree's own sequence says the same thing without restating the reasoning.
-        Assert-Phrase -Text $script:RouteHold -Where 'the decree operating sequence' `
-            -Phrase ('Where that answer is going back to a parked worker, this close comes before ' +
-                     'the steer is sent; `muster` Step 6 owns that route and why the order matters.')
-    }
-
-    # Without this the step reads straight on into `gating` over a worker that resumed seconds ago:
-    # the three facts were confirmed before the steer, and the entry is no longer unanswered because
-    # the Hand just answered it - so the new landing floor does not catch it either, and a `+yolo`
-    # project diffs and lands a worktree still being written to.
-    It 'Step 6 ends the pass at the re-armed wait rather than reading on into gating' {
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**This pass ends at that re-armed wait, and nothing below it runs on this ' +
-                     'one.**')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('the next wake re-enters this step from the top against the state as it is ' +
-                     'then')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('on a `+yolo` project Step 7 would then diff and land a worktree that is ' +
-                     'still being written to')
-    }
-
-    # Step 6 was the only place that protected a parked worker, and Step 0 routes "land / merge /
-    # ship a worker" straight to Step 7 - so a parked worker could reach the landing gate, close-out
-    # and teardown without Step 6 ever running, and Step 8b's own floor is satisfied by a pushed
-    # branch. The guard belongs on the path direct entry actually takes: the landing floors, the
-    # close-out that sets `gating` on a skipped Step 6, and the teardown itself.
-    It 'the landing gate, close-out and teardown each refuse a worker with an unanswered entry' {
-        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two: approve the landing') `
-            -Where 'the landing gate floors' `
-            -Phrase ('**Never land a worker holding an unanswered entry under `## Waiting on a ' +
-                     'decision`.**')
-        # And it reads the report there rather than assuming the Step 6 read happened.
-        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two: approve the landing') `
-            -Where 'the landing gate floors' `
-            -Phrase ('Read its `report.md` here rather than assuming Step 6 ran: Step 0 sends ' +
-                     '"land / merge / ship a worker" straight to this step, so on this path it ' +
-                     'has not.')
-        Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
-            -Phrase ('**It does mean the one check Step 6 owns has not run, so run it here: a ' +
-                     'worker whose `report.md` holds anything unanswered under `## Waiting on a ' +
-                     'decision` is mid-run - unanswered by Step 6''s rule and never a reading of ' +
-                     'your own.**')
-        Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
-            -Phrase ('**A worker holding an unanswered entry under `## Waiting on a decision` is ' +
-                     'never torn down either, and a confirmed push does not release that.**')
-        Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
-            -Phrase ('Teardown ends the live process, and that process is what the answer is ' +
-                     'coming back to')
-        # And the prescribed check is scoped to that one section, like the rule above it. A report
-        # carries `###` headings for other things - the per-round records the brief asks for - and
-        # an unscoped read refuses teardown on a delivered worker over one of those, then Step 6
-        # finds nothing waiting and sends it straight back.
-        Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
-            -Phrase ('Read what is **inside `## Waiting on a decision`** before you stop ' +
-                     'anything, and where anything there is unanswered take it to Step 6 instead.')
-        Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
-            -Phrase ('Only that section counts, though: a report carries `###` headings for ' +
-                     'other things, the per-round records the `Repeated findings` instruction ' +
-                     'asks for among them')
-        # All three guards defer to the one rule in a line rather than restating a form of it -
-        # restating is exactly what let them drift into three different readings of unanswered.
-        Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
-            -Phrase ('**Unanswered is Step 6''s rule and never a reading of your own** - this is ' +
-                     'the one place where reading a malformed section as a pass cannot be taken ' +
-                     'back.')
-        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two: approve the landing') `
-            -Where 'the landing gate floors' `
-            -Phrase ('**Unanswered is Step 6''s rule and never a reading of your own**, and Step ' +
-                     '6 owns what to do with the worker too.')
-        Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
-            -Phrase 'unanswered by Step 6''s rule and never a reading of your own'
+            -Phrase ('Do not register that answer afterwards to make the record tidy: filing it ' +
+                     'durably asserts that somebody with the authority gave it.')
     }
 
     # Teardown is the irreversible one. It ends the process holding the parked run, so the answer
@@ -6360,49 +6137,58 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase 'Teardown ends the process holding that parked run, and the answer then has nowhere to go.'
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase 'With all three confirmed and no decision waiting, **set its stage to `gating`**'
+            -Phrase 'With all three confirmed and `waiting_on` null, **set its stage to `gating`**'
     }
 
-    # The reading half of the same transition. Keyed on the heading alone, every worker the Hand
-    # ever answered stays a waiting worker for good and never reaches the landing gate.
-    It 'Step 6 reads a section that records an answer as a delivery, not a waiting worker' {
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase '**A section that records an answer is not a waiting worker.**'
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('a section saying what was decided is a worker that has already been ' +
-                     'answered and carried on, and it reaches the landing gate like any other ' +
-                     'delivery')
-        $script:RouteStep6.Contains('treat a report carrying that heading as a worker mid-run') |
-            Should -BeFalse -Because 'the heading outlives the answer, so it cannot be the whole test'
-    }
-
-    It 'Step 6 loads petition before answering and registers the decision under decree' {
+    It 'Step 6 loads petition before answering and leaves the hold to decree' {
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('**Load `petition` before answering it - whatever the posture, and whether or ' +
                      'not the King is at the machine.**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase 'it is the only place that test is stated'
+        # One owner for the hold, cross-referenced rather than restated - which is what let the two
+        # drift into contradicting each other twice in the previous run.
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**`decree` owns the hold from its reason to its closing note, and nothing ' +
+                     'here restates any of it.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('what an open hold with no note means and how its reason tells the two causes ' +
+                     'apart, what the closing note has to carry, and that the dependent work is ' +
+                     'blocked before the hold closes')
         # Either way, and that word is the fix: petition scoped this to the wait branch, so a
         # finding the Hand answered in the King's stead was registered nowhere and the only record
         # of it was a return digest that dies with the session.
-        # Under the entry's own slug, which is what makes the per-key cross-check readable at all.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**Register the decision under `decree` in the same turn you read the ' +
-                     "report, whichever way it goes, under that entry's own key**")
+            -Phrase ('Both branches are registered there - an answer he still owes and an answer ' +
+                     'you gave in his stead - because neither survives this session in chat or in ' +
+                     'a return digest.')
+    }
+
+    # The interruption window has an order, and the order picks what a later session finds. Send
+    # first and an interruption leaves an open hold the worker already acted on, which puts the same
+    # question to the King twice - the cost decree exists to prevent.
+    It 'Step 6 records and closes the decision before the steer is sent' {
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('an answer he still owes and an answer you gave in his stead both survive ' +
-                     'this session ending that way, and neither one does in chat or in a return ' +
-                     'digest')
+            -Phrase ('**Where you are answering it, the block and the closing note go in before ' +
+                     'the send, not after.**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('`decree` owns what its note has to carry, and how that key is composed, and ' +
-                     'is the only place either is written.')
+            -Phrase ('Close first and it finds a closed hold the worker has not been told about, ' +
+                     'which sends the answer on once. Send first and it finds an open hold the ' +
+                     'worker has already acted on, which puts the same question to the King a ' +
+                     'second time.')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase '`decree` owns the sequence itself, block before close.'
+        # decree's own sequence says the same thing without restating the reasoning.
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree operating sequence' `
+            -Phrase ('Where that answer is going back to a parked worker, this close comes before ' +
+                     'the steer is sent; `muster` Step 6 owns that route and why the order matters.')
     }
 
     # The answer travels by the steer that already exists. Asserted as runnable text rather than as
     # prose about a steer: this is the one command the route depends on, and a described command is
     # one nobody has run.
     It 'Step 6 carries a runnable steer, not a description of one' {
-        $fence = @(Get-CodeFence $script:MusterMd |
+        $fence = @($script:RouteFences |
             Where-Object { $_.Contains('Send-HerdrPrompt -Name "<worker id>" -Text "<the decision, and the reason for it>"') })
         $fence.Count | Should -Be 1 -Because 'the answer goes back by one steer, stated once'
         $fence[0].Contains('Read-HerdrAgent -Name "<worker id>" -Lines 20') |
@@ -6439,9 +6225,6 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('Step 4''s `Never arm the wait immediately after submitting a prompt without ' +
                      'accounting for stale state` bullet owns why')
-        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('you re-read a `## Waiting on a decision` section the worker has not had ' +
-                     'time to rewrite and steer the same answer in twice')
         # `Wait-HerdrAgent` returns $null for a timeout and for a herdr error alike, and the module
         # names that ambiguity itself. So the null cannot be reported as a lost answer: a server
         # that stopped answering while the worker took the steer looks identical, and every
@@ -6455,6 +6238,90 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('Read the screen and check what the worker is actually doing, and load ' +
                      '`rally` where the screen cannot tell you')
+    }
+
+    # The pointer and the worker are two things, and no ordering of the two writes leaves nothing
+    # behind - it is a commit across a process boundary. So the order is chosen for which break can
+    # be recovered from, and the recovery is one sentence rather than a table of the states it could
+    # be in.
+    It 'Step 6 clears the pointer last, and says what a break in that order leaves' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase '**Clear the pointer once the worker is confirmed working on the answer, and never before:**'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase '**No order here leaves nothing behind, so this one is chosen for which break is recoverable.**'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('Clear it first and the same interruption says the work was delivered when ' +
+                     'the worker never got the answer at all - and the landing gate and the ' +
+                     'teardown both wave it through, which is the one mistake here that cannot be ' +
+                     'taken back.')
+        # The recovery, and it delegates the one judgement to the skill that already owns "what is
+        # this worker actually doing" rather than growing a rule of its own.
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('So when you find a pointer naming a hold that is already closed: take the ' +
+                     'worker''s condition from `rally`, send that note''s answer once where it ' +
+                     'never landed, and clear the pointer once it has.')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('Do not decide it again - it is answered, and a worker told to decide the ' +
+                     'same thing twice does the work twice.')
+    }
+
+    # Without this the step reads straight on into `gating` over a worker that resumed seconds ago:
+    # the three facts were confirmed before the steer, and the pointer has just been cleared - so
+    # nothing downstream catches it, and a `+yolo` project diffs and lands a worktree still being
+    # written to.
+    It 'Step 6 ends the pass at the re-armed wait rather than reading on into gating' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**This pass ends at that re-armed wait, and nothing below it runs on this ' +
+                     'one.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('the next wake re-enters this step from the top against the state as it is ' +
+                     'then')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('on a `+yolo` project Step 7 would then diff and land a worktree that is ' +
+                     'still being written to')
+        # And the stage was never moved, so there is nothing to restore - which is the whole reason
+        # waiting is a pointer rather than a seventh stage.
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase 'The stage stays exactly where it is - waiting was never a stage, so there is nothing to put back'
+    }
+
+    # Step 6 was the only place that protected a parked worker, and Step 0 routes "land / merge /
+    # ship a worker" straight to Step 7 - so a parked worker could reach the landing gate, close-out
+    # and teardown without Step 6 ever running, and Step 8b's own floor is satisfied by a pushed
+    # branch. All three read the pointer now, which is the one thing here that cannot be malformed.
+    It 'the landing gate, close-out and teardown each refuse a worker whose pointer is set' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two: approve the landing') `
+            -Where 'the landing gate floors' `
+            -Phrase '**Never land a worker whose `waiting_on` is set.**'
+        # The one honest limit of a pointer: it is written by a Hand reading a report, so it is only
+        # as current as the last such read - and direct entry skips that read entirely.
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two: approve the landing') `
+            -Where 'the landing gate floors' `
+            -Phrase ('**The pointer is only as current as the last time somebody read that ' +
+                     'worker''s report**, and Step 0 sends "land / merge / ship a worker" straight ' +
+                     'to this step - so where Step 6 has not run since the worker last settled, ' +
+                     'take it there first rather than reading a null as a delivery.')
+        Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
+            -Phrase ('**It does mean the one check Step 6 owns has not run, so run it here: a ' +
+                     'worker whose `waiting_on` is set is mid-run, and so is one whose report ' +
+                     'names a decision nobody has registered yet.**')
+        Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
+            -Phrase ('**A worker whose `waiting_on` is set is never torn down either, and a ' +
+                     'confirmed push does not release that.**')
+        Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
+            -Phrase ('Teardown ends the live process, and that process is what the answer is ' +
+                     'coming back to')
+        # And the teardown is told to read the field and nothing else. Left free to re-read the
+        # report it would rebuild a second, weaker reading of the same state - which is exactly how
+        # three guards ended up with three different ideas of what unanswered meant.
+        Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
+            -Phrase '**Read the field and nothing else.**'
+        Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
+            -Phrase ('the field is the only thing here that cannot be malformed - which is exactly ' +
+                     'why the route stopped keeping this state in the worker''s own prose')
+        Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
+            -Phrase ('Do not go looking through `report.md` for a heading, a marker or a question ' +
+                     'that reads as unanswered')
     }
 
     It 'decree stops describing the worker as stopped, and routes the answer back into its own item' {
@@ -6482,23 +6349,51 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase 'the block is still what records that the answer authorised the work'
     }
 
-    # decree owns the key, so it is where the composition belongs - and it has to be a composition
-    # rather than a judgement. "Adopt the slug, and prefix it with the work id where two workers
-    # could collide" left a note filed as `T-1001-shorter-hero-copy` invisible to a read-back keyed
-    # on `shorter-hero-copy`, which sends muster Step 6 down the no-note row: re-steering a decision
-    # already applied and filing it a second time. One composition, applied every time, is what
-    # makes the lookup a lookup.
-    It 'decree composes the parked decision key the same way every time' {
+    # decree used to have to make the key reconstructible from report prose, because reading it back
+    # was the only way a later session could find the hold. The pointer is that lookup now, so the
+    # composition rule collapses back to the general one - and the ownership split is stated in both
+    # files in a line each rather than restated in either.
+    It 'decree looks the parked decision key up rather than re-deriving it' {
         Assert-Phrase -Text $script:RouteHold -Where 'decree' `
-            -Phrase ('**Where the decision came from a worker parked under `## Waiting on a ' +
-                     'decision`, the key is `<work-id>-<the entry''s own `###` slug>`, composed ' +
-                     'that way every time.**')
+            -Phrase ('**Where the decision came from a parked worker, the key does not have to be ' +
+                     're-derivable, because nothing re-derives it.**')
         Assert-Phrase -Text $script:RouteHold -Where 'decree' `
-            -Phrase ('any session can construct the lookup string from what it is reading rather ' +
-                     'than guessing what an earlier session chose')
+            -Phrase ('`muster` Step 6 writes the key you registered onto that worker''s own record ' +
+                     'the same turn it registers the decision, so a later session looks the key up ' +
+                     'rather than reconstructing it from what a worker happened to write.')
         Assert-Phrase -Text $script:RouteHold -Where 'decree' `
-            -Phrase ('Never derive a second identifier beside that one, and never leave the work ' +
-                     'id off: a key that is prefixed only sometimes is not a lookup.')
+            -Phrase '`muster` owns it and this skill owns the key itself'
+        # The key still stands on its own in the queue: the pointer is cleared when the answer
+        # lands and the worker is eventually torn down, while the closed hold outlives both.
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ('Prefix the key with the work id all the same - a decision that outlives the ' +
+                     'worker still has to be findable in the queue on its own.')
+    }
+
+    # The open-hold ambiguity is decree's, not muster's: both causes are `--kind captain` and
+    # neither carries a note, so the reason is the only thing that can say which. What changed is
+    # who acts on it - petition owns both branches, and muster no longer carries a table of them.
+    It 'decree keeps the reason that tells the two open holds apart, and petition acts on it' {
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase '**The reason says which of the two open holds this is, and that is not optional.**'
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ('he genuinely has the question, or the Hand was answering it in his stead ' +
+                     'and the pass ended before the note went in')
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ('the reason states it in words: that the question is with him and what he ' +
+                     'has to choose, or that you are answering it in his stead under ' +
+                     '`petition`''s test and which way')
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ('The reason is what a later session reads to tell them apart, and `petition` ' +
+                     'owns what each one does next: a question that is genuinely with him waits, ' +
+                     'and an interrupted stead pass is re-entered on that skill''s test and ' +
+                     'finished.')
+        # And the repair for a reason that says neither, on a field and a verb that already exist.
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree lifecycle table' `
+            -Phrase '| repair a reason that does not say which of the two open holds it is |'
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree lifecycle table' `
+            -Phrase ('`hold` is idempotent under the same key, so this rewrites the reason ' +
+                     'without opening a second hold or moving anything else')
     }
 
     # The durable home for a decision made in the King's stead. petition requires three things
@@ -6535,6 +6430,34 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase ('`petition` owns which decisions those are and what a recorded position is')
         $script:RouteHold.Contains('reversible in minutes') |
             Should -BeFalse -Because 'the reversibility test is stated once, in petition'
+    }
+
+    # CLAUDE.md is always loaded, so its two inventory lines are what a Hand believes crew.json and
+    # Crew.psm1 hold before reading either. Both listed a shape this change made incomplete, and an
+    # incomplete inventory in the always-loaded file is how a field goes unused - which is the same
+    # failure as not having added it. Corrected in place: no new rule, no net new line, and the
+    # pointer's own contract still stated only in muster.
+    It 'CLAUDE.md names the pointer where it inventories crew.json, and nowhere else' {
+        $hand = Get-DocText $script:HandMd
+        Assert-Phrase -Text $hand -Where 'the ownership list' `
+            -Phrase 'worker id to ticket, repo, stage, and which decision it waits on'
+        Assert-Phrase -Text $hand -Where 'the tooling table' `
+            -Phrase 'point a worker at the decision it waits on'
+        $hand.Contains('waiting_on') |
+            Should -BeFalse -Because 'the field name and its rules belong to muster and Crew.psm1, not to the always-loaded file'
+    }
+
+    # The replacement is only finished if nothing anywhere still reads the old marker. A skill left
+    # matching on a heading no worker writes is a guard that passes on every worker, forever.
+    It 'no skill and no always-loaded file still reads the old heading' {
+        $files = @(
+            $script:MusterMd, $script:HoldMd, $script:AskUserMd, $script:StuckMd, $script:HandMd,
+            (Join-Path $script:Root '.claude\skills\regency\SKILL.md')
+        )
+        foreach ($f in $files) {
+            (Get-Content -Path $f -Raw).Contains('## Waiting on a decision') |
+                Should -BeFalse -Because "$f must not read a marker no worker is asked to write"
+        }
     }
 }
 
@@ -6596,8 +6519,8 @@ Describe "the reversibility test owns what may be answered in the King's stead" 
             -Phrase ('**Its test governs any decision a parked worker has left you, however the ' +
                      'worker reached it.**')
         Assert-Phrase -Text $script:Away -Where 'petition' `
-            -Phrase ('a worker on any posture writes `## Waiting on a decision` into its ' +
-                     '`report.md` for any decision its brief did not settle, and while he is away ' +
+            -Phrase ('a worker on any posture writes the question into its `report.md` and ends ' +
+                     'its turn for any decision its brief did not settle, and while he is away ' +
                      'that decision is answered on the test below or it is answered nowhere')
         # What stays gate-only is the ask-user finding and the escalation written for it - not the
         # analysis, which the present-King paragraph applies to a parked decision on any posture.

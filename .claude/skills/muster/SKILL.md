@@ -441,20 +441,16 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   any kind. You are a background agent with nobody attached: there is no one to answer, and the
   run hangs until it is killed.
 - When you reach a decision your brief does not settle, write the question into
-  `$env:KINGSHAND_HOME\data\<id>\report.md` under the heading `## Waiting on a decision` - the
-  question, the options you can see, and what you would need in order to choose - then say so in
-  your final message and end your turn. That heading is what tells the Hand you are waiting rather
-  than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
-  comes back to you as an ordinary prompt and you carry on from there, so leave everything where
-  it is: do not undo what you have done, do not pick a different task, and do not report the work
-  as failed. **Each decision is its own `###` sub-heading under that section, named with a short
-  slug for the decision - `### shorter-hero-copy` - and written exactly, for the same reason the
-  section heading is.** That slug is the one string naming this decision in your report and in the
-  Hand's own records, so keep it as you first wrote it. The question goes under it, and when the
-  answer reaches you, write the decision under that same slug on a line starting `Answer:` and
-  leave the sub-heading alone. A new question is always a new sub-heading appended last, never
-  folded into one already answered - park twice and the section holds two, the decision you were
-  given still readable above the one nobody has answered yet.
+  `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
+  would need in order to choose - then say so in your final message and end your turn. **Write it
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
+  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
+  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  The answer comes back to you as an ordinary prompt and you carry on from there, so leave
+  everything where it is: do not undo what you have done, do not pick a different task, and do not
+  report the work as failed. When the answer reaches you, write down what was decided and what you
+  did with it in that same file, and carry on. A second question later is just another question,
+  written the same way.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping.
 - Never mention Claude, AI, or an assistant in any commit message or file.
@@ -480,20 +476,16 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   any kind. You are a background agent with nobody attached: there is no one to answer, and the
   run hangs until it is killed.
 - When you reach a decision your brief does not settle, write the question into
-  `$env:KINGSHAND_HOME\data\<id>\report.md` under the heading `## Waiting on a decision` - the
-  question, the options you can see, and what you would need in order to choose - then say so in
-  your final message and end your turn. That heading is what tells the Hand you are waiting rather
-  than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
-  comes back to you as an ordinary prompt and you carry on from there, so leave everything where
-  it is: do not undo what you have done, do not pick a different task, and do not report the work
-  as failed. **Each decision is its own `###` sub-heading under that section, named with a short
-  slug for the decision - `### shorter-hero-copy` - and written exactly, for the same reason the
-  section heading is.** That slug is the one string naming this decision in your report and in the
-  Hand's own records, so keep it as you first wrote it. The question goes under it, and when the
-  answer reaches you, write the decision under that same slug on a line starting `Answer:` and
-  leave the sub-heading alone. A new question is always a new sub-heading appended last, never
-  folded into one already answered - park twice and the section holds two, the decision you were
-  given still readable above the one nobody has answered yet.
+  `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
+  would need in order to choose - then say so in your final message and end your turn. **Write it
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
+  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
+  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  The answer comes back to you as an ordinary prompt and you carry on from there, so leave
+  everything where it is: do not undo what you have done, do not pick a different task, and do not
+  report the work as failed. When the answer reaches you, write down what was decided and what you
+  did with it in that same file, and carry on. A second question later is just another question,
+  written the same way.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping.
 - Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
@@ -534,25 +526,21 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   any kind. You are a background agent with nobody attached: there is no one to answer, and the
   run hangs until it is killed.
 - When you reach a decision your brief does not settle, write the question into
-  `$env:KINGSHAND_HOME\data\<id>\report.md` under the heading `## Waiting on a decision` - the
-  question, the options you can see, and what you would need in order to choose - then say so in
-  your final message and end your turn. That heading is what tells the Hand you are waiting rather
-  than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
-  comes back to you as an ordinary prompt and you carry on from there, so leave everything where
-  it is: do not undo what you have done, do not pick a different task, and do not report the work
-  as failed. **Each decision is its own `###` sub-heading under that section, named with a short
-  slug for the decision - `### shorter-hero-copy` - and written exactly, for the same reason the
-  section heading is.** That slug is the one string naming this decision in your report and in the
-  Hand's own records, so keep it as you first wrote it. The question goes under it, and when the
-  answer reaches you, write the decision under that same slug on a line starting `Answer:` and
-  leave the sub-heading alone. A new question is always a new sub-heading appended last, never
-  folded into one already answered - park twice and the section holds two, the decision you were
-  given still readable above the one nobody has answered yet.
+  `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
+  would need in order to choose - then say so in your final message and end your turn. **Write it
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
+  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
+  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  The answer comes back to you as an ordinary prompt and you carry on from there, so leave
+  everything where it is: do not undo what you have done, do not pick a different task, and do not
+  report the work as failed. When the answer reaches you, write down what was decided and what you
+  did with it in that same file, and carry on. A second question later is just another question,
+  written the same way.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping. **A finding the gate classified `ask-user` is
   never one of those.** Stating an assumption over one and carrying on is you answering your own
-  ask-user finding, which is the one thing you may not do - park it under the heading above and
-  wait, however obvious the answer looks from here.
+  ask-user finding, which is the one thing you may not do - write it down as the bullet above says
+  and wait, however obvious the answer looks from here.
 - Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
 - If the repo cannot build or the gate cannot run, stop and say so plainly in your final
   message rather than reporting success.
@@ -597,25 +585,21 @@ that has gone stale points a Hand at the gate-run bullet instead:
   any kind. You are a background agent with nobody attached: there is no one to answer, and the
   run hangs until it is killed.
 - When you reach a decision your brief does not settle, write the question into
-  `$env:KINGSHAND_HOME\data\<id>\report.md` under the heading `## Waiting on a decision` - the
-  question, the options you can see, and what you would need in order to choose - then say so in
-  your final message and end your turn. That heading is what tells the Hand you are waiting rather
-  than finished, so write it exactly. **Ending your turn is not the end of your work.** The answer
-  comes back to you as an ordinary prompt and you carry on from there, so leave everything where
-  it is: do not undo what you have done, do not pick a different task, and do not report the work
-  as failed. **Each decision is its own `###` sub-heading under that section, named with a short
-  slug for the decision - `### shorter-hero-copy` - and written exactly, for the same reason the
-  section heading is.** That slug is the one string naming this decision in your report and in the
-  Hand's own records, so keep it as you first wrote it. The question goes under it, and when the
-  answer reaches you, write the decision under that same slug on a line starting `Answer:` and
-  leave the sub-heading alone. A new question is always a new sub-heading appended last, never
-  folded into one already answered - park twice and the section holds two, the decision you were
-  given still readable above the one nobody has answered yet.
+  `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
+  would need in order to choose - then say so in your final message and end your turn. **Write it
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
+  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
+  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  The answer comes back to you as an ordinary prompt and you carry on from there, so leave
+  everything where it is: do not undo what you have done, do not pick a different task, and do not
+  report the work as failed. When the answer reaches you, write down what was decided and what you
+  did with it in that same file, and carry on. A second question later is just another question,
+  written the same way.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping. **A finding the gate classified `ask-user` is
   never one of those.** Stating an assumption over one and carrying on is you answering your own
-  ask-user finding, which is the one thing you may not do - park it under the heading above and
-  wait, however obvious the answer looks from here.
+  ask-user finding, which is the one thing you may not do - write it down as the bullet above says
+  and wait, however obvious the answer looks from here.
 - Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
 - If the repo cannot build or the gate cannot run, stop and say so plainly in your final
   message rather than reporting success.
@@ -1056,97 +1040,71 @@ prompt box when a turn ends, so a worker that has said everything it is going to
 - exactly like a worker that has just started and been given nothing, and exactly like one holding
 a menu open that herdr failed to classify. Read the three facts above, never the word on its own.
 
-**A worker waiting on a decision passes all three and is not finished either, and only the report
-tells you which you have.** Its turn ended cleanly, so it has settled; nothing is drawn on its
-screen, so it is not awaiting input; and its brief made it write the file, so the report exists.
-What separates it from a delivery is inside that file: a `## Waiting on a decision` section the
-brief made it write, and nothing has answered. So read the report before you act on the three
-facts rather than after, and treat a question still standing under that heading as a worker
-mid-run.
+**A worker parked on a decision passes all three and is not finished either.** Its turn ended
+cleanly, so it has settled; nothing is drawn on its screen, so it is not awaiting input; and its
+brief made it write the file, so the report exists. What separates it from a delivery is not in
+that file at all - **it is `waiting_on` on the worker's own record:**
 
-**Read every `###` entry under that heading, and key on whether any one of them is unanswered.**
-The brief gives each decision its own `###` slug and appends each new question last, so a worker
-that parked, was answered and parked again has an answered entry sitting above a question nobody
-has answered. An entry is answered when it carries an `Answer:` line under its slug, and not when
-the prose around it reads like a conclusion. **One unanswered entry means a worker mid-run**,
-whatever else that section records.
+```powershell
+$w = Get-CrewWorker -State $s -WorkerId "<id>"
+$w.waiting_on          # the key of the hold carrying its decision, or $null
+```
 
-**Anything under that heading that is not a well-formed entry carrying its own answer is
-unanswered.** A heading with nothing under it, prose with no slug, a slug with no `Answer:` line -
-all of it, and the rule is written that way on purpose: it needs no list of malformed shapes, so
-it cannot acquire a new hole the next time a worker deviates in a way nobody thought of. Establish
-the cause before anything irreversible, and read it as unanswered until you have. **This is the
-one place that says what unanswered means, and it governs every path that reads those entries** -
-this step's read, the landing floor, the close-out check, the teardown, and whatever is added
-later, none of which carries its own version. A rule that passed vacuously on a malformed report
-would be worth nothing at the one point that cannot be taken back.
+**The field is set or it is not, and there is no third value.** Set, this worker has a decision
+outstanding and the field names the hold carrying it. Null, it has not. `Import-CrewState` gives
+every record the field whether or not it was saved with one, so absent and null are one case
+rather than two. Nothing here reads more into it than that: it says which decision, never how that
+decision is going. `decree` owns the hold and `petition` owns who may answer it.
 
-**A section that records an answer is not a waiting worker.** Where it holds at least one entry
-and every one of them carries its own answer, the heading has outlived the answers and the entries
-underneath are what you are reading
-for: a section saying what was decided is a worker that has already been answered and carried on,
-and it reaches the landing gate like any other delivery. Read the heading alone and every worker
-you have ever answered reads as waiting forever; read the first entry alone and a second decision
-nobody answered goes to the landing gate instead, where approval tears the worker down and takes
-the parked run with it.
+**This replaced a heading the Hand used to read out of `report.md`, and the replacement was
+deliberate.** The route's state was written as prose over a free-text file, so every review round
+turned up one more shape nobody had listed - an empty section, a worker parked twice, an answer
+with no record - and the rules for reading it ended up longer than the route itself. A field has no
+shapes. The report still carries the question and the reasoning, which is what prose is good for;
+it stopped being where the system reads whether.
 
-**Before you touch any entry, read back what `decree` holds under `<work-id>-<that entry's
-slug>`.** The entry is text a worker writes, so it can fail that instruction exactly as it can fail
-the one about writing a report at all - and an entry showing only a question can mean any of
-several opposite things. What tells them apart is a durable pair, read one key at a time rather
-than once per worker: the entry under that slug in the report, and what the queue holds under that
-key. `decree` owns how the key is composed, and reading it per key is what keeps a worker parked
-twice straight - one key settled and one key nobody has answered is a worker waiting on its second
-question, not a stuck one.
+**Where the field is null and the report names a decision the worker's brief did not settle, that
+is `decree`'s trigger and nobody has pulled it yet.** Register the decision there, and record the
+key it was registered under in the same turn:
 
-**Every combination has an outcome, and none of them is left to judgement:**
+```powershell
+Set-CrewWaitingOn -State $s -WorkerId "<id>" -HoldKey "<the key decree registered it under>"
+Save-CrewState -State $s -Path $env:KINGSHAND_HOME\state\crew.json
+```
 
-| under that key | that entry | what it is, and what you do |
-|---|---|---|
-| nothing at all | unanswered | Nobody has seen this decision yet. Load `petition`, register it, and then steer it or escalate it as that leaves it. |
-| nothing at all | answered | **The one row that stops.** An answer with no record has two causes and you cannot tell them apart from here: the record was never written, or the worker answered its own question - which its brief forbids outright. Establish which before you do anything, and register nothing until you have. Where a session, a closed note or a recorded position accounts for that answer, the record was merely missing and you write it. Where nothing does, the worker answered itself: load `rally`, and read everything else it claims with the same suspicion a missing report earns. |
-| an open hold, no note, reason says the question is his | unanswered | He already has this question and nobody has answered it. It waits: carry it into the digest and never re-escalate it. Do not decide it, do not ask him again, and do not steer. |
-| an open hold, no note, reason says the question is his | answered | The queue says he has not answered and the report says something was applied. Neither one tells you which, so the hold stays open until he answers it himself - put that entry's answer to him, and land nothing on this work meanwhile. |
-| an open hold, no note, reason says you are answering it in his stead | unanswered | A stead pass was interrupted before its note went in. He was never asked, so nothing here is waiting on him: re-enter `petition`'s test on that decision, finish the pass, and close it. Never carry it into the digest as a question he owes - freezing it here is the parked-until-morning failure this route exists to end. |
-| an open hold, no note, reason says you are answering it in his stead | answered | The same pass, interrupted after the steer landed. Confirm the answer in that entry is the decision the reason records, then close the note on it and carry on. Where it is not that decision, the `nothing at all / answered` row above governs instead. |
-| any other open hold, no note - a reason that does not plainly say which of the two it is | either | **The default, and it catches everything the two rows above do not.** The cause is not established, so nothing moves on it: do not steer, do not close it, do not re-escalate it, and land nothing on this work. Repair the reason through `decree`, which owns what it has to say, and take the row it then matches. |
-| a closed hold, no note | either | No durable answer exists, so nothing here may infer what it was - not from the entry, and not from what looks likely. Repair it through `decree`, which owns that, and do not steer until it is repaired. |
-| a closed hold, `answered:` or `declined:` | unanswered | The decision has an answer this worker has not recorded. Load `rally` for the worker's condition - whether the steer ever landed and whether it can take one now - then send that closed note's answer with the block below, once. The route back is this step's, so no second block and no second note are filed: the decision is closed already. Do not decide it again and do not re-send it blind, because a worker told to decide the same thing twice does the work twice. |
-| a closed hold, `answered:` or `declined:` | answered | Settled. Nothing to steer, and this entry is no reason to hold the work back. |
+**That read of the report happens once, on the turn the worker parks, and it is a person reading a
+question rather than a check parsing a file.** From there the pointer carries the state, so a
+restart, a compaction or a session that dispatched nothing reads a value instead of re-deriving one
+from prose.
 
-**The table is total by construction rather than by enumeration, and that is the point.** An open
-hold that says which of the two it is takes one of the four rows for that; every other open hold
-takes the default, so a reason nobody anticipated is safe rather than unmatched. `decree` still
-requires a stead-pass reason to say so - the default is what covers the reason that does not, not
-a licence to leave it out. On the closed side there are only three ways `decree` closes a hold:
-`answered:`, `declined:`, or - as the fault it carries a repair for - with no note at all. **Do
-not turn the default back into another listed case.** Each of the last three rounds found one more
-state nobody had listed, and a list that has to be complete is the defect; a default cannot be
-incomplete.
+**A worker that carried on past a decision its brief did not settle, with no hold ever registered
+for it, answered its own question - and its brief forbids that outright.** Load `rally`, and read
+everything else it claims with the same suspicion a missing report earns. Do not register that
+answer afterwards to make the record tidy: filing it durably asserts that somebody with the
+authority gave it.
 
-**Nothing in that table turns on whether you watched `working` arrive.** That lived in the session
-that saw it, and the next session has no way to know it - which is exactly the restart this route
-exists to survive. Both axes are on disk or in the queue for that reason.
-
-Such a worker is idle rather than hung and costs nothing where it is - the review-gate run it left
-parked keeps the branch and every fix commit already made. **Do not set `gating`, do not close the
+**A worker with that pointer set is idle rather than hung**, and costs nothing where it is - the
+review-gate run it left parked keeps the branch and every fix commit already made. **Do not set `gating`, do not close the
 backlog item, and above all do not tear it down.** Teardown ends the process holding that parked
 run, and the answer then has nowhere to go.
 
 **Load `petition` before answering it - whatever the posture, and whether or not the King is at
 the machine.** It owns who may decide this and by what test, including the test that applies when
-he is away, and it is the only place that test is stated. **Register the decision under `decree` in
-the same turn you read the report, whichever way it goes, under that entry's own key** - an answer
-he still owes and an answer you gave in his stead both survive this session ending that way, and
-neither one does in chat or in a return digest. `decree` owns what its note has to carry, and how
-that key is composed, and is the only place either is written.
+he is away, and it is the only place that test is stated.
+
+**`decree` owns the hold from its reason to its closing note, and nothing here restates any of
+it.** Read the hold under the key the pointer names, and take it as that skill describes: what an
+open hold with no note means and how its reason tells the two causes apart, what the closing note
+has to carry, and that the dependent work is blocked before the hold closes. Both branches are
+registered there - an answer he still owes and an answer you gave in his stead - because neither
+survives this session in chat or in a return digest.
 
 **Where you are answering it, the block and the closing note go in before the send, not after.**
 An interruption is not a rare case here - the session can end at any point - and the order decides
-which row above a later session reads. Close first and it finds a closed note against an entry
-nobody has answered, which sends the answer on once. Send first and it finds an open hold against
-an answered entry, which puts the same question to the King a second time. `decree` owns the
-sequence itself, block before close.
+what a later session finds. Close first and it finds a closed hold the worker has not been told
+about, which sends the answer on once. Send first and it finds an open hold the worker has already
+acted on, which puts the same question to the King a second time. `decree` owns the sequence
+itself, block before close.
 
 With the answer in hand and recorded, send it to the worker as one prompt, read the screen back,
 and wait for the worker to actually pick the answer up:
@@ -1169,24 +1127,40 @@ exists to prevent.
 **Arm it after that `-Until 'working'` line and never straight after the send.** Step 4's
 `Never arm the wait immediately after submitting a prompt without accounting for stale state`
 bullet owns why, and this steer is the case it names: the worker still reads `idle` for a moment,
-so a wait armed on the send comes back at once claiming a completion, and you re-read a `## Waiting
-on a decision` section the worker has not had time to rewrite and steer the same answer in twice.
-Naming `working` is the one wait that is allowed to be the raw one, because it is asking for a
-state the worker has to reach rather than trusting herdr's word for one it has stopped in. Where
+so a wait armed on the send comes back at once claiming a completion over a worker that has not
+started on the answer yet. Naming `working` is the one wait that is allowed to be the raw one,
+because it is asking for a state the worker has to reach rather than trusting herdr's word for one
+it has stopped in. Where
 `working` never arrives inside those two minutes, the wait came back `$null` and that is two
 things at once: the answer never landed, or herdr stopped answering while the worker took it
 anyway. **Do not report either one - the null does not say which.** Read the screen and check what
 the worker is actually doing, and load `rally` where the screen cannot tell you, rather than arming
 a wait over a worker that may never have taken the answer.
 
-**This pass ends at that re-armed wait, and nothing below it runs on this one.** The stage stays
-exactly where it is, you go quiet as Step 5 describes, and the next wake re-enters this step from
-the top against the state as it is then. Reading on from here would carry facts gathered before
-the answer was sent into a `gating` the worker has not earned - it started working again seconds
-ago - and on a `+yolo` project Step 7 would then diff and land a worktree that is still being
-written to.
+**Clear the pointer once the worker is confirmed working on the answer, and never before:**
 
-With all three confirmed and no decision waiting, **set its stage to `gating`** - the
+```powershell
+Clear-CrewWaitingOn -State $s -WorkerId "<id>"
+Save-CrewState -State $s -Path $env:KINGSHAND_HOME\state\crew.json
+```
+
+**No order here leaves nothing behind, so this one is chosen for which break is recoverable.**
+Clear it last and an interruption leaves a pointer naming a hold that is already closed, which says
+the answer may not have reached the worker. Clear it first and the same interruption says the work
+was delivered when the worker never got the answer at all - and the landing gate and the teardown
+both wave it through, which is the one mistake here that cannot be taken back. So when you find a
+pointer naming a hold that is already closed: take the worker's condition from `rally`, send that
+note's answer once where it never landed, and clear the pointer once it has. Do not decide it
+again - it is answered, and a worker told to decide the same thing twice does the work twice.
+
+**This pass ends at that re-armed wait, and nothing below it runs on this one.** The stage stays
+exactly where it is - waiting was never a stage, so there is nothing to put back - you go quiet as
+Step 5 describes, and the next wake re-enters this step from the top against the state as it is
+then. Reading on from here would carry facts gathered before the answer was sent into a `gating`
+the worker has not earned - it started working again seconds ago - and on a `+yolo` project Step 7
+would then diff and land a worktree that is still being written to.
+
+With all three confirmed and `waiting_on` null, **set its stage to `gating`** - the
 implementation is done and the work is waiting on the landing gate at Step 7. Say so in chat as an
 update: what finished, that the landing gate is now theirs, and the one next action. Keep it short
 because there is little to say, not because a line count says so:
@@ -1363,11 +1337,11 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
 - Never merge on the forge. `direct-PR` and `no-mistakes` work ends at a pull request the user
   merges.
 - Never push a project that is not registered with a push-capable posture.
-- **Never land a worker holding an unanswered entry under `## Waiting on a decision`.** It is
-  mid-run rather than delivered, whatever its branch shows. **Unanswered is Step 6's rule and
-  never a reading of your own**, and Step 6 owns what to do with the worker too. Read its
-  `report.md` here rather than assuming Step 6 ran: Step 0 sends "land / merge / ship a worker"
-  straight to this step, so on this path it has not.
+- **Never land a worker whose `waiting_on` is set.** It is mid-run rather than delivered, whatever
+  its branch shows, and Step 6 owns what to do with it. **The pointer is only as current as the
+  last time somebody read that worker's report**, and Step 0 sends "land / merge / ship a worker"
+  straight to this step - so where Step 6 has not run since the worker last settled, take it there
+  first rather than reading a null as a delivery.
 
 **Verify the base ref resolves before gathering anything.** This check is not optional and
 nothing below it runs until it passes:
@@ -1560,10 +1534,10 @@ describes.
 "land / merge / ship a worker" straight to Step 7, and Step 6 is the only place `gating` is ever
 set - so a user returning in a fresh session and saying "land T-1001" arrives with the stage never
 advanced. That is the direct-entry path working as designed, not a reason to refuse. **It does
-mean the one check Step 6 owns has not run, so run it here: a worker whose `report.md` holds
-anything unanswered under `## Waiting on a decision` is mid-run - unanswered by Step 6's rule and
-never a reading of your own.** Leave the stage where it is, take it to Step 6, and close nothing
-out - a decision still owed is not a delivery, however good the branch looks. Otherwise set the stage to `gating` and carry on with the
+mean the one check Step 6 owns has not run, so run it here: a worker whose `waiting_on` is set is
+mid-run, and so is one whose report names a decision nobody has registered yet.** Leave the stage
+where it is, take it to Step 6, and close nothing out - a decision still owed is not a delivery,
+however good the branch looks. Otherwise set the stage to `gating` and carry on with the
 rest of this step:
 
 ```powershell
@@ -1641,17 +1615,21 @@ the branch is not on the remote, the worktree is the only copy of the work and r
 destroys it. Confirm one or the other first - teardown removes the worktree, and nothing puts it
 back.
 
-**A worker holding an unanswered entry under `## Waiting on a decision` is never torn down
-either, and a confirmed push does not release that.** Teardown ends the live process, and that
-process is what the answer is coming back to: kill it and the decision it is parked on can never
-be applied, while the gate run it left parked keeps its fix commits somewhere nobody will look
-again. Read what is **inside `## Waiting on a decision`** before you stop anything, and where
-anything there is unanswered take it to Step 6 instead. **Unanswered is Step 6's rule and never a
-reading of your own** - this is the one place where reading a malformed section as a pass cannot
-be taken back. Only that section counts, though: a report carries `###` headings for other things,
-the per-round records the `Repeated findings` instruction asks for among them, and refusing
-teardown over one of those bounces a delivered worker between here and a step that finds nothing
-waiting. This is the same shape as the floor above -
+**A worker whose `waiting_on` is set is never torn down either, and a confirmed push does not
+release that.** Teardown ends the live process, and that process is what the answer is coming back
+to: kill it and the decision it is parked on can never be applied, while the gate run it left
+parked keeps its fix commits somewhere nobody will look again. Read the field before you stop
+anything, and where it names a hold take the worker to Step 6 instead:
+
+```powershell
+(Get-CrewWorker -State $s -WorkerId "<id>").waiting_on
+```
+
+**Read the field and nothing else.** This is the one place where a wrong read cannot be taken
+back, and the field is the only thing here that cannot be malformed - which is exactly why the
+route stopped keeping this state in the worker's own prose. Do not go looking through `report.md`
+for a heading, a marker or a question that reads as unanswered: that read is Step 6's, it happens
+once, and it is what set or did not set this field. This is the same shape as the floor above -
 both refuse an irreversible cleanup over work that is not finished.
 
 **`report.md` survives teardown, and must never be deleted as part of cleanup.** It lives at
