@@ -2,7 +2,8 @@
 # what was seen. So the failure that matters is not a bug in a browser - it is this layer handing
 # back something that reads as a pass when nothing was exercised. Every test below forces one of
 # those: no tools, half the tools, no outcome, an outcome word nobody defined, a pass with no
-# evidence behind it, and no checks at all.
+# evidence behind it, a pass whose evidence is a space, an outcome word with nothing written
+# behind it, and no checks at all.
 
 BeforeAll {
     $script:Root = Split-Path $PSScriptRoot -Parent
@@ -197,6 +198,64 @@ Describe 'every declared check gets an outcome, and a pass has to be earned' {
         $r.items[0].outcome | Should -Be 'not checked'
         $r.items[0].reason  | Should -Match 'no evidence for it'
         $r.verdict          | Should -Be 'not verified'
+    }
+
+    # A space is not evidence. Untrimmed, ' ' is a truthy string in PowerShell, so this came back
+    # verified with an item whose observed line renders as nothing at all.
+    It 'refuses a verified whose observation is only whitespace' {
+        $r = Get-BrowserVerificationRecord -Check @(
+            @{ id = 'C-001'; check = 'one'; outcome = 'verified'; observed = "  `t " }
+        )
+        $r.items[0].outcome  | Should -Be 'not checked'
+        $r.items[0].observed | Should -BeNullOrEmpty
+        $r.items[0].reason   | Should -Match 'no evidence for it'
+        $r.verdict           | Should -Be 'not verified'
+        $r.counts.verified   | Should -Be 0
+    }
+
+    It 'reads a whitespace-only reason as no reason at all' {
+        $r = Get-BrowserVerificationRecord -Check @(
+            @{ id = 'C-001'; check = 'one'; outcome = 'not checked'; reason = '   ' }
+        )
+        $r.items[0].reason | Should -Match 'no reason given'
+    }
+
+    It 'ignores whitespace around an outcome word rather than reading it as a new state' {
+        $r = Get-BrowserVerificationRecord -Check @(
+            @{ id = 'C-001'; check = 'one'; outcome = ' verified '; observed = 'seen' }
+        )
+        $r.items[0].outcome | Should -Be 'verified'
+        $r.verdict          | Should -Be 'verified'
+    }
+
+    # An outcome word on its own says less than a check nobody recorded anything against, which
+    # at least gets told it was never answered.
+    It 'states a reason for a not-checked item that gave none' {
+        $r = Get-BrowserVerificationRecord -Check @(
+            @{ id = 'C-001'; check = 'the export downloads'; outcome = 'not checked' }
+        )
+        $r.items[0].outcome | Should -Be 'not checked'
+        $r.items[0].reason  | Should -Not -BeNullOrEmpty
+        $r.items[0].reason  | Should -Match 'no reason given'
+    }
+
+    It 'states a reason for a failed item with nothing recorded against it' {
+        $r = Get-BrowserVerificationRecord -Check @(
+            @{ id = 'C-001'; check = 'saving a filter'; outcome = 'failed' }
+        )
+        $r.items[0].outcome | Should -Be 'failed'
+        $r.items[0].reason  | Should -Not -BeNullOrEmpty
+        $r.items[0].reason  | Should -Match 'nothing observed'
+        $r.verdict          | Should -Be 'failed'
+    }
+
+    It 'leaves a stated reason alone rather than substituting one' {
+        $r = Get-BrowserVerificationRecord -Check @(
+            @{ id = 'C-001'; check = 'one'; outcome = 'not checked'; reason = 'the login variable was not set' }
+            @{ id = 'C-002'; check = 'two'; outcome = 'failed'; observed = 'a 500 from the API' }
+        )
+        ($r.items | Where-Object { $_.id -eq 'C-001' }).reason | Should -Be 'the login variable was not set'
+        ($r.items | Where-Object { $_.id -eq 'C-002' }).reason | Should -BeNullOrEmpty
     }
 
     It 'keeps a failed check that recorded what was seen instead' {

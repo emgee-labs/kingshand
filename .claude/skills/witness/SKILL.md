@@ -163,7 +163,9 @@ observed instead, **`not checked`** with the reason. A check the brief listed al
 them: **an item that could not be checked is reported, never skipped**, and a run with one of them
 in it is not a pass. The function enforces that rather than trusting it - a missing outcome, an
 outcome word it does not recognise, or a `verified` with nothing observed all come back
-`not checked`, because a pass with no evidence behind it is exactly what this replaces.
+`not checked`, because a pass with no evidence behind it is exactly what this replaces. An
+outcome word with nothing written behind it gets a stated reason saying so, so no item in the
+record is ever a bare word.
 
 Then write it into `report.md` under `## Browser verification`: the summary line first, then one
 short block per item in `$record.items`, in order, none omitted. Nothing reads that back - it is

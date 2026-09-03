@@ -165,7 +165,10 @@ function Get-BrowserCredentialStatus {
 #   - an outcome word outside the three is `not checked` naming the word, so a typo or an
 #     invented state word can never read as `verified`;
 #   - `verified` with nothing observed is `not checked`, because a pass with no evidence behind
-#     it is the assertion this whole capability exists to replace;
+#     it is the assertion this whole capability exists to replace. Whitespace is nothing: every
+#     field is trimmed as it is read, so a space cannot stand in for evidence;
+#   - `failed` or `not checked` with no text behind it carries a stated reason, because an
+#     outcome word alone says less than a check nobody recorded anything against;
 #   - no checks at all is `not verified`, not an empty pass;
 #   - -Unavailable makes every check `not checked` for that reason, whatever was recorded
 #     against it. That is the browser-absent path, and it cannot come back verified.
@@ -189,11 +192,13 @@ function Get-BrowserVerificationRecord {
     foreach ($c in @($Check)) {
         if (-not $c) { continue }
 
-        $id       = if ($c.ContainsKey('id') -and $c.id) { [string]$c.id } else { '' }
-        $what     = if ($c.ContainsKey('check') -and $c.check) { [string]$c.check } else { '' }
-        $observed = if ($c.ContainsKey('observed') -and $c.observed) { [string]$c.observed } else { '' }
-        $given    = if ($c.ContainsKey('outcome') -and $c.outcome) { [string]$c.outcome } else { '' }
-        $stated   = if ($c.ContainsKey('reason') -and $c.reason) { [string]$c.reason } else { '' }
+        # Trimmed at the point of capture, so every truthiness test below sees an empty string
+        # where a field held only whitespace. A space is not evidence and not a reason.
+        $id       = if ($c.ContainsKey('id') -and $c.id) { ([string]$c.id).Trim() } else { '' }
+        $what     = if ($c.ContainsKey('check') -and $c.check) { ([string]$c.check).Trim() } else { '' }
+        $observed = if ($c.ContainsKey('observed') -and $c.observed) { ([string]$c.observed).Trim() } else { '' }
+        $given    = if ($c.ContainsKey('outcome') -and $c.outcome) { ([string]$c.outcome).Trim() } else { '' }
+        $stated   = if ($c.ContainsKey('reason') -and $c.reason) { ([string]$c.reason).Trim() } else { '' }
 
         $outcome = 'not checked'
         $reason  = ''
@@ -207,6 +212,13 @@ function Get-BrowserVerificationRecord {
                        'has no outcome that can be read.')
         } elseif ($given -eq 'verified' -and -not $observed) {
             $reason = 'Recorded verified with nothing observed, so there is no evidence for it.'
+        } elseif ($given -eq 'not checked' -and -not $stated) {
+            $reason = ('Recorded not checked with no reason given, so why it was not checked ' +
+                       'is unknown.')
+        } elseif ($given -eq 'failed' -and -not $stated -and -not $observed) {
+            $outcome = $given
+            $reason  = ('Recorded failed with nothing observed and no reason given, so there is ' +
+                        'no account of what went wrong.')
         } else {
             $outcome = $given
             $reason  = $stated
