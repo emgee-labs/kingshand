@@ -390,14 +390,30 @@ Describe 'Get-HerdrServerState tells a stopped server apart from a status read t
 
         $s = Get-HerdrServerState
         $s.state  | Should -Be 'stopped'
-        $s.detail | Should -Be 'not running'
+        $s.detail | Should -Match 'not running'
     }
 
-    It 'reports unknown rather than stopped when the status call exited non-zero' {
+    It 'believes a readable server.running over a non-zero exit, in both directions' -ForEach @(
+        @{ running = 'false'; word = 'not running'; expected = 'stopped' }
+        @{ running = 'true';  word = 'running';     expected = 'running' }
+    ) {
+        # The exit code herdr uses when its server is down has never been measured - seeing it means
+        # stopping a server that was hosting live workers - so nothing here may rest on it. A reply
+        # that parses and says whether the server is running has already answered the question, and
+        # reading the exit code first would refuse `/update` on the ordinary machine of a user who
+        # has simply never dispatched anything.
+        Set-HerdrScreenFailure -Text "{`"server`":{`"status`":`"$word`",`"running`":$running}}" -ExitCode 1
+
+        $s = Get-HerdrServerState
+        $s.state  | Should -Be $expected -Because 'the parsed field is the evidence, not the exit status'
+        $s.detail | Should -Match 'exited 1' -Because 'a reader still gets to see what herdr exited with'
+    }
+
+    It 'reports unknown when the call exited non-zero AND said nothing readable' {
         Set-HerdrScreenFailure -Text '{"error":{"code":"transport","message":"could not reach the server"}}' -ExitCode 1
 
         $s = Get-HerdrServerState
-        $s.state  | Should -Be 'unknown' -Because 'a call that failed did not establish that the server is down'
+        $s.state  | Should -Be 'unknown' -Because 'nothing in that reply says whether the server is running'
         $s.detail | Should -Match 'exited 1'
     }
 
@@ -406,15 +422,30 @@ Describe 'Get-HerdrServerState tells a stopped server apart from a status read t
 
         $s = Get-HerdrServerState
         $s.state  | Should -Be 'unknown'
-        $s.detail | Should -Match 'did not answer with a server object'
+        $s.detail | Should -Match 'did not parse as JSON'
     }
 
-    It 'reports unknown when the reply carries no server.running, which is a shape that moved' {
+    It 'reports unknown when server.running is not a boolean, which is a shape that moved' {
+        Set-HerdrScreen '{"server":{"status":"running","running":"yes"}}'
+
+        $s = Get-HerdrServerState
+        $s.state | Should -Be 'unknown' -Because 'a non-empty string is truthy, so guessing here would invent a running server'
+    }
+
+    It 'reports unknown when the reply carries no server.running at all, renamed by an upgrade' {
         Set-HerdrScreen '{"server":{"protocol":21},"update":{}}'
 
         $s = Get-HerdrServerState
         $s.state  | Should -Be 'unknown' -Because 'a herdr upgrade that renames the field must not read as stopped'
         $s.detail | Should -Match 'whether the server is running'
+    }
+
+    It 'reports unknown when the reply carries no server object' {
+        Set-HerdrScreen '{"client":{"protocol":20},"update":{}}'
+
+        $s = Get-HerdrServerState
+        $s.state  | Should -Be 'unknown'
+        $s.detail | Should -Match 'without a server object'
     }
 
     It 'reports unknown when the status call printed nothing' {

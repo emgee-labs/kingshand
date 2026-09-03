@@ -128,21 +128,34 @@ function Test-HerdrServer {
 # Whether the herdr server is up, as three answers rather than two:
 #
 #   .state   running | stopped | unknown
-#   .detail  what made it unknown, or the status word behind a stopped, empty when running
+#   .detail  what herdr said, or what stopped it being readable - always populated
 #
 # THE THIRD ANSWER IS THE WHOLE REASON THIS EXISTS. `Test-HerdrServer` above answers a boolean, so
-# a status read that failed - a non-zero exit, no output, a reply that does not parse, a shape that
-# changed under a herdr upgrade - is indistinguishable from a server that is genuinely down. A
-# caller that refuses an action needs those apart, because "could not tell" read as "nothing is
-# running" is how an update walks over a live worker.
+# a status read that failed - no output, a reply that does not parse, a shape that changed under a
+# herdr upgrade - is indistinguishable from a server that is genuinely down. A caller that refuses
+# an action needs those apart, because "could not tell" read as "nothing is running" is how an
+# update walks over a live worker.
 #
 # Read from `status --json`, whose `server` object carries a `running` boolean and a status word,
 # rather than from a regex over the default YAML: a shape that changes is then a parse that fails
 # and says so, instead of a pattern that quietly stops matching and reports a stopped server.
 #
-# Called directly rather than through `Invoke-Herdr`, because the exit code is load-bearing here
-# and `Invoke-Herdr` does not expose one. `Test-HerdrServer` stays exactly as it is beside this:
-# `Start-HerdrServer` wants that boolean, and changing it would change what starting a server does.
+# THE PAYLOAD DECIDES, AND THE EXIT CODE IS ONLY A FALLBACK. A reply that parses and carries a
+# boolean `server.running` is the answer whatever herdr exited with; the exit code is reported in
+# `.detail` and never overrides it. That is deliberate, and it is deliberate because the exit code
+# for a server that is DOWN has never been measured: seeing it means stopping the server, and the
+# only machine available was hosting live workers at the time. Reading it first would have meant
+# guessing, and guessing wrong in the direction that makes `/update` refuse - with "could not be
+# read" - on the ordinary machine of a user who has simply never dispatched anything. So the
+# parsed field is the evidence, and the exit code is what a reader sees beside it.
+#
+# Unknown is therefore reserved for an answer nobody can read at all: no herdr, no output, output
+# that does not parse, or a reply with no boolean saying whether the server is running. That is the
+# only case that must fail closed, and it still does.
+#
+# Called directly rather than through `Invoke-Herdr`, which does not expose an exit code at all.
+# `Test-HerdrServer` stays exactly as it is beside this: `Start-HerdrServer` wants that boolean, and
+# changing it would change what starting a server does.
 function Get-HerdrServerState {
     [CmdletBinding()]
     param()
@@ -157,41 +170,44 @@ function Get-HerdrServerState {
     $global:LASTEXITCODE = 0
     $text = ($raw | Out-String).Trim()
 
-    if ($code -ne 0) {
-        return [pscustomobject]@{
-            state  = 'unknown'
-            detail = "herdr status exited $code - $(($text -replace '\s+', ' ').Trim())"
-        }
-    }
-    if (-not $text) {
-        return [pscustomobject]@{ state = 'unknown'; detail = 'herdr status answered with nothing at all.' }
-    }
-
     $parsed = $null
-    try { $parsed = $text | ConvertFrom-Json } catch { }
+    if ($text) { try { $parsed = $text | ConvertFrom-Json } catch { } }
 
     $server = $null
-    if ($parsed -is [psobject] -and $parsed.PSObject.Properties.Name -contains 'server') {
+    if ($null -ne $parsed -and $parsed.PSObject.Properties.Name -contains 'server') {
         $server = $parsed.server
     }
-    if (-not ($server -is [psobject])) {
-        return [pscustomobject]@{
-            state  = 'unknown'
-            detail = 'herdr status did not answer with a server object in it.'
-        }
+
+    $running = $null
+    if ($null -ne $server -and $server.PSObject.Properties.Name -contains 'running' -and
+        $server.running -is [bool]) {
+        $running = [bool]$server.running
     }
-    if ($server.PSObject.Properties.Name -notcontains 'running') {
+
+    if ($null -ne $running) {
+        $word = ''
+        if ($server.PSObject.Properties.Name -contains 'status') { $word = "$($server.status)" }
+        $said = if ($word) { ", and said $word" } else { '' }
         return [pscustomobject]@{
-            state  = 'unknown'
-            detail = 'herdr status answered without saying whether the server is running.'
+            state  = if ($running) { 'running' } else { 'stopped' }
+            detail = "herdr status exited $code, reported running=$running$said"
         }
     }
 
-    if ($server.running) { return [pscustomobject]@{ state = 'running'; detail = '' } }
+    $why = if (-not $text) {
+        'answered with nothing at all'
+    } elseif ($null -eq $parsed) {
+        'answered something that did not parse as JSON'
+    } elseif ($null -eq $server) {
+        'answered without a server object in it'
+    } else {
+        'answered without saying whether the server is running'
+    }
 
-    $word = ''
-    if ($server.PSObject.Properties.Name -contains 'status') { $word = "$($server.status)" }
-    [pscustomobject]@{ state = 'stopped'; detail = $word }
+    [pscustomobject]@{
+        state  = 'unknown'
+        detail = "herdr status exited $code and $why - $(($text -replace '\s+', ' ').Trim())"
+    }
 }
 
 # Starts the herdr server if it is not already up, and returns once `status` confirms it.

@@ -5033,6 +5033,16 @@ Describe 'the installation has a version, and one command moves it to a release'
                      'means no workers')
     }
 
+    It 'believes what herdr said over what it exited with, and says why' {
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('**What herdr said decides that read, and what it exited with does not.**')
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('the exit code for a server that is *down* has never been measured - seeing it ' +
+                     'would mean stopping a server that was hosting live workers at the time')
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('*Unknown* is therefore kept for a reply nobody can read at all')
+    }
+
     It 'treats the no-releases path as the common path rather than an edge case' {
         Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
             -Phrase '**There were zero tags when this was written, so the no-releases path is the common path.**'

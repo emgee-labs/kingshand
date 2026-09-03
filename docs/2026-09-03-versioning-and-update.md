@@ -84,6 +84,17 @@ call earlier and left it there. So the guard reads the server state as *running*
 no workers. A shape that changes is then a parse that fails and says so, rather than a pattern that
 quietly stops matching and reports an empty fleet.
 
+**What herdr said decides that read, and what it exited with does not.** A reply that parses and
+carries a boolean `server.running` has already answered the question, so it is believed whatever
+the exit status was; the exit code is reported alongside it and never overrides it. This is on
+purpose, and the reason is that the exit code for a server that is *down* has never been measured -
+seeing it would mean stopping a server that was hosting live workers at the time. Reading it first
+would have been a guess, and a guess wrong in the direction that makes `/update` refuse with
+"could not be read" on the ordinary machine of somebody who has simply never dispatched anything.
+*Unknown* is therefore kept for a reply nobody can read at all: no output, output that does not
+parse, or nothing in it that says whether the server is running. That is the case that has to fail
+closed, and it still does.
+
 **Fast-forward only.** Never a force, a stash, a reset, a rebase or a non-linear merge. An
 installation that has diverged holds work nobody here may discard, so it is refused with git's own
 reason and left exactly as it was. This half is taken from firstmate's `updatefirstmate`, which
