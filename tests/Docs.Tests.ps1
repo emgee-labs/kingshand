@@ -5266,21 +5266,25 @@ Describe 'counsel splits the dialogue from the reading, and only the King starts
             -Phrase '**No second skill for brainstorming.**'
     }
 
-    # The audit's one genuinely missing piece. It lives here and only here, and it deliberately
-    # does not reach a reported bug, which inquest already owns.
-    It 'owns the trigger for an analysis dispatch before an implementation dispatch' {
+    # The audit's one genuinely missing piece, and the one this skill refuses. A test that must
+    # fire when the King asks for implementation work cannot live in a skill loaded only when he
+    # asks for an analysis, and hard rule 1 stops the Hand evaluating one of its conditions at all.
+    It 'disclaims the trigger for settling a shape first and names its home' {
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
-            -Phrase '**Dispatch an analysis before the implementation when any one of these is true:**'
+            -Phrase ('**This skill deliberately does not own that trigger. Its home is `muster` Step 1 ' +
+                     'intake**')
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
-            -Phrase 'With none of them true, write the implementation brief and skip this entirely.'
+            -Phrase ('The test has to fire when the King asks for implementation work, which is a ' +
+                     'situation this skill is never loaded for')
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
-            -Phrase '**This trigger covers a story or a feature and nothing else.**'
+            -Phrase ('whether a story can be divided without reading code nobody has read yet, is ' +
+                     'something hard rule 1 forbids the Hand from checking')
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
             -Phrase ('`inquest` owns the diagnosis procedure, and `CLAUDE.md` already says a diagnosis ' +
                      'is evidence rather than authorization')
         Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
-            -Phrase ('It was placed there rather than in `muster` because the situation it fires in is ' +
-                     'a story that has not been divided yet')
+            -Phrase ('**This task decided the trigger does not belong in `counsel`. Its home is `muster` ' +
+                     'Step 1 intake**')
     }
 
     # Roughly 22 review rounds across three tasks went into hand-written parsers of open-ended
@@ -5325,11 +5329,6 @@ Describe 'counsel splits the dialogue from the reading, and only the King starts
             -Phrase ('**Close-out is the one place this skill does narrow, deliberately, and the ' +
                      'close-out section below says how and why.**')
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
-            -Phrase ('**This test fires only on work the King has already asked for, and all it decides ' +
-                     'is the order of that work**')
-        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
-            -Phrase '**it never starts a counsel pass on its own.**'
-        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
             -Phrase ('**Then say in one line which instruction wins: where the read-only scope and the ' +
                      'pasted Done-means block disagree, the read-only scope wins - over committing on ' +
                      'the branch, running the review gate, pushing, opening a pull request and merging ' +
@@ -5337,8 +5336,6 @@ Describe 'counsel splits the dialogue from the reading, and only the King starts
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
             -Phrase ('An analysis that comes back with a commit, a pushed branch or a pull request has ' +
                      'exceeded its brief.')
-        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
-            -Phrase '**It never starts a counsel pass.**'
     }
 
     # muster's lifecycle assumes work that lands or pushes, and this dispatch makes no commits at
@@ -5373,11 +5370,6 @@ Describe 'counsel splits the dialogue from the reading, and only the King starts
         Assert-Phrase -Text $skills -Where 'CLAUDE.md Skills' `
             -Phrase ('Invoke `counsel` when the King asks for a story, a feature or a pile of stories ' +
                      'to be broken down, analysed or brainstormed before anything is built.')
-        Assert-Phrase -Text $skills -Where 'CLAUDE.md Skills' `
-            -Phrase ('Load it as well before writing an implementation brief for a story or a feature, ' +
-                     'to apply its ordering test - whether the shape has to be settled before anything ' +
-                     'is built. That is a load and not a dispatch: the test decides order only and ' +
-                     'never starts a counsel pass.')
         Assert-Phrase -Text $skills -Where 'CLAUDE.md Skills' `
             -Phrase '**Never launch it unprompted**'
     }

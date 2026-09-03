@@ -94,22 +94,24 @@ the map rather than the stories. Both are what keep the seventeen-story case ins
 
 The audit found that kingshand already produces design comparisons inside worker reports, and that
 what it lacked was a trigger saying when a design question deserves its own investigation dispatch
-before an implementation dispatch. That trigger now lives in `counsel`, as a four-part test, and
-`counsel` is its only owner.
+before an implementation dispatch. The gap is real and the audit gets the credit for naming it.
+**This task decided the trigger does not belong in `counsel`. Its home is `muster` Step 1 intake**,
+where every unit of work already passes and where the dispatch decision is made, and moving it
+there is its own change to `muster`.
 
-The trigger is scoped, and the scope is load-bearing: it fires only on work the King has already
-asked for, and all it decides is the order of that work - whether the shape must be settled before
-an implementation dispatch. **It never starts a counsel pass.** Without that scope it reads as a
-licence for the Hand to begin an analysis on situation match, which is the parallel design
-exercise Intake judgement forbids and the guard at the top of the skill prohibits. The authority
-rules themselves live in one ranked block in the skill, "Who may start what", so a pair of them
-can never sit unranked again - that ambiguity is what this trigger produced the first time round.
+It was tried in `counsel` first, and two facts drove it out. The test has to fire when the King
+asks for implementation work, and that is a situation `counsel` is never loaded for - `counsel` is
+loaded when he asks for an analysis, so wiring the test up meant either contradicting the skill's
+own guard or adding a load instruction to the always-loaded file that read against the bolded
+never-volunteer rule sitting beside it. And one of the test's conditions - whether a story can be
+divided without reading code nobody has read yet - is something hard rule 1 forbids the Hand from
+checking, so at intake it can never be ruled out, only failed to be ruled in, which leans every
+story-shaped brief towards a second dispatch. A test the Hand cannot evaluate belongs where a
+worker can be briefed to answer it.
 
-It was placed there rather than in `muster` because the situation it fires in is a story that has
-not been divided yet, which is what `counsel` is loaded for. It was deliberately **not** extended
-to reported bugs: `inquest` already owns the diagnosis procedure, and `CLAUDE.md` already states
-that a diagnosis is evidence rather than authorization to change code, so a bug-shaped copy of the
-trigger would be a second owner of a rule that has one.
+It was deliberately **not** extended to reported bugs either: `inquest` already owns the diagnosis
+procedure, and `CLAUDE.md` already states that a diagnosis is evidence rather than authorization to
+change code, so a bug-shaped copy would be a second owner of a rule that has one.
 
 ## The read-only close-out is deliberately left open
 

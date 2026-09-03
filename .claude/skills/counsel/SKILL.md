@@ -52,8 +52,8 @@ Two rules, and they are ranked:
    authority, and `+yolo` does not authorise one: a registered posture grants routine dispatch
    authority over work the King has asked for, and this pass is the asking.
 2. **An ordinary dispatch is `muster`'s to gate, unchanged.** Where the King has asked for work
-   and the ordering test below says its shape must be settled first, the investigation dispatch
-   that follows goes through `muster`'s own dispatch gate and the project's posture exactly as any
+   and its shape has to be settled before anything is built, the investigation dispatch that
+   follows goes through `muster`'s own dispatch gate and the project's posture exactly as any
    other dispatch does. **That is about the dispatch decision and nothing else** - this skill
    neither widens nor narrows that gate, and it says nothing about how the dispatch ends.
 
@@ -103,9 +103,9 @@ the story text, because the story does not say what it is not.
 
 **Where the decomposition is going.** The destination section below owns the answers.
 
-File the analysis as its own work item before anything is dispatched, and keep the King's answers
-in that item rather than in chat, which does not survive a session. `CLAUDE.md`'s Backlog
-contract owns the queue.
+`muster` Step 1 files the analysis as a work item, once, under the id the brief and the durable
+record share, so nothing here files it a second time. The King's answers belong in that item and
+in the analysis brief rather than in chat, which does not survive a session.
 
 ## Step 2 - Commission the reading. This half is a worker's
 
@@ -220,37 +220,23 @@ comparison with a recommendation, and the dialogue happens when the Hand puts it
 Where the shape is already settled, do not manufacture alternatives to look thorough. Intake
 judgement's simplest direct path still applies inside an analysis the King asked for.
 
-## When a design question earns its own dispatch first
+## The trigger for settling a shape first is not this skill's
 
-Kingshand already produces design comparisons inside worker reports. What it lacked was the
-trigger, and this is it.
+Kingshand already produces design comparisons inside worker reports, and its own audit found that
+what it lacked was the trigger - a test saying when a story's shape has to be settled before
+anything is built. **This skill deliberately does not own that trigger. Its home is `muster` Step 1
+intake**, where every unit of work already passes and where the dispatch decision is actually made,
+and putting it there is its own change to `muster` rather than part of this skill.
 
-**This test fires only on work the King has already asked for, and all it decides is the order of
-that work** - whether the shape has to be settled before an implementation dispatch, or whether
-the implementation brief can be written now. It adds nothing beside an answer he already has, and
-**it never starts a counsel pass on its own.** Where the shape needs settling, say so in one line
-and let the King decide. The guard at the top of this skill is untouched by it.
+Two facts put it there rather than here. The test has to fire when the King asks for implementation
+work, which is a situation this skill is never loaded for - it is loaded when he asks for an
+analysis. And one of the things it has to weigh, whether a story can be divided without reading
+code nobody has read yet, is something hard rule 1 forbids the Hand from checking, so it belongs
+where a worker can be briefed to answer it.
 
-This is where `CLAUDE.md` sends the Hand at intake, before an implementation brief is written for a
-story or a feature. Posture does not enter into it: "Who may start what" above ranks the two rules
-once, and this test changes neither of them.
-
-**Dispatch an analysis before the implementation when any one of these is true:**
-
-- the answer changes the task set - two shapes are live and they divide the work differently, so
-  deciding after implementation starts means rewriting the tasks rather than finishing them
-- the story cannot be divided without reading code nobody has read yet
-- more than one story touches one area and nobody knows where
-- an edge case's answer would change something outside this story - a contract, a schema, another
-  layer
-
-With none of them true, write the implementation brief and skip this entirely. Two dispatches
-where one would do costs one dispatch; a wrong decomposition costs several wrong tasks, and that
-is the whole reason the test leans this way.
-
-**This trigger covers a story or a feature and nothing else.** For a reported bug the equivalent
-already exists elsewhere: `inquest` owns the diagnosis procedure, and `CLAUDE.md` already says a
-diagnosis is evidence rather than authorization. Neither is restated here.
+None of it reaches a reported bug in any case: `inquest` owns the diagnosis procedure, and
+`CLAUDE.md` already says a diagnosis is evidence rather than authorization. Neither is restated
+here, and `docs\2026-09-04-story-analysis-split.md` records the decision and the evidence for it.
 
 ## Nothing here parses a story
 

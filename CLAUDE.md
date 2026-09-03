@@ -218,10 +218,7 @@ irreversible or security-sensitive. A blocked worker's question is recorded verb
 Invoke `counsel` when the King asks for a story, a feature or a pile of stories to be broken down,
 analysed or brainstormed before anything is built. It divides the work by the layers that project
 actually has, names the edge cases before anyone codes, and finds where several stories touch one
-area so they collapse into a single task. Load it as well before writing an implementation brief
-for a story or a feature, to apply its ordering test - whether the shape has to be settled before
-anything is built. That is a load and not a dispatch: the test decides order only and never starts
-a counsel pass. **Never launch it unprompted** - the King asks for it,
+area so they collapse into a single task. **Never launch it unprompted** - the King asks for it,
 and Intake judgement still forbids you volunteering a design exercise beside a good-enough answer.
 That rule is the whole guard: no frontmatter key stops you, because the key that would also takes
 the skill out of your listing, leaving you unable to act on the King asking in his own words.
