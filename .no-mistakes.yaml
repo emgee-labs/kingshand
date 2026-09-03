@@ -1,0 +1,10 @@
+# Where kingshand's pull requests are proposed. `dev` is the integration branch: every
+# pull request the review gate opens targets it, and every dispatched worker branches from
+# it. That is deliberately not the same thing as the repository's default branch, which is
+# what a fresh clone lands on. Declared here rather than in the machine-wide config, because
+# that one applies to every repository on this machine and not all of them have a `dev`.
+#
+# bin\Resolve-BaseRef.ps1 reads this same key, so a dispatched worker's base ref and the
+# branch its pull request targets are one declaration rather than two that can drift.
+pr:
+  base_branch: dev

@@ -4832,3 +4832,28 @@ Describe 'a project has a standing definition of done, and repeated findings are
             -Phrase '"no linter is configured here, so ignore lint"'
     }
 }
+
+Describe 'the default branch and the integration branch are two things' {
+    # A repository can land a fresh clone on `main` while every pull request targets `dev` and
+    # every worker branches from `dev`. `origin/HEAD` names only the first, so the tooling table
+    # has to say which of the two the dispatcher follows - otherwise the next reader assumes the
+    # default branch, which is the assumption that cuts a worker from the wrong tree.
+    It 'the CLAUDE.md tooling table says the dispatcher follows the declared integration branch' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
+            -Phrase ('| `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the one ref a ' +
+                     'worker branches from and the landing gate diffs against - the integration ' +
+                     'branch the repo declares in `.no-mistakes.yaml`, and its default branch ' +
+                     'where it declares none, always confirmed with `git rev-parse --verify` |')
+    }
+
+    # The claim in that row that a reviewer cannot check by reading: that the two consumers of the
+    # declaration read the same key from the same file. A row saying so while the gate read
+    # something else would be worse than a row saying nothing.
+    It 'the repository declares that branch where the review gate reads it' {
+        $declared = Join-Path $script:Root '.no-mistakes.yaml'
+        Test-Path -LiteralPath $declared | Should -BeTrue -Because 'the tooling table names this file'
+        $text = Get-Content -LiteralPath $declared -Raw
+        $text.Contains('base_branch: dev') |
+            Should -BeTrue -Because 'kingshand integrates on dev, whatever its default branch becomes'
+    }
+}

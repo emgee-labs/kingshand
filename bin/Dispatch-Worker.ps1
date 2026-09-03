@@ -441,11 +441,10 @@ if ($staged.Count -gt 0) {
     }
 }
 
-# The worktree branches from the REMOTE default branch when the repo has one, not the local
-# branch. Local main is often behind origin/main, and diffing the worker's branch against local
-# main then attributes the upstream commits in that gap to the worker - including other people's
-# Co-Authored-By trailers, which trips the attribution check on a colleague's commit. Record the
-# real base at dispatch.
+# WHICH ref this is belongs to Resolve-BaseRef.ps1's header, and nothing here restates it. What
+# matters at this call site is that the one string it returns is used twice below - as the branch
+# point `git worktree add` cuts from, and as the base recorded for the landing gate - so the
+# recorded base cannot drift from where the worktree actually started.
 #
 # Resolved BEFORE the spawn on purpose: Resolve-BaseRef refuses rather than inventing a ref, and
 # a refusal after the worker exists would leave an orphaned agent running in the repo.
