@@ -18,14 +18,18 @@ Set-StrictMode -Version Latest
 #
 # The two reads the guard makes BEFORE that boundary - is herdr installed, is its server up - run
 # the binary rather than going through Invoke-Herdr, so they are mocked too, and every case that
-# reaches the guard says herdr is installed and running unless it is the case about one of those.
-# Without that this suite would pass only on a machine that happens to have herdr installed with its
-# server up, which is exactly the coupling the rest of it avoids.
+# reaches the guard says herdr is installed and its server running unless it is the case about one
+# of those. Without that this suite would pass only on a machine that happens to have herdr
+# installed with its server up, which is exactly the coupling the rest of it avoids.
 #
 # Each of those two is mocked in Update rather than in Herdr, because that is where the call
 # resolves: Get-LiveWorkerNames calls them directly, and Pester replaces a function in the scope
 # doing the calling. Invoke-Herdr is the other way round - Get-HerdrAgentInventory calls it from
 # inside Herdr - so that one is mocked there, which is what lets the real inventory reader run.
+#
+# The server read is Get-HerdrServerState, not the boolean beside it: a status call that failed and
+# a server that is genuinely down are different answers here, and tests\Herdr.Tests.ps1 is where
+# that reader is exercised against a stubbed binary.
 
 BeforeAll {
     $script:Root = Split-Path $PSScriptRoot -Parent
@@ -140,6 +144,26 @@ BeforeAll {
         param([Parameter(Mandatory)][string]$RepoPath)
         (& git -C $RepoPath rev-parse HEAD | Out-String).Trim()
     }
+
+    # One seeded repository per tag case. Tags are repository-wide and cumulative, so a case that
+    # adds one to a shared repository changes what every later case sees - and the earlier ones then
+    # pass only while Pester happens to run the block in declaration order.
+    function New-TagRepo {
+        param(
+            [Parameter(Mandatory)][string]$Name,
+            [string]$Version = '0.1.0',
+            [string[]]$Tags = @()
+        )
+
+        $path = Join-Path $TestDrive $Name
+        git init -b main $path -q
+        git -C $path config user.name  'Test'
+        git -C $path config user.email 'test@example.invalid'
+        Set-Content -LiteralPath (Join-Path $path 'VERSION') -Value $Version -Encoding utf8
+        Add-Commit -RepoPath $path -Message 'Seed the repository'
+        foreach ($t in $Tags) { git -C $path tag $t }
+        $path
+    }
 }
 
 Describe 'the release branch is named in one place' {
@@ -149,12 +173,13 @@ Describe 'the release branch is named in one place' {
 }
 
 Describe 'liveness comes from herdr, and unknown is not none' {
-    # Three states, and the whole point is that the third never reads as the first. A server that is
-    # down HAS no workers, because a pane dies with it. A herdr that could not be asked does not
-    # know, and an update that proceeds on not knowing is the failure this guard exists to prevent.
+    # Only ONE state means nobody is working: a server that is genuinely down, because a pane dies
+    # with it. Every other way of not getting an answer - no herdr, a status read that failed, an
+    # agent list that failed - is not knowing, and an update that proceeds on not knowing is the
+    # failure this guard exists to prevent.
     BeforeEach {
         Mock -ModuleName Update Get-HerdrCommandPath { $script:StubHerdrPath }
-        Mock -ModuleName Update Test-HerdrServer { $true }
+        Mock -ModuleName Update Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = '' } }
     }
 
     It 'reports no workers when herdr knows of none' {
@@ -178,11 +203,24 @@ Describe 'liveness comes from herdr, and unknown is not none' {
     }
 
     It 'reports no workers when herdr is installed but its server is not running' {
-        Mock -ModuleName Update Test-HerdrServer { $false }
+        Mock -ModuleName Update Get-HerdrServerState {
+            [pscustomobject]@{ state = 'stopped'; detail = 'not running' }
+        }
         Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached with the server down' }
 
         @(Get-LiveWorkerNames).Count |
             Should -Be 0 -Because 'a pane dies with its server, so a server that is down holds no worker'
+    }
+
+    It 'throws rather than reporting none when the server state itself could not be read' {
+        Mock -ModuleName Update Get-HerdrServerState {
+            [pscustomobject]@{ state = 'unknown'; detail = 'herdr status exited 1 - could not reach the server' }
+        }
+        Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached on an unknown server state' }
+
+        { Get-LiveWorkerNames } |
+            Should -Throw -ExpectedMessage '*could not be read*' `
+                -Because 'a status call that failed did not establish that the server is down'
     }
 
     It 'throws rather than reporting none when the running server could not be asked' {
@@ -201,60 +239,41 @@ Describe 'liveness comes from herdr, and unknown is not none' {
 }
 
 Describe 'the latest release is the highest version tag, and only a release tag counts' {
-    BeforeAll {
-        $script:TagRepo = Join-Path $TestDrive 'tagorder'
-        git init -b main $script:TagRepo -q
-        git -C $script:TagRepo config user.name  'Test'
-        git -C $script:TagRepo config user.email 'test@example.invalid'
-        Set-Content -LiteralPath (Join-Path $script:TagRepo 'VERSION') -Value '0.1.0' -Encoding utf8
-        Add-Commit -RepoPath $script:TagRepo -Message 'Seed the repository'
-    }
+    # A repository per case, because tags are repository-wide and cumulative. Sharing one would let
+    # a case that tags a higher version decide what an earlier case sees, so the block would pass
+    # only while Pester ran it in declaration order.
 
     It 'sorts by version rather than by string, so v0.10.0 beats v0.9.0' {
-        git -C $script:TagRepo tag 'v0.9.0'
-        git -C $script:TagRepo tag 'v0.10.0'
-        Get-LatestReleaseTag -RepoPath $script:TagRepo | Should -Be 'v0.10.0'
+        $repo = New-TagRepo -Name 'tagorder' -Tags @('v0.9.0', 'v0.10.0')
+        Get-LatestReleaseTag -RepoPath $repo | Should -Be 'v0.10.0'
     }
 
     It 'ignores a tag that is not a release' {
-        git -C $script:TagRepo tag 'v2-backup'
-        git -C $script:TagRepo tag 'vendor-drop'
-        Get-LatestReleaseTag -RepoPath $script:TagRepo | Should -Be 'v0.10.0'
+        $repo = New-TagRepo -Name 'tagnotarelease' -Tags @('v0.9.0', 'v0.10.0', 'v2-backup', 'vendor-drop')
+        Get-LatestReleaseTag -RepoPath $repo | Should -Be 'v0.10.0'
     }
 
     It 'never picks a pre-release, which git''s own ordering ranks above the release' {
         # Not hypothetical: `git tag --sort=-v:refname` really does list v1.0.0-rc1 before v1.0.0
         # unless versionsort.suffix is configured, so a pattern that admitted the suffix would have
         # selected the candidate and moved people back to its older commit.
-        git -C $script:TagRepo tag 'v1.0.0'
-        git -C $script:TagRepo tag 'v1.0.0-rc1'
-        git -C $script:TagRepo tag 'v1.0.0+build3'
+        $repo = New-TagRepo -Name 'prereleaseorder' -Version '1.0.0' `
+                    -Tags @('v0.9.0', 'v1.0.0', 'v1.0.0-rc1', 'v1.0.0+build3')
 
-        Get-LatestReleaseTag -RepoPath $script:TagRepo |
+        Get-LatestReleaseTag -RepoPath $repo |
             Should -Be 'v1.0.0' -Because 'only a plain three-number tag is a release'
     }
 
     It 'refuses by name where the only tags are pre-releases' {
-        $rc = Join-Path $TestDrive 'onlyprereleases'
-        git init -b main $rc -q
-        git -C $rc config user.name  'Test'
-        git -C $rc config user.email 'test@example.invalid'
-        Set-Content -LiteralPath (Join-Path $rc 'VERSION') -Value '1.0.0-rc.1' -Encoding utf8
-        Add-Commit -RepoPath $rc -Message 'Seed the repository'
-        git -C $rc tag 'v1.0.0-rc1'
+        $repo = New-TagRepo -Name 'onlyprereleases' -Version '1.0.0-rc.1' -Tags @('v1.0.0-rc1')
 
-        { Get-LatestReleaseTag -RepoPath $rc } |
+        { Get-LatestReleaseTag -RepoPath $repo } |
             Should -Throw -ExpectedMessage '*No release has been tagged in this repository yet*' `
                 -Because 'a candidate is something to try, not something to update everybody to'
     }
 
     It 'refuses by name where nothing has been tagged at all' {
-        $none = Join-Path $TestDrive 'notags'
-        git init -b main $none -q
-        git -C $none config user.name  'Test'
-        git -C $none config user.email 'test@example.invalid'
-        Set-Content -LiteralPath (Join-Path $none 'VERSION') -Value '0.1.0' -Encoding utf8
-        Add-Commit -RepoPath $none -Message 'Seed the repository'
+        $none = New-TagRepo -Name 'notags'
 
         { Get-LatestReleaseTag -RepoPath $none } |
             Should -Throw -ExpectedMessage '*No release has been tagged in this repository yet*'
@@ -332,7 +351,7 @@ Describe 'a session is told to re-read only what an update actually moved' {
 Describe 'an update that can happen moves the installation and reports the move' {
     BeforeEach {
         Mock -ModuleName Update Get-HerdrCommandPath { $script:StubHerdrPath }
-        Mock -ModuleName Update Test-HerdrServer { $true }
+        Mock -ModuleName Update Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = '' } }
         Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } }
     }
 
@@ -411,7 +430,7 @@ Describe 'an update that can happen moves the installation and reports the move'
 Describe 'every refusal names itself and leaves the installation exactly as it was' {
     BeforeEach {
         Mock -ModuleName Update Get-HerdrCommandPath { $script:StubHerdrPath }
-        Mock -ModuleName Update Test-HerdrServer { $true }
+        Mock -ModuleName Update Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = '' } }
         Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } }
     }
 
@@ -480,7 +499,9 @@ Describe 'every refusal names itself and leaves the installation exactly as it w
     }
 
     It 'updates when herdr is installed but its server is down, which really is no workers' {
-        Mock -ModuleName Update Test-HerdrServer { $false }
+        Mock -ModuleName Update Get-HerdrServerState {
+            [pscustomobject]@{ state = 'stopped'; detail = 'not running' }
+        }
         Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached with the server down' }
         $f = New-Installation -Name 'serverdown'
         Publish-Release -Fixture $f -Version '0.2.0' -Subjects @('Change a thing')
@@ -489,6 +510,24 @@ Describe 'every refusal names itself and leaves the installation exactly as it w
 
         $r.status | Should -Be 'updated' -Because 'a pane dies with its server, so this is a fact rather than a guess'
         $r.reason | Should -Be ''
+    }
+
+    It 'refuses when whether herdr''s server is up could not be read' {
+        Mock -ModuleName Update Get-HerdrServerState {
+            [pscustomobject]@{ state = 'unknown'; detail = 'herdr status exited 1 - could not reach the server' }
+        }
+        Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached on an unknown server state' }
+        $f = New-Installation -Name 'serverstateunknown'
+        Publish-Release -Fixture $f -Version '0.2.0' -Subjects @('Change a thing')
+
+        $before = Get-Head -RepoPath $f.Path
+        $r = Invoke-KingshandUpdate -Root $f.Path
+
+        $r.status | Should -Be 'refused'
+        $r.reason | Should -Match 'could not be established'
+        $r.reason | Should -Match 'exited 1'
+        Get-Head -RepoPath $f.Path |
+            Should -Be $before -Because 'a status read that failed is not a server that is down'
     }
 
     It 'refuses when the checked-out branch could not be read at all' {

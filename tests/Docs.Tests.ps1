@@ -5023,6 +5023,16 @@ Describe 'the installation has a version, and one command moves it to a release'
                      'an empty list, which every status view wants and this guard must never accept')
     }
 
+    It 'reads the server state itself as three-valued rather than as a boolean' {
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('**Every read on the way to that answer is three-valued too, not just the last ' +
+                     'one.**')
+        Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
+            -Phrase ('the guard reads the server state as *running*, *stopped* or *unknown*, off ' +
+                     '`herdr status --json` rather than off a regex over prose, and only *stopped* ' +
+                     'means no workers')
+    }
+
     It 'treats the no-releases path as the common path rather than an edge case' {
         Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
             -Phrase '**There were zero tags when this was written, so the no-releases path is the common path.**'

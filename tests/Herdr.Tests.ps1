@@ -356,6 +356,84 @@ Describe 'Get-HerdrCommandHint tells the reader what to run' {
     }
 }
 
+Describe 'Get-HerdrServerState tells a stopped server apart from a status read that failed' {
+    # The boolean beside it cannot: Test-HerdrServer answers $false to a server that is genuinely
+    # down and to a status call that exited non-zero, printed nothing, or answered a shape it did
+    # not recognise. A guard that refuses an action on liveness needs those apart, because "could
+    # not tell" read as "nothing is running" is how an update walks over a live worker.
+    #
+    # The binary is stubbed rather than mocked, the same way the screen readers below are, because
+    # this one runs herdr directly to keep its exit code rather than going through Invoke-Herdr.
+
+    BeforeAll { $script:ServerStateDir = Initialize-HerdrScreenStub }
+    BeforeEach { Mock -ModuleName Herdr Get-HerdrCommandPath { $env:KINGSHAND_TEST_HERDR_EXE } }
+
+    It 'asks for JSON rather than parsing the prose shape' {
+        Set-HerdrScreen '{"server":{"status":"running","running":true,"protocol":20}}'
+        $null = Get-HerdrServerState
+
+        $calls = @(Get-HerdrStubArgs)
+        $calls.Count | Should -Be 1
+        $calls[0] | Should -Match '(^|\s)status(\s|$)'
+        $calls[0] | Should -Match '--json' -Because 'a regex over prose stops matching silently when the shape moves'
+    }
+
+    It 'reports a running server' {
+        Set-HerdrScreen '{"client":{"protocol":20},"server":{"status":"running","running":true}}'
+
+        $s = Get-HerdrServerState
+        $s.state | Should -Be 'running'
+    }
+
+    It 'reports a stopped server, and carries herdr''s own word for it' {
+        Set-HerdrScreen '{"server":{"status":"not running","running":false}}'
+
+        $s = Get-HerdrServerState
+        $s.state  | Should -Be 'stopped'
+        $s.detail | Should -Be 'not running'
+    }
+
+    It 'reports unknown rather than stopped when the status call exited non-zero' {
+        Set-HerdrScreenFailure -Text '{"error":{"code":"transport","message":"could not reach the server"}}' -ExitCode 1
+
+        $s = Get-HerdrServerState
+        $s.state  | Should -Be 'unknown' -Because 'a call that failed did not establish that the server is down'
+        $s.detail | Should -Match 'exited 1'
+    }
+
+    It 'reports unknown when the reply does not parse at all' {
+        Set-HerdrScreen 'herdr: unrecognised option --json'
+
+        $s = Get-HerdrServerState
+        $s.state  | Should -Be 'unknown'
+        $s.detail | Should -Match 'did not answer with a server object'
+    }
+
+    It 'reports unknown when the reply carries no server.running, which is a shape that moved' {
+        Set-HerdrScreen '{"server":{"protocol":21},"update":{}}'
+
+        $s = Get-HerdrServerState
+        $s.state  | Should -Be 'unknown' -Because 'a herdr upgrade that renames the field must not read as stopped'
+        $s.detail | Should -Match 'whether the server is running'
+    }
+
+    It 'reports unknown when the status call printed nothing' {
+        Set-HerdrScreen ''
+
+        $s = Get-HerdrServerState
+        $s.state  | Should -Be 'unknown'
+        $s.detail | Should -Match 'nothing at all'
+    }
+
+    It 'reports unknown, and says how to fix it, when there is no herdr to ask' {
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $null }
+
+        $s = Get-HerdrServerState
+        $s.state  | Should -Be 'unknown'
+        $s.detail | Should -Match 'herdr was not found'
+    }
+}
+
 Describe 'Get-HerdrAgentInventory keeps the failure that Get-HerdrAgents throws away' {
     # Two readers of the same `agent list` on purpose. Get-HerdrAgents answers an unreachable herdr
     # with an empty list, which is what a status view wants; this one says it could not read the

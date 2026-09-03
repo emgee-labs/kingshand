@@ -74,6 +74,16 @@ that is running is asked, and an answer that could not be read refuses. The reas
 needs saying is that the ordinary agent-list reader deliberately answers an unreachable herdr with
 an empty list, which every status view wants and this guard must never accept.
 
+**Every read on the way to that answer is three-valued too, not just the last one.** Asking whether
+the server is up is itself a read that can fail, and the boolean the rest of kingshand uses for it
+answers `false` to a stopped server and to a status call that failed alike - a non-zero exit, no
+output, a reply that does not parse, a shape that changed under a herdr upgrade. Routing the guard
+through that boolean would have moved the same "cannot tell" to "nobody is there" conversion one
+call earlier and left it there. So the guard reads the server state as *running*, *stopped* or
+*unknown*, off `herdr status --json` rather than off a regex over prose, and only *stopped* means
+no workers. A shape that changes is then a parse that fails and says so, rather than a pattern that
+quietly stops matching and reports an empty fleet.
+
 **Fast-forward only.** Never a force, a stash, a reset, a rebase or a non-linear merge. An
 installation that has diverged holds work nobody here may discard, so it is refused with git's own
 reason and left exactly as it was. This half is taken from firstmate's `updatefirstmate`, which

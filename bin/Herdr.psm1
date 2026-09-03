@@ -120,8 +120,78 @@ function Test-HerdrServer {
     $exe = Get-HerdrCommandPath
     if (-not $exe) { return $false }
     $out = (& $exe status 2>&1 | Out-String)
-    # `status` is the one command that answers in YAML rather than JSON.
+    # `status` is the one command whose DEFAULT output is YAML rather than JSON. It does take
+    # --json, and `Get-HerdrServerState` below uses that; this one reads the default shape.
     [bool]($out -match '(?ms)server:.*?status:\s*running')
+}
+
+# Whether the herdr server is up, as three answers rather than two:
+#
+#   .state   running | stopped | unknown
+#   .detail  what made it unknown, or the status word behind a stopped, empty when running
+#
+# THE THIRD ANSWER IS THE WHOLE REASON THIS EXISTS. `Test-HerdrServer` above answers a boolean, so
+# a status read that failed - a non-zero exit, no output, a reply that does not parse, a shape that
+# changed under a herdr upgrade - is indistinguishable from a server that is genuinely down. A
+# caller that refuses an action needs those apart, because "could not tell" read as "nothing is
+# running" is how an update walks over a live worker.
+#
+# Read from `status --json`, whose `server` object carries a `running` boolean and a status word,
+# rather than from a regex over the default YAML: a shape that changes is then a parse that fails
+# and says so, instead of a pattern that quietly stops matching and reports a stopped server.
+#
+# Called directly rather than through `Invoke-Herdr`, because the exit code is load-bearing here
+# and `Invoke-Herdr` does not expose one. `Test-HerdrServer` stays exactly as it is beside this:
+# `Start-HerdrServer` wants that boolean, and changing it would change what starting a server does.
+function Get-HerdrServerState {
+    [CmdletBinding()]
+    param()
+
+    $exe = Get-HerdrCommandPath
+    if (-not $exe) { return [pscustomobject]@{ state = 'unknown'; detail = (Get-HerdrCommandHint) } }
+
+    $PSNativeCommandUseErrorActionPreference = $false
+
+    $raw  = & $exe status --json 2>&1
+    $code = $LASTEXITCODE
+    $global:LASTEXITCODE = 0
+    $text = ($raw | Out-String).Trim()
+
+    if ($code -ne 0) {
+        return [pscustomobject]@{
+            state  = 'unknown'
+            detail = "herdr status exited $code - $(($text -replace '\s+', ' ').Trim())"
+        }
+    }
+    if (-not $text) {
+        return [pscustomobject]@{ state = 'unknown'; detail = 'herdr status answered with nothing at all.' }
+    }
+
+    $parsed = $null
+    try { $parsed = $text | ConvertFrom-Json } catch { }
+
+    $server = $null
+    if ($parsed -is [psobject] -and $parsed.PSObject.Properties.Name -contains 'server') {
+        $server = $parsed.server
+    }
+    if (-not ($server -is [psobject])) {
+        return [pscustomobject]@{
+            state  = 'unknown'
+            detail = 'herdr status did not answer with a server object in it.'
+        }
+    }
+    if ($server.PSObject.Properties.Name -notcontains 'running') {
+        return [pscustomobject]@{
+            state  = 'unknown'
+            detail = 'herdr status answered without saying whether the server is running.'
+        }
+    }
+
+    if ($server.running) { return [pscustomobject]@{ state = 'running'; detail = '' } }
+
+    $word = ''
+    if ($server.PSObject.Properties.Name -contains 'status') { $word = "$($server.status)" }
+    [pscustomobject]@{ state = 'stopped'; detail = $word }
 }
 
 # Starts the herdr server if it is not already up, and returns once `status` confirms it.
@@ -1058,7 +1128,8 @@ function Remove-HerdrPane {
 }
 
 Export-ModuleMember -Function Get-HerdrCommandPath, Get-HerdrCommandHint, ConvertTo-HerdrAgentName,
-                              Invoke-Herdr, Test-HerdrServer, Start-HerdrServer, New-HerdrPane,
+                              Invoke-Herdr, Test-HerdrServer, Get-HerdrServerState,
+                              Start-HerdrServer, New-HerdrPane,
                               Start-HerdrAgent, Get-HerdrAgent, Get-HerdrAgents,
                               Get-HerdrAgentInventory, Send-HerdrPrompt,
                               Wait-HerdrAgent, Read-HerdrAgent, Send-HerdrKeys, Stop-HerdrAgent,
