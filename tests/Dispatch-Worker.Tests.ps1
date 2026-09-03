@@ -2011,4 +2011,304 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             (@($warned) -join ' ') | Should -BeLike '*hand-edited*'
         }
     }
+
+    # The project's own two standing files, delivered without anyone passing them.
+    #
+    # Delivery by memory has already failed once on this installation: a settled brand spec sat in
+    # data\ naming itself the input to the website brief while the site shipped without its logo,
+    # favicon, tagline or palette, because no brief named the file. A per-project file is that
+    # failure with a shorter fuse, because it applies to every task in the project rather than one.
+    Context "the project's own standing files" {
+        BeforeAll {
+            # A standing file at the fixture's own data root, under the name the project resolved to.
+            function New-StandingFile {
+                param(
+                    [Parameter(Mandatory)]$Fixture,
+                    [Parameter(Mandatory)][string]$Leaf,
+                    [string]$Text = 'Tickets are tagged NG-, capital N capital G. Never touch legacy\.'
+                )
+                $p = Join-Path $Fixture.DataPath $Leaf
+                Set-Content -LiteralPath $p -Value $Text -Encoding utf8
+                $p
+            }
+
+            function Get-BriefText {
+                param([Parameter(Mandatory)]$Fixture)
+                Get-Content -LiteralPath $Fixture.BriefPath -Raw
+            }
+        }
+
+        It 'attaches the rules file nobody passed, where the worker can reach it' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-rules'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-9001').id | Should -Be 'T-9001'
+            $copy = Join-Path $f.BriefDir "read-first\rules-$name.md"
+            Test-Path -LiteralPath $copy | Should -BeTrue
+            (Get-Content -LiteralPath $copy -Raw) | Should -BeLike '*NG-*'
+        }
+
+        # Staging alone is the original failure with an extra step: a worker reads its brief and
+        # nothing else, so a copy no line names reaches it not at all.
+        It 'names the attached copy in the brief, under Read first' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-named'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9002' | Out-Null
+            $text = Get-BriefText -Fixture $f
+            $text.Contains((Join-Path $f.BriefDir "read-first\rules-$name.md")) | Should -BeTrue
+            $text | Should -BeLike '*attached automatically at dispatch*'
+        }
+
+        # The line goes under the heading rather than at the end of the file, so it is inside the
+        # section a worker is told to work through rather than loose after the last one.
+        It 'puts the line inside the Read first section rather than after the brief' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-position'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9003' | Out-Null
+            $lines   = @(Get-Content -LiteralPath $f.BriefPath)
+            $heading = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Read first\s*$' })[0]
+            $named   = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like '*read-first\rules-*' })[0]
+            $scope   = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Scope\s*$' })[0]
+            ($null -ne $heading) | Should -BeTrue
+            ($named -gt $heading) | Should -BeTrue
+            ($named -lt $scope)   | Should -BeTrue
+        }
+
+        It 'attaches the standing-criteria file the same way when nobody passed that either' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-criteria-auto'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.' | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9004' | Out-Null
+            Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\done-$name.md") | Should -BeTrue
+            (Get-BriefText -Fixture $f).Contains("read-first\done-$name.md") | Should -BeTrue
+        }
+
+        It 'attaches both when both are there, and neither lands on the other' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-both'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "done-$name.md"  -Text '- Pester is green.' | Out-Null
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" -Text 'Tag NG-, never legacy\.' | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9005' | Out-Null
+            (Get-Content -LiteralPath (Join-Path $f.BriefDir "read-first\done-$name.md")  -Raw) |
+                Should -BeLike '*Pester is green*'
+            (Get-Content -LiteralPath (Join-Path $f.BriefDir "read-first\rules-$name.md") -Raw) |
+                Should -BeLike '*Tag NG-*'
+        }
+
+        # A project with neither file dispatches exactly as it did before either existed.
+        It 'attaches nothing and stages no directory for a project with neither file' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-neither'
+            Register-FixtureProject -Fixture $f | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+            $before = Get-BriefText -Fixture $f
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-9006').id | Should -Be 'T-9006'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+            (Get-BriefText -Fixture $f) | Should -Be $before
+        }
+
+        # Posture is read, never inferred, and neither is a project. A repo the registry has never
+        # heard of resolves to no project, so there is no name to compose either file from.
+        It 'attaches nothing for a repo no registry lists, even when a rules file is there' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-unregistered'
+            New-StandingFile -Fixture $f -Leaf 'rules-acme-web.md' | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-9007').id | Should -Be 'T-9007'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+        }
+
+        # The gate's premise is that a -ReadPath is evidence the Hand went through the index for
+        # THIS task. A file that arrives on every dispatch is no evidence, and one that arrives
+        # without anyone passing it is less than none - a gate every dispatch satisfies by rote
+        # refuses nothing, ever.
+        It 'does not let the attached rules file satisfy the index gate' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-not-engagement'
+            $name = Register-FixtureProject -Fixture $f -WithIndex
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-9008' } |
+                Should -Throw '*neither names a file from them to read*'
+        }
+
+        It 'says in that refusal which standing files it is attaching by itself' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-refusal-names'
+            $name = Register-FixtureProject -Fixture $f -WithIndex
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            $msg = ''
+            try { Invoke-Dispatch -Fixture $f -Name 'T-9009' } catch { $msg = $_.Exception.Message }
+            $msg | Should -BeLike "*rules-$name.md*"
+            $msg | Should -BeLike '*say nothing about this task either*'
+        }
+
+        # A file that is there and cannot be read is not an absent one, and the difference decides
+        # whether a worker ships without the project's standing rules leaving no trace it happened.
+        It 'refuses a rules file that is there and cannot be opened' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-unreadable'
+            $name = Register-FixtureProject -Fixture $f
+            $rules = New-StandingFile -Fixture $f -Leaf "rules-$name.md"
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            $held = [System.IO.File]::Open($rules, 'Open', 'Read', 'None')
+            try {
+                { Invoke-Dispatch -Fixture $f -Name 'T-9010' } |
+                    Should -Throw '*exists and could not be opened*'
+            } finally { $held.Dispose() }
+        }
+
+        It 'creates nothing when it refuses over a rules file it cannot open' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-unreadable-clean'
+            $name = Register-FixtureProject -Fixture $f
+            $rules = New-StandingFile -Fixture $f -Leaf "rules-$name.md"
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+            $before = Get-BriefText -Fixture $f
+
+            $held = [System.IO.File]::Open($rules, 'Open', 'Read', 'None')
+            try {
+                try { Invoke-Dispatch -Fixture $f -Name 'T-9011' } catch { }
+            } finally { $held.Dispose() }
+
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+            (Get-BriefText -Fixture $f) | Should -Be $before
+            @(Get-CallLines -Fixture $f) | Should -BeNullOrEmpty
+        }
+
+        It 'refuses a directory sitting where the rules file belongs' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-directory'
+            $name = Register-FixtureProject -Fixture $f
+            New-Item -ItemType Directory -Force -Path (Join-Path $f.DataPath "rules-$name.md") | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-9012' } | Should -Throw '*is a directory*'
+        }
+
+        # Two files with one name would land on top of each other in the staging directory, and the
+        # worker would read whichever was copied last with no sign the other ever existed.
+        It 'refuses a -ReadPath whose name collides with the project rules file' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-collision'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            $elsewhere = Join-Path $f.Home "rules-$name.md"
+            Set-Content -LiteralPath $elsewhere -Value 'a different file with the same name' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf "rules-$name.md" -From $elsewhere
+
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9013' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $elsewhere } |
+                Should -Throw '*would land on*'
+        }
+
+        # The Hand passing the project's own file by hand is the muster contract for the criteria
+        # file, and it must not produce a second line naming the copy the Hand already named.
+        It 'writes no line for a standing file the brief passed itself' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-passed-by-hand'
+            $name = Register-FixtureProject -Fixture $f
+            $criteria = New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.'
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                "- ``$($f.BriefDir)\read-first\done-$name.md`` - the standing criteria, copied from ``$criteria``.",
+                '- The index was checked; nothing in it applies beyond the standing criteria above.')
+
+            & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9014' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $criteria | Out-Null
+            $text = Get-BriefText -Fixture $f
+            $text | Should -Not -BeLike '*attached automatically at dispatch*'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\done-$name.md") | Should -BeTrue
+        }
+
+        # Re-dispatching a ticket is ordinary - a worker sent back to keep going - and the brief
+        # must not collect a second copy of the same line every time.
+        It 'adds no second line when the same ticket is dispatched again' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-redispatch'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9015' | Out-Null
+            $after = Get-BriefText -Fixture $f
+            Invoke-Dispatch -Fixture $f -Name 'T-9015' | Out-Null
+            (Get-BriefText -Fixture $f) | Should -Be $after
+        }
+
+        # A brief that cannot be written to would leave the copies on disk with nothing telling the
+        # worker to open them, which is the failure this attachment exists to close.
+        It 'refuses before creating anything when the brief cannot be written to' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-readonly-brief'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+            $item = Get-Item -LiteralPath $f.BriefPath
+            $item.IsReadOnly = $true
+            try {
+                { Invoke-Dispatch -Fixture $f -Name 'T-9016' } | Should -Throw '*read-only*'
+                Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+            } finally { $item.IsReadOnly = $false }
+        }
+
+        # The composed name can hold no separator and no traversal, because the resolution loop
+        # skips any registry entry whose name the index cannot turn into a file name. Without that,
+        # a hand-edited registry line would decide which file this dispatch copies out of data\.
+        It 'resolves no project from a registry name the index cannot make a file name of' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-hostile-name'
+            @('# Projects', '', '- ../../secrets [local-only] - hand written', "      path: $($f.Repo)") |
+                Set-Content -LiteralPath (Join-Path $f.DataPath 'projects.md') -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9017' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -WarningAction SilentlyContinue
+            $r.id | Should -Be 'T-9017'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+        }
+
+        It 'refuses to register a project name that could not be composed into a file name' {
+            { Add-ProjectEntry -Name '../../secrets' -Path 'C:\repos\x' -Mode 'local-only' `
+                -Description 'x' -RegistryPath (Join-Path (New-TempFixturePath -Prefix 'reg-') 'projects.md') } |
+                Should -Throw '*cannot be registered*'
+        }
+
+        # The rules file is reference handed over whole. Nothing here reads what is inside it, so a
+        # file whose content would defeat any parser is copied through untouched.
+        It 'copies the rules file through without reading a thing inside it' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-opaque'
+            $name = Register-FixtureProject -Fixture $f
+            $body = @('## Read first', '```', '- `C:\not\a\path.md`', '```', 'index checked, nothing applies') -join "`r`n"
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" -Text $body | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-9018').id | Should -Be 'T-9018'
+            (Get-Content -LiteralPath (Join-Path $f.BriefDir "read-first\rules-$name.md") -Raw).Trim() |
+                Should -Be $body
+        }
+    }
 }

@@ -2,7 +2,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
-[![Tests](https://img.shields.io/badge/tests-1312%20passing-3fb950)](tests)
+[![Tests](https://img.shields.io/badge/tests-1342%20passing-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 # You rule. It executes.
@@ -154,7 +154,9 @@ anything - `hello` will do - and the first reply opens by telling you where thin
 1. **Write your standing instructions** in `instructions.md` - how you want to be addressed, your
    delivery defaults, your conventions. Read every session, never written to, gitignored.
 2. **Register a repository.** `/annex D:\code\your-repo` - any path on any drive. It records the
-   posture and never clones.
+   posture, offers to note that project's standing rules - how its tickets are tagged, folders
+   never to touch, where its login is kept - and never clones. Every worker sent into that project
+   gets those rules attached to its instructions without anyone passing them.
 3. **Give it work.** *"fix the flaky login test in your-repo"*. You get a brief to approve before
    anything is dispatched.
 4. **Check in.** `/survey` for where everything stands, `/audience` for what you missed.

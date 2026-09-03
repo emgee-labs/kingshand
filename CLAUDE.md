@@ -107,6 +107,17 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
 - `data\done-<project>.md` - one project's standing definition of done, one `-` bullet per
   criterion. Pasted into every brief for that project, and grown from gate evidence at close-out.
   `muster` owns both of those and nothing else restates them.
+- `data\rules-<project>.md` - one project's standing rules: conventions, vocabulary, ticket tagging
+  and casing, folders never to touch, branch naming, environment facts, and where a login is kept.
+  Not criteria and never self-reported against - reference a worker consults. Nothing expires it.
+  `annex` owns its format and offers to create it at import.
+
+**Both of those reach a worker mechanically. `bin\Dispatch-Worker.ps1` attaches whichever of the
+two exists to every brief for that project and names each copy under `Read first` itself,** so
+delivery never depends on your remembering to pass it. A settled brand spec once sat in `data\`
+naming itself the input to the website brief while the site shipped without its logo, favicon,
+tagline or palette, because no brief named the file. Never store a credential value in either one:
+name the environment variable or the credential-store entry that holds it, and nothing else.
 - `data\backlog.md` - the durable work queue. Maintained via `tasks-axi`; the Backlog contract
   below owns it.
 - `data\<id>\brief.md` - the brief given to each worker.
@@ -157,7 +168,7 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\ClaudeWorkspace.psm1` | writes a worktree's `settings.local.json` and pre-seeds folder trust, because no arguments can be passed to a worker |
 | `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, query, save |
 | `bin\Projects.psm1` | the project registry: read an entry and its posture, add one, test importability |
-| `bin\Dispatch-Worker.ps1` | creates one worktree and spawns one worker in it, and returns what Crew.psm1 must record |
+| `bin\Dispatch-Worker.ps1` | creates one worktree and spawns one worker in it, attaches the project's own standing files to the brief without being asked, and returns what Crew.psm1 must record |
 | `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the one ref a worker branches from and the landing gate diffs against - the integration branch the repo declares in `.no-mistakes.yaml`, and its default branch where it declares none, always confirmed with `git rev-parse --verify` |
 | `bin\Get-CrewStatus.ps1` | joins crew.json with herdr's live agent state |
 | `bin\Get-SurveySnapshot.ps1` | the one bounded gather behind `/survey`: registry, workers joined with live state, reports, un-dispatched briefs. Returns structured data, renders nothing, never throws |
@@ -302,9 +313,15 @@ an older backlog line, ticket text or report - a worker left to choose picks wro
   appending forever.
 - Task-scoped notes belong with the backlog item, and investigation findings belong in that worker's
   `data\<id>\report.md`.
-- A criterion every future change to one project must meet is the one exception to the bullet
+- A criterion every future change to one project must meet is one of two exceptions to the bullet
   below: it belongs in `data\done-<project>.md`, which you do write, in the turn the evidence for
   it arrives. `muster` owns what qualifies.
+- A standing rule for one project that is not a criterion - its tagging and casing, its shorthand,
+  a folder never to touch, its branch naming, where its login is kept - is the other: it belongs in
+  `data\rules-<project>.md`, which you also write, in the turn the King states it. Test the two
+  apart by asking whether a worker could report pass or fixed against it; where it could not, it is
+  a rule and not a criterion. Both are outside `chronicle`'s budget and its sweep, and nothing
+  expires them.
 - Knowledge useful to every contributor to one project belongs in that project's own memory file,
   written by a worker through its delivery path, never by you. Hard rule 1 is not relaxed for a
   memory file.
@@ -327,9 +344,10 @@ under way. Proceed on one confident match while naming the project in plain lang
 concise question when several projects or none plausibly match.
 
 Per-project conventions - a project's shorthand, its tagging, the vocabulary its tickets use -
-live in that project's own memory file, not here and not in the registry. That file does not load
-into this session on its own, so read it before writing a brief or creating a work item, and copy
-tag casing rather than reconstructing it.
+live in `data\rules-<project>.md`, not here and not in the registry. That file does not load into
+this session on its own, so **read it before writing a brief or creating a work item**, and copy
+tag casing rather than reconstructing it. A worker gets its own copy without you passing one, but
+that copy reaches the worker rather than you, and it is you who writes the ticket text.
 
 Consult the evidence that already exists before commissioning an investigation: an earlier
 `report.md`, the ticket, and its comments. **A diagnostic request, a report, a recommendation or
