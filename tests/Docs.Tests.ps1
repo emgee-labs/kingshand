@@ -5445,6 +5445,12 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
             Should -BeTrue -Because '$env:KINGSHAND_HOME is not reliably set in a worker session'
         $t.IndexOf('## Browser checks') | Should -BeLessThan $t.IndexOf('## Done means')
 
+        # Both paths in that slot, not just the module one. A worker inherits a server environment
+        # that predates the variable, so either path written against it names no file at all.
+        $slot = $t.Substring($t.IndexOf('## Browser checks'))
+        $slot = $slot.Substring(0, $slot.IndexOf("`n## "))
+        $slot | Should -Not -Match '\$env:KINGSHAND_HOME' -Because 'a worker cannot expand it'
+
         # Every other section of the template stays in every brief. This one arriving by accident
         # is a browser step on a migration, so the fence itself has to say to delete it.
         $t.Contains('## Browser checks  <- delete this whole section unless the task renders something to look at') |
@@ -5548,6 +5554,16 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
             -Phrase '**Never fall back to a bare `$env:NAME` read**'
         Assert-Phrase -Text $script:WitnessText -Where 'witness' `
             -Phrase 'the silent failure looks exactly like a wrong password'
+
+        # The worked example must not do the thing the rule beside it forbids: an unassigned call
+        # prints the login into a pane whose scrollback the Hand reads.
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**Be honest about what that costs.**'
+        $fences = @(Get-CodeFence $script:WitnessMd |
+                        Where-Object { $_.Contains('Get-BrowserCredentialValue') })
+        $fences.Count | Should -Be 1
+        $fences[0] | Should -Match '\$\w+\s*=\s*Get-BrowserCredentialValue' `
+            -Because 'the example assigns the login rather than echoing it'
     }
 
     # The headline requirement: a record of what was seen, per check, with nothing dropped.

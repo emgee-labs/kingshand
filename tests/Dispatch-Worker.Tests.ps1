@@ -820,7 +820,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 [Parameter(Mandatory)]$Fixture,
                 [string[]]$Leaf   = @(),
                 [string[]]$Body,
-                [string]$From     = 'C:\somewhere\original.md'
+                [string]$From     = 'C:\somewhere\original.md',
+                [switch]$BrowserChecks
             )
             if (-not $PSBoundParameters.ContainsKey('Body')) {
                 $Body = if ($Leaf.Count -eq 0) { @('- Nothing beyond this brief.') } else {
@@ -829,8 +830,11 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                     }
                 }
             }
+            $browser = if ($BrowserChecks) {
+                @('', '## Browser checks', '- C-001 the drawer closes when the overlay is clicked')
+            } else { @() }
             Set-Content -Path $Fixture.BriefPath -Encoding utf8 -Value (@(
-                '# Brief', '', '## Read first') + $Body + @(
+                '# Brief', '', '## Read first') + $Body + $browser + @(
                 '', '## Scope', 'Do the thing, and the SECRET-BODY-MARKER must never travel by value.'))
         }
     }
@@ -1574,7 +1578,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Set-AgentStartState
             $f = New-DispatchFixture 'index-procedure-only'
             Register-FixtureProject -Fixture $f -WithIndex | Out-Null
-            Set-ReadFirstBrief -Fixture $f -Leaf 'SKILL.md' -From $script:ProcedureFile
+            Set-ReadFirstBrief -Fixture $f -Leaf 'SKILL.md' -From $script:ProcedureFile -BrowserChecks
 
             $msg = ''
             try {
@@ -1592,7 +1596,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Register-FixtureProject -Fixture $f -WithIndex | Out-Null
             $brand = Join-Path $f.DataPath 'brand.md'
             Set-Content -Path $brand -Value 'teal, not amber' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Leaf @('SKILL.md', 'brand.md') -From $brand
+            Set-ReadFirstBrief -Fixture $f -Leaf @('SKILL.md', 'brand.md') -From $brand -BrowserChecks
 
             $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8029' `
                 -BriefPath $f.BriefPath -DataPath $f.DataPath `
@@ -1600,6 +1604,39 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $r.id | Should -Be 'T-8029'
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\SKILL.md') | Should -BeTrue
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\brand.md') | Should -BeTrue
+        }
+
+        # The discount is about a file passed by rote, and it is only by rote where the brief asked
+        # for browser checks. A kingshand task to change that procedure passes it because it IS the
+        # subject, so it engages the gate like any other file the Hand chose - and a refusal there
+        # would have told the Hand a reason untrue of its own brief.
+        It 'counts the browser procedure on a brief that asked for no browser checks' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-procedure-subject'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Leaf 'SKILL.md' -From $script:ProcedureFile
+
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8030' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $script:ProcedureFile
+            $r.id | Should -Be 'T-8030'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\SKILL.md') | Should -BeTrue
+        }
+
+        # A brief quoting muster's template quotes the browser section too, fence and all. That is
+        # somebody else's example, not this brief asking for a browser step, so it must not switch
+        # the discount on and refuse a dispatch that named a real file.
+        It 'does not take a quoted browser-checks heading as this brief asking for one' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-procedure-quoted'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                "- ``$($f.BriefDir)\read-first\SKILL.md`` - the procedure, copied here.",
+                '', '## Scope', 'Change the template that reads:', '',
+                '```markdown', '## Browser checks', '- C-001 something', '```')
+
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8031' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $script:ProcedureFile
+            $r.id | Should -Be 'T-8031'
         }
 
         # The discount has to survive a relative -DataPath, because the two ways of rooting one

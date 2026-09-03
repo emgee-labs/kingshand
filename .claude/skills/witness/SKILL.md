@@ -125,15 +125,20 @@ $cred.summary        # safe to paste into report.md - the whole result carries n
 ```
 
 **The login is not in that result, and that is deliberate** - printing `$cred` puts every key it
-holds into your pane and your transcript, so there is nothing there to leak. Get it only where you
-are about to type it into the page:
+holds into your pane and your transcript, so there is nothing there to leak. Read the login itself
+only in the moment you are about to type it into the page, and into a variable rather than to the
+screen:
 
 ```powershell
-Get-BrowserCredentialValue -Variable '<THE_VARIABLE_NAME>'   # feed straight into form_input
+$login = Get-BrowserCredentialValue -Variable '<THE_VARIABLE_NAME>'   # assigned, never echoed
 ```
 
-Never print it, never echo it into a command line, never let it into the report. `$cred.summary`
-is what the report gets.
+**Be honest about what that costs.** Calling it without the assignment prints the login as the
+command's output, into your pane and into the scrollback the Hand can read, and reading it at all
+puts it in your own context. That is the floor and it cannot be removed - you have to hold the
+string to type it. So keep it to one read: assign it, pass it to `form_input`, and never echo it,
+never put it on a command line, never log it, never repeat it and never let it into the report.
+`$cred.summary` is the only line about the login that the report gets.
 
 **There is a trap underneath this, and the function is what handles it.** Workers are started by a
 long-running server - measured at 24.8 hours of uptime on 2026-09-03 - and a process inherits its

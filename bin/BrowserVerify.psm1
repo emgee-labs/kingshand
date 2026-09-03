@@ -113,8 +113,10 @@ function Read-BrowserCredential {
     @{ value = $null; source = 'none' }
 }
 
-# The login itself and nothing else, for typing into a page with `form_input`. Never print it,
-# never echo it into a command line, never write it to a file, and never put it in a report -
+# The login itself and nothing else, for typing into a page with `form_input`. Assign what it
+# returns rather than calling it bare: unassigned, the login is the command's output and lands in
+# the caller's pane and scrollback, which is the one exposure the split above cannot remove.
+# Never echo it into a command line, never write it to a file, and never put it in a report -
 # `$null` where the variable is set in neither place, which Get-BrowserCredentialStatus is the
 # thing to report on.
 function Get-BrowserCredentialValue {

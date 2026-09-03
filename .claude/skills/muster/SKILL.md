@@ -313,9 +313,10 @@ file. Naming the skill is not delivery - skills live in kingshand's own reposito
 runs in the target project's worktree, where none of them exists - so a list of things to look at
 with a pointer the worker cannot follow sends it into a browser without the read-only boundary,
 the credential rule or the record every check has to end up in, and the change comes back
-asserted, which is the one outcome the section exists to prevent. Name the module's absolute path
-in the section too, resolved the same way the report path is: `$env:KINGSHAND_HOME` is often unset
-in a worker's session, and an import written against it names no file.
+asserted, which is the one outcome the section exists to prevent. Write both paths in that section
+resolved - the copy the worker opens and the module it imports - the same way the report path is:
+`$env:KINGSHAND_HOME` is often unset in a worker's session, so either path written against it
+names no file at all, and the browser step dies on the first line of the procedure it never read.
 
 **That copy does not discharge the index line.** Dispatch discounts it exactly as it discounts the
 standing-criteria file, and for the same reason - every brief carrying browser checks passes it,
@@ -351,8 +352,8 @@ Do NOT touch: <explicit exclusions>
 - <behaviour that must not change>
 
 ## Browser checks  <- delete this whole section unless the task renders something to look at
-Read `$env:KINGSHAND_HOME\data\<id>\read-first\SKILL.md` - the browser procedure, named under
-`Read first` above - in full before you touch a browser tool. It owns how the browser is driven,
+Read `<the resolved KINGSHAND_HOME>\data\<id>\read-first\SKILL.md` - the browser procedure, named
+under `Read first` above - in full before you touch a browser tool. It owns how the browser is driven,
 what you may not do to a live server, how a login is read, and the record each check below has to
 end up in: every one of them answered by its id in `report.md`, verified, failed or not checked.
 The module it tells you to import is at `<the resolved KINGSHAND_HOME>\bin\BrowserVerify.psm1`.

@@ -92,6 +92,9 @@
   project that has one. The second is .claude\skills\witness\SKILL.md, the browser procedure muster
   hands over on every brief carrying a `## Browser checks` section - skills exist only in this
   repository, so a worker in another repo's worktree can be given that file and cannot load it.
+  That second discount applies ONLY to a brief carrying that section, which is the one place the
+  file is passed by rote: a kingshand task to change the procedure itself passes it because it is
+  the subject, carries no browser checks, and engages the gate like any other chosen file.
   Counting a path passed by rote would make this refusal unreachable from the moment the first
   criteria file is written, and the premise of the whole check is that a -ReadPath is evidence the
   Hand went through the index for THIS task. Every other path counts, including another file sitting
@@ -226,7 +229,13 @@ foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
 # accepts. That is the whole of what is read out of them: no path, no file name, no comparison
 # against -ReadPath. The section ends at the next heading, and a fenced block inside it is quoted
 # text there too - a template a brief quotes cannot make a statement on that brief's behalf.
+#
+# Whether the brief carries a `## Browser checks` section is read here too, and for one purpose
+# only: it is what tells the index gate below that the browser procedure was passed by rote rather
+# than because this task is about that file. Read under the same fence rule, so a brief quoting
+# muster's template does not acquire a browser step it never asked for.
 $hasSection   = $false
+$hasBrowser   = $false
 $inSection    = $false
 $inFence      = $false
 $sectionLines = [System.Collections.Generic.List[string]]::new()
@@ -236,6 +245,7 @@ foreach ($line in @(Get-Content -LiteralPath $BriefPath)) {
         continue
     }
     if ($inFence) { continue }
+    if ($line -match '^\s*##\s+Browser checks\b') { $hasBrowser = $true }
     if ($line -match '^\s*##\s+Read first\s*$') {
         $hasSection = $true
         $inSection  = $true
@@ -402,8 +412,15 @@ if ($gates.Count -gt 0) {
     # `## Browser checks` section. Rooted off this script rather than off the data root, because it
     # is part of the installation rather than of anybody's data, and resolved so the comparison
     # below sees the same shape Resolve-Path gave the staged copy.
+    #
+    # Discounted only on a brief that carries that section, because only there is it passed by
+    # rote. On a kingshand task to change the procedure itself, that file IS the subject and the
+    # brief carries no browser checks - so it counts, exactly as any other file the Hand chose
+    # would. A discount keyed on the path alone refused that dispatch and told it a reason that
+    # was not true of it.
     $procedure = [System.IO.Path]::GetFullPath(
         (Join-Path $PSScriptRoot '..\.claude\skills\witness\SKILL.md'))
+    if (-not $hasBrowser) { $procedure = '' }
 
     $discountedPaths = @(@($byRote, $procedure) | Where-Object { $_ })
     $isByRote = {
