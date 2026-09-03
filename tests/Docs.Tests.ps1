@@ -5306,6 +5306,20 @@ Describe 'counsel splits the dialogue from the reading, and only the King starts
                      'its tooling')
     }
 
+    # Two instructions that read as contradictions of the skill's own guards unless their scope is
+    # stated: the ordering trigger looks like the Hand volunteering an analysis, and the read-only
+    # scope sits in the same brief as a Done-means block that opens by requiring a commit.
+    It 'scopes the ordering trigger and names which brief line wins' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**This test fires only on work the King has already asked for, and all it decides ' +
+                     'is the order of that work**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase '**it never starts a counsel pass on its own.**'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**Then say in one line which instruction wins: where the read-only scope and the ' +
+                     'pasted Done-means block disagree, the read-only scope wins**')
+    }
+
     # muster's lifecycle assumes work that lands or pushes, and this dispatch makes no commits at
     # all. An earlier attempt to specify the missing close-out here made counsel a second owner of
     # the lifecycle, and every patch to it exposed the next assumption muster makes. So the rule is

@@ -104,8 +104,11 @@ for, and that is four parts of one written deliverable, in the worker's `report.
 Two things the brief must also say, because an analysis dispatch is unlike an implementation one:
 
 - **It changes nothing.** Write the scope as reading only, and say so in the exclusions: this
-  dispatch writes its own `report.md` and no other file. An analysis that comes back with a commit
-  has exceeded its brief.
+  dispatch writes its own `report.md` and no other file. **Then say in one line which instruction
+  wins: where the read-only scope and the pasted Done-means block disagree, the read-only scope
+  wins** - `CLAUDE.md`'s Knowledge routing puts that call in the brief, and a worker left to choose
+  between reading only and committing on the branch picks wrong half the time. An analysis that
+  comes back with a commit has exceeded its brief.
 - **Where two shapes are live, compare them.** Two or three approaches, their trade-offs, and a
   recommendation. That is the brainstorming half, and its own section below owns it.
 
@@ -197,8 +200,19 @@ judgement's simplest direct path still applies inside an analysis the King asked
 ## When a design question earns its own dispatch first
 
 Kingshand already produces design comparisons inside worker reports. What it lacked was the
-trigger, and this is it. **Dispatch an analysis before the implementation when any one of these is
-true:**
+trigger, and this is it.
+
+**This test fires only on work the King has already asked for, and all it decides is the order of
+that work** - whether the shape has to be settled before an implementation dispatch, or whether
+the implementation brief can be written now. It adds nothing beside an answer he already has, and
+**it never starts a counsel pass on its own.** Where the shape needs settling, say so in one line
+and let the King decide. The guard at the top of this skill is untouched by it.
+
+Where a project's registered posture already grants routine dispatch authority, an investigation
+dispatch that only sequences work the King has already asked for is ordinary sequencing rather
+than a design exercise the Hand volunteered, so the two rules do not conflict.
+
+**Dispatch an analysis before the implementation when any one of these is true:**
 
 - the answer changes the task set - two shapes are live and they divide the work differently, so
   deciding after implementation starts means rewriting the tasks rather than finishing them
