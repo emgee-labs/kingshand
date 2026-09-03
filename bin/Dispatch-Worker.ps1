@@ -454,8 +454,12 @@ if ($staged.Count -gt 0) {
 # so `git log "$base..HEAD"` carries commits nobody in this ticket wrote. The landing gate's
 # attribution scan runs over that same range, so any of them carrying a co-author trailer surfaces
 # there - which muster reads as a bad diff base rather than as the worker's doing - but the rest
-# just widen the diff. Nothing here can do better: where an existing branch was originally cut
-# from is not recorded anywhere git will answer for.
+# just widen the diff. Closing that gap is possible and is simply not done here: the branch's own
+# reflog records where it was cut from - `git reflog show worktree-<name>` ends at
+# `branch: Created from <ref>`, written by the `-b` add below, so it exists by construction on the
+# reuse path and survives until gc.reflogExpire - and crew.json already holds the base the first
+# dispatch recorded under this same worker id. Either would give the real branch point; both are
+# a behaviour change to make deliberately rather than a line to slip in beside a comment.
 #
 # Resolved BEFORE the spawn on purpose: Resolve-BaseRef refuses rather than inventing a ref, and
 # a refusal after the worker exists would leave an orphaned agent running in the repo.

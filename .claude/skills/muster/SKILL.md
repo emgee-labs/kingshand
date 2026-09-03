@@ -728,12 +728,19 @@ tasks-axi start "<id>"
 it back so the recording above does not change shape. There is no before-and-after listing to diff
 and nothing to look up: use `$r.id` and never invent a second identifier for the same worker.
 
-Pass `-Base $r.base` every time. It is the one ref the worktree was actually cut from, and the
-landing gate in step 7 diffs against that same ref - so the two cannot disagree. **Which ref that
-is belongs to `bin\Resolve-BaseRef.ps1`'s header, and nothing here restates it**; it is not always
-the default branch, because a repository can declare a separate integration branch that every
-pull request targets. The dispatcher confirms whatever it returns with `git rev-parse --verify`
-and refuses rather than inventing a name that would resolve to nothing at the gate.
+Pass `-Base $r.base` every time. It is the ref a first dispatch cut the worktree from, and the
+landing gate in step 7 diffs against that same ref. **Which ref that is belongs to
+`bin\Resolve-BaseRef.ps1`'s header, and nothing here restates it**; it is not always the default
+branch, because a repository can declare a separate integration branch that every pull request
+targets. The dispatcher confirms whatever it returns with `git rev-parse --verify` and refuses
+rather than inventing a name that would resolve to nothing at the gate.
+
+**On a re-dispatch the two can disagree, so read step 7's diff knowing that.** Re-dispatching a
+ticket whose branch survived does not branch again - the branch point is whatever the earlier
+dispatch chose - while the base is resolved fresh. If the repository has moved since, by declaring
+an integration branch or changing its default, the recorded base names one tree and the branch was
+cut from another, and step 7's `git log "$base..HEAD"` then lists commits nobody in this ticket
+wrote. A widened diff on a re-dispatched ticket is that, not the worker's doing.
 
 **Relay any warning that call prints.** Base resolution warns when it could not honour a
 repository's declared integration branch, or honoured it only as a local copy nothing has
@@ -1107,11 +1114,13 @@ git -C $w.worktree --no-pager diff --stat "$base...HEAD"
 git -C $w.worktree --no-pager log --oneline "$base..HEAD"
 ```
 
-**Use `$w.base`, never the local default branch.** It is the ref the worktree was actually cut
-from, which is usually a remote-tracking one and is not always the default branch. When a local
-branch is behind - which is normal - diffing against it folds every upstream commit in that gap
-into what looks like the worker's work. In the first real run this made a 1-file change appear as
-6 files across 3 commits.
+**Use `$w.base`, never the local default branch.** It is the ref recorded when this worker was
+dispatched, which is usually a remote-tracking one and is not always the default branch. When a
+local branch is behind - which is normal - diffing against it folds every upstream commit in that
+gap into what looks like the worker's work. In the first real run this made a 1-file change appear
+as 6 files across 3 commits. On a re-dispatched ticket the recorded base can itself predate a
+repository change, as Step 4 says - so a diff that carries commits this worker never made is a bad
+base, not a finding about the worker.
 
 Check the commits for attribution before showing anything:
 
