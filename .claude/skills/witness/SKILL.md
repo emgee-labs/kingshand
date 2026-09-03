@@ -113,12 +113,19 @@ project's notes name the variable and nothing else.
 ```powershell
 $cred = Get-BrowserCredentialStatus -Variable '<THE_VARIABLE_NAME>'
 $cred.found
-$cred.summary        # safe to paste into report.md - it carries no value
+$cred.summary        # safe to paste into report.md - the whole result carries no login
 ```
 
-Use `$cred.value` by typing it into the page with `form_input` and for nothing else. Never print
-it, never echo it into a command line, never let it into the report. `$cred.summary` is what the
-report gets.
+**The login is not in that result, and that is deliberate** - printing `$cred` puts every key it
+holds into your pane and your transcript, so there is nothing there to leak. Get it only where you
+are about to type it into the page:
+
+```powershell
+Get-BrowserCredentialValue -Variable '<THE_VARIABLE_NAME>'   # feed straight into form_input
+```
+
+Never print it, never echo it into a command line, never let it into the report. `$cred.summary`
+is what the report gets.
 
 **There is a trap underneath this, and the function is what handles it.** Workers are started by a
 long-running server - measured at 24.8 hours of uptime on 2026-09-03 - and a process inherits its

@@ -92,7 +92,23 @@ Describe 'a login is found where it lives, and never invented' {
         $c = Get-BrowserCredentialStatus -Variable $script:ProcessVar
         $c.found  | Should -BeTrue
         $c.source | Should -Be 'process'
-        $c.value  | Should -Be 'a-secret'
+    }
+
+    It 'hands the login back from the accessor, from either place it lives' {
+        [Environment]::SetEnvironmentVariable($script:ProcessVar, 'a-secret')
+        Get-BrowserCredentialValue -Variable $script:ProcessVar | Should -Be 'a-secret'
+        Get-BrowserCredentialValue -Variable $script:AbsentVar  | Should -BeNullOrEmpty
+    }
+
+    # A hashtable evaluated on its own prints every key it holds, and a worker typing `$cred` to
+    # see whether a login was found is one keystroke from putting that login in its transcript.
+    # The status is safe to print because the login is not in it at all.
+    It 'keeps the login out of the status entirely, not just out of its summary' {
+        [Environment]::SetEnvironmentVariable($script:ProcessVar, 'a-secret')
+        $c = Get-BrowserCredentialStatus -Variable $script:ProcessVar
+        $c.ContainsKey('value') | Should -BeFalse -Because 'printing the status must print no login'
+        ($c.Values | Where-Object { "$_" -match 'a-secret' }) |
+            Should -BeNullOrEmpty -Because 'no field of the status may carry the login'
     }
 
     # The whole reason this function exists rather than a bare $env: read. A worker is started by
@@ -110,7 +126,6 @@ Describe 'a login is found where it lives, and never invented' {
         $c = Get-BrowserCredentialStatus -Variable $script:AbsentVar
         $c.found  | Should -BeFalse
         $c.source | Should -Be 'none'
-        $c.value  | Should -BeNullOrEmpty
         $c.reason | Should -Match 'is not set'
         $c.reason | Should -Match 'nothing was signed in to'
     }
@@ -126,6 +141,7 @@ Describe 'a login is found where it lives, and never invented' {
         [Environment]::SetEnvironmentVariable($script:ProcessVar, '')
         (Get-BrowserCredentialStatus -Variable $script:ProcessVar).found |
             Should -BeFalse -Because 'an empty password is not a password'
+        Get-BrowserCredentialValue -Variable $script:ProcessVar | Should -BeNullOrEmpty
     }
 }
 
@@ -217,7 +233,7 @@ Describe 'every declared check gets an outcome, and a pass has to be earned' {
         $r = Get-BrowserVerificationRecord -Check @(
             @{ id = 'C-001'; check = 'one'; outcome = 'not checked'; reason = '   ' }
         )
-        $r.items[0].reason | Should -Match 'no reason given'
+        $r.items[0].reason | Should -Match 'nothing recorded against it'
     }
 
     It 'ignores whitespace around an outcome word rather than reading it as a new state' {
@@ -236,7 +252,61 @@ Describe 'every declared check gets an outcome, and a pass has to be earned' {
         )
         $r.items[0].outcome | Should -Be 'not checked'
         $r.items[0].reason  | Should -Not -BeNullOrEmpty
-        $r.items[0].reason  | Should -Match 'no reason given'
+        $r.items[0].reason  | Should -Match 'nothing recorded against it'
+    }
+
+    # The worker wrote why in the other field. Telling the reader nobody said why, on the same
+    # item that says why, is a record contradicting itself.
+    It 'does not claim a not-checked item said nothing when it recorded an observation' {
+        $r = Get-BrowserVerificationRecord -Check @(
+            @{ id = 'C-001'; check = 'the export downloads'; outcome = 'not checked'
+               observed = 'a confirm dialog blocked the click' }
+        )
+        $r.items[0].outcome  | Should -Be 'not checked'
+        $r.items[0].observed | Should -Be 'a confirm dialog blocked the click'
+        $r.items[0].reason   | Should -Not -Match 'unknown'
+    }
+
+    # A refused outcome still keeps the only prose that item ever had - the record is the one
+    # thing that survives teardown, so nothing written against a check is dropped on the way out.
+    It 'keeps the stated reason on a check whose outcome could not stand' {
+        $r = Get-BrowserVerificationRecord -Check @(
+            @{ id = 'C-001'; check = 'the drawer closes'; outcome = 'verified'
+               reason = 'the drawer closed on the overlay click' }
+            @{ id = 'C-002'; check = 'the list renders'; outcome = 'passed'
+               reason = 'twelve rows, no console errors' }
+            @{ id = 'C-003'; check = 'the banner clears'; reason = 'ran out of context' }
+        )
+        foreach ($i in $r.items) { $i.outcome | Should -Be 'not checked' }
+        ($r.items | Where-Object { $_.id -eq 'C-001' }).reason |
+            Should -Match 'the drawer closed on the overlay click'
+        ($r.items | Where-Object { $_.id -eq 'C-001' }).reason | Should -Match 'no evidence for it'
+        ($r.items | Where-Object { $_.id -eq 'C-002' }).reason |
+            Should -Match 'twelve rows, no console errors'
+        ($r.items | Where-Object { $_.id -eq 'C-003' }).reason | Should -Match 'ran out of context'
+    }
+
+    It 'does not say a reason twice when the outcome stood on its own' {
+        $r = Get-BrowserVerificationRecord -Check @(
+            @{ id = 'C-001'; check = 'one'; outcome = 'not checked'; reason = 'needs a login' }
+        )
+        $r.items[0].reason | Should -Be 'needs a login'
+    }
+
+    # -Unavailable overrides every item at once, so a blank one puts a bare outcome word on the
+    # whole run rather than on a single check.
+    It 'does not let a whitespace-only unavailable reason stand as the reason for everything' {
+        $r = Get-BrowserVerificationRecord -Unavailable "  `t " -Check @(
+            @{ id = 'C-001'; check = 'one'; outcome = 'verified'; observed = 'seen' }
+            @{ id = 'C-002'; check = 'two' }
+        )
+        $c2 = $r.items | Where-Object { $_.id -eq 'C-002' }
+        $c2.outcome | Should -Be 'not checked'
+        $c2.reason  | Should -Match 'No outcome was recorded'
+        foreach ($i in $r.items) {
+            ($i.reason + $i.observed) |
+                Should -Not -BeNullOrEmpty -Because 'no item may come back as a bare outcome word'
+        }
     }
 
     It 'states a reason for a failed item with nothing recorded against it' {

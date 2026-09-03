@@ -5423,6 +5423,35 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
             -Phrase 'Six more are reference procedures'
     }
 
+    # A skill nothing delivers is a skill nobody follows. The worker reads its brief and nothing
+    # else, so the section that asks for a browser is also what has to carry the procedure - and
+    # the slot has to sit above `## Done means`, which is the line the worker delivers on.
+    It 'reaches the worker through the brief that asked for the browser step' {
+        Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'the CLAUDE.md Skills section' `
+            -Phrase 'name it inside that section so the worker driving the browser loads it too'
+
+        $musterMd = Join-Path $script:Root '.claude\skills\muster\SKILL.md'
+        $template = @(Get-CodeFence $musterMd |
+            Where-Object { $_.Contains('## Goal') -and $_.Contains('## Done means') })
+        $template.Count | Should -Be 1 -Because 'the brief template is one fence'
+        $t = $template[0]
+        $t.Contains('## Browser checks') |
+            Should -BeTrue -Because 'the browser step needs a slot in the artefact the worker reads'
+        $t.Contains('Load the `witness` skill before you touch a browser tool.') |
+            Should -BeTrue -Because 'the brief is the only thing that delivers the procedure'
+        $t.IndexOf('## Browser checks') | Should -BeLessThan $t.IndexOf('## Done means')
+    }
+
+    # Both ways: no section on a task that renders nothing, and no bare list of things to look at
+    # on a task that does.
+    It 'keeps the section out of every brief that does not need one' {
+        $step2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' -ToHeading 'Step 3 - Gate one'
+        Assert-Phrase -Text $step2 -Where 'muster Step 2' `
+            -Phrase '**`Browser checks` is the one optional section, and it is optional both ways.**'
+        Assert-Phrase -Text $step2 -Where 'muster Step 2' `
+            -Phrase 'Where you do write it, load `witness` first and name it in the section'
+    }
+
     # The server disconnected twice inside one conversation, so this path runs often. An absent
     # browser has exactly one honest outcome and it is not a quiet one.
     It 'treats an absent browser as verification that did not happen' {

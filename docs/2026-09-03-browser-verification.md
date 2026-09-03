@@ -3,7 +3,7 @@
 2026-09-03
 
 A front-end change used to be delivered on an assertion that the code looked right. `witness` lets
-a worker exercise it in a real browser instead, and records what it saw. Four decisions shaped it,
+a worker exercise it in a real browser instead, and records what it saw. Five decisions shaped it,
 and each one is here because the obvious alternative is worse in a way that is not obvious.
 
 ## The opt-in lives in the brief, not the registry
@@ -54,6 +54,12 @@ second, and reports which source answered. The second read is the one that usual
 the answer is a variable that simply works rather than an instruction to restart a server, which
 is advice a background worker cannot act on anyway. The restart is still named in the not-found
 message, because a variable set in neither place needs it.
+
+The login itself is not in what that function returns. A hashtable evaluated on its own prints
+every key it holds, so a worker typing `$cred` to see whether a login was found would put the
+login into its pane and its transcript - a foot-gun no prose warning removes. The status is
+therefore safe to print by construction, and `Get-BrowserCredentialValue` is the only way to the
+login, called where it is typed into the page and nowhere else.
 
 **Do not replace that second read with a bare `$env:` lookup.** It will appear to work on any
 machine where the server was started after the variable was set, which is exactly the machine

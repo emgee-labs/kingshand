@@ -303,6 +303,15 @@ is expected to meet. Where a criterion is one this task deliberately sets aside,
 `Requirements` or `Unchanged` and in the `Intent` section the gate is handed - the brief wins over
 the file, and a worker left to work out which source wins picks wrong half the time.
 
+**`Browser checks` is the one optional section, and it is optional both ways.** Leave it out
+entirely unless this task changes something a browser renders and you can state what to look at -
+most tasks change nothing of the kind, and a browser step nobody asked for is cost with no answer
+attached. Where you do write it, load `witness` first and name it in the section: the worker reads
+its brief and nothing else, so a list of things to look at with no pointer to the procedure sends
+it into a browser without the read-only boundary, the credential rule or the record every check
+has to end up in - and the change comes back asserted, which is the one outcome the section exists
+to prevent.
+
 Write `$env:KINGSHAND_HOME\data\<id>\brief.md`:
 
 ```markdown
@@ -327,6 +336,12 @@ Do NOT touch: <explicit exclusions>
 
 ## Unchanged
 - <behaviour that must not change>
+
+## Browser checks
+Load the `witness` skill before you touch a browser tool. It owns how the browser is driven, what
+you may not do to a live server, how a login is read, and the record each check below has to end
+up in - every one of them answered by name in `report.md`, verified, failed or not checked.
+- <one thing to look at, stated as something observable in a browser>
 
 ## Standing criteria
 <the lines of `data\done-<project>.md`, pasted unchanged>

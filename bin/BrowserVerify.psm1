@@ -94,6 +94,36 @@ function Get-BrowserToolStatus {
     $result
 }
 
+# The two places a login can be, read in the one order that works, and the only place that order
+# is written down. Not exported: the two functions below are the interface, and they differ only
+# in whether the caller gets the login or a line it can print.
+#
+# The second read is the registry rather than any inherited block, which is what makes a variable
+# set after herdr started reachable at all.
+function Read-BrowserCredential {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Variable)
+
+    $fromProcess = [Environment]::GetEnvironmentVariable($Variable)
+    if ($fromProcess) { return @{ value = $fromProcess; source = 'process' } }
+
+    $fromUser = [Environment]::GetEnvironmentVariable($Variable, 'User')
+    if ($fromUser) { return @{ value = $fromUser; source = 'user' } }
+
+    @{ value = $null; source = 'none' }
+}
+
+# The login itself and nothing else, for typing into a page with `form_input`. Never print it,
+# never echo it into a command line, never write it to a file, and never put it in a report -
+# `$null` where the variable is set in neither place, which Get-BrowserCredentialStatus is the
+# thing to report on.
+function Get-BrowserCredentialValue {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Variable)
+
+    (Read-BrowserCredential -Variable $Variable).value
+}
+
 # Where a login lives, without ever putting it in a file.
 #
 # Two places are read, in order, and the second one is why this function exists. Workers are
@@ -107,9 +137,11 @@ function Get-BrowserToolStatus {
 # one that usually answers. `source` says which, because "found in the user environment" is also
 # the tell that this worker's environment is stale.
 #
-# `value` is the login. It is returned so a caller can type it into a page and for no other
-# reason: never print it, never write it to a file, and never put it in a report. `summary` is
-# the line the report gets and it carries no value at all.
+# The login itself is deliberately NOT in this result, and Get-BrowserCredentialValue below is the
+# only way to it. A hashtable evaluated on its own prints every key it holds, so a worker typing
+# `$cred` to see whether one was found would put the login into its pane and its on-disk
+# transcript - which no amount of prose warning it not to would stop. Everything here is safe to
+# print, and `summary` is the line the report gets.
 function Get-BrowserCredentialStatus {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Variable)
@@ -118,28 +150,23 @@ function Get-BrowserCredentialStatus {
         variable = $Variable
         found    = $false
         source   = 'none'
-        value    = $null
         reason   = ''
         summary  = ''
     }
 
-    $fromProcess = [Environment]::GetEnvironmentVariable($Variable)
-    if ($fromProcess) {
+    $read = Read-BrowserCredential -Variable $Variable
+
+    if ($read.source -eq 'process') {
         $result.found   = $true
         $result.source  = 'process'
-        $result.value   = $fromProcess
         $result.reason  = "$Variable was set in this process's own environment."
         $result.summary = "$Variable - found in this worker's environment."
         return $result
     }
 
-    # Reads the registry rather than any inherited block, which is what makes a variable set after
-    # herdr started reachable at all.
-    $fromUser = [Environment]::GetEnvironmentVariable($Variable, 'User')
-    if ($fromUser) {
+    if ($read.source -eq 'user') {
         $result.found   = $true
         $result.source  = 'user'
-        $result.value   = $fromUser
         $result.reason  = ("$Variable was not in this process's environment but is set for the " +
                            'user. This worker was started from an older environment; the user ' +
                            'setting is authoritative and was used.')
@@ -189,6 +216,10 @@ function Get-BrowserVerificationRecord {
     # anybody declared, and treating it as one would invent a check to report.
     $items = [System.Collections.Generic.List[hashtable]]::new()
 
+    # Trimmed once, for the same reason every check field is: this reason overrides every item, so
+    # a caller passing whitespace would put a bare outcome word on all of them at once.
+    $absent = ([string]$Unavailable).Trim()
+
     foreach ($c in @($Check)) {
         if (-not $c) { continue }
 
@@ -203,8 +234,8 @@ function Get-BrowserVerificationRecord {
         $outcome = 'not checked'
         $reason  = ''
 
-        if ($Unavailable) {
-            $reason = $Unavailable
+        if ($absent) {
+            $reason = $absent
         } elseif (-not $given) {
             $reason = 'No outcome was recorded for this check.'
         } elseif ($script:Outcomes -notcontains $given) {
@@ -212,9 +243,9 @@ function Get-BrowserVerificationRecord {
                        'has no outcome that can be read.')
         } elseif ($given -eq 'verified' -and -not $observed) {
             $reason = 'Recorded verified with nothing observed, so there is no evidence for it.'
-        } elseif ($given -eq 'not checked' -and -not $stated) {
-            $reason = ('Recorded not checked with no reason given, so why it was not checked ' +
-                       'is unknown.')
+        } elseif ($given -eq 'not checked' -and -not $stated -and -not $observed) {
+            $reason = ('Recorded not checked with nothing recorded against it, so why it was ' +
+                       'not checked is unknown.')
         } elseif ($given -eq 'failed' -and -not $stated -and -not $observed) {
             $outcome = $given
             $reason  = ('Recorded failed with nothing observed and no reason given, so there is ' +
@@ -222,6 +253,14 @@ function Get-BrowserVerificationRecord {
         } else {
             $outcome = $given
             $reason  = $stated
+        }
+
+        # A substituted reason says why the outcome could not stand, and the worker's own words
+        # are the evidence for whatever it did see. Both are kept: the item is the only account
+        # of this check that survives, so nothing written against it is dropped on the way to a
+        # refused outcome. -Unavailable is the exception, and deliberately overrides.
+        if (-not $absent -and $stated -and $reason -ne $stated) {
+            $reason = "$reason The reason recorded against it: $stated"
         }
 
         $items.Add(@{
@@ -265,4 +304,5 @@ function Get-BrowserVerificationRecord {
 }
 
 Export-ModuleMember -Function Get-BrowserRequiredTools, Get-BrowserToolStatus,
-                              Get-BrowserCredentialStatus, Get-BrowserVerificationRecord
+                              Get-BrowserCredentialStatus, Get-BrowserCredentialValue,
+                              Get-BrowserVerificationRecord

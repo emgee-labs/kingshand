@@ -236,8 +236,9 @@ arrives.
   decision a `report.md` names and nobody has answered.
 - `statute` - load before changing kingshand's own tracked material (`CLAUDE.md`, `bin\`,
   `.claude\skills\`, `tests\`, `docs\`), and name it in the brief when a task touches it.
-- `witness` - load before writing a `## Browser checks` section into a brief, and workers load it
-  before driving a browser for one. A brief with no such section gets no browser step at all.
+- `witness` - load before writing a `## Browser checks` section into a brief, and name it inside
+  that section so the worker driving the browser loads it too - the brief is the only thing that
+  worker reads. A brief with no such section gets no browser step at all.
 - `rally` - load when a worker reads dead or has no live process, or is reported stalled, found with
   unexplained text in its input box, looping, repeatedly confused, asking what its brief already
   answers, unresponsive, or still recorded as working after a session restart. Never remove a stuck
