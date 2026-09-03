@@ -920,6 +920,69 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         }
     }
 
+    # The declaration exists so that a repository can land a fresh clone on `main` while its work
+    # integrates on `dev`. Resolve-BaseRef is exercised on its own above; what a worker is actually
+    # handed is decided here, where the resolved ref becomes both the branch point and the recorded
+    # base. So this asserts the tree the worker opens, not just the string that came back.
+    Context 'a repository whose integration branch is not its default branch' {
+        BeforeAll {
+            Set-AgentStartState
+            $script:Split = New-DispatchFixture 'split-branch'
+
+            # Default `main`, integration `dev`, and a commit that exists only on `dev` - so a
+            # worktree cut from the default branch is missing a file a worktree cut from the
+            # integration branch has, and the two are told apart by what is on disk.
+            $repo = New-TempRepo -WithOrigin
+            git -C $repo checkout -q -b 'dev'
+            Set-Content -Path (Join-Path $repo 'only-on-dev.txt') -Value 'integration' -Encoding utf8
+            git -C $repo add -A
+            git -C $repo commit -q -m 'A commit that exists only on the integration branch'
+            git -C $repo push -q origin 'dev' 2>&1 | Out-Null
+            git -C $repo checkout -q 'main'
+            git -C $repo remote set-head origin -a 2>&1 | Out-Null
+            Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: dev"
+
+            $script:Split.Repo   = $repo
+            $script:SplitResult  = Invoke-Dispatch -Fixture $script:Split -Name 'T-3001'
+        }
+
+        It 'cuts the worker from the declared branch, not from the default one' {
+            # origin/HEAD really does name the other branch, so the declaration is being
+            # preferred rather than winning because the alternative was missing.
+            (git -C $script:Split.Repo symbolic-ref --short refs/remotes/origin/HEAD) |
+                Should -Be 'origin/main'
+
+            $head = (& git -C $script:SplitResult.worktree rev-parse 'HEAD').Trim()
+            $head | Should -Be (& git -C $script:Split.Repo rev-parse 'origin/dev').Trim()
+            $head | Should -Not -Be (& git -C $script:Split.Repo rev-parse 'origin/main').Trim()
+        }
+
+        # What the worker sees when it opens its checkout: the integration branch's tree, with the
+        # work that has landed there present rather than absent.
+        It 'gives the worker a checkout holding the integration branch work' {
+            Test-Path -LiteralPath (Join-Path $script:SplitResult.worktree 'only-on-dev.txt') |
+                Should -BeTrue -Because 'the worker is working on top of what has already integrated'
+        }
+
+        # The recorded base is what the landing gate diffs against, so recording the default
+        # branch here would fold every dev-only commit into the worker's diff.
+        It 'records the declared branch as the base the landing gate will diff against' {
+            $script:SplitResult.base | Should -Be 'origin/dev'
+        }
+
+        # The diff the landing gate actually takes, run against the base this dispatch recorded:
+        # empty on a fresh branch, because the worker has written nothing yet. Against the default
+        # branch it would list the integration branch's file as this worker's work.
+        It 'leaves the landing diff empty until the worker writes something' {
+            $diff = @(& git -C $script:SplitResult.worktree diff --name-only `
+                             "$($script:SplitResult.base)...HEAD" | Where-Object { $_.Trim() })
+            $diff | Should -BeNullOrEmpty
+            @(& git -C $script:SplitResult.worktree diff --name-only 'origin/main...HEAD') |
+                Should -Contain 'only-on-dev.txt' `
+                -Because 'this is the widened diff the declaration exists to avoid'
+        }
+    }
+
     Context 're-dispatching the same ticket' {
         # `git worktree add -b` cannot be told twice, and a raw "fatal: a branch named
         # worktree-T-2001 already exists" is not something the Hand can route on. Sending a worker
