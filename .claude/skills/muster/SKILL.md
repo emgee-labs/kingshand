@@ -1084,9 +1084,9 @@ answer afterwards to make the record tidy: filing it durably asserts that somebo
 authority gave it.
 
 **A worker with that pointer set is idle rather than hung**, and costs nothing where it is - the
-review-gate run it left parked keeps the branch and every fix commit already made. **Do not set `gating`, do not close the
-backlog item, and above all do not tear it down.** Teardown ends the process holding that parked
-run, and the answer then has nowhere to go.
+review-gate run it left parked keeps the branch and every fix commit already made. **Do not set
+`gating`, do not close the backlog item, and above all do not tear it down.** Teardown ends the
+process holding that parked run, and the answer then has nowhere to go.
 
 **Load `petition` before answering it - whatever the posture, and whether or not the King is at
 the machine.** It owns who may decide this and by what test, including the test that applies when
@@ -1338,10 +1338,11 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
   merges.
 - Never push a project that is not registered with a push-capable posture.
 - **Never land a worker whose `waiting_on` is set.** It is mid-run rather than delivered, whatever
-  its branch shows, and Step 6 owns what to do with it. **The pointer is only as current as the
-  last time somebody read that worker's report**, and Step 0 sends "land / merge / ship a worker"
-  straight to this step - so where Step 6 has not run since the worker last settled, take it there
-  first rather than reading a null as a delivery.
+  its branch shows, and Step 6 owns what to do with it. **A null is only as current as the last
+  read of that worker's report, and its stage says whether that read has happened**: `dispatched`
+  or `implementing` means neither Step 6 nor Step 8a has run - Step 0 sends "land / merge / ship a
+  worker" straight to this step - so take it to Step 6 first rather than reading the null as a
+  delivery. Nothing here turns on what you remember of an earlier session.
 
 **Verify the base ref resolves before gathering anything.** This check is not optional and
 nothing below it runs until it passes:

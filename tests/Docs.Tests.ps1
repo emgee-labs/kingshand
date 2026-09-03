@@ -6293,14 +6293,19 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two: approve the landing') `
             -Where 'the landing gate floors' `
             -Phrase '**Never land a worker whose `waiting_on` is set.**'
-        # The one honest limit of a pointer: it is written by a Hand reading a report, so it is only
-        # as current as the last such read - and direct entry skips that read entirely.
+        # The one honest limit of a pointer: it is written by a Hand reading a report, so a null is
+        # only as current as the last such read - and direct entry skips that read entirely. The
+        # test for whether it happened has to be readable off the record, not remembered: keyed on
+        # "since Step 6 last ran" it would be the session-only discriminator an earlier round of
+        # this same work already found and removed once.
         Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two: approve the landing') `
             -Where 'the landing gate floors' `
-            -Phrase ('**The pointer is only as current as the last time somebody read that ' +
-                     'worker''s report**, and Step 0 sends "land / merge / ship a worker" straight ' +
-                     'to this step - so where Step 6 has not run since the worker last settled, ' +
-                     'take it there first rather than reading a null as a delivery.')
+            -Phrase ('**A null is only as current as the last read of that worker''s report, and ' +
+                     'its stage says whether that read has happened**: `dispatched` or ' +
+                     '`implementing` means neither Step 6 nor Step 8a has run')
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two: approve the landing') `
+            -Where 'the landing gate floors' `
+            -Phrase 'Nothing here turns on what you remember of an earlier session.'
         Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
             -Phrase ('**It does mean the one check Step 6 owns has not run, so run it here: a ' +
                      'worker whose `waiting_on` is set is mid-run, and so is one whose report ' +
