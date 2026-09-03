@@ -5440,6 +5440,11 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
         $t.Contains('Load the `witness` skill before you touch a browser tool.') |
             Should -BeTrue -Because 'the brief is the only thing that delivers the procedure'
         $t.IndexOf('## Browser checks') | Should -BeLessThan $t.IndexOf('## Done means')
+
+        # Every other section of the template stays in every brief. This one arriving by accident
+        # is a browser step on a migration, so the fence itself has to say to delete it.
+        $t.Contains('## Browser checks  <- delete this whole section unless the task renders something to look at') |
+            Should -BeTrue -Because 'the only optional section needs the marker inside the fence'
     }
 
     # Both ways: no section on a task that renders nothing, and no bare list of things to look at
@@ -5528,6 +5533,25 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
                      'instead, **`not checked`** with the reason')
         Assert-Phrase -Text $script:WitnessText -Where 'witness' `
             -Phrase 'a pass with no evidence behind it is exactly what this replaces'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**Copy the check ids out of the brief before you start**'
+    }
+
+    # A record built at the end from what the worker remembers doing is how a check goes missing,
+    # and the ids the brief declared are the only thing that catches it. The skill's own snippet
+    # has to hand them over, and the function has to take them.
+    It 'answers on the checks the brief declared, not just the ones the worker reported' {
+        Import-Module (Join-Path $script:Root 'bin\BrowserVerify.psm1') -Force
+        (Get-Command Get-BrowserVerificationRecord).Parameters.ContainsKey('Declared') |
+            Should -BeTrue -Because 'the skill tells the worker to pass the declared ids'
+
+        $fence = @(Get-CodeFence $script:WitnessMd |
+                       Where-Object { $_.Contains('Get-BrowserVerificationRecord') })
+        $fence.Count | Should -BeGreaterThan 0
+        foreach ($f in $fence) {
+            $f.Contains('-Declared') |
+                Should -BeTrue -Because 'every call a worker copies has to carry what was asked for'
+        }
     }
 
     It 'keeps the evidence as text, in the one file that survives teardown' {

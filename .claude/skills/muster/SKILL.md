@@ -310,7 +310,11 @@ attached. Where you do write it, load `witness` first and name it in the section
 its brief and nothing else, so a list of things to look at with no pointer to the procedure sends
 it into a browser without the read-only boundary, the credential rule or the record every check
 has to end up in - and the change comes back asserted, which is the one outcome the section exists
-to prevent.
+to prevent. It is the one section in the template carrying a delete marker for that reason: every
+other section stays in every brief, and this one arriving by accident is a browser step on a
+migration. Give each line an id - `C-001`, `C-002` - because the worker copies those ids out
+before it starts and the record answers on every one of them, which is what stops a check it never
+reached going missing.
 
 Write `$env:KINGSHAND_HOME\data\<id>\brief.md`:
 
@@ -337,11 +341,11 @@ Do NOT touch: <explicit exclusions>
 ## Unchanged
 - <behaviour that must not change>
 
-## Browser checks
+## Browser checks  <- delete this whole section unless the task renders something to look at
 Load the `witness` skill before you touch a browser tool. It owns how the browser is driven, what
 you may not do to a live server, how a login is read, and the record each check below has to end
-up in - every one of them answered by name in `report.md`, verified, failed or not checked.
-- <one thing to look at, stated as something observable in a browser>
+up in - every one of them answered by its id in `report.md`, verified, failed or not checked.
+- C-001 <one thing to look at, stated as something observable in a browser>
 
 ## Standing criteria
 <the lines of `data\done-<project>.md`, pasted unchanged>

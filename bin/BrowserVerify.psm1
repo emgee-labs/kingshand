@@ -189,16 +189,25 @@ function Get-BrowserCredentialStatus {
 # Every rule here exists to stop a check reading as a pass it did not earn:
 #
 #   - a check with no outcome recorded is `not checked`, never dropped and never assumed;
+#   - an entry naming no check is `not checked`, because a pass nobody can match to a line of the
+#     brief is not one anybody can read afterwards;
 #   - an outcome word outside the three is `not checked` naming the word, so a typo or an
-#     invented state word can never read as `verified`;
+#     invented state word can never read as `verified`, and a recognised one is stored in the
+#     spelling this module declares rather than the caller's;
 #   - `verified` with nothing observed is `not checked`, because a pass with no evidence behind
 #     it is the assertion this whole capability exists to replace. Whitespace is nothing: every
 #     field is trimmed as it is read, so a space cannot stand in for evidence;
 #   - `failed` or `not checked` with no text behind it carries a stated reason, because an
 #     outcome word alone says less than a check nobody recorded anything against;
 #   - no checks at all is `not verified`, not an empty pass;
+#   - -Declared is the check ids the brief asked for, copied out of it before the run. Any one of
+#     them that no check answered is reported `not checked` saying exactly that. It is the only
+#     thing that catches a worker which stopped early and then built its list from what it
+#     remembered doing, because nothing else here ever learns what was asked;
 #   - -Unavailable makes every check `not checked` for that reason, whatever was recorded
-#     against it. That is the browser-absent path, and it cannot come back verified.
+#     against it. That is the browser-absent path, and it cannot come back verified. Passing it
+#     blank does not turn it off - the override still applies and states that no reason came
+#     with it, because a caller that says the browser was absent has said so.
 #
 # The verdict is `verified` only when every check is; `failed` if any failed; `not verified`
 # otherwise, which means something was not checked and the run does not stand as a pass.
@@ -206,6 +215,7 @@ function Get-BrowserVerificationRecord {
     [CmdletBinding()]
     param(
         [hashtable[]]$Check,
+        [string[]]$Declared,
         [string]$Unavailable
     )
 
@@ -216,9 +226,19 @@ function Get-BrowserVerificationRecord {
     # anybody declared, and treating it as one would invent a check to report.
     $items = [System.Collections.Generic.List[hashtable]]::new()
 
-    # Trimmed once, for the same reason every check field is: this reason overrides every item, so
-    # a caller passing whitespace would put a bare outcome word on all of them at once.
-    $absent = ([string]$Unavailable).Trim()
+    # Saying the browser was absent is the act; the text is only how it reads. So the override is
+    # keyed on the parameter being passed at all, and a blank one gets a stated reason rather than
+    # turning the override off - which would hand back a pass for a run the caller just flagged as
+    # unexercised.
+    $browserAbsent = $PSBoundParameters.ContainsKey('Unavailable')
+    $absent        = ([string]$Unavailable).Trim()
+    if ($browserAbsent -and -not $absent) {
+        $absent = ('Browser verification did not happen, and no reason for it was recorded. ' +
+                   'This is not a pass.')
+    }
+
+    $answered = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase)
 
     foreach ($c in @($Check)) {
         if (-not $c) { continue }
@@ -231,11 +251,19 @@ function Get-BrowserVerificationRecord {
         $given    = if ($c.ContainsKey('outcome') -and $c.outcome) { ([string]$c.outcome).Trim() } else { '' }
         $stated   = if ($c.ContainsKey('reason') -and $c.reason) { ([string]$c.reason).Trim() } else { '' }
 
+        # The outcome is stored in the module's own spelling wherever it is one of the three,
+        # because `-eq` and `-contains` ignore case here and `Verified` is not one of the words
+        # this module says a record can carry.
+        $known = @($script:Outcomes | Where-Object { $_ -eq $given })
+        if ($known.Count -eq 1) { $given = $known[0] }
+
         $outcome = 'not checked'
         $reason  = ''
 
-        if ($absent) {
+        if ($browserAbsent) {
             $reason = $absent
+        } elseif (-not $what) {
+            $reason = ('This entry names no check, so nothing in the brief can be matched to it.')
         } elseif (-not $given) {
             $reason = 'No outcome was recorded for this check.'
         } elseif ($script:Outcomes -notcontains $given) {
@@ -259,9 +287,11 @@ function Get-BrowserVerificationRecord {
         # are the evidence for whatever it did see. Both are kept: the item is the only account
         # of this check that survives, so nothing written against it is dropped on the way to a
         # refused outcome. -Unavailable is the exception, and deliberately overrides.
-        if (-not $absent -and $stated -and $reason -ne $stated) {
+        if (-not $browserAbsent -and $stated -and $reason -ne $stated) {
             $reason = "$reason The reason recorded against it: $stated"
         }
+
+        if ($id) { [void]$answered.Add($id) }
 
         $items.Add(@{
             id       = $id
@@ -269,6 +299,27 @@ function Get-BrowserVerificationRecord {
             outcome  = $outcome
             observed = $observed
             reason   = $reason
+        })
+    }
+
+    # What the brief asked for, against what came back. A worker that stopped early answers fewer
+    # checks than it was given and has no way to know it - so an id nobody answered is reported
+    # here rather than left out of a record that would otherwise read as complete.
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($d in @($Declared)) {
+        $wanted = ([string]$d).Trim()
+        if (-not $wanted) { continue }
+        if ($answered.Contains($wanted)) { continue }
+        if (-not $seen.Add($wanted)) { continue }
+
+        $items.Add(@{
+            id       = $wanted
+            check    = ''
+            outcome  = 'not checked'
+            observed = ''
+            reason   = if ($browserAbsent) { $absent } else {
+                'Declared in the brief and never answered, so nothing was reported against it.'
+            }
         })
     }
 

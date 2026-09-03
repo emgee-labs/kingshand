@@ -59,7 +59,7 @@ result to report rather than a problem to solve.
 carrying that reason, and the run cannot come back verified:
 
 ```powershell
-$record = Get-BrowserVerificationRecord -Unavailable $tools.reason -Check $checks
+$record = Get-BrowserVerificationRecord -Unavailable $tools.reason -Declared @('<every id the brief listed>')
 $record.summary
 ```
 
@@ -152,16 +152,22 @@ survive in the report. **Screenshots and recordings are not evidence this produc
 cannot be quoted, cannot be diffed, and has to live somewhere and be cleaned up by somebody. Where
 a defect can only be shown as a picture, describe it in words and say that is what you are doing.
 
+**Copy the check ids out of the brief before you start**, while you still have the section in
+front of you, and hand that list to `-Declared`. It is what makes a check you never reached
+impossible to lose: the record answers on every declared id, whether or not your own list has an
+entry for it.
+
 Build the record from what you observed, one entry per check the brief listed:
 
 ```powershell
+$declared = @('C-001', 'C-002', 'C-003')     # every id the brief listed, copied before the run
 $checks = @(
     @{ id = 'C-001'; check = '<the check, as the brief worded it>'
        outcome = 'verified'; observed = '<what was seen>' }
     @{ id = 'C-002'; check = '<...>'; outcome = 'failed'; observed = '<what was seen instead>' }
     @{ id = 'C-003'; check = '<...>'; outcome = 'not checked'; reason = '<why not>' }
 )
-$record = Get-BrowserVerificationRecord -Check $checks
+$record = Get-BrowserVerificationRecord -Declared $declared -Check $checks
 $record.summary
 ```
 
@@ -169,10 +175,12 @@ Three outcomes and no others. **`verified`** with what was observed, **`failed`*
 observed instead, **`not checked`** with the reason. A check the brief listed always gets one of
 them: **an item that could not be checked is reported, never skipped**, and a run with one of them
 in it is not a pass. The function enforces that rather than trusting it - a missing outcome, an
-outcome word it does not recognise, or a `verified` with nothing observed all come back
-`not checked`, because a pass with no evidence behind it is exactly what this replaces. An
-outcome word with nothing written behind it gets a stated reason saying so, so no item in the
-record is ever a bare word.
+outcome word it does not recognise, an entry naming no check, or a `verified` with nothing
+observed all come back `not checked`, because a pass with no evidence behind it is exactly what
+this replaces. An outcome word with nothing written behind it gets a stated reason saying so, so
+no item in the record is ever a bare word. And a declared id your list never mentions comes back
+`not checked` saying it was never answered, which is the one failure this cannot catch on its own:
+a list built at the end from what you remember doing is exactly how a check goes missing.
 
 Then write it into `report.md` under `## Browser verification`: the summary line first, then one
 short block per item in `$record.items`, in order, none omitted. Nothing reads that back - it is
@@ -212,4 +220,6 @@ This is a bounded step at the end of a task, not an exploration. If a browser to
 three times, if a page will not load, if the application will not start, or if an element will not
 respond, **stop, record those checks `not checked` with what happened, and finish the task.** A
 worker that spends its remaining context fighting a browser delivers neither the change nor the
-evidence.
+evidence. Stopping early is a result, and the declared list is what keeps it an honest one - every
+id you never reached still appears in the record, so build the record from the ids the brief gave
+you rather than from the ones you got to.

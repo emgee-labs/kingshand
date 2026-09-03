@@ -293,20 +293,28 @@ Describe 'every declared check gets an outcome, and a pass has to be earned' {
         $r.items[0].reason | Should -Be 'needs a login'
     }
 
-    # -Unavailable overrides every item at once, so a blank one puts a bare outcome word on the
-    # whole run rather than on a single check.
-    It 'does not let a whitespace-only unavailable reason stand as the reason for everything' {
-        $r = Get-BrowserVerificationRecord -Unavailable "  `t " -Check @(
-            @{ id = 'C-001'; check = 'one'; outcome = 'verified'; observed = 'seen' }
-            @{ id = 'C-002'; check = 'two' }
-        )
-        $c2 = $r.items | Where-Object { $_.id -eq 'C-002' }
-        $c2.outcome | Should -Be 'not checked'
-        $c2.reason  | Should -Match 'No outcome was recorded'
-        foreach ($i in $r.items) {
-            ($i.reason + $i.observed) |
-                Should -Not -BeNullOrEmpty -Because 'no item may come back as a bare outcome word'
+    # Saying the browser was absent is the act, and the text is only how it reads. A blank one is
+    # a caller slip, and the run it was passed on is still an unexercised one.
+    It 'keeps the browser-absent override when its reason came through blank' {
+        foreach ($blank in @('', "  `t ", $null)) {
+            $r = Get-BrowserVerificationRecord -Unavailable $blank -Check @(
+                @{ id = 'C-001'; check = 'the drawer closes'; outcome = 'verified'; observed = 'seen' }
+            )
+            $r.items[0].outcome | Should -Be 'not checked'
+            $r.verdict          | Should -Be 'not verified'
+            $r.verified         | Should -BeFalse
+            $r.counts.verified  | Should -Be 0
         }
+    }
+
+    It 'says the browser was absent even when the caller gave no reason for it' {
+        $r = Get-BrowserVerificationRecord -Unavailable ' ' -Check @(
+            @{ id = 'C-001'; check = 'one'; outcome = 'verified'; observed = 'seen' }
+        )
+        $r.items[0].reason | Should -Match 'Browser verification did not happen'
+        $r.items[0].reason | Should -Match 'This is not a pass'
+        $r.items[0].reason.Trim() |
+            Should -Not -BeNullOrEmpty -Because 'no item may come back as a bare outcome word'
     }
 
     It 'states a reason for a failed item with nothing recorded against it' {
@@ -334,6 +342,70 @@ Describe 'every declared check gets an outcome, and a pass has to be earned' {
         )
         $r.items[0].outcome  | Should -Be 'failed'
         $r.items[0].observed | Should -Be 'TypeError at app.js:42'
+    }
+
+    # An entry nobody can map back to a line of the brief is a pass nobody can read afterwards.
+    It 'refuses an entry that names no check' {
+        $r = Get-BrowserVerificationRecord -Check @(
+            @{ outcome = 'verified'; observed = 'no console errors' }
+        )
+        $r.items[0].outcome | Should -Be 'not checked'
+        $r.items[0].reason  | Should -Match 'names no check'
+        $r.verdict          | Should -Be 'not verified'
+        $r.counts.verified  | Should -Be 0
+    }
+
+    # -eq and -contains both ignore case here, so 'Verified' passes every guard and would then be
+    # written into the record as a fourth spelling of a three-word set.
+    It 'stores a recognised outcome in the spelling the module declares' {
+        $r = Get-BrowserVerificationRecord -Check @(
+            @{ id = 'C-001'; check = 'one'; outcome = 'Verified'; observed = 'seen' }
+            @{ id = 'C-002'; check = 'two'; outcome = 'FAILED'; observed = 'a 500' }
+            @{ id = 'C-003'; check = 'three'; outcome = 'Not Checked'; reason = 'needs a login' }
+        )
+        @($r.items).outcome | Should -Be @('verified', 'failed', 'not checked')
+        $r.verdict          | Should -Be 'failed'
+        $r.summary          | Should -Match '1 verified, 1 failed, 1 not checked'
+    }
+
+    # The failure the skill actively invites: stop early, then build the list from what you
+    # remember doing. Without the declared ids the third check simply vanishes and the run reads
+    # as a clean pass over two.
+    It 'answers on a declared check the worker never reported' {
+        $r = Get-BrowserVerificationRecord -Declared @('C-001', 'C-002', 'C-003') -Check @(
+            @{ id = 'C-001'; check = 'one'; outcome = 'verified'; observed = 'seen' }
+            @{ id = 'C-002'; check = 'two'; outcome = 'verified'; observed = 'seen' }
+        )
+        @($r.items).Count | Should -Be 3
+        $missed = $r.items | Where-Object { $_.id -eq 'C-003' }
+        $missed.outcome | Should -Be 'not checked'
+        $missed.reason  | Should -Match 'never answered'
+        $r.verdict      | Should -Be 'not verified'
+        $r.verified     | Should -BeFalse
+    }
+
+    It 'does not report a declared check twice when it was answered' {
+        $r = Get-BrowserVerificationRecord -Declared @('C-001', 'c-001', ' C-001 ', '  ') -Check @(
+            @{ id = 'C-001'; check = 'one'; outcome = 'verified'; observed = 'seen' }
+        )
+        @($r.items).Count | Should -Be 1 -Because 'a declared id is matched however it was typed'
+        $r.verdict        | Should -Be 'verified'
+    }
+
+    It 'reports every declared check when the worker reported none at all' {
+        $r = Get-BrowserVerificationRecord -Declared @('C-001', 'C-002')
+        @($r.items).Count   | Should -Be 2
+        @($r.items).outcome | Should -Be @('not checked', 'not checked')
+        $r.verdict          | Should -Be 'not verified'
+        $r.summary          | Should -Match '2 checks: 0 verified, 0 failed, 2 not checked'
+    }
+
+    It 'gives a declared check the browser-absent reason when there was no browser' {
+        $status = Get-BrowserToolStatus -Loaded @()
+        $r = Get-BrowserVerificationRecord -Unavailable $status.reason -Declared @('C-001')
+        $r.items[0].outcome | Should -Be 'not checked'
+        $r.items[0].reason  | Should -Match 'Browser verification did not happen'
+        $r.verified         | Should -BeFalse
     }
 
     It 'does not read an empty run as a pass' {
