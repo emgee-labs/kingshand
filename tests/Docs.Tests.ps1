@@ -2982,7 +2982,8 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
                      'directory where a file was meant, two different files whose names would ' +
                      'land on top of each other in the staging directory, a standing file that ' +
                      'exists and cannot be opened, a directory sitting where a standing file ' +
-                     'belongs, and a read-only brief that cannot be told what was attached to it.')
+                     'belongs, and a brief that cannot be opened for writing to be told what was ' +
+                     'attached to it.')
     }
 
     # The whole requirement, in the artefact the Hand reads at the moment it dispatches: the two

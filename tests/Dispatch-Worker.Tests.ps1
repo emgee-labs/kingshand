@@ -2165,6 +2165,40 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $msg | Should -BeLike '*say nothing about this task either*'
         }
 
+        # The two standing-file cases part company in what the refusal tells the Hand to write.
+        # Where dispatch attaches the file ITSELF, the lead-in it inserts scopes the bullet, so the
+        # canonical short line is true and is what gets recommended.
+        It 'recommends the short literal line when it attaches the standing file itself' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-recommends-literal'
+            $name = Register-FixtureProject -Fixture $f -WithIndex
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Something the index never mentioned.')
+
+            $msg = ''
+            try { Invoke-Dispatch -Fixture $f -Name 'T-9025' } catch { $msg = $_.Exception.Message }
+            $msg | Should -BeLike "*'- Nothing beyond this brief - the index was checked and nothing in it applies.'*"
+            $msg | Should -Not -BeLike '*beyond the standing criteria above*'
+        }
+
+        # Where the Hand PASSED the file, the line naming it is the Hand's own and no lead-in scopes
+        # it, so the short line would still contradict the section. That branch keeps the paraphrase.
+        It 'still recommends the paraphrase when the Hand passed the standing file itself' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-recommends-paraphrase'
+            $name = Register-FixtureProject -Fixture $f -WithIndex
+            $criteria = New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.'
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                "- ``$($f.BriefDir)\read-first\done-$name.md`` - the standing criteria, copied from ``$criteria``.")
+
+            $msg = ''
+            try {
+                & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9026' `
+                    -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $criteria
+            } catch { $msg = $_.Exception.Message }
+            $msg | Should -BeLike '*beyond the standing criteria above*'
+        }
+
         # A file that is there and cannot be read is not an absent one, and the difference decides
         # whether a worker ships without the project's standing rules leaving no trace it happened.
         It 'refuses a rules file that is there and cannot be opened' {
@@ -2306,6 +2340,64 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             @(@(Get-Content -LiteralPath $f.BriefPath) |
                 Where-Object { $_ -like '*attached by dispatch from this project*' }).Count |
                 Should -Be 1
+        }
+
+        # The growth case: a project that has one standing file when a ticket is first dispatched
+        # and two by the time it is re-dispatched. The lead-in is already in the brief, so it is not
+        # added again - and the new bullet must go BELOW it. Inserted under the heading instead, the
+        # newest file would sit above the line that scopes it, immediately over the Hand's own
+        # "nothing beyond this brief" line, and the rules file this change exists to deliver would
+        # be the one arriving unscoped.
+        It 'puts a later standing file below the lead-in, not above it' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-grew-a-file'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.' | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Nothing beyond this brief - the index was checked and nothing in it applies.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9023' | Out-Null
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Invoke-Dispatch -Fixture $f -Name 'T-9023' | Out-Null
+
+            $lines    = @(Get-Content -LiteralPath $f.BriefPath)
+            $heading  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Read first\s*$' })[0]
+            $leadIn   = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like '*attached by dispatch from this project*' })[0]
+            $criteria = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like "*read-first\done-$name.md*" })[0]
+            $rules    = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like "*read-first\rules-$name.md*" })[0]
+
+            ($null -ne $rules) | Should -BeTrue
+            ($leadIn   -gt $heading)  | Should -BeTrue
+            ($criteria -gt $leadIn)   | Should -BeTrue
+            ($rules    -gt $leadIn)   | Should -BeTrue
+            # Still exactly one lead-in, and the copy really did arrive beside the line naming it.
+            @($lines | Where-Object { $_ -like '*attached by dispatch from this project*' }).Count |
+                Should -Be 1
+            Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\rules-$name.md") | Should -BeTrue
+        }
+
+        # The preflight guards a write. On a re-dispatch that adds nothing there is no write to
+        # guard, so demanding an exclusive handle would refuse over work it was never going to do -
+        # and unlike the read-only flag, a share lock is transient and arrives from editors and
+        # scanners nobody dispatched.
+        It 'does not demand the brief when a re-dispatch would add nothing to it' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-locked-noop-redispatch'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9024' | Out-Null
+            $after = Get-BriefText -Fixture $f
+
+            # FileShare.Read, not None: None blocks the dispatcher's own read of the brief, so the
+            # run would fail before reaching the preflight and prove nothing about it.
+            $held = [System.IO.File]::Open($f.BriefPath, 'Open', 'Read', 'Read')
+            try {
+                (Invoke-Dispatch -Fixture $f -Name 'T-9024').id | Should -Be 'T-9024'
+            } finally { $held.Dispose() }
+
+            (Get-BriefText -Fixture $f) | Should -Be $after
         }
 
         # This script never reads the brief's body, so it may not assert anything about what is in

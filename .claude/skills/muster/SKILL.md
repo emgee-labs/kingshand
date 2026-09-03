@@ -744,8 +744,8 @@ that one, per Step 2, which owns the rule - a brief carrying a `## Browser check
 passes no `-ReadPath` for the browser procedure or for the module it imports, a path that does not
 exist, a directory where a file was meant, two different files whose names would land on top of
 each other in the staging directory, a standing file that exists and cannot be opened, a directory
-sitting where a standing file belongs, and a read-only brief that cannot be told what was attached
-to it.
+sitting where a standing file belongs, and a brief that cannot be opened for writing to be told
+what was attached to it.
 
 **Dispatch attaches the project's own standing files itself and writes their `Read first` lines.**
 `data\done-<project>.md` and `data\rules-<project>.md` are staged whenever they exist, keyed off

@@ -598,11 +598,22 @@ if ($gates.Count -gt 0) {
         # Said plainly when the brief DID pass a path, or the Hand reads a refusal denying what it
         # can see it just did and has no way to work out which path was discounted.
         #
-        # The line recommended below changes with it, and has to. In the ordinary case the section
-        # names no file and the literal line is true. Where a standing file is in play the section
-        # ends up naming a copy, so that same line would tell the worker there is nothing beyond the
-        # brief in the same breath - the contradiction muster rules out. So that branch recommends
-        # muster's paraphrase, which states both halves and passes the regex above unchanged.
+        # The line recommended below changes with it, and the two standing-file cases part company.
+        #
+        # A file the Hand PASSED by hand is named by a line the Hand wrote, and nothing scopes that
+        # line: the lead-in this script inserts covers only the bullets this script inserts. So the
+        # literal line would still tell the worker there is nothing beyond the brief in the same
+        # breath as the Hand's own line names a copy - the contradiction muster rules out, and the
+        # 2026-09-02 reasoning for the paraphrase stands unchanged. That branch keeps recommending
+        # muster's paraphrase, which states both halves and passes the regex above.
+        #
+        # A standing file this dispatch attaches ITSELF is different, and stopped being a
+        # contradiction when the lead-in below was introduced: the lead-in sits above those bullets
+        # and says in the section that they arrive on top of whatever else it says, including a line
+        # saying nothing beyond this brief was named. So that branch recommends the canonical short
+        # literal line, because the lead-in is what makes it true. $beyond is what tells the two
+        # apart: it is filled only from paths the brief actually passed.
+        #
         # Every clause stands on its own, because any of them can be the first one written. An
         # earlier version had the browser clause open with "for the same reason" and end with
         # "either", which on a project with no criteria file referred back to a sentence that was
@@ -658,7 +669,8 @@ if ($gates.Count -gt 0) {
 
         # The recommended line names every copy the section already hands over, because a line
         # saying nothing applies beyond one of them, written beside a section naming two, is the
-        # same self-contradiction this branch exists to keep out of the brief.
+        # same self-contradiction this branch exists to keep out of the brief. Empty where the only
+        # copies came from this dispatch, so that case keeps the canonical short literal line.
         if ($beyond.Count -gt 0) {
             $beyondText = if ($beyond.Count -le 2) { $beyond -join ' and ' }
                           else { ($beyond[0..($beyond.Count - 2)] -join ', ') + ' and ' + $beyond[-1] }
@@ -703,6 +715,41 @@ $autoLeadIn = ('- The file(s) named directly below were attached by dispatch fro
                'section, including any line saying nothing beyond this brief was named - that line ' +
                'was written before these were attached. Read them.')
 
+# WHAT this dispatch will actually add to the brief, and WHERE - decided here, before anything is
+# created, because the preflight below has to key on whether there is a write at all rather than on
+# whether there is something attached. On an ordinary re-dispatch every line is already in the brief
+# and no write happens, so demanding an exclusive handle on the file would refuse over a write that
+# was never going to be performed - and a share lock is transient, where the read-only flag it
+# replaced was a deliberate persistent state.
+#
+# Only lines the brief does not already carry verbatim, so a second dispatch of the same ticket
+# changes nothing. Comparison is whole-line and ordinal against text this script composed itself -
+# never a search for a file name in prose, and no parser of the section.
+#
+# WHERE follows from the lead-in, which exists to scope the bullets and therefore has to stay above
+# them. When the brief already carries it - a project that has grown a second standing file since the
+# last dispatch - the new bullets go directly under that line, not under the heading, or they would
+# land ABOVE the very line that scopes them and the newest file would be the unscoped one. Only when
+# the lead-in is absent is it prepended and the block inserted under the heading. Located by the same
+# whole-line comparison, searched from the heading down so a copy quoted earlier in the brief cannot
+# claim the position.
+$toAdd       = @()
+$insertAfter = $headingIndex
+if ($autoLines.Count -gt 0 -and $headingIndex -ge 0) {
+    $existing = [System.Collections.Generic.HashSet[string]]::new(
+                    [string[]]@($briefLines | ForEach-Object { $_.Trim() }),
+                    [System.StringComparer]::Ordinal)
+    $toAdd = @($autoLines | Where-Object { -not $existing.Contains($_.Trim()) })
+    if ($toAdd.Count -gt 0) {
+        $leadInIndex = -1
+        for ($i = $headingIndex + 1; $i -lt $briefLines.Count; $i++) {
+            if ($briefLines[$i].Trim() -ceq $autoLeadIn.Trim()) { $leadInIndex = $i; break }
+        }
+        if ($leadInIndex -ge 0) { $insertAfter = $leadInIndex }
+        else                    { $toAdd = @($autoLeadIn) + $toAdd }
+    }
+}
+
 # Refused BEFORE anything is created, like every other refusal here. A brief that cannot be written
 # to would leave the copies on disk with nothing telling the worker to open them - the failure this
 # attachment exists to close, arrived at through the attachment itself.
@@ -716,7 +763,7 @@ $autoLeadIn = ('- The file(s) named directly below were attached by dispatch fro
 # process taking the file in that window. A retry is idempotent: the copies are overwritten in place
 # and the insertion is checked line by line against what the brief already carries, so nothing is
 # duplicated by running the dispatch again.
-if ($autoLines.Count -gt 0) {
+if ($toAdd.Count -gt 0) {
     try { [System.IO.File]::Open($BriefPath, 'Open', 'ReadWrite', 'None').Dispose() }
     catch {
         $why = $_.Exception.Message
@@ -754,30 +801,15 @@ if ($staged.Count -gt 0 -or $autoStaged.Count -gt 0) {
 }
 
 # And the brief is told, because a copy nothing names reaches nobody. Written AFTER the copies, so
-# the brief never names a file that failed to arrive.
-#
-# Inserted directly under the heading this script already located, and only for lines the brief does
-# not already carry verbatim. A second dispatch of the same ticket therefore changes nothing.
-#
-# The lead-in is inside that same check, and it is added only when a bullet is actually being added -
-# so a re-dispatch adds neither, and a project that grows a second standing file later gets the new
-# bullet without a second copy of the lead-in above it.
-if ($autoLines.Count -gt 0 -and $headingIndex -ge 0) {
-    $existing = [System.Collections.Generic.HashSet[string]]::new(
-                    [string[]]@($briefLines | ForEach-Object { $_.Trim() }),
-                    [System.StringComparer]::Ordinal)
-    $toAdd = @($autoLines | Where-Object { -not $existing.Contains($_.Trim()) })
-    if ($toAdd.Count -gt 0 -and -not $existing.Contains($autoLeadIn.Trim())) {
-        $toAdd = @($autoLeadIn) + $toAdd
+# the brief never names a file that failed to arrive. What goes in and where it goes were both
+# decided above, so nothing is recomputed here.
+if ($toAdd.Count -gt 0) {
+    $rewritten = [System.Collections.Generic.List[string]]::new()
+    for ($i = 0; $i -lt $briefLines.Count; $i++) {
+        $rewritten.Add($briefLines[$i])
+        if ($i -eq $insertAfter) { foreach ($l in $toAdd) { $rewritten.Add($l) } }
     }
-    if ($toAdd.Count -gt 0) {
-        $rewritten = [System.Collections.Generic.List[string]]::new()
-        for ($i = 0; $i -lt $briefLines.Count; $i++) {
-            $rewritten.Add($briefLines[$i])
-            if ($i -eq $headingIndex) { foreach ($l in $toAdd) { $rewritten.Add($l) } }
-        }
-        Set-Content -LiteralPath $BriefPath -Encoding utf8 -Value $rewritten.ToArray()
-    }
+    Set-Content -LiteralPath $BriefPath -Encoding utf8 -Value $rewritten.ToArray()
 }
 
 # WHICH ref this is belongs to Resolve-BaseRef.ps1's header, and nothing here restates it. What
