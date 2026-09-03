@@ -77,6 +77,15 @@
   contents are refused like an unreadable file rather than read as absent ones. Neither is YAML
   anyone here writes; both are cheap to be right about and were wrong in opposite directions.
 
+  Whether the mapping ran past its line is decided by BALANCING its braces, never by forbidding
+  them. `pr: {draft: true, opts: {a: 1}}` closes on its own line and declares no branch, and
+  refusing it for "does not close on its own line" told the reader the opposite of what happened
+  while blocking every dispatch into that repository - the same false refusal as the comment
+  above, one shape further in. Only an unbalanced count means the contents are genuinely unknown.
+  Nested mappings are then dropped before the keys are read, so a `base_branch` belonging to some
+  sub-mapping of `pr:` is a different key with the same name - the rule the indent check already
+  applies to that shape written out as a block.
+
   An unresolvable base is worse than a wrong one. `git log "$base..HEAD"` and
   `git diff "$base...HEAD"` against a ref that does not exist both fail to stderr and write
   NOTHING to stdout, so the landing gate sees a zero-file diff and an empty attribution scan
@@ -179,12 +188,30 @@ function Resolve-BaseRef {
                     # divergent, because the gate reads it and this does not. Any other scalar -
                     # `pr: null`, `pr: ~` - names no branch for the two readers to disagree about.
                     if ($inline.StartsWith('{')) {
-                        if ($inline -match '^\{(?<body>[^{}]*)\}$') {
+                        # Whether the mapping ended on this line is a question of BALANCE, not of
+                        # whether it contains braces at all. Forbidding them refused
+                        # `pr: {draft: true, opts: {a: 1}}` for "does not close on its own line"
+                        # when it closes perfectly well and declares no branch - the message said
+                        # the opposite of what happened, and every dispatch into that repository
+                        # failed over a line the gate and this reader already agree about.
+                        $depth  = 0
+                        $sunk   = $false
+                        foreach ($ch in $inline.ToCharArray()) {
+                            if ($ch -eq '{') { $depth++ }
+                            elseif ($ch -eq '}') { $depth--; if ($depth -lt 0) { $sunk = $true } }
+                        }
+                        if ($depth -eq 0 -and -not $sunk -and $inline.EndsWith('}')) {
+                            # Nested mappings are removed innermost-first, so what is matched below
+                            # is the mapping's OWN keys. `base_branch` inside a sub-mapping of `pr:`
+                            # is a different key with the same name, which is the rule the block
+                            # reader's indent check applies to the same shape written out.
+                            $body = $inline.Substring(1, $inline.Length - 2)
+                            while ($body -match '\{[^{}]*\}') { $body = $body -replace '\{[^{}]*\}', '' }
                             # `pr: {base_branch: dev}`. Refused by name rather than ignored, and
                             # matched as a KEY of the mapping: a value that merely contains the
                             # word declares nothing. `pr: {}` and `pr: {draft: true}` fall through
                             # to the same "no declaration" as any other inline value.
-                            if ($Matches['body'] -match '(^|,)\s*["'']?base_branch["'']?\s*:') {
+                            if ($body -match '(^|,)\s*["'']?base_branch["'']?\s*:') {
                                 throw ("$path declares base_branch inline on the pr key: " +
                                        "$($line.Trim()). This reads only the block form, so an " +
                                        "inline mapping would leave the dispatcher basing workers " +
@@ -193,13 +220,15 @@ function Resolve-BaseRef {
                                        "base_branch: <branch> beneath it.")
                             }
                         } else {
-                            # The mapping runs past the end of this line, so its keys are on lines
-                            # this reader skips as children of nothing - which is how a multi-line
-                            # `pr: {` / `base_branch: dev` / `}` came back as no declaration at
-                            # all. Unknown contents are refused rather than read as absent ones:
-                            # the same rule as an unreadable file, for the same reason.
+                            # The braces do not balance, so the mapping runs past the end of this
+                            # line and its keys are on lines this reader skips as children of
+                            # nothing - which is how a multi-line `pr: {` / `base_branch: dev` /
+                            # `}` came back as no declaration at all. Unknown contents are refused
+                            # rather than read as absent ones: the same rule as an unreadable file,
+                            # for the same reason.
                             throw ("$path writes pr as a flow mapping this reader cannot finish " +
-                                   "reading: $($line.Trim()). It does not close on its own line, " +
+                                   "reading: $($line.Trim()). Its braces do not balance on this " +
+                                   "line, " +
                                    "so whether it declares base_branch is unknown, and reading " +
                                    "it as no declaration would silently base workers somewhere " +
                                    "the review gate does not propose them. Write it as a block " +

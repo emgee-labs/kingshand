@@ -443,8 +443,19 @@ if ($staged.Count -gt 0) {
 
 # WHICH ref this is belongs to Resolve-BaseRef.ps1's header, and nothing here restates it. What
 # matters at this call site is that the one string it returns is used twice below - as the branch
-# point `git worktree add` cuts from, and as the base recorded for the landing gate - so the
-# recorded base cannot drift from where the worktree actually started.
+# point `git worktree add -b` cuts from, and as the base recorded for the landing gate - so on a
+# FIRST dispatch the recorded base is where the worktree actually started, by construction.
+#
+# That holds for the fresh-branch path and only that one. The two re-dispatch paths below do not
+# branch at all: one reuses a registered worktree without touching git, the other checks out a
+# branch that survived its worktree, and in both the branch point is whatever the earlier dispatch
+# chose. Resolve it again after the repository has moved - a `.no-mistakes.yaml` added since, a
+# default branch that changed - and the base recorded here describes a branch cut somewhere else,
+# so `git log "$base..HEAD"` carries commits nobody in this ticket wrote. The landing gate's
+# attribution scan runs over that same range, so any of them carrying a co-author trailer surfaces
+# there - which muster reads as a bad diff base rather than as the worker's doing - but the rest
+# just widen the diff. Nothing here can do better: where an existing branch was originally cut
+# from is not recorded anywhere git will answer for.
 #
 # Resolved BEFORE the spawn on purpose: Resolve-BaseRef refuses rather than inventing a ref, and
 # a refusal after the worker exists would leave an orphaned agent running in the repo.

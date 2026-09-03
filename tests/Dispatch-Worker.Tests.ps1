@@ -375,6 +375,25 @@ Describe 'Resolve-BaseRef - a repository that declares nothing' {
                     -Value 'pr: {draft: true}' -Encoding utf8
         Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
     }
+
+    # A mapping that contains another one still closes on its own line, so refusing it for not
+    # closing said the opposite of what happened - and blocked every dispatch into the repository
+    # over a line that declares no branch for the gate and this reader to disagree about.
+    It 'reads an inline pr mapping containing a nested mapping as no declaration' {
+        $repo = New-RepoWithOriginHead
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') `
+                    -Value 'pr: {draft: true, opts: {a: 1}}' -Encoding utf8
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
+
+    # The same rule the indent check applies to the block form: base_branch under a sub-mapping of
+    # pr: is a different key that happens to share the name.
+    It 'ignores base_branch nested inside a sub-mapping of an inline pr' {
+        $repo = New-RepoWithOriginHead
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') `
+                    -Value 'pr: {opts: {base_branch: dev}}' -Encoding utf8
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
 }
 
 Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
@@ -593,6 +612,23 @@ Describe 'Resolve-BaseRef - a declaration nobody can read is not an absent one' 
                     -Value @('pr: {', '  base_branch: dev', '}')
         { Resolve-BaseRef -RepoPath $repo } |
             Should -Throw '*cannot finish reading*'
+    }
+
+    It 'refuses a pr flow mapping left open after a nested one closes' {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') -Encoding utf8 `
+                    -Value @('pr: {opts: {a: 1},', '  base_branch: dev', '}')
+        { Resolve-BaseRef -RepoPath $repo } |
+            Should -Throw '*cannot finish reading*'
+    }
+
+    It 'still refuses a declared branch written beside a nested mapping' {
+        $repo = New-TempRepo -WithOrigin
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') `
+                    -Value 'pr: {base_branch: dev, opts: {a: 1}}' -Encoding utf8
+        { Resolve-BaseRef -RepoPath $repo } |
+            Should -Throw '*declares base_branch inline on the pr key*'
     }
 }
 
