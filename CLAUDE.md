@@ -58,12 +58,12 @@ exists to prevent.
 
 A `SessionStart` hook runs `bin\Get-SessionStart.ps1` and injects its digest as this session's
 first input. The digest carries six things: this installation's version on one `VERSION:` line, any
-actionable toolchain problem, the fleet -
-registered projects with their posture, recorded workers with stage and liveness, un-dispatched
-briefs and available reports - the queue from `tasks-axi ready --include-held`, the data index as
-counts alone - how much it covers and how many files under `data\` it has lost track of - and the
-full contents of `instructions.md`, `data\king.md` and `data\learnings.md`. A clean toolchain
-prints nothing at all, so silence there is the good outcome.
+actionable toolchain problem, the fleet - registered projects with their posture, recorded workers
+with stage and liveness, un-dispatched briefs and available reports - the queue from
+`tasks-axi ready --include-held`, the data index as counts alone - how much it covers and how many
+files under `data\` it has lost track of - and the full contents of `instructions.md`,
+`data\king.md` and `data\learnings.md`. A clean toolchain prints nothing at all, so silence there
+is the good outcome.
 
 **The digest is invisible to the King.** It arrives as injected context, not as terminal output, and
 Claude Code says nothing at all until they type. So their first sight of kingshand is an empty

@@ -15,12 +15,11 @@
   runs survey on the user's behalf.
 
   Bounded on purpose. The version is one line, the fleet, queue and index sections are counts and
-  one-liners; only
-  `instructions.md` and the two memory files are printed in full, and only the two memory files are
-  accounted against the startup-memory budget. A digest that grew with the fleet would be the
-  session-start bulk this deliberately avoids - the registry line is name, posture and path, never
-  the detail that belongs elsewhere, and the index section is where the index is and how far it has
-  drifted, never what any indexed file says.
+  one-liners; only `instructions.md` and the two memory files are printed in full, and only the two
+  memory files are accounted against the startup-memory budget. A digest that grew with the fleet
+  would be the session-start bulk this deliberately avoids - the registry line is name, posture and
+  path, never the detail that belongs elsewhere, and the index section is where the index is and
+  how far it has drifted, never what any indexed file says.
 
   `instructions.md` is the King's own standing instructions, written by hand and never edited by
   the Hand. It is deliberately NOT one of the memory files: `king.md` and `learnings.md` are what
