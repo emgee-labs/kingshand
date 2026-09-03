@@ -5331,7 +5331,12 @@ Describe 'counsel splits the dialogue from the reading, and only the King starts
             -Phrase '**it never starts a counsel pass on its own.**'
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
             -Phrase ('**Then say in one line which instruction wins: where the read-only scope and the ' +
-                     'pasted Done-means block disagree, the read-only scope wins**')
+                     'pasted Done-means block disagree, the read-only scope wins - over committing on ' +
+                     'the branch, running the review gate, pushing, opening a pull request and merging ' +
+                     'alike.**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('An analysis that comes back with a commit, a pushed branch or a pull request has ' +
+                     'exceeded its brief.')
         Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
             -Phrase '**It never starts a counsel pass.**'
     }

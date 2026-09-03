@@ -127,9 +127,10 @@ Two things the brief must also say, because an analysis dispatch is unlike an im
 - **It changes nothing.** Write the scope as reading only, and say so in the exclusions: this
   dispatch writes its own `report.md` and no other file. **Then say in one line which instruction
   wins: where the read-only scope and the pasted Done-means block disagree, the read-only scope
-  wins** - `CLAUDE.md`'s Knowledge routing puts that call in the brief, and a worker left to choose
-  between reading only and committing on the branch picks wrong half the time. An analysis that
-  comes back with a commit has exceeded its brief.
+  wins - over committing on the branch, running the review gate, pushing, opening a pull request
+  and merging alike.** `CLAUDE.md`'s Knowledge routing puts that call in the brief, and a worker
+  left to choose between reading only and delivering picks wrong half the time. An analysis that
+  comes back with a commit, a pushed branch or a pull request has exceeded its brief.
 - **Where two shapes are live, compare them.** Two or three approaches, their trade-offs, and a
   recommendation. That is the brainstorming half, and its own section below owns it.
 
