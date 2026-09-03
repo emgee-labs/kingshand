@@ -49,6 +49,13 @@
   so this is a caution and not a refusal, and a repository with no remote at all has no gap to
   warn about.
 
+  Where there IS a remote, though, "fetch it" is a guess dressed as an instruction. A missing
+  `origin/dev` means either that origin has `dev` and this clone never fetched it - the gap is
+  real and fetching closes it - or that origin has no `dev` at all, the integration branch existing
+  only here, where there is no gap and `git fetch origin dev` answers `couldn't find remote ref`.
+  Telling them apart needs a network round trip on a path that must not hang a dispatch, so both
+  warnings name both states and the action each one takes rather than asserting the likelier one.
+
   The reader below is deliberately NARROW: a top-level `pr:` block mapping, and a `base_branch:`
   key among its immediate children. It is not a YAML parser and must not grow into one - the
   cautionary tale is in Dispatch-Worker.ps1's header, where reading paths back out of a brief's
@@ -59,6 +66,16 @@
   not - is refused by name rather than ignored. An inline `pr:` that names no `base_branch` at all,
   `pr: {}` or `pr: null`, declares nothing for either reader to disagree about, so it reads as no
   declaration rather than blocking every dispatch into that repository.
+
+  That refusal is decided on the VALUE, never on the raw line. The word `base_branch` inside the
+  comment on `pr: {} # base_branch is not set here` is not a declaration, and refusing it blocks
+  every dispatch into that repository over a line that declares nothing - so the comment is
+  stripped first, and what remains is matched as a key of the mapping rather than searched for a
+  substring. The mirror of that mistake is a flow mapping running past the end of its line -
+  `pr: {`, then `base_branch: dev`, then `}` - whose children this reader skips, because they are
+  indented under a key it has already left. That is the silent divergence again, so unknown
+  contents are refused like an unreadable file rather than read as absent ones. Neither is YAML
+  anyone here writes; both are cheap to be right about and were wrong in opposite directions.
 
   An unresolvable base is worse than a wrong one. `git log "$base..HEAD"` and
   `git diff "$base...HEAD"` against a ref that does not exist both fail to stderr and write
@@ -152,19 +169,43 @@ function Resolve-BaseRef {
                 $rest = $Matches['rest'].Trim()
                 if ($key -ne 'pr') { $inPr = $false; continue }
                 if ($rest -and -not $rest.StartsWith('#')) {
-                    # `pr: {base_branch: dev}` is a form the gate reads and this does not.
-                    # Ignoring it would put the dispatcher and the gate on different branches with
-                    # nothing said about it, so it is refused by name.
-                    if ($rest -match 'base_branch') {
-                        throw ("$path declares base_branch inline on the pr key: " +
-                               "$($line.Trim()). This reads only the block form, so an inline " +
-                               "mapping would leave the dispatcher basing workers somewhere the " +
-                               "review gate does not propose them. Write it as a block instead - " +
-                               "pr: on its own line, with base_branch: <branch> beneath it.")
+                    # The comment is stripped before the value is judged, so what follows reads
+                    # the declaration and never the prose beside it. Judging the raw line refused
+                    # `pr: {} # base_branch is not set here` for a word inside its own comment -
+                    # a line that declares nothing, blocking every dispatch into that repository.
+                    $inline = ($rest -replace '\s+#.*$', '').Trim()
+
+                    # A flow mapping is the one inline form that is both plausible and silently
+                    # divergent, because the gate reads it and this does not. Any other scalar -
+                    # `pr: null`, `pr: ~` - names no branch for the two readers to disagree about.
+                    if ($inline.StartsWith('{')) {
+                        if ($inline -match '^\{(?<body>[^{}]*)\}$') {
+                            # `pr: {base_branch: dev}`. Refused by name rather than ignored, and
+                            # matched as a KEY of the mapping: a value that merely contains the
+                            # word declares nothing. `pr: {}` and `pr: {draft: true}` fall through
+                            # to the same "no declaration" as any other inline value.
+                            if ($Matches['body'] -match '(^|,)\s*["'']?base_branch["'']?\s*:') {
+                                throw ("$path declares base_branch inline on the pr key: " +
+                                       "$($line.Trim()). This reads only the block form, so an " +
+                                       "inline mapping would leave the dispatcher basing workers " +
+                                       "somewhere the review gate does not propose them. Write " +
+                                       "it as a block instead - pr: on its own line, with " +
+                                       "base_branch: <branch> beneath it.")
+                            }
+                        } else {
+                            # The mapping runs past the end of this line, so its keys are on lines
+                            # this reader skips as children of nothing - which is how a multi-line
+                            # `pr: {` / `base_branch: dev` / `}` came back as no declaration at
+                            # all. Unknown contents are refused rather than read as absent ones:
+                            # the same rule as an unreadable file, for the same reason.
+                            throw ("$path writes pr as a flow mapping this reader cannot finish " +
+                                   "reading: $($line.Trim()). It does not close on its own line, " +
+                                   "so whether it declares base_branch is unknown, and reading " +
+                                   "it as no declaration would silently base workers somewhere " +
+                                   "the review gate does not propose them. Write it as a block " +
+                                   "instead - pr: on its own line, with its keys beneath it.")
+                        }
                     }
-                    # `pr: {}` and `pr: null` name no branch, so there is nothing for the two
-                    # readers to disagree about and no reason to refuse. It reads as no
-                    # declaration, and an inline value has no children to read either way.
                     $inPr = $false
                     continue
                 }
@@ -263,12 +304,18 @@ function Resolve-BaseRef {
                                    "request is still proposed against $declared. Correct " +
                                    "pr.base_branch in .no-mistakes.yaml.")
                 } elseif (Test-OriginRemote) {
+                    # Two states look identical from here without asking the remote, and the
+                    # answer to one is not the answer to the other: origin has the branch and
+                    # this clone never fetched it, or origin has no such branch at all and
+                    # fetching cannot work. Both are named rather than one asserted.
                     Write-Warning ("$RepoPath declares $declared as the branch its work " +
                                    "integrates into, but neither origin/$declared nor " +
                                    "$declared resolves here, so this worker is based on $c " +
                                    "instead - while its pull request is still proposed against " +
-                                   "$declared. Fetch $declared before landing, or the landing " +
-                                   "diff measures the wrong branch.")
+                                   "$declared. Fetch $declared before landing if origin has it, " +
+                                   "or the landing diff measures the wrong branch. If origin has " +
+                                   "no $declared either, create it or correct pr.base_branch in " +
+                                   ".no-mistakes.yaml.")
                 } else {
                     # No origin, so there is nothing to fetch from and no pull request to
                     # misdirect: the declaration names a branch this repository simply does not
@@ -284,13 +331,17 @@ function Resolve-BaseRef {
             } elseif ($declared -and $c -eq $declared -and (Test-OriginRemote)) {
                 # The declared branch was honoured, but only as a local ref on a repo that has a
                 # remote - so origin/$declared was never fetched and nothing has confirmed the
-                # local copy is current.
+                # local copy is current. Which of the two states this is cannot be told apart
+                # from here: origin may hold the branch, or the integration branch may exist
+                # only in this clone, in which case there is no gap and nothing to fetch.
                 Write-Warning ("$RepoPath declares $declared as the branch its work integrates " +
                                "into, and only the local $declared resolves - origin/$declared " +
                                "does not, so this worker is based on a local copy nothing has " +
-                               "confirmed is up to date. Fetch $declared before landing, or " +
-                               "every upstream commit the local copy is missing is attributed " +
-                               "to this worker.")
+                               "confirmed is up to date. Fetch $declared before landing if " +
+                               "origin has it, or every upstream commit the local copy is " +
+                               "missing is attributed to this worker. If origin has no " +
+                               "$declared at all, fetching cannot work: push the branch, or " +
+                               "correct pr.base_branch in .no-mistakes.yaml.")
             }
             # Last, because the probes above are probes too: Test-OriginRemote leaves a non-zero
             # exit code behind on a repository that has no origin, and the caller runs under

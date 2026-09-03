@@ -358,6 +358,23 @@ Describe 'Resolve-BaseRef - a repository that declares nothing' {
         Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') -Value 'pr: null' -Encoding utf8
         Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
     }
+
+    # The refusal is decided on the value, not on the raw line. Searching the line for the word
+    # refused this one for what its own comment says, which blocked every dispatch into the
+    # repository over a declaration that is not there.
+    It 'reads an inline pr mapping whose comment mentions base_branch as no declaration' {
+        $repo = New-RepoWithOriginHead
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') `
+                    -Value 'pr: {} # base_branch is not set here' -Encoding utf8
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
+
+    It 'reads an inline pr mapping of other keys as no declaration' {
+        $repo = New-RepoWithOriginHead
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') `
+                    -Value 'pr: {draft: true}' -Encoding utf8
+        Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/main'
+    }
 }
 
 Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
@@ -381,9 +398,13 @@ Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
         $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
         ($warnings -join ' ') | Should -BeLike '*never-fetched*'
         ($warnings -join ' ') | Should -BeLike '*origin/main*'
-        # This repo has an origin, so fetching is genuinely the fix - the remoteless case below is
-        # the one where that advice would be wrong.
+        # This repo has an origin, so fetching is a real possibility - the remoteless case below
+        # is the one where that advice would be wrong outright. It is offered as one of two
+        # states rather than asserted, because origin may have no such branch either and nothing
+        # short of a network round trip can tell which this is.
         ($warnings -join ' ') | Should -BeLike '*Fetch never-fetched*'
+        ($warnings -join ' ') | Should -BeLike '*if origin has it*'
+        ($warnings -join ' ') | Should -BeLike '*If origin has no never-fetched either*'
     }
 
     # The fetch advice is the only actionable sentence in that warning, and on a repository with
@@ -486,6 +507,27 @@ Describe 'Resolve-BaseRef - the declared branch honoured only as a local ref' {
         ($warnings -join ' ') | Should -BeLike '*Fetch dev*'
     }
 
+    # Fetching only closes the gap when origin actually has the branch. This fixture is the other
+    # state - `dev` was created locally and never pushed, so `git fetch origin dev` answers
+    # `couldn't find remote ref dev` and there are no upstream commits to attribute to anyone.
+    # Telling apart the two needs a network round trip on a path that must not hang a dispatch,
+    # so the warning names both rather than asserting the one that happens to be wrong here.
+    It 'names pushing as well as fetching, since origin may not have the branch at all' {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        git -C $repo branch dev
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: dev"
+        # The branch really is local-only: origin has main and nothing else.
+        (git -C $repo ls-remote --heads origin dev) | Should -BeNullOrEmpty
+
+        $warnings = @()
+        $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        $text = $warnings -join ' '
+        $text | Should -BeLike '*if origin has it*'
+        $text | Should -BeLike '*fetching cannot work*'
+        $text | Should -BeLike '*push the branch*'
+    }
+
     It 'stays quiet on a remoteless repo, where the local ref is the only ref there is' {
         $repo = New-TempRepo
         git -C $repo branch dev
@@ -538,6 +580,19 @@ Describe 'Resolve-BaseRef - a declaration nobody can read is not an absent one' 
                     -Value 'pr: {base_branch: dev}' -Encoding utf8
         { Resolve-BaseRef -RepoPath $repo } |
             Should -Throw '*declares base_branch inline on the pr key*'
+    }
+
+    # A flow mapping that runs past its own line puts its keys where this reader skips them - they
+    # are indented under a key it has already left - so the declaration came back as no
+    # declaration at all, and the worker was based on origin/HEAD while the gate proposed against
+    # `dev`. Unknown contents are refused, the same as an unreadable file.
+    It 'refuses a pr flow mapping that does not close on its own line' {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        Set-Content -Path (Join-Path $repo '.no-mistakes.yaml') -Encoding utf8 `
+                    -Value @('pr: {', '  base_branch: dev', '}')
+        { Resolve-BaseRef -RepoPath $repo } |
+            Should -Throw '*cannot finish reading*'
     }
 }
 
