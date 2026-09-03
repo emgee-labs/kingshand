@@ -44,6 +44,20 @@ request, a report, a recommendation or an implementation-ready finding is eviden
 authorization to change code, and that implementation is a separate dispatch through its own gate.
 That applies to every word this skill produces.
 
+### Who may start what
+
+Two rules, and they are ranked:
+
+1. **A counsel pass needs the King, whatever the posture.** The Hand never starts one on its own
+   authority, and `+yolo` does not authorise one: a registered posture grants routine dispatch
+   authority over work the King has asked for, and this pass is the asking.
+2. **An ordinary dispatch is `muster`'s to gate, unchanged.** Where the King has asked for work
+   and the ordering test below says its shape must be settled first, the investigation dispatch
+   that follows goes through `muster`'s own dispatch gate and the project's posture exactly as any
+   other dispatch does. This skill neither widens nor narrows that.
+
+**Wherever both could be read to apply, rule 1 wins.**
+
 ## Two halves, and every step says which one it is in
 
 The dialogue and the reading are different jobs done by different people, and the split is the
@@ -208,9 +222,8 @@ the implementation brief can be written now. It adds nothing beside an answer he
 **it never starts a counsel pass on its own.** Where the shape needs settling, say so in one line
 and let the King decide. The guard at the top of this skill is untouched by it.
 
-Where a project's registered posture already grants routine dispatch authority, an investigation
-dispatch that only sequences work the King has already asked for is ordinary sequencing rather
-than a design exercise the Hand volunteered, so the two rules do not conflict.
+Posture does not enter into it: "Who may start what" above ranks the two rules once, and this test
+changes neither of them.
 
 **Dispatch an analysis before the implementation when any one of these is true:**
 

@@ -97,6 +97,14 @@ what it lacked was a trigger saying when a design question deserves its own inve
 before an implementation dispatch. That trigger now lives in `counsel`, as a four-part test, and
 `counsel` is its only owner.
 
+The trigger is scoped, and the scope is load-bearing: it fires only on work the King has already
+asked for, and all it decides is the order of that work - whether the shape must be settled before
+an implementation dispatch. **It never starts a counsel pass.** Without that scope it reads as a
+licence for the Hand to begin an analysis on situation match, which is the parallel design
+exercise Intake judgement forbids and the guard at the top of the skill prohibits. The authority
+rules themselves live in one ranked block in the skill, "Who may start what", so a pair of them
+can never sit unranked again - that ambiguity is what this trigger produced the first time round.
+
 It was placed there rather than in `muster` because the situation it fires in is a story that has
 not been divided yet, which is what `counsel` is loaded for. It was deliberately **not** extended
 to reported bugs: `inquest` already owns the diagnosis procedure, and `CLAUDE.md` already states

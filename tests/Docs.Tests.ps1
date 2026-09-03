@@ -5306,10 +5306,18 @@ Describe 'counsel splits the dialogue from the reading, and only the King starts
                      'its tooling')
     }
 
-    # Two instructions that read as contradictions of the skill's own guards unless their scope is
-    # stated: the ordering trigger looks like the Hand volunteering an analysis, and the read-only
-    # scope sits in the same brief as a Done-means block that opens by requiring a commit.
-    It 'scopes the ordering trigger and names which brief line wins' {
+    # Instructions that read as contradictions of the skill's own guards unless they are ranked:
+    # the ordering trigger looks like the Hand volunteering an analysis, posture looks like warrant
+    # to start one, and the read-only scope sits in the same brief as a Done-means block that opens
+    # by requiring a commit. Each pair needs a stated winner, not a stated resolution.
+    It 'ranks its authority rules and names which brief line wins' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**A counsel pass needs the King, whatever the posture.** The Hand never starts one ' +
+                     'on its own authority, and `+yolo` does not authorise one')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**An ordinary dispatch is `muster`''s to gate, unchanged.**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase '**Wherever both could be read to apply, rule 1 wins.**'
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
             -Phrase ('**This test fires only on work the King has already asked for, and all it decides ' +
                      'is the order of that work**')
@@ -5318,6 +5326,8 @@ Describe 'counsel splits the dialogue from the reading, and only the King starts
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
             -Phrase ('**Then say in one line which instruction wins: where the read-only scope and the ' +
                      'pasted Done-means block disagree, the read-only scope wins**')
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase '**It never starts a counsel pass.**'
     }
 
     # muster's lifecycle assumes work that lands or pushes, and this dispatch makes no commits at
