@@ -54,9 +54,16 @@ Two rules, and they are ranked:
 2. **An ordinary dispatch is `muster`'s to gate, unchanged.** Where the King has asked for work
    and the ordering test below says its shape must be settled first, the investigation dispatch
    that follows goes through `muster`'s own dispatch gate and the project's posture exactly as any
-   other dispatch does. This skill neither widens nor narrows that.
+   other dispatch does. **That is about the dispatch decision and nothing else** - this skill
+   neither widens nor narrows that gate, and it says nothing about how the dispatch ends.
 
 **Wherever both could be read to apply, rule 1 wins.**
+
+**Close-out is the one place this skill does narrow, deliberately, and the close-out section below
+says how and why.** An analysis dispatch has nothing to land and `muster` has no read-only path,
+so rather than invent one this skill stops at the report and puts the close-out to the King. That
+holds on a `+yolo` project too, because it is the safe direction: nothing is torn down that
+nothing authorised, and hard rule 2 keeps destructive steps with the King whatever the posture.
 
 ## Two halves, and every step says which one it is in
 
@@ -138,9 +145,10 @@ clears it, and Step 8b's teardown rule is written for work sitting in a worktree
 dispatch fits none of that, and **this skill does not invent a parallel lifecycle**, because
 `muster` owns the lifecycle and a second owner of it drifts the moment either file is edited.
 
-So until `muster` carries a read-only path: run the analysis as an ordinary dispatch, stop at the
-report, read it, render the decomposition, and put the close-out to the King along with the plain
-fact that the worker has nothing to land. Explicitly - **do not set a stage `muster` does not
+This is the narrowing "Who may start what" names above, and the reason is stated there rather than
+twice. So until `muster` carries a read-only path: run the analysis as an ordinary dispatch, stop
+at the report, read it, render the decomposition, and put the close-out to the King along with the
+plain fact that the worker has nothing to land. Explicitly - **do not set a stage `muster` does not
 define, do not tear the worker down on this skill's authority, and do not skip `muster`'s base-ref
 verification in order to justify one.**
 
@@ -222,8 +230,9 @@ the implementation brief can be written now. It adds nothing beside an answer he
 **it never starts a counsel pass on its own.** Where the shape needs settling, say so in one line
 and let the King decide. The guard at the top of this skill is untouched by it.
 
-Posture does not enter into it: "Who may start what" above ranks the two rules once, and this test
-changes neither of them.
+This is where `CLAUDE.md` sends the Hand at intake, before an implementation brief is written for a
+story or a feature. Posture does not enter into it: "Who may start what" above ranks the two rules
+once, and this test changes neither of them.
 
 **Dispatch an analysis before the implementation when any one of these is true:**
 

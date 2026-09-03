@@ -5317,7 +5317,13 @@ Describe 'counsel splits the dialogue from the reading, and only the King starts
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
             -Phrase ('**An ordinary dispatch is `muster`''s to gate, unchanged.**')
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**That is about the dispatch decision and nothing else** - this skill neither ' +
+                     'widens nor narrows that gate, and it says nothing about how the dispatch ends.')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
             -Phrase '**Wherever both could be read to apply, rule 1 wins.**'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**Close-out is the one place this skill does narrow, deliberately, and the ' +
+                     'close-out section below says how and why.**')
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
             -Phrase ('**This test fires only on work the King has already asked for, and all it decides ' +
                      'is the order of that work**')
@@ -5362,6 +5368,11 @@ Describe 'counsel splits the dialogue from the reading, and only the King starts
         Assert-Phrase -Text $skills -Where 'CLAUDE.md Skills' `
             -Phrase ('Invoke `counsel` when the King asks for a story, a feature or a pile of stories ' +
                      'to be broken down, analysed or brainstormed before anything is built.')
+        Assert-Phrase -Text $skills -Where 'CLAUDE.md Skills' `
+            -Phrase ('Load it as well before writing an implementation brief for a story or a feature, ' +
+                     'to apply its ordering test - whether the shape has to be settled before anything ' +
+                     'is built. That is a load and not a dispatch: the test decides order only and ' +
+                     'never starts a counsel pass.')
         Assert-Phrase -Text $skills -Where 'CLAUDE.md Skills' `
             -Phrase '**Never launch it unprompted**'
     }
