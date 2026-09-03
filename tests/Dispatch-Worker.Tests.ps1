@@ -40,6 +40,26 @@ BeforeAll {
         $null = & git -C $RepoPath rev-parse --verify --quiet "$Ref^{commit}" 2>$null
         $LASTEXITCODE -eq 0
     }
+
+    function Set-DeclaredBranch {
+        param([Parameter(Mandatory)][string]$RepoPath, [Parameter(Mandatory)][string]$Yaml)
+        Set-Content -Path (Join-Path $RepoPath '.no-mistakes.yaml') -Value $Yaml -Encoding utf8
+    }
+
+    # A repo declaring another worker's branch as where its work integrates, with that branch
+    # pushed so both forms of it genuinely resolve. The declaration is refused all the same.
+    function New-DeclaredWorkerBranchRepo {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo checkout -q -b 'worktree-other'
+        Set-Content -Path (Join-Path $repo 'other.txt') -Value 'other' -Encoding utf8
+        git -C $repo add -A
+        git -C $repo commit -q -m 'Another worker commit'
+        git -C $repo push -q origin 'worktree-other' 2>&1 | Out-Null
+        git -C $repo checkout -q 'main'
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: worktree-other"
+        $repo
+    }
 }
 
 AfterAll {
@@ -197,11 +217,6 @@ Describe 'Resolve-BaseRef - the declared integration branch' {
     # same key the review gate reads, so one statement serves both.
 
     BeforeAll {
-        function Set-DeclaredBranch {
-            param([Parameter(Mandatory)][string]$RepoPath, [Parameter(Mandatory)][string]$Yaml)
-            Set-Content -Path (Join-Path $RepoPath '.no-mistakes.yaml') -Value $Yaml -Encoding utf8
-        }
-
         # A repo whose default branch is `main` and whose integration branch is `dev`, with both
         # pushed, so origin/HEAD and the declaration genuinely point at different refs.
         function New-SplitBranchRepo {
@@ -269,11 +284,6 @@ Describe 'Resolve-BaseRef - a repository that declares nothing' {
     # them must resolve exactly as it did before any of this reader existed.
 
     BeforeAll {
-        function Set-DeclaredBranch {
-            param([Parameter(Mandatory)][string]$RepoPath, [Parameter(Mandatory)][string]$Yaml)
-            Set-Content -Path (Join-Path $RepoPath '.no-mistakes.yaml') -Value $Yaml -Encoding utf8
-        }
-
         function New-RepoWithOriginHead {
             $repo = New-TempRepo -WithOrigin
             git -C $repo remote set-head origin -a 2>&1 | Out-Null
@@ -319,13 +329,6 @@ Describe 'Resolve-BaseRef - a repository that declares nothing' {
 }
 
 Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
-    BeforeAll {
-        function Set-DeclaredBranch {
-            param([Parameter(Mandatory)][string]$RepoPath, [Parameter(Mandatory)][string]$Yaml)
-            Set-Content -Path (Join-Path $RepoPath '.no-mistakes.yaml') -Value $Yaml -Encoding utf8
-        }
-    }
-
     It 'skips a declared branch that does not resolve' {
         $repo = New-TempRepo -WithOrigin
         git -C $repo remote set-head origin -a 2>&1 | Out-Null
@@ -360,20 +363,40 @@ Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
     }
 
     It 'rejects a declared worker branch outright, however well it resolves' {
-        $repo = New-TempRepo -WithOrigin
-        git -C $repo checkout -q -b 'worktree-other'
-        Set-Content -Path (Join-Path $repo 'other.txt') -Value 'other' -Encoding utf8
-        git -C $repo add -A
-        git -C $repo commit -q -m 'Another worker commit'
-        git -C $repo push -q origin 'worktree-other' 2>&1 | Out-Null
-        git -C $repo checkout -q 'main'
-        git -C $repo remote set-head origin -a 2>&1 | Out-Null
-        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: worktree-other"
+        $repo = New-DeclaredWorkerBranchRepo
         Test-RefResolves -RepoPath $repo -Ref 'origin/worktree-other' | Should -BeTrue
 
         $base = Resolve-BaseRef -RepoPath $repo -WarningAction SilentlyContinue
         $base | Should -Be 'origin/main'
         $base | Should -Not -BeLike '*worktree-*'
+    }
+
+    # A declared worker branch is refused in both forms before anything is resolved, so it is not
+    # a missing ref and telling the reader to fetch it sends them after a branch they already
+    # have while the real fault - a declaration pointing at another worker's branch - goes unsaid.
+    It 'says a declared worker branch was refused, not that it is missing' {
+        $repo = New-DeclaredWorkerBranchRepo
+
+        $warnings = @()
+        $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        $text = $warnings -join ' '
+        $text | Should -BeLike '*worktree-other*'
+        $text | Should -BeLike '*worker branch*'
+        $text | Should -Not -BeLike '*neither origin/worktree-other nor worktree-other resolves*'
+        $text | Should -Not -BeLike '*Fetch worktree-other*'
+    }
+
+    It 'says the same thing in the refusal when a declared worker branch is all there is' {
+        $repo = New-TempRepo -Branch 'worktree-only'
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: worktree-only"
+        Test-RefResolves -RepoPath $repo -Ref 'worktree-only' | Should -BeTrue
+
+        $err = $null
+        try { Resolve-BaseRef -RepoPath $repo } catch { $err = $_.Exception.Message }
+        $err | Should -BeLike '*Cannot resolve a base ref*'
+        $err | Should -BeLike '*worktree-only is the branch this repository declares*'
+        $err | Should -BeLike '*refused rather than tried*'
+        $err | Should -Not -BeLike '*tried first in both forms*'
     }
 
     It 'still throws when nothing resolves, and says the declaration was tried' {
@@ -383,6 +406,51 @@ Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
         try { Resolve-BaseRef -RepoPath $repo } catch { $err = $_.Exception.Message }
         $err | Should -BeLike '*Cannot resolve a base ref*'
         $err | Should -BeLike '*dev is the branch this repository declares*'
+        $err | Should -BeLike '*tried first in both forms*'
+    }
+}
+
+Describe 'Resolve-BaseRef - the declared branch honoured only as a local ref' {
+    # origin/$declared is preferred over the local $declared because the local copy is often
+    # behind. Falling through to it on a repo that HAS an origin therefore means the declared
+    # branch was never fetched: the worktree is cut from a stale tree, and every upstream commit
+    # in the gap lands in the worker's diff and attribution scan as if the worker wrote it.
+
+    It 'warns that the local copy is unconfirmed when the repo has a remote' {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        git -C $repo branch dev
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: dev"
+        Test-RefResolves -RepoPath $repo -Ref 'dev'        | Should -BeTrue
+        Test-RefResolves -RepoPath $repo -Ref 'origin/dev' | Should -BeFalse
+
+        $warnings = @()
+        $base = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        # The declaration is still honoured - this is a caution, not a refusal.
+        $base | Should -Be 'dev'
+        ($warnings -join ' ') | Should -BeLike '*origin/dev*'
+        ($warnings -join ' ') | Should -BeLike '*Fetch dev*'
+    }
+
+    It 'stays quiet on a remoteless repo, where the local ref is the only ref there is' {
+        $repo = New-TempRepo
+        git -C $repo branch dev
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: dev"
+
+        $warnings = @()
+        $base = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        $base | Should -Be 'dev'
+        $warnings.Count | Should -Be 0
+    }
+
+    It 'leaves the caller no stray exit code from the remote probe' {
+        $repo = New-TempRepo
+        git -C $repo branch dev
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: dev"
+
+        $global:LASTEXITCODE = 0
+        $null = Resolve-BaseRef -RepoPath $repo -WarningAction SilentlyContinue
+        $LASTEXITCODE | Should -Be 0
     }
 }
 

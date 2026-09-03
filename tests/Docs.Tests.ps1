@@ -4849,11 +4849,38 @@ Describe 'the default branch and the integration branch are two things' {
     # The claim in that row that a reviewer cannot check by reading: that the two consumers of the
     # declaration read the same key from the same file. A row saying so while the gate read
     # something else would be worse than a row saying nothing.
+    #
+    # Asserted by running the real reader over this repository's own file, not by looking for a
+    # string in it. A substring both false-passes and false-fails: `# base_branch: dev` left
+    # commented out matches while the repository declares nothing, and `base_branch: "dev"` -
+    # a form the reader honours - does not match at all.
     It 'the repository declares that branch where the review gate reads it' {
         $declared = Join-Path $script:Root '.no-mistakes.yaml'
         Test-Path -LiteralPath $declared | Should -BeTrue -Because 'the tooling table names this file'
-        $text = Get-Content -LiteralPath $declared -Raw
-        $text.Contains('base_branch: dev') |
-            Should -BeTrue -Because 'kingshand integrates on dev, whatever its default branch becomes'
+
+        # A throwaway repo carrying this repository's declaration and nothing else, so what the
+        # reader returns is decided by the file rather than by whatever refs this checkout holds.
+        # No origin and a `main` default, so an undeclared repo resolves to `main` and only an
+        # honoured declaration can come back as `dev`.
+        $probe = Join-Path ([System.IO.Path]::GetTempPath()) `
+                           ('declared-base-' + [guid]::NewGuid().ToString('N'))
+        try {
+            git init -b main $probe -q
+            git -C $probe config user.name  'Test'
+            git -C $probe config user.email 'test@example.invalid'
+            Set-Content -Path (Join-Path $probe 'base.txt') -Value 'base' -Encoding utf8
+            git -C $probe add -A
+            git -C $probe commit -q -m 'Initial commit'
+            git -C $probe branch dev
+            Copy-Item -LiteralPath $declared -Destination (Join-Path $probe '.no-mistakes.yaml')
+
+            . (Join-Path $script:Root 'bin\Resolve-BaseRef.ps1')
+            Resolve-BaseRef -RepoPath $probe |
+                Should -Be 'dev' -Because 'kingshand integrates on dev, whatever its default branch becomes'
+        } finally {
+            if (Test-Path -LiteralPath $probe) {
+                Remove-Item -LiteralPath $probe -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
     }
 }

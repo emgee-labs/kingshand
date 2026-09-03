@@ -32,6 +32,21 @@
   skipped with a warning rather than in silence, because a declaration the dispatcher cannot honour
   is precisely the disagreement with the gate this whole mechanism exists to prevent.
 
+  A declaration goes unhonoured for exactly two reasons and the warning names the one that
+  applies, because the wrong reason sends the reader after the wrong fix. Either the ref does not
+  exist here, and fetching it is the answer; or it names a `worktree-*` branch, which resolves
+  perfectly well and will still never be honoured, so telling that reader to fetch it sends them
+  to look for a branch they already have while the real fault - a declaration pointing at another
+  worker's branch - goes unsaid.
+
+  Honouring the declaration in its LOCAL form is warned about too. `origin/dev` comes first
+  precisely because a local `dev` is often behind it, so falling through to the local copy on a
+  repository that has an `origin` means the declared branch was never fetched: the worktree is cut
+  from - and the landing diff measured against - whatever that stale copy holds, and every
+  upstream commit in the gap is attributed to the worker. The base is still the declared branch,
+  so this is a caution and not a refusal, and a repository with no remote at all has no gap to
+  warn about.
+
   The reader below is deliberately NARROW: a top-level `pr:` block mapping, and a `base_branch:`
   key among its immediate children. It is not a YAML parser and must not grow into one - the
   cautionary tale is in Dispatch-Worker.ps1's header, where reading paths back out of a brief's
@@ -91,6 +106,13 @@ function Resolve-BaseRef {
     function Test-WorkerBranch {
         param([string]$Ref)
         [bool]($Ref -and $Ref -match '^(origin/)?worktree-')
+    }
+
+    # Whether this repository has an `origin` at all. It decides whether a local ref can be behind
+    # a remote one, which is the difference between a stale base and the only base there is.
+    function Test-OriginRemote {
+        $null = & git -C $RepoPath remote get-url origin 2>$null
+        $LASTEXITCODE -eq 0
     }
 
     # The repository's own declaration of where its work integrates, or '' when it makes none.
@@ -205,20 +227,50 @@ function Resolve-BaseRef {
     $rejected = @($candidates | Where-Object { Test-WorkerBranch $_ })
     $usable   = @($candidates | Where-Object { -not (Test-WorkerBranch $_) })
 
+    # A declared worker branch is dropped in BOTH forms above, so it never reaches the resolve
+    # loop and "neither form resolves" would be a false account of why it was not honoured.
+    $declaredIsWorker = [bool]($declared -and (Test-WorkerBranch $declared))
+
     foreach ($c in $usable) {
         if (Test-GitRef $c) {
-            $global:LASTEXITCODE = 0
             # Said out loud when the repository declared a branch and the ref in hand is neither
             # form of it. The worker is about to be cut from one branch while its pull request is
             # proposed against another, which is the failure this reader was added to close - so
             # it is reported rather than left for whoever reads the landing diff.
             if ($declared -and $c -ne $declared -and $c -ne "origin/$declared") {
+                if ($declaredIsWorker) {
+                    Write-Warning ("$RepoPath declares $declared as the branch its work " +
+                                   "integrates into, but that is a kingshand worker branch and " +
+                                   "a worktree-* ref is never a base - it belongs to another " +
+                                   "worker, so basing on it would measure this worker's diff " +
+                                   "and attribution scan against unlanded work. It resolves " +
+                                   "fine and was refused anyway, so fetching it changes " +
+                                   "nothing: this worker is based on $c instead, while its pull " +
+                                   "request is still proposed against $declared. Correct " +
+                                   "pr.base_branch in .no-mistakes.yaml.")
+                } else {
+                    Write-Warning ("$RepoPath declares $declared as the branch its work " +
+                                   "integrates into, but neither origin/$declared nor " +
+                                   "$declared resolves here, so this worker is based on $c " +
+                                   "instead - while its pull request is still proposed against " +
+                                   "$declared. Fetch $declared before landing, or the landing " +
+                                   "diff measures the wrong branch.")
+                }
+            } elseif ($declared -and $c -eq $declared -and (Test-OriginRemote)) {
+                # The declared branch was honoured, but only as a local ref on a repo that has a
+                # remote - so origin/$declared was never fetched and nothing has confirmed the
+                # local copy is current.
                 Write-Warning ("$RepoPath declares $declared as the branch its work integrates " +
-                               "into, but neither origin/$declared nor $declared resolves here, " +
-                               "so this worker is based on $c instead - while its pull request " +
-                               "is still proposed against $declared. Fetch $declared before " +
-                               "landing, or the landing diff measures the wrong branch.")
+                               "into, and only the local $declared resolves - origin/$declared " +
+                               "does not, so this worker is based on a local copy nothing has " +
+                               "confirmed is up to date. Fetch $declared before landing, or " +
+                               "every upstream commit the local copy is missing is attributed " +
+                               "to this worker.")
             }
+            # Last, because the probes above are probes too: Test-OriginRemote leaves a non-zero
+            # exit code behind on a repository that has no origin, and the caller runs under
+            # $ErrorActionPreference = 'Stop'.
+            $global:LASTEXITCODE = 0
             return $c
         }
     }
@@ -226,7 +278,12 @@ function Resolve-BaseRef {
     $global:LASTEXITCODE = 0
     $msg = "Cannot resolve a base ref in ${RepoPath}: none of $($usable -join ', ') " +
            "exists. Refusing to record a base that would make the landing evidence silently empty."
-    if ($declared) {
+    if ($declared -and $declaredIsWorker) {
+        $msg += " $declared is the branch this repository declares its work integrates into, but " +
+                "it is a worktree-* branch, so both forms of it were refused rather than tried - " +
+                "a worker branch belongs to another worker and is never a base, however well it " +
+                "resolves. Correct pr.base_branch in .no-mistakes.yaml."
+    } elseif ($declared) {
         $msg += " $declared is the branch this repository declares its work integrates into, and " +
                 "it was tried first in both forms - a declaration is a candidate here, not a " +
                 "guarantee that the ref exists."
