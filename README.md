@@ -2,7 +2,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
-[![Tests](https://img.shields.io/badge/tests-1211%20passing-3fb950)](tests)
+[![Tests](https://img.shields.io/badge/tests-1235%20passing-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 # You rule. It executes.
@@ -58,7 +58,7 @@ reads.
   and is the switch.
 - **Your preferences stay yours.** `instructions.md` is read every session and never written by the
   tool - enforced by the permission layer, not just asked for in prose.
-- **Your other projects are untouched.** All fourteen skills live in this repository's own
+- **Your other projects are untouched.** All fifteen skills live in this repository's own
   `.claude\skills\`. Nothing is written into `~\.claude\`, so a session anywhere else on the machine
   behaves exactly as it did before.
 
@@ -186,7 +186,7 @@ astray - neither of which a detached background session allows.
 
 ## Built-in skills
 
-Fourteen, all project-local. Nine you invoke; five the Hand loads for itself.
+Fifteen, all project-local. Ten you invoke; five the Hand loads for itself.
 
 | Skill | What it is for |
 |---|---|
@@ -199,6 +199,7 @@ Fourteen, all project-local. Nine you invoke; five the Hand loads for itself.
 | `regency` | Hold the fleet while you are away, and batch what does not need you. Also `/afk` |
 | `audience` | What happened while you were away from this session |
 | `chronicle` | Curate durable memory before a context reset |
+| `counsel` | Break a story or a whole feature into work, and find where the stories overlap |
 | `rally` | A worker that has stopped making progress |
 | `decree` | Finishing an investigation without losing a decision that is yours |
 | `inquest` | Diagnosing a reported bug before writing its brief |
@@ -237,7 +238,7 @@ CLAUDE.md               the Hand's always-loaded instructions - identity, hard r
 VERSION                 this installation's version, and the only place it is written down
 bin\                    dispatch, worker state, registry, snapshot, digest, herdr, workspace prep,
                         version and self-update
-.claude\skills\         fourteen project-local skills. They load only in this directory
+.claude\skills\         fifteen project-local skills. They load only in this directory
 tests\                  the Pester suite
 tools\herdr\            herdr, fetched and SHA-256 verified by the installer - gitignored,
                         and deliberately not on PATH

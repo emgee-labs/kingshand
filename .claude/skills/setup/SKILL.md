@@ -9,7 +9,7 @@ version: 1.0.0
 
 ## Overview
 
-This skill lives in `.claude\skills\` beside the other thirteen, and every one of them is readable
+This skill lives in `.claude\skills\` beside the other fourteen, and every one of them is readable
 the moment someone opens Claude Code in this directory - nothing has to be installed or linked
 first. That is what breaks the bootstrap cycle, and it is also why a Claude Code session started
 anywhere else on this machine never loads any of them.
