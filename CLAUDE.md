@@ -168,10 +168,11 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the latest release tag, and the commit subjects between two releases |
 | `bin\Memory.psm1` | the startup-memory budget: what the two memory files cost, against what is allowed |
 | `bin\Index.psm1` | the data index: write a file and index it in one call, add an entry for a file another tool wrote, read a project's index, count the drift, drop an entry whose file is gone |
+| `bin\BrowserVerify.psm1` | the three answers a browser check must not give from memory: whether the browser tools all loaded, where a login is set without ever writing it down, and what a run of checks verified, failed or could not check |
 
 ## Skills
 
-Every skill lives in `.claude\skills\` inside this repository, so all fifteen load when Claude Code
+Every skill lives in `.claude\skills\` inside this repository, so all sixteen load when Claude Code
 runs here and none of them exists in a session started anywhere else. Nothing links or copies them
 into `~\.claude\skills\`, and nothing may start doing so.
 
@@ -223,7 +224,7 @@ and Intake judgement still forbids you volunteering a design exercise beside a g
 That rule is the whole guard: no frontmatter key stops you, because the key that would also takes
 the skill out of your listing, leaving you unable to act on the King asking in his own words.
 
-Five more are reference procedures. Nobody invokes them by name; load each when its situation
+Six more are reference procedures. Nobody invokes them by name; load each when its situation
 arrives.
 
 - `inquest` - load before writing a brief for a reported bug, and again before acting on what a
@@ -235,6 +236,8 @@ arrives.
   decision a `report.md` names and nobody has answered.
 - `statute` - load before changing kingshand's own tracked material (`CLAUDE.md`, `bin\`,
   `.claude\skills\`, `tests\`, `docs\`), and name it in the brief when a task touches it.
+- `witness` - load before writing a `## Browser checks` section into a brief, and workers load it
+  before driving a browser for one. A brief with no such section gets no browser step at all.
 - `rally` - load when a worker reads dead or has no live process, or is reported stalled, found with
   unexplained text in its input box, looping, repeatedly confused, asking what its brief already
   answers, unresponsive, or still recorded as working after a session restart. Never remove a stuck

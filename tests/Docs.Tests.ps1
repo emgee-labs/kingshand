@@ -3077,6 +3077,8 @@ Describe 'no long dash' {
         @{ file = 'docs\2026-09-03-versioning-and-update.md' }
         @{ file = '.claude\skills\counsel\SKILL.md' }
         @{ file = 'docs\2026-09-04-story-analysis-split.md' }
+        @{ file = '.claude\skills\witness\SKILL.md' }
+        @{ file = 'docs\2026-09-03-browser-verification.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
@@ -3393,7 +3395,7 @@ Describe 'survey puts an open decision in King''s Call and only there' {
 }
 
 Describe 'the setup skill ships inside the repo so a fresh clone can bootstrap itself' {
-    # Every skill is project-local, under .claude\skills\, so all fifteen are readable the moment
+    # Every skill is project-local, under .claude\skills\, so all sixteen are readable the moment
     # someone opens Claude Code in this directory and none of them is reachable from anywhere
     # else on the machine. That is what lets "set it up" be the first thing anyone types.
     BeforeAll { $script:SetupText = Get-DocText $script:SetupMd }
@@ -3794,7 +3796,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
 
     It 'every skill directory lives under .claude\skills\' {
         $skills = @(Get-ChildItem (Join-Path $script:Root '.claude\skills') -Directory)
-        $skills.Count | Should -Be 15 -Because 'fourteen skills plus setup, all project-local'
+        $skills.Count | Should -Be 16 -Because 'fifteen skills plus setup, all project-local'
         @($skills.Name) | Should -Contain 'herald' -Because 'output shape has an owner the user can turn on'
         foreach ($s in $skills) {
             Test-Path -LiteralPath (Join-Path $s.FullName 'SKILL.md') |
@@ -4956,7 +4958,7 @@ Describe 'the installation has a version, and one command moves it to a release'
 
     It 'counts every skill that now loads' {
         Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'CLAUDE.md Skills' `
-            -Phrase 'so all fifteen load when Claude Code runs here'
+            -Phrase 'so all sixteen load when Claude Code runs here'
     }
 
     It 'gives the version and the update their own owners in the tooling table' {
@@ -5372,5 +5374,167 @@ Describe 'counsel splits the dialogue from the reading, and only the King starts
                      'to be broken down, analysed or brainstormed before anything is built.')
         Assert-Phrase -Text $skills -Where 'CLAUDE.md Skills' `
             -Phrase '**Never launch it unprompted**'
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# Browser verification is opt-in, fails closed, and records what it saw.
+#
+# The failure this guards against is not a browser bug. It is a change that was never exercised
+# coming back reading like one that was - so the rules that must survive are the ones that refuse
+# a pass: no section means no browser step, an absent server means verification did not happen,
+# and a check that could not be answered is reported rather than skipped.
+#
+# docs\2026-09-03-browser-verification.md owns why each of these is shaped the way it is.
+# ---------------------------------------------------------------------------------------------
+Describe 'witness keeps the rules that stop an unexercised change reading as a pass' {
+    BeforeAll {
+        $script:WitnessMd   = Join-Path $script:Root '.claude\skills\witness\SKILL.md'
+        $script:WitnessText = Get-DocText $script:WitnessMd
+        $script:BrowserDoc  = Get-DocText (Join-Path $script:Root 'docs\2026-09-03-browser-verification.md')
+    }
+
+    It 'has frontmatter that parses, with the situation in the description' {
+        $fm = Get-Frontmatter $script:WitnessMd
+        $fm['name']    | Should -Be 'witness' -Because 'the frontmatter name must match the skill directory'
+        $fm['version'] | Should -Be '1.0.0'
+        $fm['description'].Length |
+            Should -BeGreaterThan 40 -Because 'the description is the trigger, and it must name the situation'
+        $fm['description'].Contains('`## Browser checks` section') |
+            Should -BeTrue -Because 'a reference skill is reached by recognising its situation, not by name'
+    }
+
+    # The opt-in. A browser step nobody asked for is cost with no answer attached, and the only
+    # thing standing between that and every dispatch is this sentence.
+    It 'gives no browser step to a brief that did not ask for one' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**A brief with no `## Browser checks` section gets no browser step.**'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'That section is the only input this procedure takes'
+        Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'the CLAUDE.md Skills section' `
+            -Phrase 'A brief with no such section gets no browser step at all.'
+    }
+
+    It 'is named inline as a reference procedure with its own load trigger' {
+        $skills = Get-HandSection 'Skills'
+        Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
+            -Phrase '`witness` - load before writing a `## Browser checks` section into a brief'
+        Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
+            -Phrase 'Six more are reference procedures'
+    }
+
+    # The server disconnected twice inside one conversation, so this path runs often. An absent
+    # browser has exactly one honest outcome and it is not a quiet one.
+    It 'treats an absent browser as verification that did not happen' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**When `$tools.available` is false, stop and write the record.**'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'the change was not exercised in a browser'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**Never let that read as a pass**'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'never soften it to "verified by inspection"'
+    }
+
+    It 'loads the browser tools in one call, and asks for every tool it then requires' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'load them in **one** call rather than one call per tool'
+
+        # The fence is what a reader copies. A skill that tells you to load a narrower set than
+        # its own availability check demands would fail closed on every run, for ever.
+        Import-Module (Join-Path $script:Root 'bin\BrowserVerify.psm1') -Force
+        $fence = @(Get-CodeFence $script:WitnessMd |
+                       Where-Object { $_.Contains('select:mcp__claude-in-chrome__') })
+        $fence.Count | Should -Be 1 -Because 'one batched load, stated once'
+        foreach ($tool in (Get-BrowserRequiredTools)) {
+            $fence[0].Contains($tool) |
+                Should -BeTrue -Because "the batched load must include $tool, which the check requires"
+        }
+    }
+
+    # The King's standing rule is that nothing changes on a server without his word. A
+    # verification step is not an exemption from it.
+    It 'stays read-only unless the brief authorised the action by name' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**Anything that changes state on a server is different, and the brief has to authorise it.**'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'the check is recorded `not checked` with the reason, and you move on'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**Do not ask** - there is nobody attached to a background worker'
+    }
+
+    It 'defers to the queued confirmation posture instead of growing a second one' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**Do not build a second confirmation path here**'
+    }
+
+    # One stray confirm costs the whole run, and nobody is there to dismiss it.
+    It 'forbids opening a dialog, and says what to do instead' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**there is nobody attached to a background worker**'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'Do not click a control that is guarded by a confirmation'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'log it and read it back with `read_console_messages`'
+    }
+
+    # A worker inherits its parent's environment at creation, so a login set today is invisible
+    # to it. A bare $env: read is the failure, and it looks exactly like a wrong password.
+    It 'reads a login from the environment and never writes it down' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase ('**No credential is ever written into this skill, a brief, a report or any ' +
+                     'file under `data\`.**')
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**Never fall back to a bare `$env:NAME` read**'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'the silent failure looks exactly like a wrong password'
+    }
+
+    # The headline requirement: a record of what was seen, per check, with nothing dropped.
+    It 'gives every check one of three outcomes and skips none of them' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**an item that could not be checked is reported, never skipped**'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase ('**`verified`** with what was observed, **`failed`** with what was observed ' +
+                     'instead, **`not checked`** with the reason')
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'a pass with no evidence behind it is exactly what this replaces'
+    }
+
+    It 'keeps the evidence as text, in the one file that survives teardown' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**Screenshots and recordings are not evidence this produces**'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'write it into `report.md` under `## Browser verification`'
+    }
+
+    It 'says which worker drives the browser, and what that costs' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase ('**The worker making the change does, at the end of its own task, before it ' +
+                     'runs the review gate.**')
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'Not a second worker afterwards.'
+    }
+
+    It 'gives the module its own row in the tooling table' {
+        Assert-Phrase -Text (Get-HandSection 'Tooling') -Where 'the CLAUDE.md tooling table' `
+            -Phrase ('| `bin\BrowserVerify.psm1` | the three answers a browser check must not give ' +
+                     'from memory: whether the browser tools all loaded, where a login is set ' +
+                     'without ever writing it down, and what a run of checks verified, failed or ' +
+                     'could not check |')
+    }
+
+    It 'records why the opt-in is not a registry field, and what would change that' {
+        Assert-Phrase -Text $script:BrowserDoc -Where 'the browser verification record' `
+            -Phrase '## The opt-in lives in the brief, not the registry'
+        Assert-Phrase -Text $script:BrowserDoc -Where 'the browser verification record' `
+            -Phrase '**What would change this decision:**'
+    }
+
+    It 'records the measurement behind the credential rule' {
+        Assert-Phrase -Text $script:BrowserDoc -Where 'the browser verification record' `
+            -Phrase '**Do not replace that second read with a bare `$env:` lookup.**'
+        Assert-Phrase -Text $script:BrowserDoc -Where 'the browser verification record' `
+            -Phrase ('**an item that could not be checked is reported, never skipped.**')
     }
 }
