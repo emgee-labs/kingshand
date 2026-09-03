@@ -6209,19 +6209,38 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
     }
 
     # The floor the state table used to carry as its stopping row. It survives as a rule about a
-    # breach rather than as a row: a worker that resolved a decision nobody registered answered its
-    # own question, which its brief forbids outright.
+    # breach rather than as a row - but it cannot fire on "a decision the brief did not settle"
+    # alone, because every brief tells the worker to proceed on a stated assumption and record it
+    # in exactly that file. Written flat, the rule condemns a worker for following its instructions
+    # and stalls delivered work. The discriminator is petition's reversibility test, cross-
+    # referenced rather than restated, so there is one test and not a second one growing here.
     It 'Step 6 still refuses to ratify a worker that answered its own question' {
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**A worker that carried on past a decision its brief did not settle, with no ' +
-                     'hold ever registered for it, answered its own question - and its brief ' +
-                     'forbids that outright.**')
+            -Phrase ('**Proceeding on a stated assumption is not a worker answering its own ' +
+                     'question - every brief grants that hatch and tells it to record the ' +
+                     'assumption in `report.md` and carry on rather than stopping.**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('Load `rally`, and read everything else it claims with the same suspicion a ' +
+            -Phrase ('What decides it is which side of `petition`''s reversibility test the call ' +
+                     'sat on. **That test is stated there and not restated here**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**A worker that resolved a call on the far side of that test, with no hold ' +
+                     'ever registered for it, answered its own question - and its brief forbids ' +
+                     'that outright.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('Establish that first, from what the report actually claims: the two read ' +
+                     'identically on the page until the test is applied to the call itself')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('load `rally`, and read everything else it claims with the same suspicion a ' +
                      'missing report earns.')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('Do not register that answer afterwards to make the record tidy: filing it ' +
                      'durably asserts that somebody with the authority gave it.')
+        # The flat form, asserted as an absence: it fired on every recorded assumption.
+        $script:RouteStep6.Contains('carried on past a decision its brief did not settle, with no') |
+            Should -BeFalse -Because 'the briefs grant exactly that where the call is cheap to undo'
+        # And the test itself stays in one place - a copy here is a copy that drifts.
+        $script:RouteStep6.Contains('reversible in minutes') |
+            Should -BeFalse -Because 'petition owns the reversibility test, and this cross-references it'
     }
 
     # Teardown is the irreversible one. It ends the process holding the parked run, so the answer
@@ -6550,6 +6569,63 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         $lookup.Count | Should -Be 1 -Because 'a closed hold is how an answered decision is recorded'
         $lookup[0].Contains('tasks-axi list --state held') |
             Should -BeTrue -Because 'the open half is read in the same lookup, not a separate pass'
+        # tasks-axi prunes closed items into the archive and never reads that file back, so the
+        # queue alone answers this only for as long as retention lasts. Every lookup the route runs
+        # has to reach the archive, or a decision answered months ago reads as one nobody made.
+        $lookup[0].Contains('data\done-archive.md') |
+            Should -BeTrue -Because 'a pruned hold is answered, not absent'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**The archive line is not optional, for the reason the pointer read-back ' +
+                     'names**: a hold pruned out of the backlog is invisible to `list` and still ' +
+                     'answered')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**`NOT_FOUND` from `show` is not an answer on its own - a closed hold gets ' +
+                     'pruned out of the backlog.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('a key found there is answered, and a key in neither place is a record that ' +
+                     'has gone missing rather than a decision nobody made')
+        @($script:RouteFences | Where-Object {
+            $_.Contains('tasks-axi show <the key the pointer names> --full') -and
+            $_.Contains('data\done-archive.md') }).Count |
+            Should -Be 1 -Because 'the pointer read-back is the other lookup that goes blind on a prune'
+    }
+
+    # A key is `<work-id>-<slug>`, so a bare-prefix match for T-100 also selects every T-1001- key.
+    # On the open branch that points a worker at another work's live decision and steers it on an
+    # answer that was never about it. The delimiter the composition already guarantees is the fix.
+    It 'both files match the work id with its delimiter rather than as a bare prefix' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**Match on the work id followed by its delimiter - `<work-id>-`, never a ' +
+                     'bare prefix.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('a bare prefix match for `T-100` also returns every `T-1001-` hold, which on ' +
+                     'the open branch below would point this worker at another work''s live ' +
+                     'decision')
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ('**That lookup matches the full key, or the work id with the `-` that ' +
+                     'follows it, and never a bare prefix.**')
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ('without it, `T-100` selects every `T-1001-` key as well, and the recovery ' +
+                     're-registers a worker against a live decision belonging to another piece of ' +
+                     'work entirely')
+    }
+
+    # The teardown is the guard that cannot be taken back, and a pruned key answers NOT_FOUND there
+    # too. Reading that as "no open hold, carry on" is right by luck; reading it as "no record at
+    # all" has to stop, because a mistyped key and a moved queue file answer identically.
+    It 'the teardown treats a missing record as a cause to establish, not a pass' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
+            -Phrase '**`NOT_FOUND` from `show` is not permission to tear down.**'
+        Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
+            -Phrase ('Only a closed hold is ever archived, so a key the archive holds is answered ' +
+                     'and this worker may be stopped.')
+        Assert-Phrase -Text (Get-MusterStep 'Step 8b') -Where 'muster Step 8b' `
+            -Phrase ('A key in neither place is a record that has gone missing - a mistyped key, ' +
+                     'a queue file that moved - and at the one guard that cannot be taken back ' +
+                     'that is a cause to establish, never a pass.')
+        @(Get-CodeFence $script:MusterMd | Where-Object {
+            $_.Contains('tasks-axi show $key --full') -and $_.Contains('data\done-archive.md') }).Count |
+            Should -Be 1 -Because 'the irreversible guard reads the archive too, or it goes blind on a prune'
     }
 
     # The open-hold ambiguity is decree's, not muster's: both causes are `--kind captain` and

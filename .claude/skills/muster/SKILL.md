@@ -1066,7 +1066,16 @@ and `petition` owns who may answer it:
 ```powershell
 Set-Location $env:KINGSHAND_HOME
 tasks-axi show <the key the pointer names> --full
+Select-String -Path data\done-archive.md -SimpleMatch -Pattern '<the key the pointer names>' -ErrorAction SilentlyContinue
 ```
+
+**`NOT_FOUND` from `show` is not an answer on its own - a closed hold gets pruned out of the
+backlog.** `tasks-axi done` moves everything past `done_keep` into `data\done-archive.md`, which
+the tool itself never reads back, so a decision answered long enough ago is missing from every
+`tasks-axi` command while its record and its `answered:` note sit in that file. The archive is the
+second line of the lookup for exactly that, and only a closed hold is ever archived - so a key
+found there is answered, and a key in neither place is a record that has gone missing rather than
+a decision nobody made.
 
 **So the order is fixed. After the three facts, read the pointer - and unless it names a hold that
 is still open, read `$env:KINGSHAND_HOME\data\<id>\report.md` before you may treat that worker as
@@ -1098,7 +1107,9 @@ it stopped being where the system reads whether.
 **Where the report names a decision the worker's brief did not settle and no hold of this worker's
 covers it, that is `decree`'s trigger and nobody has pulled it yet.** A first park reaches it with
 a null pointer and a second with a pointer naming the closed hold of the decision before it; both
-are the same trigger, and both end with the pointer naming the new hold.
+are the same trigger, and both end with the pointer naming the new hold. `decree` owns what never
+becomes a hold at all, and a call the worker settled for itself inside `petition`'s reversibility
+test is among them - filing that one asks the King about a choice nobody needed him for.
 
 **Look up every hold this work already has before registering anything - the closed ones as much as
 an open one.** Registering the hold and writing the pointer are two commands and a session can end
@@ -1113,13 +1124,24 @@ they are answered - do not go back to the report for a key:
 Set-Location $env:KINGSHAND_HOME
 tasks-axi list --state held --fields hold_kind,hold_reason
 tasks-axi list --state done --fields closed
+Select-String -Path data\done-archive.md -SimpleMatch -Pattern '<work-id>-' -ErrorAction SilentlyContinue
 ```
 
-**Match on the work-id prefix, and read from each hold what it covers.** A decision the report
-names that no hold under this work covers is the trigger above. **A decision a closed hold already
-covers is answered** - however long ago, and whoever gave it - so it is neither registered again
-nor read as a question the worker answered itself. Filing it a second time puts it to the King
-twice and writes a second `answered:` note asserting an authorisation nobody gave.
+**The archive line is not optional, for the reason the pointer read-back names**: a hold pruned out
+of the backlog is invisible to `list` and still answered, and skipping it is how a decision the
+King settled last month reads as one nobody ever made.
+
+**Match on the work id followed by its delimiter - `<work-id>-`, never a bare prefix.** Keys are
+composed `<work-id>-<slug>`, so a bare prefix match for `T-100` also returns every `T-1001-` hold,
+which on the open branch below would point this worker at another work's live decision and steer it
+on an answer that was never about it. The delimiter is already guaranteed by the composition
+`decree` requires, so matching on it costs one character.
+
+**Read from each hold what it covers.** A decision the report names that no hold under this work
+covers is the trigger above. **A decision a closed hold already covers is answered** - however long
+ago, and whoever gave it - so it is neither registered again nor read as a question the worker
+answered itself. Filing it a second time puts it to the King twice and writes a second `answered:`
+note asserting an authorisation nobody gave.
 
 **Where an open `--kind captain` hold for this work is already there, re-register under that same
 key rather than filing a second one.** `add` and `hold` are idempotent, so the replay changes
@@ -1141,8 +1163,20 @@ order already states, which is every wake where the pointer does not name a hold
 there the pointer and its hold carry the state between them, so a restart, a compaction or a
 session that dispatched nothing reads two recorded values instead of re-deriving one from prose.
 
-**A worker that carried on past a decision its brief did not settle, with no hold ever registered
-for it, answered its own question - and its brief forbids that outright.** Load `rally`, and read
+**Proceeding on a stated assumption is not a worker answering its own question - every brief grants
+that hatch and tells it to record the assumption in `report.md` and carry on rather than stopping.**
+So a report naming a decision the brief did not settle is not on its own a breach, and reading it
+as one stalls delivered work by a worker that followed its instructions exactly. What decides it is
+which side of `petition`'s reversibility test the call sat on. **That test is stated there and not
+restated here**: a call whose being wrong is cheap to undo was the worker's to take on a stated
+assumption, and one that was not - a delete, a cost, something security-sensitive, a material
+widening of what the work was accepted to deliver - was never an assumption to make. That is a
+park, and the worker should have stopped for it.
+
+**A worker that resolved a call on the far side of that test, with no hold ever registered for it,
+answered its own question - and its brief forbids that outright.** Establish that first, from what
+the report actually claims: the two read identically on the page until the test is applied to the
+call itself, so the test is the work rather than a formality. Then load `rally`, and read
 everything else it claims with the same suspicion a missing report earns. Do not register that
 answer afterwards to make the record tidy: filing it durably asserts that somebody with the
 authority gave it.
@@ -1692,8 +1726,18 @@ anything, and where it names a key read that hold - still open, take the worker 
 
 ```powershell
 $key = (Get-CrewWorker -State $s -WorkerId "<id>").waiting_on
-if ($key) { Set-Location $env:KINGSHAND_HOME; tasks-axi show $key --full }
+if ($key) {
+    Set-Location $env:KINGSHAND_HOME
+    tasks-axi show $key --full
+    Select-String -Path data\done-archive.md -SimpleMatch -Pattern $key -ErrorAction SilentlyContinue
+}
 ```
+
+**`NOT_FOUND` from `show` is not permission to tear down.** Only a closed hold is ever archived, so
+a key the archive holds is answered and this worker may be stopped. A key in neither place is a
+record that has gone missing - a mistyped key, a queue file that moved - and at the one guard that
+cannot be taken back that is a cause to establish, never a pass. Step 6's rules are what read a
+missing record; nothing here decides it.
 
 **Read those two and nothing else.** This is the one place where a wrong read cannot be taken
 back, and neither of them can be malformed - which is exactly why the route stopped keeping this

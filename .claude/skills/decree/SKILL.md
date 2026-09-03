@@ -48,6 +48,10 @@ that ends between them leaves an open hold that no pointer names, and the next s
 report naming a decision with a null pointer. It looks the work id up in the queue before
 registering anything, and re-registers under the key already open there - `add` and `hold` are
 idempotent, so the replay changes nothing and the pointer ends up on the hold that exists.
+**That lookup matches the full key, or the work id with the `-` that follows it, and never a bare
+prefix.** The composition above puts a `-` between the two halves precisely so it can be matched
+on: without it, `T-100` selects every `T-1001-` key as well, and the recovery re-registers a worker
+against a live decision belonging to another piece of work entirely.
 **That recovery is a queue lookup and never a reading of report prose**: nothing re-derives a key
 from what a worker wrote, and filing a second key for the same decision asks the King the same
 question twice and orphans the first hold.

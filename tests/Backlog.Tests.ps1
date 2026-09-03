@@ -231,6 +231,78 @@ Describe 'the repo config points the queue at kingshand''s own data directory' {
         $text.Contains('backend = "markdown"')            | Should -BeTrue
         $text.Contains('path = "data/backlog.md"')        | Should -BeTrue
         $text.Contains('archive = "data/done-archive.md"') | Should -BeTrue
-        $text.Contains('done_keep = 10')                  | Should -BeTrue
+    }
+
+    # A parked decision's answer lives in its closed hold and nowhere else, and `tasks-axi done`
+    # prunes past this number into the archive, where no tasks-axi command reads it back. So the
+    # retention is how long the route can answer "was this already decided" from the tool alone,
+    # and at ten it was under a day of ordinary fleet churn - after which delivered work reads as
+    # a worker that answered its own question. The archive fallback in muster covers the rest;
+    # this keeps the cliff a year out rather than an afternoon.
+    It 'keeps enough closed items that an answered decision outlives ordinary churn' {
+        $text = Get-Content -Path $script:TasksToml -Raw
+        $m = [regex]::Match($text, '(?m)^\s*done_keep\s*=\s*(\d+)\s*$')
+        $m.Success | Should -BeTrue -Because 'retention has to be set explicitly, not left to the tool default'
+        [int]$m.Groups[1].Value |
+            Should -BeGreaterOrEqual 200 -Because 'a closed decision hold pruned out of the backlog reads as a decision nobody made'
+    }
+}
+
+# The route now rests on a closed hold still being findable, and `tasks-axi` itself is what removes
+# it: `done` prunes past `done_keep` into the archive file, and no `list`, `show` or `ready` reads
+# that file back. This reproduces the loss on purpose, with retention turned down to 1 so it takes
+# two closures rather than two hundred, and pins both halves - the tool goes blind, and the record
+# with its `answered:` note is still on disk where muster's fallback looks.
+Describe 'a pruned decision hold leaves the tool but not the disk' {
+    BeforeAll {
+        $script:PruneRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("kingshand-prune-" + [guid]::NewGuid().ToString('N').Substring(0, 12))
+        New-Item -ItemType Directory -Path (Join-Path $script:PruneRoot 'data') -Force | Out-Null
+        Set-Content -Path (Join-Path $script:PruneRoot '.tasks.toml') -Encoding utf8 -Value @(
+            'backend = "markdown"'
+            ''
+            '[markdown]'
+            'path = "data/backlog.md"'
+            'archive = "data/done-archive.md"'
+            'done_keep = 1'
+        )
+        $script:ArchiveFile = Join-Path $script:PruneRoot 'data\done-archive.md'
+
+        function Invoke-PruneAxi {
+            param([Parameter(Mandatory, ValueFromRemainingArguments)][string[]]$Arguments)
+            Push-Location $script:PruneRoot
+            try { (& tasks-axi @Arguments 2>&1 | Out-String) }
+            finally { Pop-Location }
+        }
+    }
+
+    AfterAll {
+        if ($script:PruneRoot -and (Test-Path $script:PruneRoot)) {
+            Remove-Item -Path $script:PruneRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'archives the older answered hold and stops returning it from the tool' -Skip:(-not $HasTasksAxi) {
+        Invoke-PruneAxi 'add' 't-1001-hero-copy' 'which hero wording' | Out-Null
+        Invoke-PruneAxi 'hold' 't-1001-hero-copy' '--reason' 'his to choose' '--kind' 'captain' | Out-Null
+        Invoke-PruneAxi 'done' 't-1001-hero-copy' '--note' 'answered: the shorter wording' | Out-Null
+
+        Invoke-PruneAxi 'add' 't-2002-unrelated' 'something else entirely' | Out-Null
+        Invoke-PruneAxi 'done' 't-2002-unrelated' '--note' 'shipped' | Out-Null
+
+        # The blindness itself: neither lookup the route runs can see the answered hold any more.
+        (Invoke-PruneAxi 'list' '--state' 'done').Contains('t-1001-hero-copy') |
+            Should -BeFalse -Because 'this is the loss the archive fallback exists for'
+        $shown = Invoke-PruneAxi 'show' 't-1001-hero-copy' '--full'
+        $shown.Contains('NOT_FOUND') |
+            Should -BeTrue -Because 'a pruned key reads as NOT_FOUND, which is not the same as never decided'
+        $shown.Contains('answered: the shorter wording') |
+            Should -BeFalse -Because 'the answer is gone from the tool even though the key is echoed in the error'
+
+        # And the other half: the record and its answer are still on disk, so the fallback works.
+        Test-Path $script:ArchiveFile | Should -BeTrue
+        $archive = Get-Content -Path $script:ArchiveFile -Raw
+        $archive.Contains('t-1001-hero-copy') | Should -BeTrue
+        $archive.Contains('answered: the shorter wording') |
+            Should -BeTrue -Because 'the closing note is what says what was decided'
     }
 }
