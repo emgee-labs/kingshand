@@ -14,10 +14,17 @@ BeforeAll {
         param(
             [Parameter(Mandatory)][string]$Name,
             [switch]$NoDataDirectory,
-            [switch]$FailingPrereqs
+            [switch]$FailingPrereqs,
+            [switch]$NoVersionFile
         )
         $root = Join-Path $TestDrive $Name
         New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+        # A version nothing else on this machine has, so a digest that read the live installation's
+        # VERSION instead of the fixture's would be obvious rather than plausible.
+        if (-not $NoVersionFile) {
+            Set-Content -Path (Join-Path $root 'VERSION') -Value '9.9.9' -Encoding utf8
+        }
         if (-not $NoDataDirectory) {
             New-Item -ItemType Directory -Force -Path (Join-Path $root 'data') | Out-Null
         }
@@ -53,13 +60,15 @@ BeforeAll {
             Registry     = Join-Path $root 'data\projects.md'
             Budget       = Join-Path $root 'config\startup-memory-budget'
             Instructions = Join-Path $root 'instructions.md'
+            Version      = Join-Path $root 'VERSION'
             Prereq       = $prereq
         }
     }
 
-    # Every path is passed explicitly, including Instructions. An omitted parameter falls back to
-    # Get-KingshandHome, which would read the live instructions.md belonging to whoever is running
-    # the suite - their own standing preferences, printed into test output.
+    # Every path is passed explicitly, including Instructions and Version. An omitted parameter
+    # falls back to Get-KingshandHome, which would read the live instructions.md belonging to
+    # whoever is running the suite - their own standing preferences, printed into test output - and
+    # the live VERSION, which would make the version line pass whatever the fixture holds.
     function Get-Digest {
         param([Parameter(Mandatory)]$Fixture, [switch]$Json)
         & $script:DigestScript `
@@ -68,6 +77,7 @@ BeforeAll {
             -RegistryPath     $Fixture.Registry `
             -BudgetPath       $Fixture.Budget `
             -InstructionsPath $Fixture.Instructions `
+            -VersionPath      $Fixture.Version `
             -PrereqScript     $Fixture.Prereq `
             -QueueRoot        $Fixture.Root `
             -Json:$Json
@@ -639,5 +649,35 @@ Describe 'the digest reads the fleet without changing it' {
         $after = @(& $inventory)
 
         $after | Should -Be $before -Because 'a digest that mutates what it reports is not a digest'
+    }
+}
+
+# A user who cannot say which version they are on cannot say whether a fix they were promised is
+# in it. The line is one line by design, and an unreadable VERSION file reads as unreadable: a
+# number invented here is a number the reader would quote back as the version they are running.
+Describe 'the digest says which version this installation is' {
+    It 'prints the version on one VERSION: line' {
+        $text = Get-Digest (New-Fixture 'version')
+        $text.Contains('VERSION: 9.9.9') |
+            Should -BeTrue -Because 'the version comes from the file, not from anywhere else'
+        @($text -split "`n" | Where-Object { $_ -match '^VERSION:' }).Count |
+            Should -Be 1 -Because 'it is one line of a bounded digest, not a section'
+    }
+
+    It 'says unreadable, and no version at all, when the file is not there' {
+        $text = Get-Digest (New-Fixture 'noversion' -NoVersionFile)
+        $text.Contains('VERSION: unreadable') | Should -BeTrue
+        $text.Contains('There is no VERSION file at') |
+            Should -BeTrue -Because 'the reason belongs on the line, so the reader can act on it'
+        $text | Should -Not -Match 'VERSION: \d' -Because 'a fabricated version would be trusted'
+    }
+
+    It 'still renders every other section when the version cannot be read' {
+        $f = New-Fixture 'noversion-rest' -NoVersionFile
+        { Get-Digest $f } | Should -Not -Throw
+        foreach ($section in @('FLEET', 'QUEUE', 'CONTEXT')) {
+            (Get-Digest $f).Contains($section) |
+                Should -BeTrue -Because "one unreadable file must cost one line, not the digest: $section"
+        }
     }
 }

@@ -120,8 +120,94 @@ function Test-HerdrServer {
     $exe = Get-HerdrCommandPath
     if (-not $exe) { return $false }
     $out = (& $exe status 2>&1 | Out-String)
-    # `status` is the one command that answers in YAML rather than JSON.
+    # `status` is the one command whose DEFAULT output is YAML rather than JSON. It does take
+    # --json, and `Get-HerdrServerState` below uses that; this one reads the default shape.
     [bool]($out -match '(?ms)server:.*?status:\s*running')
+}
+
+# Whether the herdr server is up, as three answers rather than two:
+#
+#   .state   running | stopped | unknown
+#   .detail  what herdr said, or what stopped it being readable - always populated
+#
+# THE THIRD ANSWER IS THE WHOLE REASON THIS EXISTS. `Test-HerdrServer` above answers a boolean, so
+# a status read that failed - no output, a reply that does not parse, a shape that changed under a
+# herdr upgrade - is indistinguishable from a server that is genuinely down. A caller that refuses
+# an action needs those apart, because "could not tell" read as "nothing is running" is how an
+# update walks over a live worker.
+#
+# Read from `status --json`, whose `server` object carries a `running` boolean and a status word,
+# rather than from a regex over the default YAML: a shape that changes is then a parse that fails
+# and says so, instead of a pattern that quietly stops matching and reports a stopped server.
+#
+# THE PAYLOAD DECIDES, AND THE EXIT CODE IS ONLY A FALLBACK. A reply that parses and carries a
+# boolean `server.running` is the answer whatever herdr exited with; the exit code is reported in
+# `.detail` and never overrides it. That is deliberate, and it is deliberate because the exit code
+# for a server that is DOWN has never been measured: seeing it means stopping the server, and the
+# only machine available was hosting live workers at the time. Reading it first would have meant
+# guessing, and guessing wrong in the direction that makes `/update` refuse - with "could not be
+# read" - on the ordinary machine of a user who has simply never dispatched anything. So the
+# parsed field is the evidence, and the exit code is what a reader sees beside it.
+#
+# Unknown is therefore reserved for an answer nobody can read at all: no herdr, no output, output
+# that does not parse, or a reply with no boolean saying whether the server is running. That is the
+# only case that must fail closed, and it still does.
+#
+# Called directly rather than through `Invoke-Herdr`, which does not expose an exit code at all.
+# `Test-HerdrServer` stays exactly as it is beside this: `Start-HerdrServer` wants that boolean, and
+# changing it would change what starting a server does.
+function Get-HerdrServerState {
+    [CmdletBinding()]
+    param()
+
+    $exe = Get-HerdrCommandPath
+    if (-not $exe) { return [pscustomobject]@{ state = 'unknown'; detail = (Get-HerdrCommandHint) } }
+
+    $PSNativeCommandUseErrorActionPreference = $false
+
+    $raw  = & $exe status --json 2>&1
+    $code = $LASTEXITCODE
+    $global:LASTEXITCODE = 0
+    $text = ($raw | Out-String).Trim()
+
+    $parsed = $null
+    if ($text) { try { $parsed = $text | ConvertFrom-Json } catch { } }
+
+    $server = $null
+    if ($null -ne $parsed -and $parsed.PSObject.Properties.Name -contains 'server') {
+        $server = $parsed.server
+    }
+
+    $running = $null
+    if ($null -ne $server -and $server.PSObject.Properties.Name -contains 'running' -and
+        $server.running -is [bool]) {
+        $running = [bool]$server.running
+    }
+
+    if ($null -ne $running) {
+        $word = ''
+        if ($server.PSObject.Properties.Name -contains 'status') { $word = "$($server.status)" }
+        $said = if ($word) { ", and said $word" } else { '' }
+        return [pscustomobject]@{
+            state  = if ($running) { 'running' } else { 'stopped' }
+            detail = "herdr status exited $code, reported running=$running$said"
+        }
+    }
+
+    $why = if (-not $text) {
+        'answered with nothing at all'
+    } elseif ($null -eq $parsed) {
+        'answered something that did not parse as JSON'
+    } elseif ($null -eq $server) {
+        'answered without a server object in it'
+    } else {
+        'answered without saying whether the server is running'
+    }
+
+    [pscustomobject]@{
+        state  = 'unknown'
+        detail = "herdr status exited $code and $why - $(($text -replace '\s+', ' ').Trim())"
+    }
 }
 
 # Starts the herdr server if it is not already up, and returns once `status` confirms it.
@@ -462,6 +548,48 @@ function Get-HerdrAgents {
     $r = Invoke-Herdr -AllowError -Arguments @('agent', 'list')
     if (-not $r -or $r.PSObject.Properties.Name -contains 'error') { return , @() }
     , @($r.agents)
+}
+
+# The same `agent list`, with the failure kept rather than collapsed:
+#
+#   .ok      the list was actually read
+#   .agents  what herdr answered, empty whenever .ok is false
+#   .error   herdr's own code and message, or the shape problem, empty when .ok is true
+#
+# Get-HerdrAgents above stays exactly as it is, and both are exported. A status view -
+# `bin\Get-CrewStatus.ps1`, `bin\Get-SurveySnapshot.ps1` - wants that collapse, because it still
+# has the durable record to render and an unreachable herdr must not stop it rendering. A guard
+# that refuses an action wants this one instead, because "could not ask" and "nobody is there" are
+# different answers and only one of them is safe to act on.
+function Get-HerdrAgentInventory {
+    [CmdletBinding()]
+    param()
+
+    $r = Invoke-Herdr -AllowError -Arguments @('agent', 'list')
+
+    if (-not $r) {
+        return [pscustomobject]@{
+            ok     = $false
+            agents = @()
+            error  = 'herdr answered agent list with nothing that could be read as a result.'
+        }
+    }
+    if ($r.PSObject.Properties.Name -contains 'error') {
+        return [pscustomobject]@{
+            ok     = $false
+            agents = @()
+            error  = "herdr agent list: $($r.error.code) - $($r.error.message)"
+        }
+    }
+    if ($r.PSObject.Properties.Name -notcontains 'agents') {
+        return [pscustomobject]@{
+            ok     = $false
+            agents = @()
+            error  = 'herdr answered agent list without an agents list in it.'
+        }
+    }
+
+    [pscustomobject]@{ ok = $true; agents = @($r.agents); error = '' }
 }
 
 # Submits a prompt. With -Wait it returns only once the agent has settled, which is what makes
@@ -1016,8 +1144,10 @@ function Remove-HerdrPane {
 }
 
 Export-ModuleMember -Function Get-HerdrCommandPath, Get-HerdrCommandHint, ConvertTo-HerdrAgentName,
-                              Invoke-Herdr, Test-HerdrServer, Start-HerdrServer, New-HerdrPane,
-                              Start-HerdrAgent, Get-HerdrAgent, Get-HerdrAgents, Send-HerdrPrompt,
+                              Invoke-Herdr, Test-HerdrServer, Get-HerdrServerState,
+                              Start-HerdrServer, New-HerdrPane,
+                              Start-HerdrAgent, Get-HerdrAgent, Get-HerdrAgents,
+                              Get-HerdrAgentInventory, Send-HerdrPrompt,
                               Wait-HerdrAgent, Read-HerdrAgent, Send-HerdrKeys, Stop-HerdrAgent,
                               Remove-HerdrPane, Test-HerdrAgentAwaitingInput, Get-HerdrAgentState,
                               Wait-HerdrAgentSettled, Test-HerdrAgentReadable,
