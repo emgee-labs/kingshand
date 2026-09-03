@@ -199,7 +199,9 @@ failed - 3 checks: 1 verified, 1 failed, 1 not checked.
 ```
 
 Carry `$record.verdict` into your final message too. `failed` and `not verified` are both findings
-the King needs, and neither is a completion notice.
+the King needs, and neither is a completion notice. That block is read back when the work is
+called done, so a brief that asked for these checks and a report with no `## Browser verification`
+in it is treated as a report that was never written.
 
 ## Who drives the browser
 

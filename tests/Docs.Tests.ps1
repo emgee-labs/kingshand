@@ -5447,6 +5447,25 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
             Should -BeTrue -Because 'the only optional section needs the marker inside the fence'
     }
 
+    # A record nobody reads back is an assertion again. The worker writes the verdict, and these
+    # are the two places on the Hand's side that have to act on it - otherwise a change that was
+    # never exercised lands looking exactly like one that was.
+    It 'reads the verdict back before the work is called done or landed' {
+        $step6 = Get-MusterStep 'Step 6 - Completion'
+        Assert-Phrase -Text $step6 -Where 'muster Step 6' `
+            -Phrase '**A brief that asked for browser checks needs a report that answers them.**'
+        Assert-Phrase -Text $step6 -Where 'muster Step 6' `
+            -Phrase ('A report without one is the same failure as a missing report and gets the ' +
+                     'same treatment')
+        Assert-Phrase -Text $step6 -Where 'muster Step 6' `
+            -Phrase '**Read the verdict on that block and relay it as a finding.**'
+
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate floors' `
+            -Phrase ('Never land a browser verdict that is not `verified`. A brief that asked for ' +
+                     'browser checks and came back `failed`, `not verified` or with no ' +
+                     '`## Browser verification` block at all goes to the user, on any posture.')
+    }
+
     # Both ways: no section on a task that renders nothing, and no bare list of things to look at
     # on a task that does.
     It 'keeps the section out of every brief that does not need one' {

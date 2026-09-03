@@ -550,7 +550,10 @@ this, and do not try to pass it as a command-line argument: no arguments reach a
 - what was done;
 - what was decided and why, where a decision was not simply the brief;
 - anything the worker could not do, and why;
-- anything the next session would need in order to continue without asking.
+- anything the next session would need in order to continue without asking;
+- a `## Browser verification` block, where and only where this brief carries `## Browser checks`:
+  the verdict line, then every check id that section listed with what was seen. Step 6 reads it,
+  so a brief that asks for the checks asks for the block that answers them.
 
 Keep it short and tell the worker so. A report that runs to an essay is as much a failure as no
 report - the point is that a fresh session can pick the work up, not that the worker narrates.
@@ -972,6 +975,17 @@ Get-Content "$env:KINGSHAND_HOME\data\<id>\report.md" -Raw
 say so to the user rather than quietly falling back - and treat everything else that worker
 claims with the same suspicion, since the one instruction you can check it against was ignored.
 
+**A brief that asked for browser checks needs a report that answers them.** Where you wrote a
+`## Browser checks` section into this brief, the report has to carry a `## Browser verification`
+block answering every check id that section listed. A report without one is the same failure as a
+missing report and gets the same treatment: say it to the user and do not advance the work on the
+worker's word. **Read the verdict on that block and relay it as a finding.** `failed` means the
+change is broken in a browser and `not verified` means part of it was never exercised - neither is
+a completion notice, both reach the user in this step whatever the project's posture, and only
+`verified` across every declared check is a browser step that passed. The whole capability exists
+so a change nobody exercised cannot read like one that was, and this is where that stops being
+true if nobody reads it.
+
 **Fold back what the standing criteria missed.** The worker's self-check block and the gate's
 round-one findings are two readings of the same change, so compare them. **That comparison needs a
 gate, and most projects have none.** On a `local-only` or `direct-PR` project - including a
@@ -1095,6 +1109,9 @@ PowerShell - it would skip this gate on every project and land work no one appro
 These floors hold regardless of posture and `+yolo` never relaxes them:
 
 - Never land red. A failing check is never routine.
+- Never land a browser verdict that is not `verified`. A brief that asked for browser checks and
+  came back `failed`, `not verified` or with no `## Browser verification` block at all goes to the
+  user, on any posture.
 - Never land work that materially expands the product or engineering contract beyond what the
   brief accepted. That goes back to the user.
 - Destructive, irreversible and security-sensitive actions always go to the user.
