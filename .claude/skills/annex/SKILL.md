@@ -228,7 +228,8 @@ A pointer to a user-scope environment variable does reach a worker. Measured 202
 herdr server that had been up for over 24 hours: a variable created after the server started was
 visible to a shell the server spawned seconds later, so a worker sees a variable the King set
 today. That was worth measuring because the failure it would have caused looks exactly like a wrong
-password.
+password. The measurement, its method and how to re-run it are in
+`docs\2026-09-04-worker-environment-propagation.md`.
 
 **Nothing expires this file.** `chronicle` curates `king.md` and `learnings.md` against a startup
 budget and archives what goes stale; this file is outside that budget and outside that sweep, and

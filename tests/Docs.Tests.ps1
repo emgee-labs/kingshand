@@ -5746,6 +5746,28 @@ Describe 'a project carries standing rules that reach every worker without being
                      'the server spawned seconds later')
     }
 
+    # A one-sentence result nobody can re-check is a belief. The note carries the method and the raw
+    # output, so a later session can run it again rather than take this on trust - and the skill
+    # points at it, because a note nothing references is a note nobody opens.
+    It 'the measurement behind that claim is recorded where it can be re-run' {
+        $note = Join-Path (Split-Path $PSScriptRoot -Parent) `
+                          'docs\2026-09-04-worker-environment-propagation.md'
+        Test-Path -LiteralPath $note | Should -BeTrue
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase 'docs\2026-09-04-worker-environment-propagation.md'
+
+        $text = Get-Content -LiteralPath $note -Raw
+        foreach ($required in @(
+            'PROBEVAL=[set-after-server-start-034115]',   # the raw output, not a paraphrase of it
+            '2026-09-02 22:56',                           # server start, against a 2026-09-04 test
+            'herdr workspace create',                     # the method, step by step
+            'herdr pane run',
+            'herdr pane read',
+            'Re-running it')) {
+            $text.Contains($required) | Should -BeTrue -Because "the note must record '$required'"
+        }
+    }
+
     It 'the import skill offers the file at import and writes nothing when there is nothing to write' {
         Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
             -Phrase '**Ask, in one line, whether this project has standing rules a worker must know**'

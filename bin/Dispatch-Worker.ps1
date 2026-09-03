@@ -407,33 +407,54 @@ foreach ($leaf in $standing.Keys) {
 # than because this task is about that file. Read under the same fence rule, so a brief quoting
 # muster's template does not acquire a browser step it never asked for.
 #
-# WHERE the heading is, is remembered as well, so the lines for what this dispatch attaches on its
-# own can be inserted directly under it. That is a position in the file rather than anything read
-# out of it, and it is the heading this loop was already finding.
-$briefLines   = @(Get-Content -LiteralPath $BriefPath)
-$hasSection   = $false
-$hasBrowser   = $false
-$inSection    = $false
-$inFence      = $false
-$headingIndex = -1
-$sectionLines = [System.Collections.Generic.List[string]]::new()
+# WHERE the section is, is remembered as well, so the lines for what this dispatch attaches on its
+# own can be inserted into it. That is a position in the file rather than anything read out of it,
+# and it is the section this loop was already finding.
+#
+# The POSITIONS are collected here, in this same pass, rather than by a second scan of their own.
+# A second scan is what went wrong: it started after the heading and ran to the end of the file
+# without skipping fences, so a brief quoting a generated line inside a fenced block under a later
+# heading moved the insertion anchor there - and the attached copy ended up named inside a quoted
+# block, in a section no worker acts on, which is the "a copy nothing names reaches nobody" failure
+# this attachment exists to close. One boundary rule, computed once, cannot disagree with itself.
+#
+# $sectionIndexes covers the FIRST section only, because that is where the insertion goes, while
+# $sectionLines keeps spanning every one of them - it feeds the index gate, which asks whether the
+# statement was made anywhere at all. $sectionEnd is the last line still inside that first section,
+# fenced lines included, so appending after it lands at the end of the section rather than inside a
+# block it happens to finish with.
+$briefLines     = @(Get-Content -LiteralPath $BriefPath)
+$hasSection     = $false
+$hasBrowser     = $false
+$inSection      = $false
+$inFence        = $false
+$headingIndex   = -1
+$sectionEnd     = -1
+$firstOpen      = $false
+$sectionLines   = [System.Collections.Generic.List[string]]::new()
+$sectionIndexes = [System.Collections.Generic.List[int]]::new()
 for ($i = 0; $i -lt $briefLines.Count; $i++) {
     $line = $briefLines[$i]
     if ($line -match '^\s*```') {
         $inFence = -not $inFence
+        if ($firstOpen) { $sectionEnd = $i }
         continue
     }
-    if ($inFence) { continue }
+    if ($inFence) {
+        if ($firstOpen) { $sectionEnd = $i }
+        continue
+    }
     if ($line -match '^\s*##\s+Browser checks\b') { $hasBrowser = $true }
     if ($line -match '^\s*##\s+Read first\s*$') {
         $hasSection   = $true
         $inSection    = $true
-        if ($headingIndex -lt 0) { $headingIndex = $i }
+        if ($headingIndex -lt 0) { $headingIndex = $i; $sectionEnd = $i; $firstOpen = $true }
         continue
     }
     if ($inSection) {
-        if ($line -match '^\s*#{1,6}\s') { $inSection = $false; continue }
+        if ($line -match '^\s*#{1,6}\s') { $inSection = $false; $firstOpen = $false; continue }
         $sectionLines.Add($line)
+        if ($firstOpen) { $sectionIndexes.Add($i); $sectionEnd = $i }
     }
 }
 
@@ -695,11 +716,18 @@ if ($gates.Count -gt 0) {
 #
 # One physical line per file, however long. A brief is generated, and a line broken for width is a
 # line the idempotence check would have to reassemble.
-$autoLines = foreach ($a in $autoStaged) {
-    "- ``$(Join-Path $readFirstDir $a.leaf)`` - $($a.what), attached automatically at dispatch " +
-    "from ``$($a.path)`` rather than named by hand. $($a.how)"
+#
+# Composed through one function because the same text has to be produced for a file that is THERE
+# and for one that has since been REMOVED - the line an earlier dispatch wrote can only be found
+# again by composing exactly what was written. Everything it needs comes from $standing, which is
+# built from the project name alone and so survives the file itself going away.
+function New-AutoLine {
+    param([Parameter(Mandatory)][string]$Leaf, [Parameter(Mandatory)]$Entry)
+    "- ``$(Join-Path $readFirstDir $Leaf)`` - $($Entry.what), attached automatically at dispatch " +
+    "from ``$($Entry.path)`` rather than named by hand. $($Entry.how)"
 }
-$autoLines = @($autoLines)
+
+$autoLines = @(foreach ($a in $autoStaged) { New-AutoLine -Leaf $a.leaf -Entry $standing[$a.leaf] })
 
 # The one line that goes above them, and the reason the block can be inserted into a section that
 # already says there is nothing to read. The Hand writes `- Nothing beyond this brief - the index was
@@ -735,25 +763,61 @@ $autoLeadIn = ('- The file(s) named directly below were attached by dispatch fro
 # So the composed lines are walked in their own order behind a moving anchor. A line already in the
 # brief moves the anchor onto it; a line that is missing is scheduled just after the current anchor
 # and becomes the anchor itself, so the next missing line lands after it rather than on top of it.
-# The anchor starts at the lead-in when the brief already carries it, and at the heading when it does
-# not, in which case the lead-in is the first thing scheduled and every bullet follows it. That gives
-# heading, lead-in, criteria, rules for a first dispatch with either or both files, and for growth in
-# either direction.
+# The anchor starts at the lead-in when the section already carries it, and at the END of the section
+# when it does not, in which case the lead-in is the first thing scheduled and every bullet follows
+# it. Appending rather than inserting at the top is what makes the lead-in's own sentence true: it
+# says the files named DIRECTLY BELOW were attached by dispatch and not by hand, so it must not be
+# put above lines the Hand wrote. The Hand's bullets keep their place, and the order among the
+# attached lines themselves is unchanged - lead-in, criteria, rules, for a first dispatch with either
+# or both files and for growth in either direction.
 #
 # Every comparison is whole-line and ordinal against text this script composed itself - never a
-# search for a file name in prose, and no parser of the section. Existing lines are indexed from the
-# heading down, so a copy quoted earlier in the brief cannot claim the position.
+# search for a file name in prose, and no parser of the section. Only lines INSIDE the Read first
+# section are indexed, by the same boundary the parse pass above computed, so a copy quoted in a
+# fenced block or under a later heading can neither claim the anchor nor pass for one already there.
 $toAdd = @()
 $plan  = [System.Collections.Generic.Dictionary[int, System.Collections.Generic.List[string]]]::new()
-if ($autoLines.Count -gt 0 -and $headingIndex -ge 0) {
-    $seen = [System.Collections.Generic.Dictionary[string, int]]::new([System.StringComparer]::Ordinal)
-    for ($i = $headingIndex + 1; $i -lt $briefLines.Count; $i++) {
-        $t = $briefLines[$i].Trim()
-        if (-not $seen.ContainsKey($t)) { $seen[$t] = $i }
-    }
+$seen  = [System.Collections.Generic.Dictionary[string, int]]::new([System.StringComparer]::Ordinal)
+foreach ($idx in $sectionIndexes) {
+    $t = $briefLines[$idx].Trim()
+    if (-not $seen.ContainsKey($t)) { $seen[$t] = $idx }
+}
 
+# A standing file the King has REMOVED must stop reaching the worker. An earlier dispatch of this
+# same ticket copied it into read-first\ and wrote a line naming it; nothing about it being absent
+# now would otherwise undo either, so the worker would be handed rules the King deleted under a line
+# asserting they came from a file that is no longer there. Both are cleared instead, and the whole
+# thing is reversible: restore the file, re-dispatch, and both come back.
+#
+# Scoped as tightly as it can be. Only a leaf THIS script composes for this project's standing files
+# is ever considered, only when the source is now absent, and never one the Hand passed through
+# -ReadPath - that copy is the Hand's own file under the same name, and the line naming it is a line
+# the Hand wrote, neither of which this may touch. The line removed is the exact text this script
+# would have written for that file, composed again rather than searched for.
+$staleBullets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$staleCopies  = [System.Collections.Generic.List[string]]::new()
+foreach ($leaf in $standing.Keys) {
+    if ($staged.ContainsKey($leaf)) { continue }
+    if (Test-Path -LiteralPath $standing[$leaf].path) { continue }
+    $null = $staleBullets.Add((New-AutoLine -Leaf $leaf -Entry $standing[$leaf]).Trim())
+    $copy = Join-Path $readFirstDir $leaf
+    if (Test-Path -LiteralPath $copy -PathType Leaf) { $staleCopies.Add($copy) }
+}
+# With no attached bullet left, the lead-in introduces nothing and goes with them.
+if ($staleBullets.Count -gt 0 -and $autoLines.Count -eq 0) {
+    $null = $staleBullets.Add($autoLeadIn.Trim())
+}
+
+$removeIndexes = [System.Collections.Generic.HashSet[int]]::new()
+if ($staleBullets.Count -gt 0) {
+    foreach ($idx in $sectionIndexes) {
+        if ($staleBullets.Contains($briefLines[$idx].Trim())) { $null = $removeIndexes.Add($idx) }
+    }
+}
+
+if ($autoLines.Count -gt 0 -and $headingIndex -ge 0) {
     if (@($autoLines | Where-Object { -not $seen.ContainsKey($_.Trim()) }).Count -gt 0) {
-        $anchor = $headingIndex
+        $anchor = $sectionEnd
         if ($seen.ContainsKey($autoLeadIn.Trim())) {
             $anchor = $seen[$autoLeadIn.Trim()]
         } else {
@@ -788,7 +852,10 @@ if ($autoLines.Count -gt 0 -and $headingIndex -ge 0) {
 # process taking the file in that window. A retry is idempotent: the copies are overwritten in place
 # and the insertion is checked line by line against what the brief already carries, so nothing is
 # duplicated by running the dispatch again.
-if ($toAdd.Count -gt 0) {
+#
+# Removing a stale line is a write like any other, and a stale copy is deleted just below it, so this
+# guards that case too rather than only an insertion.
+if ($toAdd.Count -gt 0 -or $removeIndexes.Count -gt 0) {
     try { [System.IO.File]::Open($BriefPath, 'Open', 'ReadWrite', 'None').Dispose() }
     catch {
         $why = $_.Exception.Message
@@ -825,13 +892,18 @@ if ($staged.Count -gt 0 -or $autoStaged.Count -gt 0) {
     }
 }
 
+# The copy of a standing file that is no longer there. Each path was composed above from a leaf this
+# script owns and confirmed to be a file, so this removes something this script itself staged and
+# nothing else.
+foreach ($copy in $staleCopies) { Remove-Item -LiteralPath $copy -Force }
+
 # And the brief is told, because a copy nothing names reaches nobody. Written AFTER the copies, so
 # the brief never names a file that failed to arrive. What goes in and where it goes were both
 # decided above, so nothing is recomputed here.
-if ($toAdd.Count -gt 0) {
+if ($toAdd.Count -gt 0 -or $removeIndexes.Count -gt 0) {
     $rewritten = [System.Collections.Generic.List[string]]::new()
     for ($i = 0; $i -lt $briefLines.Count; $i++) {
-        $rewritten.Add($briefLines[$i])
+        if (-not $removeIndexes.Contains($i)) { $rewritten.Add($briefLines[$i]) }
         if ($plan.ContainsKey($i)) { foreach ($l in $plan[$i]) { $rewritten.Add($l) } }
     }
     Set-Content -LiteralPath $BriefPath -Encoding utf8 -Value $rewritten.ToArray()

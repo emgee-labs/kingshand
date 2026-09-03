@@ -2340,10 +2340,14 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             ($leadIn -gt $heading) | Should -BeTrue
             ($bullet -gt $leadIn)  | Should -BeTrue
             # The line the Hand wrote is left exactly as it was - nothing here rewrites the section -
-            # and the lead-in reaches the worker before it.
+            # and it keeps its place ABOVE the attachment, because the lead-in speaks for the lines
+            # directly below it and must not be put over lines the Hand wrote.
             ($null -ne $nothing)   | Should -BeTrue
-            ($nothing -gt $leadIn) | Should -BeTrue
+            ($nothing -lt $leadIn) | Should -BeTrue
+            $lines[$nothing] | Should -BeLike '*Nothing beyond this brief*'
+            # Coherence is carried by the lead-in scoping what follows it, not by the order alone.
             $lines[$leadIn] | Should -BeLike '*as well as everything else in this section*'
+            $lines[$leadIn] | Should -BeLike '*nothing beyond this brief was named*'
         }
 
         # The lead-in belongs to the same block as the bullets, so a re-dispatch adds neither.
@@ -2430,6 +2434,163 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             ($o.Criteria -gt $o.LeadIn)   | Should -BeTrue
             ($o.Rules    -gt $o.Criteria) | Should -BeTrue
             $o.LeadIns | Should -Be 1
+        }
+
+        # The anchor is found by matching text this script composed, so a brief that QUOTES that text
+        # must not move it. A kingshand brief discussing this very feature does exactly that: it
+        # quotes the lead-in and a bullet inside a fenced block under a later heading. Scanning to the
+        # end of the file put the attachment inside that fence, in a section no worker acts on - the
+        # "a copy nothing names reaches nobody" failure, reached through the attachment itself - and
+        # it was sticky, because the next dispatch then saw the bullet as already present.
+        It 'ignores a quoted copy of its own lines under a later heading' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-quoted-elsewhere'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+
+            # Composed exactly as the dispatcher composes them, so the quote is verbatim rather than
+            # merely similar - a near-miss would prove nothing about a whole-line comparison.
+            $leadIn = '- The file(s) named directly below were attached by dispatch from this ' +
+                      "project's own standing files, not by hand. They apply as well as everything " +
+                      'else in this section, including any line saying nothing beyond this brief ' +
+                      'was named - that line was written before these were attached. Read them.'
+            $bullet = "- ``$($f.BriefDir)\read-first\rules-$name.md`` - the standing rules for $name " +
+                      '- conventions, vocabulary, exclusions, branch naming, environment facts, ' +
+                      "attached automatically at dispatch from ``$(Join-Path $f.DataPath "rules-$name.md")`` " +
+                      'rather than named by hand. Read it in full before you start. It is reference ' +
+                      'to consult, not a list to answer, so never self-report against its lines.'
+
+            Set-Content -Path $f.BriefPath -Encoding utf8 -Value @(
+                '# Brief', '', '## Read first',
+                '- Nothing beyond this brief - the index was checked and nothing in it applies.',
+                '', '## Intent', 'We are changing how dispatch writes these lines. It writes:',
+                '```', $leadIn, $bullet, '```', '', '## Scope', 'Do the thing.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9029' | Out-Null
+
+            $lines   = @(Get-Content -LiteralPath $f.BriefPath)
+            $heading = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Read first\s*$' })[0]
+            $intent  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Intent\s*$' })[0]
+            $added   = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like "*read-first\rules-$name.md*" })
+
+            # One inside the Read first section, and the quoted one still where the author put it.
+            $inSection = @($added | Where-Object { $_ -gt $heading -and $_ -lt $intent })
+            $inSection.Count | Should -Be 1
+            $added.Count     | Should -Be 2
+            @($lines | Where-Object { $_ -like '*attached by dispatch from this project*' }).Count |
+                Should -Be 2
+
+            # The fenced block is untouched: its two lines still sit together inside the fence.
+            $fenceQuote = @($added | Where-Object { $_ -gt $intent })[0]
+            $lines[$fenceQuote - 1] | Should -BeLike '*attached by dispatch from this project*'
+        }
+
+        # The lead-in says the files named DIRECTLY BELOW were attached by dispatch and not by hand.
+        # Put at the top of the section it would stand above the Hand's own bullets, and the sentence
+        # would be false about them. Appending keeps it true.
+        It 'appends below the lines the Hand wrote rather than above them' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-below-hand-lines'
+            $name = Register-FixtureProject -Fixture $f
+            $criteria = New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.'
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                "- ``$($f.BriefDir)\read-first\done-$name.md`` - the standing criteria, copied from ``$criteria``.",
+                '- The index was checked; nothing in it applies to this task beyond the standing criteria above.')
+
+            & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9030' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $criteria | Out-Null
+
+            $lines    = @(Get-Content -LiteralPath $f.BriefPath)
+            $heading  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Read first\s*$' })[0]
+            $handLine = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like '*the standing criteria, copied from*' })[0]
+            $indexLn  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like '*The index was checked*' })[0]
+            $leadIn   = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like '*attached by dispatch from this project*' })[0]
+            $rules    = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like "*read-first\rules-$name.md*" })[0]
+            $scope    = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Scope\s*$' })[0]
+
+            ($handLine -gt $heading)  | Should -BeTrue
+            ($leadIn   -gt $handLine) | Should -BeTrue
+            ($leadIn   -gt $indexLn)  | Should -BeTrue
+            ($rules    -gt $leadIn)   | Should -BeTrue
+            # Still inside the section, not spilled past it.
+            ($rules    -lt $scope)    | Should -BeTrue
+        }
+
+        # A standing file the King removes must stop reaching the worker. Removing one is supported -
+        # annex says the file stands until the King changes or removes it - and a re-dispatch is
+        # ordinary, so the stale copy and the line naming it would otherwise both survive.
+        It 'clears the copy and the line when the King removes a standing file' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-removed'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.' | Out-Null
+            $rules = New-StandingFile -Fixture $f -Leaf "rules-$name.md"
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Nothing beyond this brief - the index was checked and nothing in it applies.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9031' | Out-Null
+            $copy = Join-Path $f.BriefDir "read-first\rules-$name.md"
+            Test-Path -LiteralPath $copy | Should -BeTrue
+
+            Remove-Item -LiteralPath $rules -Force
+            Invoke-Dispatch -Fixture $f -Name 'T-9031' | Out-Null
+
+            Test-Path -LiteralPath $copy | Should -BeFalse
+            $text = Get-BriefText -Fixture $f
+            $text.Contains("read-first\rules-$name.md") | Should -BeFalse
+            # The file still there is untouched, and so is the lead-in that introduces it.
+            $text.Contains("read-first\done-$name.md")  | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\done-$name.md") | Should -BeTrue
+            $text | Should -BeLike '*attached by dispatch from this project*'
+        }
+
+        # With no attached file left, the lead-in introduces nothing and goes with them - and putting
+        # the file back restores both, which is what makes the pruning safe to do at all.
+        It 'drops the lead-in with the last standing file, and restores both when it returns' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-removed-last'
+            $name = Register-FixtureProject -Fixture $f
+            $rules = New-StandingFile -Fixture $f -Leaf "rules-$name.md"
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Nothing beyond this brief - the index was checked and nothing in it applies.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9032' | Out-Null
+            Remove-Item -LiteralPath $rules -Force
+            Invoke-Dispatch -Fixture $f -Name 'T-9032' | Out-Null
+
+            $text = Get-BriefText -Fixture $f
+            $text | Should -Not -BeLike '*attached by dispatch from this project*'
+            $text.Contains("read-first\rules-$name.md") | Should -BeFalse
+            # The Hand's own line is left exactly as it was.
+            $text | Should -BeLike '*Nothing beyond this brief - the index was checked*'
+
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Invoke-Dispatch -Fixture $f -Name 'T-9032' | Out-Null
+
+            $back = Get-BriefText -Fixture $f
+            $back | Should -BeLike '*attached by dispatch from this project*'
+            $back.Contains("read-first\rules-$name.md") | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\rules-$name.md") | Should -BeTrue
+        }
+
+        # A file the Hand passed lives under the same staging name and its line is the Hand's own.
+        # Pruning must never reach either, even when the project's standing file of that name is gone.
+        It 'leaves a hand-passed file alone when the standing file of that name is absent' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-removed-hand-passed'
+            $name = Register-FixtureProject -Fixture $f
+            $elsewhere = Join-Path $f.Home "rules-$name.md"
+            Set-Content -LiteralPath $elsewhere -Value 'the Hand''s own file' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf "rules-$name.md" -From $elsewhere
+
+            & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9033' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $elsewhere | Out-Null
+
+            $copy = Join-Path $f.BriefDir "read-first\rules-$name.md"
+            Test-Path -LiteralPath $copy | Should -BeTrue
+            (Get-Content -LiteralPath $copy -Raw) | Should -BeLike "*the Hand's own file*"
+            (Get-BriefText -Fixture $f).Contains("read-first\rules-$name.md") | Should -BeTrue
         }
 
         # The preflight guards a write. On a re-dispatch that adds nothing there is no write to
