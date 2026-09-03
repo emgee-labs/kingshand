@@ -2951,16 +2951,18 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     # The refusals are what a caller plans around, so their count and their subjects are pinned.
     # Each one knows its path exactly because the caller handed it over - that is what separates
     # this list from the parsed cross-check it replaced.
-    It 'muster states the five refusals dispatch still makes' {
+    It 'muster states the six refusals dispatch still makes' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase ('There are five, and each is refused by name: a brief with no ' +
+            -Phrase ('There are six, and each is refused by name: a brief with no ' +
                      '`## Read first` section at all, a brief that passes no `-ReadPath` and does ' +
                      'not say the index was checked when anything at all is indexed - and neither ' +
                      'the standing-criteria file nor the browser procedure counts towards that ' +
-                     'one, per Step 2, which owns the rule - a path that does not exist, a ' +
-                     'directory where a file was meant, and two different files whose names would ' +
-                     'land on top of each other in the staging directory.')
+                     'one, per Step 2, which owns the rule - a brief carrying a ' +
+                     '`## Browser checks` section that passes no `-ReadPath` for the browser ' +
+                     'procedure, a path that does not exist, a directory where a file was meant, ' +
+                     'and two different files whose names would land on top of each other in the ' +
+                     'staging directory.')
     }
 
     # A single quoted placeholder is filled in with two paths in one string, which names no file

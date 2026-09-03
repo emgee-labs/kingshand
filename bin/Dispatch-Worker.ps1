@@ -273,6 +273,34 @@ if (-not $hasSection) {
            "than an omission. Nothing was created.")
 }
 
+# Where the installation keeps the browser procedure. Rooted off this script rather than off the
+# data root, because it is part of the installation rather than of anybody's data, and resolved so
+# every comparison below sees the same shape Resolve-Path gave the staged copies.
+$procedurePath = [System.IO.Path]::GetFullPath(
+    (Join-Path $PSScriptRoot '..\.claude\skills\witness\SKILL.md'))
+
+# A brief that asks for browser checks has to hand the procedure over, and prose saying so is not
+# the mechanism - this is. Skills exist in this repository only, so a worker in another repo's
+# worktree cannot load `witness`; the brief's `## Browser checks` section points it at a copy under
+# read-first, and that copy exists only because -ReadPath was passed. Forget the parameter and the
+# worker follows the section to a file that is not there, then either stops with the browser step
+# dead or drives a browser with no read-only boundary, no dialog rule, no credential rule and no
+# record format. That is the failure the whole file-delivery mechanism was added to close, and a
+# gate a forgotten argument switches off is not a gate.
+if ($hasBrowser) {
+    $handedOver = @($staged.Values | Where-Object {
+        $_.Equals($procedurePath, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+    if (-not $handedOver) {
+        throw ("The brief at $BriefPath carries a '## Browser checks' section and passes no " +
+               "-ReadPath for $procedurePath. A worker runs in the target project's worktree, " +
+               "where none of kingshand's skills exist, so naming the procedure delivers nothing " +
+               "and the section would send it into a browser with none of the rules attached. " +
+               "Pass that file to -ReadPath and name the copy under 'Read first' - or drop the " +
+               "'## Browser checks' section, which is the whole opt-in and belongs only on a task " +
+               "that renders something to look at. Nothing was created.")
+    }
+}
+
 # The index gate. The section exists; this asks whether the index behind it was actually consulted.
 #
 # The index was built, written to as files are written, and nothing obliged anyone to open it - and
@@ -409,18 +437,14 @@ if ($gates.Count -gt 0) {
     }
 
     # The browser procedure is the other file muster passes by rote, on every brief carrying a
-    # `## Browser checks` section. Rooted off this script rather than off the data root, because it
-    # is part of the installation rather than of anybody's data, and resolved so the comparison
-    # below sees the same shape Resolve-Path gave the staged copy.
+    # `## Browser checks` section - and by the refusal above, every such brief passes it.
     #
     # Discounted only on a brief that carries that section, because only there is it passed by
     # rote. On a kingshand task to change the procedure itself, that file IS the subject and the
     # brief carries no browser checks - so it counts, exactly as any other file the Hand chose
     # would. A discount keyed on the path alone refused that dispatch and told it a reason that
     # was not true of it.
-    $procedure = [System.IO.Path]::GetFullPath(
-        (Join-Path $PSScriptRoot '..\.claude\skills\witness\SKILL.md'))
-    if (-not $hasBrowser) { $procedure = '' }
+    $procedure = if ($hasBrowser) { $procedurePath } else { '' }
 
     $discountedPaths = @(@($byRote, $procedure) | Where-Object { $_ })
     $isByRote = {
@@ -455,19 +479,23 @@ if ($gates.Count -gt 0) {
             $discounted = ("$lead the standing-criteria file $byRote, " +
                            "which every brief for this project passes and which therefore says " +
                            "nothing about this task. ")
-            $stated = ("'- The index was checked; nothing in it applies to this task beyond the " +
-                       "standing criteria above.' - which says so without contradicting the " +
-                       "criteria line already in the section.")
         }
         if ($passedProcedure) {
             $discounted += ("The browser procedure $procedure is discounted for the same reason: " +
                             "every brief carrying browser checks passes it, so it says nothing " +
                             "about this task either. ")
-            if (-not $passedCriteria) {
-                $stated = ("'- The index was checked; nothing in it applies to this task beyond " +
-                           "the browser procedure above.' - which says so without contradicting " +
-                           "the line already in the section.")
-            }
+        }
+
+        # The recommended line names every copy the section already hands over, because a line
+        # saying nothing applies beyond one of them, written beside a section naming two, is the
+        # same self-contradiction this branch exists to keep out of the brief.
+        $beyond = @()
+        if ($passedCriteria)  { $beyond += 'the standing criteria' }
+        if ($passedProcedure) { $beyond += 'the browser procedure' }
+        if ($beyond.Count -gt 0) {
+            $stated = ("'- The index was checked; nothing in it applies to this task beyond " +
+                       ($beyond -join ' and ') + " above.' - which says so without contradicting " +
+                       'what the section already hands the worker.')
         }
         throw ("This dispatch is gated by $named - and this brief neither names a file from them to " +
                "read nor says they were checked. $discounted" +

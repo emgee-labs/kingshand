@@ -320,7 +320,9 @@ names no file at all, and the browser step dies on the first line of the procedu
 
 **That copy does not discharge the index line.** Dispatch discounts it exactly as it discounts the
 standing-criteria file, and for the same reason - every brief carrying browser checks passes it,
-so it is evidence of nothing about this task. It is the one section in the template carrying a delete marker for that reason: every
+so it is evidence of nothing about this task. It also refuses the dispatch outright where the
+section is there and the file was not passed, before anything is created, because a section
+pointing at a copy that does not exist is the delivery failure this whole route was built to end. It is the one section in the template carrying a delete marker for that reason: every
 other section stays in every brief, and this one arriving by accident is a browser step on a
 migration. Give each line an id - `C-001`, `C-002` - because the worker copies those ids out
 before it starts and the record answers on every one of them, which is what stops a check it never
@@ -717,11 +719,13 @@ brief already names, because that directory is the only place outside its worktr
 read. Drop the parameter only when the section states there is nothing to read.
 
 Every refusal comes before anything at all is created, so a mistake here costs nothing to fix.
-There are five, and each is refused by name: a brief with no `## Read first` section at all, a
+There are six, and each is refused by name: a brief with no `## Read first` section at all, a
 brief that passes no `-ReadPath` and does not say the index was checked when anything at all is
 indexed - and neither the standing-criteria file nor the browser procedure counts towards that one,
-per Step 2, which owns the rule - a path that does not exist, a directory where a file was meant,
-and two different files whose names would land on top of each other in the staging directory.
+per Step 2, which owns the rule - a brief carrying a `## Browser checks` section that passes no
+`-ReadPath` for the browser procedure, a path that does not exist, a directory where a file was
+meant, and two different files whose names would land on top of each other in the staging
+directory.
 
 **Dispatch does not read the paths out of the brief's prose, and nothing may make it start.** An
 earlier version did, comparing what it parsed there against `-ReadPath`, and it cost six review

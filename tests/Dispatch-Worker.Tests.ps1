@@ -1639,6 +1639,73 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $r.id | Should -Be 'T-8031'
         }
 
+        # The section is the whole opt-in, and the copy under read-first is the only way the rules
+        # attached to it reach a worker: skills live in this repository and a worker runs in the
+        # target project's worktree. Forget the -ReadPath and the worker follows the brief to a
+        # file that is not there, then drives a browser with no read-only boundary and no record
+        # format - which is the failure the file delivery was added to close.
+        It 'refuses a brief that asks for browser checks and hands over no procedure' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'browser-no-procedure'
+            Register-FixtureProject -Fixture $f -WithIndex | Out-Null
+            $brand = Join-Path $f.DataPath 'brand.md'
+            Set-Content -Path $brand -Value 'teal, not amber' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf 'brand.md' -From $brand -BrowserChecks
+
+            $msg = ''
+            try {
+                & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8032' `
+                    -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $brand
+            } catch { $msg = $_.Exception.Message }
+            $msg | Should -BeLike '*## Browser checks*'
+            $msg | Should -BeLike "*$script:ProcedureFile*" -Because 'the refusal names the path to pass'
+            $msg | Should -BeLike '*Nothing was created*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-8032') | Should -BeFalse
+            (Get-CallLines $f).Count | Should -Be 0
+        }
+
+        # And it is not the index gate wearing another hat: a project with nothing indexed at all
+        # still has to hand the procedure over.
+        It 'refuses the same brief on a project with no index to check' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'browser-no-procedure-unindexed'
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.') -BrowserChecks
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-8033' } |
+                Should -Throw '*passes no -ReadPath for*'
+        }
+
+        It 'dispatches a browser brief that hands the procedure over' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'browser-with-procedure'
+            Set-ReadFirstBrief -Fixture $f -Leaf 'SKILL.md' -From $script:ProcedureFile -BrowserChecks
+
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8034' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $script:ProcedureFile
+            $r.id | Should -Be 'T-8034'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\SKILL.md') | Should -BeTrue
+        }
+
+        # Both copies are in the section, so a line saying nothing applies beyond one of them
+        # contradicts the other - the same contradiction the criteria paraphrase exists to avoid.
+        It 'recommends a line naming both copies when both were discounted' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'index-both-discounted'
+            $name = Register-FixtureProject -Fixture $f -WithIndex
+            $criteria = Join-Path $f.DataPath "done-$name.md"
+            Set-Content -Path $criteria -Value '- Every new prose rule is pinned by a test.' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf @("done-$name.md", 'SKILL.md') -From $criteria -BrowserChecks
+
+            $msg = ''
+            try {
+                & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8035' `
+                    -BriefPath $f.BriefPath -DataPath $f.DataPath `
+                    -ReadPath @($criteria, $script:ProcedureFile)
+            } catch { $msg = $_.Exception.Message }
+            $msg | Should -BeLike ('*beyond the standing criteria and the browser procedure above.*')
+            $msg | Should -Not -BeLike '*Nothing beyond this brief - the index was checked*'
+        }
+
         # The discount has to survive a relative -DataPath, because the two ways of rooting one
         # disagree: GetFullPath uses the PROCESS working directory, which Set-Location does not
         # move, while Index.psm1 reads its indexes from POWERSHELL's location. Rooted the first way
