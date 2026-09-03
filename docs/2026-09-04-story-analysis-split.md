@@ -103,6 +103,30 @@ to reported bugs: `inquest` already owns the diagnosis procedure, and `CLAUDE.md
 that a diagnosis is evidence rather than authorization to change code, so a bug-shaped copy of the
 trigger would be a second owner of a rule that has one.
 
+## The read-only close-out is deliberately left open
+
+`muster`'s lifecycle is written for work that lands or pushes, and an analysis dispatch produces
+no commits at all, so nothing in it says how such a dispatch ends. Three pieces are missing:
+
+- **A Done-means block for a dispatch that produces no commits.** All four of the blocks
+  `muster` generates open with committing on the worktree's branch, and it forbids inventing a
+  fifth. An analysis brief written today therefore carries a delivery instruction that
+  contradicts its own read-only scope, in the one section the worker is judged against.
+- **A terminal stage for one.** Step 6 sets `gating`; `ready` needs the branch on the remote and
+  `landed` needs a merge, so neither is reachable with zero commits. The worker's record sits at
+  `gating` with nothing live behind it, which `survey` reports to the King as needing him.
+- **A teardown rule keyed on where the deliverable lives.** Step 8b turns on landing or push
+  evidence, because normally the worktree is the only copy. Here the deliverable is `report.md`,
+  which sits outside the worktree and survives teardown, so the rule's reason does not apply -
+  but the rule is absolute and `counsel` may not except itself from it.
+
+`counsel` was not allowed to supply any of them. `muster` owns the lifecycle, and a skill that
+writes a second one becomes a second owner that drifts the moment either file is edited - which is
+exactly what a first attempt here did, each patch to it exposing the next assumption `muster`
+makes about work that lands. So `counsel` states the gap, forbids working around it, and stops:
+an analysis runs as an ordinary dispatch, ends at the report, and the King is told the worker has
+nothing to land. Closing it is a change to `muster`.
+
 ## Deliberately not built
 
 **No story parser.** A story is free-form prose and its case space is not closed. This repository

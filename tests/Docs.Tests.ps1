@@ -5306,20 +5306,24 @@ Describe 'counsel splits the dialogue from the reading, and only the King starts
                      'its tooling')
     }
 
-    # muster's close-out is written around work that lands or pushes, and this dispatch makes no
-    # commits at all. Without these three sentences a finished analysis is a worker nothing may
-    # tear down, held open at the landing gate forever.
-    It 'says how a dispatch that produces no commits ends' {
+    # muster's lifecycle assumes work that lands or pushes, and this dispatch makes no commits at
+    # all. An earlier attempt to specify the missing close-out here made counsel a second owner of
+    # the lifecycle, and every patch to it exposed the next assumption muster makes. So the rule is
+    # that counsel names the gap and refuses to work around it.
+    It 'names the read-only close-out gap instead of inventing a lifecycle for it' {
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
-            -Phrase ('**There is nothing to land, so `muster` Step 7''s landing gate is not run for an ' +
-                     'analysis dispatch.**')
+            -Phrase ('**this skill does not invent a parallel lifecycle**, because `muster` owns the ' +
+                     'lifecycle and a second owner of it drifts the moment either file is edited')
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
-            -Phrase ('**Teardown is safe here, and it satisfies `muster` Step 8b rather than excepting ' +
-                     'it.** That rule exists so the only copy of unlanded work is never destroyed, and ' +
-                     'an analysis dispatch leaves nothing in the worktree')
+            -Phrase ('**do not set a stage `muster` does not define, do not tear the worker down on this ' +
+                     'skill''s authority, and do not skip `muster`''s base-ref verification in order to ' +
+                     'justify one.**')
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
-            -Phrase ('**A worktree that does carry commits means the brief was exceeded.** `muster` Step ' +
-                     '8b then applies unchanged: do not tear it down, and put it to the King.')
+            -Phrase ('Closing this properly needs three things `muster` does not have yet: a Done-means ' +
+                     'block for a dispatch that produces no commits, a terminal stage for one, and a ' +
+                     'teardown rule keyed on the deliverable living outside the worktree')
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase '## The read-only close-out is deliberately left open'
     }
 
     It 'renders the decomposition and dispatches nothing by having read it' {

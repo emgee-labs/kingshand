@@ -109,25 +109,28 @@ Two things the brief must also say, because an analysis dispatch is unlike an im
 - **Where two shapes are live, compare them.** Two or three approaches, their trade-offs, and a
   recommendation. That is the brainstorming half, and its own section below owns it.
 
-### How an analysis dispatch ends
+### How an analysis dispatch ends, and what `muster` still lacks
 
-`muster`'s close-out is written around work that lands or pushes, and this dispatch produces no
-commits at all, so where it ends is said here. Nothing below changes a step of `muster`.
+Completion is `muster` Step 6's three-fact test, unchanged. The third fact - `report.md` exists -
+is the deliverable itself here rather than corroboration for a diff, so a settled worker with no
+report is exactly the case that step already refuses to advance.
 
-- **Completion is `muster` Step 6's three facts, unchanged.** The third of them - `report.md`
-  exists - is the whole deliverable here rather than corroboration for a diff, so a settled worker
-  with no report is exactly the suspicious case that step already refuses to advance.
-- **There is nothing to land, so `muster` Step 7's landing gate is not run for an analysis
-  dispatch.** No commits, no push, no pull request, and no diff to render, whatever posture the
-  project is registered with. What takes its place is Step 4 of this skill: the King reads the
-  rendered decomposition and decides.
-- **Teardown is safe here, and it satisfies `muster` Step 8b rather than excepting it.** That rule
-  exists so the only copy of unlanded work is never destroyed, and an analysis dispatch leaves
-  nothing in the worktree - its deliverable is `report.md`, which sits outside the worktree and
-  which `muster` already says survives teardown. The check before tearing down is that the worktree
-  carries no commits beyond its base ref.
-- **A worktree that does carry commits means the brief was exceeded.** `muster` Step 8b then
-  applies unchanged: do not tear it down, and put it to the King.
+Past that point `muster`'s lifecycle is written for work that lands or pushes. Every Done-means
+block opens with committing on the branch, `gating` is the stage Step 6 sets and Step 7 is what
+clears it, and Step 8b's teardown rule is written for work sitting in a worktree. An analysis
+dispatch fits none of that, and **this skill does not invent a parallel lifecycle**, because
+`muster` owns the lifecycle and a second owner of it drifts the moment either file is edited.
+
+So until `muster` carries a read-only path: run the analysis as an ordinary dispatch, stop at the
+report, read it, render the decomposition, and put the close-out to the King along with the plain
+fact that the worker has nothing to land. Explicitly - **do not set a stage `muster` does not
+define, do not tear the worker down on this skill's authority, and do not skip `muster`'s base-ref
+verification in order to justify one.**
+
+Closing this properly needs three things `muster` does not have yet: a Done-means block for a
+dispatch that produces no commits, a terminal stage for one, and a teardown rule keyed on the
+deliverable living outside the worktree rather than on a landing or a push. All three are a change
+to `muster`, not to this skill, and `docs\2026-09-04-story-analysis-split.md` records why.
 
 ## Step 3 - The overlap map, and why the obvious shape fails
 
