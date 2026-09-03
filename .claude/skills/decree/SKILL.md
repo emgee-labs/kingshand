@@ -35,12 +35,22 @@ substance of the choice, and never from a customer name, a credential, a path, a
 anything else the queue should not carry. A key that changes between retries files the same
 decision twice; a key shared by two decisions loses one of them.
 
-**Where the decision came from a parked worker, the key does not have to be re-derivable, because
-nothing re-derives it.** `muster` Step 6 writes the key you registered onto that worker's own
-record the same turn it registers the decision, so a later session looks the key up rather than
-reconstructing it from what a worker happened to write. That is the whole reason the pointer
-exists; `muster` owns it and this skill owns the key itself. Prefix the key with the work id all
-the same - a decision that outlives the worker still has to be findable in the queue on its own.
+**Where the decision came from a parked worker, the key is stable, privacy-safe and slug-shaped
+like any other, and it is always prefixed with the work id.** `muster` Step 6 writes the key you
+registered onto that worker's own record the same turn it registers the decision, so wherever that
+pointer is set a later session looks the key up rather than reconstructing it from what a worker
+happened to write. That is the whole reason the pointer exists; `muster` owns it and this skill
+owns the key itself.
+
+**The pointer is the direct lookup, and the work-id prefix is what covers the window where there
+is no pointer yet.** Registering the hold and writing the pointer are two commands, so a session
+that ends between them leaves an open hold that no pointer names, and the next session finds a
+report naming a decision with a null pointer. It looks the work id up in the queue before
+registering anything, and re-registers under the key already open there - `add` and `hold` are
+idempotent, so the replay changes nothing and the pointer ends up on the hold that exists.
+**That recovery is a queue lookup and never a reading of report prose**: nothing re-derives a key
+from what a worker wrote, and filing a second key for the same decision asks the King the same
+question twice and orphans the first hold.
 
 After inventorying the whole surface, either every unresolved key is registered, or you state
 plainly that the reviewed surface contains no unresolved decision. **Do not let "I found nothing"

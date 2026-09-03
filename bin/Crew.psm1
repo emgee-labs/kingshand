@@ -32,7 +32,12 @@ $script:ValidKinds  = @('ticket', 'adhoc')
 # tasks-axi ids are slug-shaped - letters, digits, '.', '_' and '-', with no spaces. A key that
 # cannot be one is a key no hold was ever filed under, so it is refused here rather than stored
 # and discovered to match nothing later.
-$script:HoldKeyPattern = '^[A-Za-z0-9._-]+$'
+#
+# Anchored \A..\z rather than ^..$ on purpose. In .NET, `$` also matches immediately before a
+# single trailing newline, so `^[A-Za-z0-9._-]+$` accepts "T-1001-hero-copy`n" - which is exactly
+# the key-that-matches-no-hold this guard exists to refuse, and a trailing newline is what a
+# pasted or here-string value arrives with. \z matches the end of the string and nothing else.
+$script:HoldKeyPattern = '\A[A-Za-z0-9._-]+\z'
 
 function New-CrewState {
     [CmdletBinding()]

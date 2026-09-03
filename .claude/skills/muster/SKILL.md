@@ -1056,6 +1056,20 @@ every record the field whether or not it was saved with one, so absent and null 
 rather than two. Nothing here reads more into it than that: it says which decision, never how that
 decision is going. `decree` owns the hold and `petition` owns who may answer it.
 
+**So the order is fixed. After the three facts, read the pointer - and where it is null, read
+`$env:KINGSHAND_HOME\data\<id>\report.md` before you may treat that worker as a delivery:**
+
+```powershell
+Get-Content "$env:KINGSHAND_HOME\data\<id>\report.md" -Raw
+```
+
+**A null does not say there is no decision. It says nobody has looked yet**, and on a worker's
+first park nobody ever has - the field is only ever written by a Hand who read that report, so
+until that read the report is the only place the question exists at all. Skip it and a parked
+worker passes the three facts, takes `gating`, and is landed and torn down with its question
+answered nowhere. **A pointer that is already set needs no re-read**: that read is what set it,
+and the key it holds names the hold carrying the question.
+
 **This replaced a heading the Hand used to read out of `report.md`, and the replacement was
 deliberate.** The route's state was written as prose over a free-text file, so every review round
 turned up one more shape nobody had listed - an empty section, a worker parked twice, an answer
@@ -1064,8 +1078,27 @@ shapes. The report still carries the question and the reasoning, which is what p
 it stopped being where the system reads whether.
 
 **Where the field is null and the report names a decision the worker's brief did not settle, that
-is `decree`'s trigger and nobody has pulled it yet.** Register the decision there, and record the
-key it was registered under in the same turn:
+is `decree`'s trigger and nobody has pulled it yet.**
+
+**Look for a hold already open under this work's id before registering anything.** Registering the
+hold and writing the pointer are two commands and a session can end between them, so a null
+pointer over a report naming a decision has two causes: nobody registered it, or somebody did and
+the pass ended before the pointer went in. `decree` prefixes every key with the work id precisely
+so the queue answers that, and the queue is the only place it is answered - do not go back to the
+report for the key:
+
+```powershell
+Set-Location $env:KINGSHAND_HOME
+tasks-axi ready --include-held
+```
+
+**Where an open `--kind captain` hold for this work is already there, re-register under that same
+key rather than filing a second one.** `add` and `hold` are idempotent, so the replay changes
+nothing and the pointer ends up naming the hold that already exists. File a second and the King is
+asked the same question twice, while the first is orphaned with no pointer naming it and nothing
+that will ever close it.
+
+Register the decision there, and record the key it was registered under in the same turn:
 
 ```powershell
 Set-CrewWaitingOn -State $s -WorkerId "<id>" -HoldKey "<the key decree registered it under>"
@@ -1073,9 +1106,11 @@ Save-CrewState -State $s -Path $env:KINGSHAND_HOME\state\crew.json
 ```
 
 **That read of the report happens once, on the turn the worker parks, and it is a person reading a
-question rather than a check parsing a file.** From there the pointer carries the state, so a
-restart, a compaction or a session that dispatched nothing reads a value instead of re-deriving one
-from prose.
+question rather than a check parsing a file.** It is the same read the fixed order above requires,
+not a second one: the order says when it happens - on a null - and this says it does not happen
+again once the pointer is set. From there the pointer carries the state, so a restart, a
+compaction or a session that dispatched nothing reads a value instead of re-deriving one from
+prose.
 
 **A worker that carried on past a decision its brief did not settle, with no hold ever registered
 for it, answered its own question - and its brief forbids that outright.** Load `rally`, and read
@@ -1339,10 +1374,13 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
 - Never push a project that is not registered with a push-capable posture.
 - **Never land a worker whose `waiting_on` is set.** It is mid-run rather than delivered, whatever
   its branch shows, and Step 6 owns what to do with it. **A null is only as current as the last
-  read of that worker's report, and its stage says whether that read has happened**: `dispatched`
-  or `implementing` means neither Step 6 nor Step 8a has run - Step 0 sends "land / merge / ship a
-  worker" straight to this step - so take it to Step 6 first rather than reading the null as a
-  delivery. Nothing here turns on what you remember of an earlier session.
+  read of that worker's report, so a null is never a delivery on its own.** Step 0 sends
+  "land / merge / ship a worker" straight to this step, so a worker arriving that way goes through
+  Step 6's read first and comes back here with a pointer read on this pass. **Do not try to work
+  out whether that read has already happened.** Neither the stage nor anything you remember can
+  tell you - Step 6's parked path runs to completion and deliberately leaves the stage where it
+  was, so `dispatched` and `implementing` are what a worker steered an hour ago still reads. The
+  read is cheap and the mistake it prevents cannot be taken back, so it is unconditional.
 
 **Verify the base ref resolves before gathering anything.** This check is not optional and
 nothing below it runs until it passes:

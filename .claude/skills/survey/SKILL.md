@@ -165,7 +165,9 @@ Map the snapshot onto the four buckets like this, and nowhere else:
     this also means that brief was not followed.
   - `idle` means the worker's turn ended. Usually it finished. It may instead have stopped by
     design, having reached a decision its brief did not settle, written the question into
-    `data\<id>\report.md` and stopped as instructed. Point at the report - an `idle` worker has
+    `data\<id>\report.md` and stopped as instructed. **`waitingOn` says which of the two it is**,
+    so there is nothing to guess here: set, it names the hold carrying that decision, and the
+    decision itself already renders from the backlog. Point at the report - an `idle` worker has
     already said what it needed to, and describing it as hung sends the user chasing a decision
     that is written down.
 

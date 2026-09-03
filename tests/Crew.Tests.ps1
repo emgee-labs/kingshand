@@ -132,6 +132,19 @@ Describe 'waiting_on points at a hold and is never a stage' {
             Should -Throw '*hold key*'
     }
 
+    # A key pasted in, or built from a here-string, arrives with the newline still on it. .NET's
+    # `$` matches immediately before a single trailing newline, so an `^...$` guard accepts that
+    # key and stores it - and it then matches no hold, which is the failure this guard exists to
+    # prevent. Whitespace anywhere else is refused for the same reason.
+    It 'refuses a key carrying trailing whitespace, which no hold was filed under' {
+        foreach ($k in @("T-1001-hero-copy`n", "T-1001-hero-copy`r`n", "T-1001-hero-copy ", " T-1001-hero-copy")) {
+            { Set-CrewWaitingOn -State $script:s -WorkerId 'a1' -HoldKey $k } |
+                Should -Throw '*hold key*' -Because 'a key with whitespace on it names no hold'
+        }
+        $script:s.workers['a1'].waiting_on |
+            Should -BeNullOrEmpty -Because 'a refused key must not have been stored on the way past'
+    }
+
     It 'refuses an unknown worker on both verbs' {
         { Set-CrewWaitingOn -State $script:s -WorkerId 'nope' -HoldKey 'k' } | Should -Throw '*not found*'
         { Clear-CrewWaitingOn -State $script:s -WorkerId 'nope' } | Should -Throw '*not found*'

@@ -272,7 +272,7 @@ Describe 'a worker sitting on a prompt reports blocked, whatever herdr calls it'
 }
 
 Describe 'the output shape other code and the skills format on' {
-    It 'emits exactly the seven documented properties, under their existing names' {
+    It 'emits exactly the eight documented properties, under their existing names' {
         Set-HerdrAgents @(@{ name = 't-1001'; agent_status = 'working'; title = 'Running tests' })
         $state = New-CrewFile -Name 'shape' -Workers @{
             'T-1001' = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-web'; stage = 'gating' }
@@ -280,11 +280,32 @@ Describe 'the output shape other code and the skills format on' {
 
         $row = (Get-Status $state)[0]
         @($row.PSObject.Properties.Name) |
-            Should -Be @('id', 'ticket', 'repo', 'stage', 'live', 'agentState', 'agentStatus')
+            Should -Be @('id', 'ticket', 'repo', 'stage', 'live', 'agentState', 'agentStatus', 'waitingOn')
         $row.ticket | Should -Be 'T-1001'
         $row.repo   | Should -Be 'acme-web'
         $row.stage  | Should -Be 'gating'
         $row.live   | Should -BeOfType [bool]
+    }
+
+    # A worker parked on the King's own decision has settled, so herdr reports it `idle` exactly
+    # like a finished one. Without the pointer on the row there is nothing here that can tell them
+    # apart, and every caller describes a worker waiting on an answer as still working.
+    It 'carries the pointer through, so a parked worker is not reported as a working one' {
+        Set-HerdrAgents @(@{ name = 't-1001'; agent_status = 'idle'; title = 'done for now' },
+                          @{ name = 't-1002'; agent_status = 'idle'; title = 'done for now' })
+        $state = New-CrewFile -Name 'parked' -Workers @{
+            'T-1001' = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-web'; stage = 'implementing'
+                          waiting_on = 'T-1001-shorter-hero-copy' }
+            'T-1002' = @{ ticket = 'T-1002'; kind = 'ticket'; repo = 'acme-web'; stage = 'implementing' }
+        }
+
+        $rows = Get-Status $state
+        $parked   = $rows | Where-Object { $_.id -eq 'T-1001' }
+        $finished = $rows | Where-Object { $_.id -eq 'T-1002' }
+
+        $parked.waitingOn   | Should -Be 'T-1001-shorter-hero-copy'
+        $finished.waitingOn | Should -Be '' -Because 'a record saved before the field existed is null, never absent'
+        $parked.agentState  | Should -Be $finished.agentState -Because 'liveness cannot tell the two apart'
     }
 
     It 'keeps crew.json as the authority for intent even while herdr is the authority for liveness' {
