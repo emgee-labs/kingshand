@@ -81,10 +81,11 @@ Describe 'Set-CrewStage' {
     }
 }
 
-# waiting_on records which tasks-axi hold a worker is parked on, and its presence is the whole
-# state - set means a decision is outstanding, null means none is. It is deliberately not a stage:
-# the six stages are a lifecycle a worker moves along, while waiting is a condition that can
-# happen at any of them and resolves back to the one the worker was already at.
+# waiting_on records which tasks-axi hold a worker parked on. Null means it has never parked; a key
+# means it did, and whether that decision is still outstanding is the hold's own state in the queue,
+# which this module does not read. It is deliberately not a stage: the six stages are a lifecycle a
+# worker moves along, while waiting is a condition that can happen at any of them and resolves back
+# to the one the worker was already at.
 Describe 'waiting_on points at a hold and is never a stage' {
     BeforeEach {
         $script:s = New-CrewState
@@ -100,17 +101,29 @@ Describe 'waiting_on points at a hold and is never a stage' {
         $script:s.workers['a1'].waiting_on | Should -Be 'T-1001-shorter-hero-copy'
     }
 
-    It 'goes back to null when the answer is recorded' {
+    # The module offers no way back to null, and that is the invariant the route rests on. A worker
+    # that parked, was answered and carried on must not read the same as one that never parked: the
+    # first is a finished delivery and the second has a question nobody has registered yet, and a
+    # single null for both either loses the question or refuses delivered work and re-asks it.
+    It 'exposes no verb that puts the field back to null' {
+        $verbs = @((Get-Module Crew).ExportedFunctions.Keys)
+        $verbs | Should -Contain 'Set-CrewWaitingOn'
+        $verbs | Should -Not -Contain 'Clear-CrewWaitingOn' -Because 'a cleared pointer is a null with two opposite meanings'
+        @($verbs | Where-Object { $_ -like '*WaitingOn' }) |
+            Should -HaveCount 1 -Because 'one writer, and no second way to move this field'
+    }
+
+    It 'keeps naming the hold after the decision it names has been answered' {
         Set-CrewWaitingOn -State $script:s -WorkerId 'a1' -HoldKey 'T-1001-shorter-hero-copy'
-        Clear-CrewWaitingOn -State $script:s -WorkerId 'a1'
-        $script:s.workers['a1'].waiting_on | Should -BeNullOrEmpty
+        Set-CrewStage -State $script:s -WorkerId 'a1' -Stage 'gating'
+        $script:s.workers['a1'].waiting_on |
+            Should -Be 'T-1001-shorter-hero-copy' -Because 'the hold records the answer, so the pointer has nothing to give up'
     }
 
     # A second parking is the same field with a new key, not a second slot and not a history.
     # There is one worker, waiting on one decision, and nothing to enumerate.
     It 'a second parking replaces the key rather than adding to it' {
         Set-CrewWaitingOn -State $script:s -WorkerId 'a1' -HoldKey 'T-1001-shorter-hero-copy'
-        Clear-CrewWaitingOn -State $script:s -WorkerId 'a1'
         Set-CrewWaitingOn -State $script:s -WorkerId 'a1' -HoldKey 'T-1001-drop-the-banner'
         $script:s.workers['a1'].waiting_on | Should -Be 'T-1001-drop-the-banner'
     }
@@ -145,9 +158,8 @@ Describe 'waiting_on points at a hold and is never a stage' {
             Should -BeNullOrEmpty -Because 'a refused key must not have been stored on the way past'
     }
 
-    It 'refuses an unknown worker on both verbs' {
+    It 'refuses an unknown worker' {
         { Set-CrewWaitingOn -State $script:s -WorkerId 'nope' -HoldKey 'k' } | Should -Throw '*not found*'
-        { Clear-CrewWaitingOn -State $script:s -WorkerId 'nope' } | Should -Throw '*not found*'
     }
 
     It 'survives a save and reload, which is the point of storing it at all' {

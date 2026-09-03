@@ -295,7 +295,7 @@ Describe 'a worker is joined with its durable report' {
         $parked = @($script:FleetSnap.crew.workers | Where-Object { $_.id -eq 'w-reported' })[0]
         $silent = @($script:FleetSnap.crew.workers | Where-Object { $_.id -eq 'w-silent' })[0]
         $parked.waitingOn | Should -Be 'T-1001-shorter-hero-copy'
-        $silent.waitingOn | Should -Be '' -Because 'a worker parked on nothing has no key, not a missing field'
+        $silent.waitingOn | Should -Be '' -Because 'a worker that has never parked has no key, not a missing field'
     }
 
     It 'does not call a dispatched brief un-dispatched work' {

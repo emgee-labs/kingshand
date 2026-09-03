@@ -97,7 +97,7 @@ Run every command from `$env:KINGSHAND_HOME` so `.tasks.toml` resolves.
 | repair a reason that does not say which of the two open holds it is | `tasks-axi hold <key> --reason "<the reason, restated to say either that the question is with him and what he has to choose, or that you are answering it in his stead under petition's test and which way>"` - `hold` is idempotent under the same key, so this rewrites the reason without opening a second hold or moving anything else |
 | repair a hold closed without its answer | `tasks-axi done <key> --note "<answered or declined>: ..."` backfills the note without moving the close date; where authorised work was never routed, `tasks-axi reopen <key>` first, then route it and close normally |
 
-Six mechanical facts this depends on, each confirmed against the tool rather than assumed:
+Seven mechanical facts this depends on, each confirmed against the tool rather than assumed:
 
 - **`add` and `hold` are both idempotent under the same key.** Re-running either reports
   `already: true` and changes nothing, which is what makes a stable key safe to replay after a

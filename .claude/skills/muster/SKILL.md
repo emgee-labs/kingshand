@@ -1050,25 +1050,43 @@ $w = Get-CrewWorker -State $s -WorkerId "<id>"
 $w.waiting_on          # the key of the hold carrying its decision, or $null
 ```
 
-**The field is set or it is not, and there is no third value.** Set, this worker has a decision
-outstanding and the field names the hold carrying it. Null, it has not. `Import-CrewState` gives
-every record the field whether or not it was saved with one, so absent and null are one case
-rather than two. Nothing here reads more into it than that: it says which decision, never how that
-decision is going. `decree` owns the hold and `petition` owns who may answer it.
+**The field is set or it is not, and there is no third value. Null means this worker has never
+parked; set means it parked, and the field names the hold carrying what it parked on.**
+`Import-CrewState` gives every record the field whether or not it was saved with one, so absent
+and null are one case rather than two. **It is written on the turn the worker parks and never
+cleared**, so it keeps naming that hold for the rest of the worker's life - a worker that was
+answered and carried on still carries the key of the decision it was answered on.
 
-**So the order is fixed. After the three facts, read the pointer - and where it is null, read
-`$env:KINGSHAND_HOME\data\<id>\report.md` before you may treat that worker as a delivery:**
+**Whether that decision is still outstanding is not this field's to say, and nothing here restates
+it.** The hold answers it, and the hold is the source of truth: open and the worker is waiting,
+closed and it is answered, with the `answered:` or `declined:` note `decree` requires on the close
+saying what was decided. Two sources, each owning its own half. `decree` owns the hold's lifecycle
+and `petition` owns who may answer it:
+
+```powershell
+Set-Location $env:KINGSHAND_HOME
+tasks-axi show <the key the pointer names> --full
+```
+
+**So the order is fixed. After the three facts, read the pointer - and unless it names a hold that
+is still open, read `$env:KINGSHAND_HOME\data\<id>\report.md` before you may treat that worker as
+a delivery:**
 
 ```powershell
 Get-Content "$env:KINGSHAND_HOME\data\<id>\report.md" -Raw
 ```
 
-**A null does not say there is no decision. It says nobody has looked yet**, and on a worker's
-first park nobody ever has - the field is only ever written by a Hand who read that report, so
-until that read the report is the only place the question exists at all. Skip it and a parked
-worker passes the three facts, takes `gating`, and is landed and torn down with its question
-answered nowhere. **A pointer that is already set needs no re-read**: that read is what set it,
-and the key it holds names the hold carrying the question.
+**A null says this worker has never parked, and nothing more.** It does not say the report names
+no decision - the field is only ever written by a Hand who read that report, so on a first park it
+stays null until somebody looks. Skip that read and a parked worker passes the three facts, takes
+`gating`, and is landed and torn down with its question answered nowhere.
+
+**A pointer naming a closed hold does not excuse the read either.** It says the decision it names
+was answered; it does not say this wake is a delivery, because a steered worker goes back to work
+and can reach a second decision its brief does not settle just as easily as the first. The report
+is what tells those apart. **The one wake that needs no report read is a pointer naming a hold
+still open** - that worker is waiting rather than delivering, and the rest of this step is about
+it.
 
 **This replaced a heading the Hand used to read out of `report.md`, and the replacement was
 deliberate.** The route's state was written as prose over a free-text file, so every review round
@@ -1077,8 +1095,10 @@ with no record - and the rules for reading it ended up longer than the route its
 shapes. The report still carries the question and the reasoning, which is what prose is good for;
 it stopped being where the system reads whether.
 
-**Where the field is null and the report names a decision the worker's brief did not settle, that
-is `decree`'s trigger and nobody has pulled it yet.**
+**Where the report names a decision the worker's brief did not settle and no hold of this worker's
+covers it, that is `decree`'s trigger and nobody has pulled it yet.** A first park reaches it with
+a null pointer and a second with a pointer naming the closed hold of the decision before it; both
+are the same trigger, and both end with the pointer naming the new hold.
 
 **Look for a hold already open under this work's id before registering anything.** Registering the
 hold and writing the pointer are two commands and a session can end between them, so a null
@@ -1105,12 +1125,12 @@ Set-CrewWaitingOn -State $s -WorkerId "<id>" -HoldKey "<the key decree registere
 Save-CrewState -State $s -Path $env:KINGSHAND_HOME\state\crew.json
 ```
 
-**That read of the report happens once, on the turn the worker parks, and it is a person reading a
-question rather than a check parsing a file.** It is the same read the fixed order above requires,
-not a second one: the order says when it happens - on a null - and this says it does not happen
-again once the pointer is set. From there the pointer carries the state, so a restart, a
-compaction or a session that dispatched nothing reads a value instead of re-deriving one from
-prose.
+**That read is a person reading a question rather than a check parsing a file, and it is the same
+read the fixed order above requires - not a second one.** It is not counted, and it is not "once
+per worker": a worker steered past one decision can reach another, so the rule is the condition the
+order already states, which is every wake where the pointer does not name a hold still open. From
+there the pointer and its hold carry the state between them, so a restart, a compaction or a
+session that dispatched nothing reads two recorded values instead of re-deriving one from prose.
 
 **A worker that carried on past a decision its brief did not settle, with no hold ever registered
 for it, answered its own question - and its brief forbids that outright.** Load `rally`, and read
@@ -1118,7 +1138,7 @@ everything else it claims with the same suspicion a missing report earns. Do not
 answer afterwards to make the record tidy: filing it durably asserts that somebody with the
 authority gave it.
 
-**A worker with that pointer set is idle rather than hung**, and costs nothing where it is - the
+**A worker waiting on an open hold is idle rather than hung**, and costs nothing where it is - the
 review-gate run it left parked keeps the branch and every fix commit already made. **Do not set
 `gating`, do not close the backlog item, and above all do not tear it down.** Teardown ends the
 process holding that parked run, and the answer then has nowhere to go.
@@ -1172,21 +1192,19 @@ anyway. **Do not report either one - the null does not say which.** Read the scr
 the worker is actually doing, and load `rally` where the screen cannot tell you, rather than arming
 a wait over a worker that may never have taken the answer.
 
-**Clear the pointer once the worker is confirmed working on the answer, and never before:**
+**The pointer is not cleared here, or anywhere, ever - there is no verb for it.** It named this
+decision before the answer and it names it afterwards; the hold's own close is what records that
+the answer was given, and that record outlives the worker. Clearing it would put two opposite
+meanings on one null - a worker that never parked, and a worker that parked, was answered and
+carried on - and those need opposite handling, so a route that cannot tell them apart either loses
+a question nobody registered or refuses finished work and asks the King the same thing twice.
 
-```powershell
-Clear-CrewWaitingOn -State $s -WorkerId "<id>"
-Save-CrewState -State $s -Path $env:KINGSHAND_HOME\state\crew.json
-```
-
-**No order here leaves nothing behind, so this one is chosen for which break is recoverable.**
-Clear it last and an interruption leaves a pointer naming a hold that is already closed, which says
-the answer may not have reached the worker. Clear it first and the same interruption says the work
-was delivered when the worker never got the answer at all - and the landing gate and the teardown
-both wave it through, which is the one mistake here that cannot be taken back. So when you find a
-pointer naming a hold that is already closed: take the worker's condition from `rally`, send that
-note's answer once where it never landed, and clear the pointer once it has. Do not decide it
-again - it is answered, and a worker told to decide the same thing twice does the work twice.
+**A closed hold does not by itself say the worker was told.** The close goes in before the send, so
+an interruption between the two leaves an answered decision the worker never heard - and the
+report is what tells that from a steer that landed. Where it does not show the worker acting on
+the decision, take the worker's condition from `rally` and send that note's answer once. Do not
+decide it again: it is answered, and a worker told to decide the same thing twice does the work
+twice.
 
 **This pass ends at that re-armed wait, and nothing below it runs on this one.** The stage stays
 exactly where it is - waiting was never a stage, so there is nothing to put back - you go quiet as
@@ -1195,9 +1213,9 @@ then. Reading on from here would carry facts gathered before the answer was sent
 the worker has not earned - it started working again seconds ago - and on a `+yolo` project Step 7
 would then diff and land a worktree that is still being written to.
 
-With all three confirmed and `waiting_on` null, **set its stage to `gating`** - the
-implementation is done and the work is waiting on the landing gate at Step 7. Say so in chat as an
-update: what finished, that the landing gate is now theirs, and the one next action. Keep it short
+With all three confirmed and no hold of this worker's still open, **set its stage to `gating`** -
+the implementation is done and the work is waiting on the landing gate at Step 7. Say so in chat as
+an update: what finished, that the landing gate is now theirs, and the one next action. Keep it short
 because there is little to say, not because a line count says so:
 
 ```powershell
@@ -1372,15 +1390,18 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
 - Never merge on the forge. `direct-PR` and `no-mistakes` work ends at a pull request the user
   merges.
 - Never push a project that is not registered with a push-capable posture.
-- **Never land a worker whose `waiting_on` is set.** It is mid-run rather than delivered, whatever
-  its branch shows, and Step 6 owns what to do with it. **A null is only as current as the last
-  read of that worker's report, so a null is never a delivery on its own.** Step 0 sends
-  "land / merge / ship a worker" straight to this step, so a worker arriving that way goes through
-  Step 6's read first and comes back here with a pointer read on this pass. **Do not try to work
-  out whether that read has already happened.** Neither the stage nor anything you remember can
-  tell you - Step 6's parked path runs to completion and deliberately leaves the stage where it
-  was, so `dispatched` and `implementing` are what a worker steered an hour ago still reads. The
-  read is cheap and the mistake it prevents cannot be taken back, so it is unconditional.
+- **Never land a worker whose pointer names a hold that is still open.** It is mid-run rather than
+  delivered, whatever its branch shows, and Step 6 owns what to do with it. **Read the pointer, and
+  where it names a key read that hold**: the field says which decision, and the hold says whether
+  it is still owed. A closed one is answered rather than outstanding, and it is not on its own a
+  reason to refuse a landing. **Nothing here is a delivery on the pointer alone** - a pointer that
+  names nothing, and one naming a hold already closed, are both only as current as the last read of
+  that worker's report, so the worker goes through Step 6's read first. Step 0 sends
+  "land / merge / ship a worker" straight to this step, so a worker arriving that way has had no
+  such read at all. **Do not try to work out whether one has already happened.** Neither the stage
+  nor anything you remember can tell you - Step 6's parked path runs to completion and deliberately
+  leaves the stage where it was, so `dispatched` and `implementing` are what a worker steered an
+  hour ago still reads. The read is cheap and the mistake it prevents cannot be taken back.
 
 **Verify the base ref resolves before gathering anything.** This check is not optional and
 nothing below it runs until it passes:
@@ -1573,9 +1594,9 @@ describes.
 "land / merge / ship a worker" straight to Step 7, and Step 6 is the only place `gating` is ever
 set - so a user returning in a fresh session and saying "land T-1001" arrives with the stage never
 advanced. That is the direct-entry path working as designed, not a reason to refuse. **It does
-mean the one check Step 6 owns has not run, so run it here: a worker whose `waiting_on` is set is
-mid-run, and so is one whose report names a decision nobody has registered yet.** Leave the stage
-where it is, take it to Step 6, and close nothing out - a decision still owed is not a delivery,
+mean the one check Step 6 owns has not run, so run it here: a worker whose pointer names a hold
+that is still open is mid-run, and so is one whose report names a decision no hold covers.** Leave
+the stage where it is, take it to Step 6, and close nothing out - a decision still owed is not a delivery,
 however good the branch looks. Otherwise set the stage to `gating` and carry on with the
 rest of this step:
 
@@ -1654,22 +1675,23 @@ the branch is not on the remote, the worktree is the only copy of the work and r
 destroys it. Confirm one or the other first - teardown removes the worktree, and nothing puts it
 back.
 
-**A worker whose `waiting_on` is set is never torn down either, and a confirmed push does not
-release that.** Teardown ends the live process, and that process is what the answer is coming back
-to: kill it and the decision it is parked on can never be applied, while the gate run it left
-parked keeps its fix commits somewhere nobody will look again. Read the field before you stop
-anything, and where it names a hold take the worker to Step 6 instead:
+**A worker whose pointer names a hold that is still open is never torn down either, and a confirmed
+push does not release that.** Teardown ends the live process, and that process is what the answer is
+coming back to: kill it and the decision it is parked on can never be applied, while the gate run it
+left parked keeps its fix commits somewhere nobody will look again. Read the field before you stop
+anything, and where it names a key read that hold - still open, take the worker to Step 6 instead:
 
 ```powershell
-(Get-CrewWorker -State $s -WorkerId "<id>").waiting_on
+$key = (Get-CrewWorker -State $s -WorkerId "<id>").waiting_on
+if ($key) { Set-Location $env:KINGSHAND_HOME; tasks-axi show $key --full }
 ```
 
-**Read the field and nothing else.** This is the one place where a wrong read cannot be taken
-back, and the field is the only thing here that cannot be malformed - which is exactly why the
-route stopped keeping this state in the worker's own prose. Do not go looking through `report.md`
-for a heading, a marker or a question that reads as unanswered: that read is Step 6's, it happens
-once, and it is what set or did not set this field. This is the same shape as the floor above -
-both refuse an irreversible cleanup over work that is not finished.
+**Read those two and nothing else.** This is the one place where a wrong read cannot be taken
+back, and neither of them can be malformed - which is exactly why the route stopped keeping this
+state in the worker's own prose. Do not go looking through `report.md` for a heading, a marker or
+a question that reads as unanswered: that read is Step 6's, and it is what did or did not put a
+key in this field. This is the same shape as the floor above - both refuse an irreversible cleanup
+over work that is not finished.
 
 **`report.md` survives teardown, and must never be deleted as part of cleanup.** It lives at
 `$env:KINGSHAND_HOME\data\<id>\report.md`, beside the brief and outside the worktree, so teardown

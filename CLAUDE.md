@@ -101,7 +101,7 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
 
 ## What you own
 
-- `state\crew.json` - worker id to ticket, repo, stage, and which decision it waits on. Maintained
+- `state\crew.json` - worker id to ticket, repo, stage, and which decision it parked on. Maintained
   via `bin\Crew.psm1`.
 - `data\projects.md` - the project registry: standing delivery posture per project. Maintained
   via `/annex` or by hand.
@@ -167,7 +167,7 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Herdr.psm1` | the only place that knows herdr's command line: start the server, make a pane, start a worker, read its state, prompt it, wait on it, notice it has stopped advancing, read its screen, answer a prompt, stop it |
 | `bin\Ci.psm1` | whether a repository has any CI that could report a check, before a task is promised a wait for one |
 | `bin\ClaudeWorkspace.psm1` | writes a worktree's `settings.local.json` and pre-seeds folder trust, because no arguments can be passed to a worker |
-| `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, point a worker at the decision it waits on, query, save |
+| `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, point a worker at the decision it parked on, query, save |
 | `bin\Projects.psm1` | the project registry: read an entry and its posture, add one, test importability |
 | `bin\Dispatch-Worker.ps1` | creates one worktree and spawns one worker in it, attaches the project's own standing files to the brief without being asked, and returns what Crew.psm1 must record |
 | `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the one ref a worker branches from and the landing gate diffs against - the integration branch the repo declares in `.no-mistakes.yaml`, and its default branch where it declares none, always confirmed with `git rev-parse --verify` |

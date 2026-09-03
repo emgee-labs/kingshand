@@ -327,6 +327,10 @@ try {
     # prints identically to one still working. crew.json's `waiting_on` pointer is the only thing
     # that separates them, so the line carries it: the digest is this session's whole picture of
     # the fleet, and a worker waiting on an answer must not read as a worker making progress.
+    #
+    # The pointer is never cleared, so it names the decision that worker stopped on rather than a
+    # decision still owed. The QUEUE section below is what says which holds are still open, so the
+    # line names the key and leaves the open-or-closed half to the source that owns it.
     $workers = @($snap.crew.workers)
     if ($workers.Count -eq 0) {
         Add-Line '  Workers: none recorded.'
@@ -338,7 +342,7 @@ try {
             if ($agent) { $liveText += "/$agent" }
             $rep = if ($_.hasReport) { ', report on disk' } else { '' }
             $held = Get-Field $_ 'waitingOn'
-            $park = if ($held) { ", waiting on decision $held" } else { '' }
+            $park = if ($held) { ", parked on decision $held" } else { '' }
             "- $($_.id) $($_.ticket) ($($_.repo)) stage $($_.stage), $liveText$park$rep"
         })
     }

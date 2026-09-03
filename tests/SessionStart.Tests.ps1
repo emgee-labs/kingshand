@@ -149,18 +149,18 @@ Describe 'a worker parked on a decision is not printed as a worker still working
         $script:ParkedText = Get-Digest $script:Parked
     }
 
-    It 'names the decision the parked worker is waiting on, on its own line' {
+    It 'names the decision the parked worker stopped on, on its own line' {
         $line = @($script:ParkedText -split "`r?`n" | Where-Object { $_ -match '^\s*- w-parked ' })[0]
         $line | Should -Not -BeNullOrEmpty -Because 'a recorded worker is always listed'
-        $line.Contains('waiting on decision T-1001-shorter-hero-copy') |
+        $line.Contains('parked on decision T-1001-shorter-hero-copy') |
             Should -BeTrue -Because 'the pointer is the only thing that separates it from a worker making progress'
     }
 
-    It 'adds nothing to the line of a worker parked on nothing' {
+    It 'adds nothing to the line of a worker that has never parked' {
         $line = @($script:ParkedText -split "`r?`n" | Where-Object { $_ -match '^\s*- w-running ' })[0]
         $line | Should -Not -BeNullOrEmpty
-        $line.Contains('waiting on decision') |
-            Should -BeFalse -Because 'a null pointer is no decision recorded, not an empty one'
+        $line.Contains('parked on decision') |
+            Should -BeFalse -Because 'a null pointer is never parked, not parked on nothing'
     }
 
     It 'still renders without throwing, which is the whole contract of this script' {

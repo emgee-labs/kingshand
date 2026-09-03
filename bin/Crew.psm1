@@ -12,7 +12,7 @@ Set-StrictMode -Version Latest
 # herdr's much narrower `^[a-z][a-z0-9_-]{0,31}$`, and that mapping lives in Herdr.psm1 so this
 # file keeps exactly one id.
 #
-# Add-CrewWorker, Set-CrewStage and the two waiting_on functions deliberately return nothing. A
+# Add-CrewWorker, Set-CrewStage and Set-CrewWaitingOn deliberately return nothing. A
 # hashtable is a reference type, so mutation is visible to the caller without a return value.
 # Returning the state would emit it to the pipeline at every call site and flood both test output
 # and the Hand's console with hashtable dumps.
@@ -22,9 +22,17 @@ Set-StrictMode -Version Latest
 # for a decision is a condition that can happen at any of them and then resolves back to wherever
 # the worker already was, so a seventh stage would destroy the one fact most needed afterwards:
 # what the worker was doing before it parked. This field holds the tasks-axi hold key carrying
-# that decision, and its presence is the state. There is nothing else to read and nothing to
-# enumerate. The `decree` skill owns the hold's own lifecycle and how its key is composed; this
-# module only records which key a worker is waiting on, so no session has to reconstruct it.
+# that decision. The `decree` skill owns the hold's own lifecycle and how its key is composed;
+# this module only records which key a worker parked on, so no session has to reconstruct it.
+#
+# THERE IS NO CLEARING VERB, AND THAT IS THE DESIGN RATHER THAN AN OMISSION. Once a worker parks,
+# the field keeps naming that hold for the rest of the worker's life. Clearing it on the way back
+# out would give one null two opposite meanings - a worker that never parked, and a worker that
+# parked, was answered and carried on - and the first must be read for a question nobody has
+# registered yet while the second is a finished delivery. Read as one, either the question is
+# lost or already-delivered work is refused and re-asked. So null means never parked and nothing
+# else, and whether a set pointer's decision is still outstanding is the hold's own state, read
+# from the queue under that key. Parking a second time replaces the key rather than clearing it.
 
 $script:ValidStages = @('dispatched', 'implementing', 'gating', 'ready', 'landed', 'failed')
 $script:ValidKinds  = @('ticket', 'adhoc')
@@ -89,7 +97,7 @@ function Set-CrewWaitingOn {
     param(
         [Parameter(Mandatory)][hashtable]$State,
         [Parameter(Mandatory)][string]$WorkerId,
-        # The tasks-axi hold key the worker is parked on. Setting it a second time replaces the
+        # The tasks-axi hold key the worker parked on. Setting it a second time replaces the
         # first: a worker parked twice is waiting on its newest decision, not on both.
         [Parameter(Mandatory)][string]$HoldKey
     )
@@ -102,20 +110,6 @@ function Set-CrewWaitingOn {
     }
 
     $State.workers[$WorkerId].waiting_on = $HoldKey
-}
-
-function Clear-CrewWaitingOn {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][hashtable]$State,
-        [Parameter(Mandatory)][string]$WorkerId
-    )
-
-    if (-not $State.workers.ContainsKey($WorkerId)) {
-        throw "Worker '$WorkerId' not found."
-    }
-
-    $State.workers[$WorkerId].waiting_on = $null
 }
 
 function Set-CrewStage {
@@ -197,6 +191,5 @@ function Import-CrewState {
     $raw
 }
 
-Export-ModuleMember -Function New-CrewState, Add-CrewWorker, Set-CrewStage,
-                              Set-CrewWaitingOn, Clear-CrewWaitingOn,
+Export-ModuleMember -Function New-CrewState, Add-CrewWorker, Set-CrewStage, Set-CrewWaitingOn,
                               Get-CrewWorker, Get-CrewByStage, Save-CrewState, Import-CrewState
