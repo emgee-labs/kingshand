@@ -381,6 +381,28 @@ Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
         $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
         ($warnings -join ' ') | Should -BeLike '*never-fetched*'
         ($warnings -join ' ') | Should -BeLike '*origin/main*'
+        # This repo has an origin, so fetching is genuinely the fix - the remoteless case below is
+        # the one where that advice would be wrong.
+        ($warnings -join ' ') | Should -BeLike '*Fetch never-fetched*'
+    }
+
+    # The fetch advice is the only actionable sentence in that warning, and on a repository with
+    # no origin there is nothing to fetch from and no pull request to misdirect either. Telling
+    # that reader to fetch sends them after an upstream that does not exist.
+    It 'asks for the branch to be created, not fetched, on a remoteless repo' {
+        $repo = New-TempRepo
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: never-created"
+        Test-RefResolves -RepoPath $repo -Ref 'never-created' | Should -BeFalse
+
+        $warnings = @()
+        $base = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        $base | Should -Be 'main'
+        $text = $warnings -join ' '
+        $text | Should -BeLike '*no never-created branch exists here*'
+        $text | Should -BeLike '*no origin to fetch one from*'
+        $text | Should -BeLike '*Create never-created*'
+        $text | Should -Not -BeLike '*Fetch never-created*'
+        $text | Should -Not -BeLike '*pull request*'
     }
 
     It 'stays quiet when the declaration was honoured' {

@@ -4846,6 +4846,19 @@ Describe 'the default branch and the integration branch are two things' {
                      'where it declares none, always confirmed with `git rev-parse --verify` |')
     }
 
+    # Base resolution warns rather than refusing when it could not honour a declaration, or
+    # honoured it only as a local copy - and on a `+yolo` project the Hand is the warning's sole
+    # reader, so nothing else stops to show it. Delete the relay rule and work lands measured
+    # against a stale base with nothing having said so, which no other test would notice.
+    It 'muster Step 4 makes the Hand relay a base-resolution warning' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase '**Relay any warning that call prints.**'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('On a `+yolo` project nothing else stops to show it, so an unrelayed ' +
+                     'warning is work landed against a stale base.')
+    }
+
     # The claim in that row that a reviewer cannot check by reading: that the two consumers of the
     # declaration read the same key from the same file. A row saying so while the gate read
     # something else would be worse than a row saying nothing.

@@ -34,10 +34,12 @@
 
   A declaration goes unhonoured for exactly two reasons and the warning names the one that
   applies, because the wrong reason sends the reader after the wrong fix. Either the ref does not
-  exist here, and fetching it is the answer; or it names a `worktree-*` branch, which resolves
-  perfectly well and will still never be honoured, so telling that reader to fetch it sends them
-  to look for a branch they already have while the real fault - a declaration pointing at another
-  worker's branch - goes unsaid.
+  exist here, and fetching it is the answer - though only where there is an `origin` to fetch from,
+  so on a remoteless repository the warning says the branch does not exist and asks for it rather
+  than sending the reader after an upstream that is not there either; or it names a `worktree-*`
+  branch, which resolves perfectly well and will still never be honoured, so telling that reader to
+  fetch it sends them to look for a branch they already have while the real fault - a declaration
+  pointing at another worker's branch - goes unsaid.
 
   Honouring the declaration in its LOCAL form is warned about too. `origin/dev` comes first
   precisely because a local `dev` is often behind it, so falling through to the local copy on a
@@ -260,13 +262,24 @@ function Resolve-BaseRef {
                                    "nothing: this worker is based on $c instead, while its pull " +
                                    "request is still proposed against $declared. Correct " +
                                    "pr.base_branch in .no-mistakes.yaml.")
-                } else {
+                } elseif (Test-OriginRemote) {
                     Write-Warning ("$RepoPath declares $declared as the branch its work " +
                                    "integrates into, but neither origin/$declared nor " +
                                    "$declared resolves here, so this worker is based on $c " +
                                    "instead - while its pull request is still proposed against " +
                                    "$declared. Fetch $declared before landing, or the landing " +
                                    "diff measures the wrong branch.")
+                } else {
+                    # No origin, so there is nothing to fetch from and no pull request to
+                    # misdirect: the declaration names a branch this repository simply does not
+                    # have. "Fetch it" is the one actionable sentence in the message, and here it
+                    # sends the reader after an upstream that does not exist.
+                    Write-Warning ("$RepoPath declares $declared as the branch its work " +
+                                   "integrates into, but no $declared branch exists here and " +
+                                   "there is no origin to fetch one from, so this worker is " +
+                                   "based on $c instead and the landing diff is measured " +
+                                   "against that. Create $declared, or correct pr.base_branch " +
+                                   "in .no-mistakes.yaml.")
                 }
             } elseif ($declared -and $c -eq $declared -and (Test-OriginRemote)) {
                 # The declared branch was honoured, but only as a local ref on a repo that has a
