@@ -4300,11 +4300,30 @@ Describe 'rally refuses to stop a worker that is only waiting on a decision' {
                      'worktree or answering the decision it parked on, and both of those belong ' +
                      'to the King rather than to a recovery step.')
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('So it is reported to him as a blocker at step 5 below, with the worktree, ' +
-                     'the branch and every unlanded commit preserved untouched while he decides.')
+            -Phrase ('So it is reported to him as a blocker, with the worktree, the branch and ' +
+                     'every unlanded commit preserved untouched while he decides.')
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('A parked worker whose process is gone goes straight to step 5, because no ' +
-                     'rung above it can unblock one.')
+            -Phrase ('Neither is a parked worker whose process is gone: no rung here can unblock ' +
+                     'one, so it is reported as the rule above describes and its stage is left ' +
+                     'alone.')
+    }
+
+    # Reporting it used to mean running step 5, and step 5 stamps `failed` on the record. That is
+    # untrue here - the worker did not fail to build or fail to run the gate - and it destroys the
+    # one thing the whole design exists to keep: the stage the worker was at when it parked, which
+    # is why the pointer was made a field rather than a seventh stage. A cross-reference that was
+    # not read to the end would have thrown that away.
+    It 'reports the gone case without stamping the stage' {
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase '**Reporting it is all that happens to it, and the stage is not stamped.**'
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('step 5 sets the stage to `failed`, and that would be both untrue and ' +
+                     'destructive here')
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('Destructive because the stage is the one record of what it was doing when ' +
+                     'it parked, which is exactly the fact the pointer was made a field rather ' +
+                     'than a seventh stage to preserve.')
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' -Phrase 'Leave the record as it stands.'
     }
 
     # The removed route's machinery, asserted as an absence, because re-deriving it is what

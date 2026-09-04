@@ -251,8 +251,15 @@ surviving does not soften that, which is why the safe order above is not the who
 **A parked worker whose process is gone is not something this playbook unblocks.** Getting it
 moving again means either discarding the unlanded work in its worktree or answering the decision it
 parked on, and both of those belong to the King rather than to a recovery step. So it is reported to
-him as a blocker at step 5 below, with the worktree, the branch and every unlanded commit preserved
-untouched while he decides.
+him as a blocker, with the worktree, the branch and every unlanded commit preserved untouched while
+he decides.
+
+**Reporting it is all that happens to it, and the stage is not stamped.** None of the five steps
+below is run against one - step 5 sets the stage to `failed`, and that would be both untrue and
+destructive here. Untrue because the worker did not fail to build or fail to run the gate; its
+process was lost while a decision it parked on was still open. Destructive because the stage is the
+one record of what it was doing when it parked, which is exactly the fact the pointer was made a
+field rather than a seventh stage to preserve. Leave the record as it stands.
 
 **Losing the process does not answer the decision.** The hold stays open and `report.md` stays
 where it is, both outliving the worker by design, so the question is still owed and a dead worker
@@ -266,8 +273,8 @@ answer it and by what test. Neither is restated here.
 
 **The parked-worker check above comes before step 1.** A worker `muster` Step 6 finds parked is not
 escalated at all while its process is alive, and none of the five steps below is run against one.
-A parked worker whose process is gone goes straight to step 5, because no rung above it can unblock
-one.
+Neither is a parked worker whose process is gone: no rung here can unblock one, so it is reported as
+the rule above describes and its stage is left alone.
 
 1. **Peek.** `Read-HerdrAgent -Name <worker id>`, and `Get-HerdrAgentState -Name <worker id>` for
    the state to act on. Read what it is actually doing before doing anything to it, and do not
