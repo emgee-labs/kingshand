@@ -47,9 +47,13 @@ owns the key itself.
 is no pointer yet.** Registering the hold and writing the pointer are two commands, so a session
 that ends between them leaves an open hold that no pointer names, and the next session finds a
 report naming a decision with a null pointer. It looks the work id up in the queue before
-registering anything, and points the record at the key already open there - replaying `add` under
-an existing key changes nothing, so the pointer ends up on the hold that exists. It does not replay
-`hold`: that one is a write, and it would overwrite the reason the open hold is already carrying.
+registering anything, and points the record at the open hold there that covers the decision
+the report names - the work id narrows the search and the decision itself selects among what
+it returns. Replaying `add` under an existing key changes nothing, so the pointer ends up on
+the hold that exists. It does not replay `hold`: that one is a write, and it would overwrite
+the reason the open hold is already carrying. **Where more than one open captain hold shares
+the work id and which of them covers this decision cannot be established, do not guess and do
+not take the first** - say so and escalate, naming the candidates.
 **That lookup matches the full key, or the work id with the `-` that follows it, and never a bare
 prefix.** The composition above puts a `-` between the two halves precisely so it can be matched
 on: without it, `T-100` selects every `T-1001-` key as well, and the recovery re-registers a worker

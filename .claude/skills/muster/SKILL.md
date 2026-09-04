@@ -1057,8 +1057,9 @@ re-read here rather than trusted, so binding the record over it leaves the re-re
 this step's alone: Step 7 and Step 8 bind the record to `$w` with no wake object in scope, and
 neither is a collision to go and tidy.
 
-**The field is set or it is not, and there is no third value. Null means this worker has never
-parked; set means it parked, and the field names the hold carrying what it parked on.**
+**The field is set or it is not, and there is no third value. A null means no park has been
+recorded on this record, and never that there is nothing to answer; set means it parked, and the
+field names the hold carrying what it parked on.**
 `Import-CrewState` gives every record the field whether or not it was saved with one, so absent
 and null are one case rather than two. **It is written on the turn the worker parks and never
 cleared**, so it keeps naming that hold for the rest of the worker's life - a worker that was
@@ -1113,9 +1114,9 @@ a delivery:**
 Get-Content "$env:KINGSHAND_HOME\data\<id>\report.md" -Raw
 ```
 
-**A null says this worker has never parked, and nothing more.** It does not say the report names
-no decision - the field is only ever written by a Hand who read that report, so on a first park it
-stays null until somebody looks. Skip that read and a parked worker passes the three facts, takes
+**A null says no park has been recorded on this record, and nothing more.** It does not say the
+report names no decision - the field is only ever written by a Hand who read that report, so on a
+first park it stays null until somebody looks. Skip that read and a parked worker passes the three facts, takes
 `gating`, and is landed and torn down with its question answered nowhere.
 
 **A pointer naming a closed hold does not excuse the read either.** It says the decision it names

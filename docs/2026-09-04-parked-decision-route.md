@@ -54,8 +54,10 @@ opposite meanings on one null:
 - a worker that parked, was answered and carried on, which is a finished delivery.
 
 Read as one value, either the question is lost or already-delivered work is refused and the King is
-asked the same thing twice. So **null means never parked and nothing else**, and whether a set
-pointer's decision is still outstanding is read from the hold. Parking a second time replaces the
+asked the same thing twice. So the field has two values and no third, and **a null means no park
+has been recorded on this record - never that there is nothing to answer**, because only a Hand who
+has read the report ever writes it. Whether a set pointer's decision is still outstanding is read
+from the hold. Parking a second time replaces the
 key rather than clearing it: the pointer is a link to the current decision, not a log of them, and
 the earlier decision stays durable as its own closed hold carrying the answer it was given.
 

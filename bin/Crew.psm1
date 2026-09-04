@@ -30,9 +30,11 @@ Set-StrictMode -Version Latest
 # out would give one null two opposite meanings - a worker that never parked, and a worker that
 # parked, was answered and carried on - and the first must be read for a question nobody has
 # registered yet while the second is a finished delivery. Read as one, either the question is
-# lost or already-delivered work is refused and re-asked. So null means never parked and nothing
-# else, and whether a set pointer's decision is still outstanding is the hold's own state, read
-# from the queue under that key. Parking a second time replaces the key rather than clearing it.
+# lost or already-delivered work is refused and re-asked. So the field has two values and no
+# third: a null means no park has been recorded on this record - never that there is nothing to
+# answer, because only a Hand who has read the report ever writes it - and whether a set pointer's
+# decision is still outstanding is the hold's own state, read from the queue under that key.
+# Parking a second time replaces the key rather than clearing it.
 #
 # docs\2026-09-04-parked-decision-route.md is the design record behind both paragraphs above.
 

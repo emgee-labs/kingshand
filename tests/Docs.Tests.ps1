@@ -4399,7 +4399,8 @@ Describe 'the parked-decision record states what must not be undone' {
             -Phrase ('either the question is lost or already-delivered work is refused and the ' +
                      'King is asked the same thing twice')
         Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
-            -Phrase '**null means never parked and nothing else**'
+            -Phrase ('**a null means no park has been recorded on this record - never that there ' +
+                     'is nothing to answer**')
     }
 
     It 'records the review history that condemned the report heading' {
@@ -6348,9 +6349,10 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
     # handle and nobody has to enumerate one.
     It 'the pointer has two values, and absent is not a third' {
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**The field is set or it is not, and there is no third value. Null means ' +
-                     'this worker has never parked; set means it parked, and the field names the ' +
-                     'hold carrying what it parked on.**')
+            -Phrase ('**The field is set or it is not, and there is no third value. A null means ' +
+                     'no park has been recorded on this record, and never that there is nothing ' +
+                     'to answer; set means it parked, and the field names the hold carrying what ' +
+                     'it parked on.**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('`Import-CrewState` gives every record the field whether or not it was saved ' +
                      'with one, so absent and null are one case rather than two.')
@@ -6440,7 +6442,8 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
                      '`$env:KINGSHAND_HOME\data\<id>\report.md` before you may treat that worker ' +
                      'as a delivery:**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase '**A null says this worker has never parked, and nothing more.**'
+            -Phrase ('**A null says no park has been recorded on this record, and nothing ' +
+                     'more.**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('the field is only ever written by a Hand who read that report, so on a first ' +
                      'park it stays null until somebody looks')
@@ -6835,8 +6838,20 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
                      'the window where there is no pointer yet.**')
         Assert-Phrase -Text $script:RouteHold -Where 'decree' `
             -Phrase ('It looks the work id up in the queue before registering anything, and ' +
-                     'points the record at the key already open there - replaying `add` under an ' +
-                     'existing key changes nothing, so the pointer ends up on the hold that exists.')
+                     'points the record at the open hold there that covers the decision the ' +
+                     'report names - the work id narrows the search and the decision itself ' +
+                     'selects among what it returns.')
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ('Replaying `add` under an existing key changes nothing, so the pointer ends ' +
+                     'up on the hold that exists.')
+        # The work id alone does not identify the hold: one report naming two decisions leaves two
+        # open captain holds under one work id, so a lookup that takes the first aims the pointer at
+        # a live decision belonging to something else and steers the worker on an answer that was
+        # never about it. Unestablished means escalate, not pick.
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ('**Where more than one open captain hold shares the work id and which of ' +
+                     'them covers this decision cannot be established, do not guess and do not ' +
+                     'take the first** - say so and escalate, naming the candidates.')
         Assert-Phrase -Text $script:RouteHold -Where 'decree' `
             -Phrase ('It does not replay `hold`: that one is a write, and it would overwrite the ' +
                      'reason the open hold is already carrying.')
