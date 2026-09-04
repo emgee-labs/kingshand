@@ -124,8 +124,8 @@ Four things a stall commonly turns out to be, and only the first is the worker's
 - **Parked on a decision.** A worker that reached something its brief did not settle wrote the
   question into its `report.md` and ended its turn, so it is alive, idle, and its screen will not
   change again until an answer arrives. That is the state working exactly as designed rather than a
-  stall, it is expected to last hours, and the check in `A parked worker is waiting, not wedged`
-  below is what tells the two apart. Run that check before anything else here.
+  stall, it is expected to last hours, and `muster` Step 6 is what tells the two apart. Establish
+  that before anything else here, as `A parked worker is waiting, not wedged` below requires.
 
 ## Removing the worktree destroys any unlanded work
 
@@ -225,29 +225,22 @@ the task failed or blocked with the conflicting evidence. Set the stage with
 
 ## A parked worker is waiting, not wedged
 
-**Run this before triaging a stall and before steering, relaunching or stopping anything.** A
-worker parked on a decision its brief did not settle is alive, reads `idle`, has nothing drawn on
+A worker parked on a decision its brief did not settle is alive, reads `idle`, has nothing drawn on
 its screen and will not move again until an answer reaches it - the same signature as a worker that
 has stopped getting anywhere. Reading the screen harder cannot separate them, because there is
-nothing on it to read. What the worker left on disk can:
+nothing on it to read.
 
-```powershell
-Import-Module $env:KINGSHAND_HOME\bin\Crew.psm1 -Force
-$s   = Import-CrewState -Path $env:KINGSHAND_HOME\state\crew.json
-$rec = Get-CrewWorker -State $s -WorkerId "<worker id>"
-$key = $rec.waiting_on      # the hold carrying its decision, or $null
-if ($key) {
-    Set-Location $env:KINGSHAND_HOME
-    tasks-axi show $key --full
-    Select-String -Path data\done-archive.md -ErrorAction SilentlyContinue `
-      -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($key))\s+-"
-}
-```
+**Whether the worker in front of you is parked is `muster` Step 6's determination, and this
+playbook does not carry its own.** Establish it there before triaging a stall and before steering,
+relaunching or stopping anything. Step 6 owns the pointer, the hold, the archive line, the report
+read and every qualifier on them, and nothing here repeats any part of that - a second copy is one
+that drifts, and three rounds of this file carrying its own version each dropped a different
+qualifier and reached a different wrong answer.
 
-**Where that key names a hold still open, the worker is waiting and none of this playbook applies
-to it.** Do not steer it, do not relaunch it, do not stop it, and do not remove its worktree.
-There is no fault here to find: it is waiting on a person, and the delay belongs to the answer
-rather than to the worker.
+**A worker Step 6 finds parked is not touched by this playbook while its process is alive.** Do not
+steer it, do not relaunch it, do not stop it, and do not remove its worktree. There is no fault
+here to find: it is waiting on a person, and the delay belongs to the answer rather than to the
+worker.
 
 **Relaunching or stopping one destroys what the answer was coming back to.** That live process is
 holding a review gate parked mid-run, with every fix commit it has already made sitting on the
@@ -255,41 +248,46 @@ branch. End the process and the run can never be resumed, so the decision - once
 - has nowhere to go, and the branch is left part-finished with nothing watching it. The worktree
 surviving does not soften that, which is why the safe order above is not the whole guard here.
 
-**`NOT_FOUND` from `show` is not an answer on its own**, and that is what the archive line in the
-fence is for: a closed hold gets pruned out of the backlog, so a key in neither place is a record
-that has gone missing rather than a decision somebody made. `muster` Step 8b owns what a missing
-record means at a step that cannot be taken back, and stopping a parked worker is one of those.
-
-**A null pointer is not an all-clear, and neither is a closed hold.** The field is only ever
-written by a Hand who has already read that worker's report, so it records what somebody looked at
-rather than what the worker is waiting for - `muster` Step 6 and `survey` own what a null means and
-neither is restated here. A worker on its first park has written its question down and has a null
-pointer for want of a reader, which is the case this playbook is most likely to be entered on: an
-unreadable liveness read, an unexplained input box, or a worker still recorded as working after the
-Hand's session restarted. So where the pointer does not itself name an open hold, the report is
-what settles it, and it is read before any rung of the ladder is climbed:
+**The one exception is a parked worker whose process is already gone.** The refusal above protects
+a live run; where no run is left, it protects nothing and instead leaves a branch carrying real
+commits that nobody is permitted to recover. This playbook is loaded on exactly that trigger - a
+worker that reads dead or has no live process - so the case has to be routed rather than refused
+into a corner. Read liveness rather than assuming it:
 
 ```powershell
-Get-Content "$env:KINGSHAND_HOME\data\<id>\report.md" -Raw
+Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
+Get-HerdrAgent -Name "<worker id>"           # $null when herdr has never heard of it
+Get-HerdrAgentState -Name "<worker id>"      # the state to act on
+Test-HerdrAgentReadable -Name "<worker id>"  # $false means you cannot tell, not that it is gone
 ```
 
-**Where that report names a decision the worker's brief did not settle, the worker is parked too**,
-whatever the pointer says, and everything above applies to it unchanged - it is not steered, not
-relaunched and not stopped. Take it to `muster` Step 6, which is where the decision gets registered
-and where the pointer comes from in the first place.
+**Only an actual negative liveness read opens this branch, and nothing else does.** A worker herdr
+no longer has, or one whose state reads dead, is the case. **Where liveness cannot be established,
+the refusal holds and the worker is treated as live** - an unreadable pane, a herdr server that
+will not answer, a read nobody took. Being wrong in that direction costs a wait; being wrong in the
+other ends a run that cannot be restarted.
 
-Only a worker whose pointer names no open hold **and** whose report names no such decision is
-wedged rather than waiting, and only that one carries on below. A settled worker with no report at
-all is neither: that is `muster` Step 6's case and it is suspicious rather than clear.
+On that branch take the worker through `Reconcile the recorded work before deciding anything`
+above, unchanged and with every guarantee it already gives: prove no live agent still owns the
+recorded task, keep the same task identity, and preserve the worktree, the branch and every
+unlanded commit. Nothing here discards any of them, and the safe order above still governs the
+worktree.
+
+**Losing the process does not answer the decision.** The hold stays open and `report.md` stays
+where it is, both outliving the worker by design, so the question is still owed and a dead worker
+is not a decided one. Carry the open decision into the replacement's brief. `decree` owns that hold
+until it closes and `petition` owns who may answer it - there is no second route to an answer here,
+and this branch does not create one.
 
 `muster` Step 6 owns the route an answer takes back into the worker, and `petition` owns who may
 answer it and by what test. Neither is restated here.
 
 ## Escalation, in order
 
-**The parked-worker check above comes before step 1.** A worker waiting on a decision is not
-escalated at all - whether an open hold names it or only its report does - and none of the five
-steps below is run against one.
+**The parked-worker check above comes before step 1.** A worker `muster` Step 6 finds parked is not
+escalated at all while its process is alive, and none of the five steps below is run against one.
+A parked worker whose process is confirmed gone is the single exception, and it takes the
+reconcile-then-relaunch path that section names rather than starting at the top of this one.
 
 1. **Peek.** `Read-HerdrAgent -Name <worker id>`, and `Get-HerdrAgentState -Name <worker id>` for
    the state to act on. Read what it is actually doing before doing anything to it, and do not

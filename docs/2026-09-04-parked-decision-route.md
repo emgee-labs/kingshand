@@ -98,7 +98,17 @@ Both refuse an action that cannot be taken back, over a worker whose work is not
   push does not release that. Teardown ends the live process, and that process is what the answer
   is coming back to. `muster` Step 8b owns the rule, and `rally` carries the same refusal for the
   stop-and-relaunch path, because a parked worker's motionless screen is indistinguishable from a
-  stalled one until the pointer is read.
+  stalled one until Step 6 has been asked. `rally` refuses; it does not carry its own test for
+  whether a worker is parked, and a version of it that grows one is drifting back toward the
+  three rounds of dropped qualifiers that produced this arrangement.
+
+The refusal is scoped to a live process, and that scope is deliberate rather than an oversight to
+tighten. What it protects is the parked run itself; a parked worker whose process is confirmed gone
+has no run left to protect, and refusing there strands a branch holding real commits with nobody
+permitted to recover it. The exception opens only on an actual negative liveness read - where
+liveness cannot be established the refusal holds - and it recovers under `rally`'s existing
+same-identity rules, preserving the worktree, the branch and every unlanded commit. It answers
+nothing: the hold stays open and the question stays owed.
 
 Both guards read the hold from the queue **and** from `data\done-archive.md`, anchored to the whole
 key on its own entry. Drop the archive line and a decision answered long enough ago to have been

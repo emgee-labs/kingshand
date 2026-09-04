@@ -4240,60 +4240,84 @@ Describe 'rally refuses to stop a worker that is only waiting on a decision' {
     # same two recorded values muster's landing and teardown floors read.
     BeforeAll { $script:ParkedStuck = Get-DocText $script:StuckMd }
 
-    It 'runs the pointer check before triaging or touching anything' {
+    # Three consecutive rounds found the same defect here: rally carried its own copy of the park
+    # test and each version dropped a different qualifier muster Step 6 carries - first that the
+    # state existed at all, then what a null means, then the no-hold-covers-it clause. A fourth
+    # qualifier would have bought a fourth round, so the copy is gone and the determination is
+    # Step 6's. These assert the deletion as an absence, because that is what regresses.
+    It 'carries no copy of the park test and defers the determination to muster Step 6' {
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('**Run this before triaging a stall and before steering, relaunching or ' +
-                     'stopping anything.**')
+            -Phrase ('**Whether the worker in front of you is parked is `muster` Step 6''s ' +
+                     'determination, and this playbook does not carry its own.**')
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('**The parked-worker check above comes before step 1.** A worker waiting on ' +
-                     'a decision is not escalated at all - whether an open hold names it or only ' +
-                     'its report does')
+            -Phrase ('Step 6 owns the pointer, the hold, the archive line, the report read and ' +
+                     'every qualifier on them, and nothing here repeats any part of that')
+        foreach ($fragment in @(
+            'waiting_on',                       # the pointer read
+            'tasks-axi',                        # the hold lookup
+            'done-archive.md',                  # the archive fallback
+            'Get-Content "$env:KINGSHAND_HOME\data\<id>\report.md"'   # the report read
+        )) {
+            $script:ParkedStuck.Contains($fragment) |
+                Should -BeFalse -Because "rally must not re-derive the park test: '$fragment' is Step 6's"
+        }
+        # The unguarded read that went with the copy. rally still names the report as the file that
+        # outlives the worker, which is a different thing from reading it to classify one.
+        @(Get-CodeFence $script:StuckMd | Where-Object { $_.Contains('report.md') }).Count |
+            Should -Be 1 -Because 'the only report fence left is the Add-IndexEntry one'
+        # The unqualified sentence that produced this round's finding, pinned as an absence.
+        $script:ParkedStuck.Contains('the worker is parked too') |
+            Should -BeFalse -Because 'rally must not decide parked-ness from a report it read itself'
     }
 
-    # The pointer is written by a Hand who read the report, so a worker on its FIRST park has a
-    # null pointer and a question already written down. Reading that null as an all-clear drops it
-    # straight into a ladder that ends at a relaunch, which is the exact process the section above
-    # says must not be stopped - so the report settles what the pointer cannot.
-    It 'never reads a null pointer as nothing outstanding' {
+    It 'refuses before triaging, and keeps the refusal out of the ladder' {
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase '**A null pointer is not an all-clear, and neither is a closed hold.**'
+            -Phrase ('Establish it there before triaging a stall and before steering, relaunching ' +
+                     'or stopping anything.')
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('where the pointer does not itself name an open hold, the report is what ' +
-                     'settles it, and it is read before any rung of the ladder is climbed')
+            -Phrase ('**The parked-worker check above comes before step 1.** A worker `muster` ' +
+                     'Step 6 finds parked is not escalated at all while its process is alive')
+    }
+
+    It 'takes a live parked worker out of the playbook entirely' {
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('**Where that report names a decision the worker''s brief did not settle, ' +
-                     'the worker is parked too**, whatever the pointer says')
+            -Phrase ('**A worker Step 6 finds parked is not touched by this playbook while its ' +
+                     'process is alive.** Do not steer it, do not relaunch it, do not stop it, ' +
+                     'and do not remove its worktree.')
+    }
+
+    # The refusal's stated harm is liveness-only ("that live process is holding a review gate
+    # parked mid-run"), so written unconditionally it stranded a parked worker whose process was
+    # already gone: no rung of the ladder could run, and the branch with its commits and its open
+    # decision was unrecoverable. The exception is scoped by evidence and fails closed.
+    It 'routes a parked worker whose process is gone, on evidence and never on assumption' {
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('Only a worker whose pointer names no open hold **and** whose report names ' +
-                     'no such decision is wedged rather than waiting')
+            -Phrase '**The one exception is a parked worker whose process is already gone.**'
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('**Only an actual negative liveness read opens this branch, and nothing else ' +
+                     'does.**')
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('**Where liveness cannot be established, the refusal holds and the worker is ' +
+                     'treated as live**')
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('Being wrong in that direction costs a wait; being wrong in the other ends a ' +
+                     'run that cannot be restarted.')
+        # The liveness read is runnable rather than described, and it is the module's call.
         @(Get-CodeFence $script:StuckMd | Where-Object {
-            $_.Contains('data\<id>\report.md') }).Count |
-            Should -BeGreaterOrEqual 1 -Because 'the report read is runnable, not described'
-        # The sentence that reopened the floor last round, asserted as an absence.
-        $script:ParkedStuck.Contains('leaves nothing outstanding on the record') |
-            Should -BeFalse -Because 'a null pointer means nobody has looked yet, not that nothing is owed'
-        # rally reads the pointer; muster and survey own what a null means.
-        $script:ParkedStuck.Contains('never means the worker finished') |
-            Should -BeFalse -Because 'survey owns that sentence, and rally cross-references instead'
+            $_.Contains('Get-HerdrAgent -Name') -and $_.Contains('Test-HerdrAgentReadable') }).Count |
+            Should -BeGreaterOrEqual 1 -Because 'liveness is read, not assumed, and only through the module'
     }
 
-    It 'reads the pointer and its hold from the record, not from the screen' {
-        $fences = @(Get-CodeFence $script:StuckMd)
-        @($fences | Where-Object {
-            $_.Contains('$key = $rec.waiting_on') -and $_.Contains('tasks-axi show $key --full') -and
-            $_.Contains('data\done-archive.md') }).Count |
-            Should -Be 1 -Because 'the discriminator is a runnable read of both recorded values'
-        # Anchored to the whole key on its own entry: a bare substring lets a longer sibling key
-        # read as this one's answer, which here means stopping a worker that is still waiting.
+    It 'preserves the work on that branch and leaves the decision outstanding' {
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase '-Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($key))\s+-"'
-    }
-
-    It 'takes an open hold out of the playbook entirely' {
+            -Phrase ('prove no live agent still owns the recorded task, keep the same task ' +
+                     'identity, and preserve the worktree, the branch and every unlanded commit')
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('**Where that key names a hold still open, the worker is waiting and none of ' +
-                     'this playbook applies to it.** Do not steer it, do not relaunch it, do not ' +
-                     'stop it, and do not remove its worktree.')
+            -Phrase '**Losing the process does not answer the decision.**'
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('`decree` owns that hold until it closes and `petition` owns who may answer ' +
+                     'it - there is no second route to an answer here, and this branch does not ' +
+                     'create one.')
     }
 
     It 'says plainly what relaunching or stopping a parked worker destroys' {
@@ -4309,9 +4333,7 @@ Describe 'rally refuses to stop a worker that is only waiting on a decision' {
             -Phrase '**Stopping is not free in every direction, though.**'
     }
 
-    It 'refuses a missing record as permission, and cross-references the owners' {
-        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase '**`NOT_FOUND` from `show` is not an answer on its own**'
+    It 'cross-references the owners rather than restating them' {
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
             -Phrase ('`muster` Step 6 owns the route an answer takes back into the worker, and ' +
                      '`petition` owns who may answer it and by what test. Neither is restated here.')
@@ -4371,6 +4393,29 @@ Describe 'the parked-decision record states what must not be undone' {
                      'pruned reads as one nobody ever made.')
         Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
             -Phrase ('Both mistakes were made and fixed during the change; neither is theoretical.')
+    }
+
+    # Two things a later editor would otherwise "tidy" back into the shape this arrangement was
+    # reached by fixing: rally growing its own park test again, and the liveness scope on rally's
+    # refusal being read as an oversight and tightened into the strand it was written to end.
+    It 'records that rally refuses without carrying its own park test' {
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('`rally` refuses; it does not carry its own test for whether a worker is ' +
+                     'parked, and a version of it that grows one is drifting back toward the ' +
+                     'three rounds of dropped qualifiers that produced this arrangement.')
+    }
+
+    It 'records that the refusal is scoped to a live process on purpose' {
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('The refusal is scoped to a live process, and that scope is deliberate ' +
+                     'rather than an oversight to tighten.')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('refusing there strands a branch holding real commits with nobody permitted ' +
+                     'to recover it')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('where liveness cannot be established the refusal holds')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('It answers nothing: the hold stays open and the question stays owed.')
     }
 
     It 'quotes the reversibility test and names the mis-statement to refuse' {
