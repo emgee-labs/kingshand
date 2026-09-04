@@ -169,5 +169,9 @@ puts the push back before the user, which is the whole defect.
   the decision where no pull request exists.
 - `+merge` stays out of the mode set and out of `Get-ProjectPosture`'s string. Putting it in
   either makes it look like a posture, which is the thing it is not.
+- The merge procedure is GitHub-only, and it is bounded at the step rather than at registration:
+  nothing stops an Azure DevOps origin registering `[direct-PR +merge]`, so where `gh` cannot
+  resolve the repository the merge is the user's and Step 8a stops. A future change must not
+  substitute a web API or a push to the default branch for the missing `gh`.
 - The named outward set keeps its open-ended clause stated as the rule.
 - `emgeelabs-site` does not get the permission.

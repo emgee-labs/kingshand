@@ -399,6 +399,45 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
             -Because 'Step 1b never computed the CI answer for this mode, so it is read here'
     }
 
+    # Get-RepoCiStatus returns three states and Ci.psm1 documents `unknown` taking `no-ci`'s brief
+    # line on purpose. That equivalence is safe at Step 1b, where the line says STOP, and unsafe
+    # here, where carrying it across merges with nothing established about the checks.
+    It 'Step 8a keeps unknown apart from the absent-check case' {
+        $step = Get-MusterStep 'Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**`unknown` and `no-ci` are interchangeable at Step 1b and are not ' +
+                     'interchangeable here.**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('stopping under uncertainty is safe; merging under uncertainty is not, so ' +
+                     'the two part company at exactly this step')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('`unknown` - **not green.**')
+        # The no-mistakes limb leans on Step 1b's answer and must not inherit the equivalence.
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**An `unknown` from that preflight is not the absent-check case**')
+    }
+
+    # "CI green on the pull request" had no command, while every other evidence read in the step
+    # has one - and Get-RepoCiStatus answers about the repository, never about this pull request.
+    It 'Step 8a supplies the read for a has-ci pull request' {
+        $step = Get-MusterStep 'Step 8a'
+        $step | Should -Match 'gh pr checks "<full https:// URL>"'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('`has-ci` - checks exist, so they must actually be green before the merge')
+    }
+
+    # `gh repo view` and `gh pr merge` are the whole procedure, and nothing restricts `+merge` to a
+    # GitHub-hosted project - an Azure DevOps origin registers `[direct-PR +merge]` perfectly well.
+    It 'Step 8a bounds the procedure to GitHub and fails closed off it' {
+        $step = Get-MusterStep 'Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**This whole procedure is GitHub-only.**'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**where `gh` cannot resolve the repository, the merge is the user''s**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('do not fall back to a web API or a raw git push to the default branch')
+    }
+
     # The command carried a placeholder no step could fill. A bare `gh pr merge` goes interactive
     # and a guessed flag either fails or silently rewrites that repository's settled history shape.
     It 'Step 8a resolves the strategy from the repository rather than guessing it' {
@@ -414,7 +453,16 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
             -Phrase '**Where exactly one is allowed, that is the repository''s answer**'
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
-            -Phrase '**Where more than one is allowed, stop and ask the user.**'
+            -Phrase ('**Where more than one is allowed, the strategy is a standing per-project ' +
+                     'fact rather than a per-merge decision**')
+        # GitHub enables all three by default, so asking per merge would reduce a standing grant
+        # to a question every time. Asked once per repository and recorded instead.
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('It belongs in `data\rules-<project>.md`: read it there first, and only ' +
+                     'where that file does not answer it, put it to the user once and record ' +
+                     'their answer there so the next merge does not ask again')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**Never invent a default strategy.**'
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
             -Phrase '**Never run `gh pr merge` with no strategy flag.**'
         $step.Contains('--<the strategy that repository uses>') |

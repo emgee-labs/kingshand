@@ -127,6 +127,33 @@ Describe 'every registry entry is named with its posture' {
         foreach ($entry in $e) { $entry.yolo | Should -BeOfType [string] }
     }
 
+    # merge is the per-repository permission to merge that project's own green pull requests. It is
+    # returned by Read-Registry on every entry, and was dropped by this projection - so /survey,
+    # whose only permitted data source is this snapshot, could not see it at all.
+    It 'carries merge as the string on or off, never a boolean' {
+        $f = New-Fixture 'registry-merge'
+        foreach ($n in @('alpha', 'beta', 'gamma')) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $f.Root "repos\$n") | Out-Null
+        }
+        Add-RegistryEntry $f '- alpha [no-mistakes +merge] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        Add-RegistryEntry $f '- beta [no-mistakes +yolo] - beta repo (added 2026-01-02)' (Join-Path $f.Root 'repos\beta')
+        Add-RegistryEntry $f '- gamma [local-only] - gamma repo (added 2026-01-03)' (Join-Path $f.Root 'repos\gamma')
+        $e = @((Get-Snapshot $f).registry.entries)
+        $e[0].merge | Should -Be 'on'
+        $e[1].merge | Should -Be 'off'
+        $e[2].merge | Should -Be 'off'
+        foreach ($entry in $e) { $entry.merge | Should -BeOfType [string] }
+    }
+
+    # The permission never comes from an annotation the parser could not read in full, and the
+    # snapshot must not manufacture one where Read-Registry refused to.
+    It 'reports merge off where the annotation could not be read in full' {
+        $f = New-Fixture 'registry-merge-unreadable'
+        New-Item -ItemType Directory -Force -Path (Join-Path $f.Root 'repos\alpha') | Out-Null
+        Add-RegistryEntry $f '- alpha [no-mistakes garbage +merge] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        @((Get-Snapshot $f).registry.entries)[0].merge | Should -Be 'off'
+    }
+
     It 'records each entry''s path as present on disk' {
         foreach ($entry in @($script:RegSnap.registry.entries)) {
             $entry.pathExists | Should -BeTrue -Because "$($entry.name) was created under the fixture"

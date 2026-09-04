@@ -228,7 +228,9 @@ true of an absent `crew.json`: nothing has been dispatched yet.
 
 `rawMode` is the registered posture and the one to quote; `mode` is the mechanical resolution and
 the two differ only for `no-mistakes-prod-only`. `yolo` is the string `'on'` or `'off'` - report
-it by comparing with `-eq 'on'`, never by testing it for truthiness.
+it by comparing with `-eq 'on'`, never by testing it for truthiness. `merge` reads the same way
+and is reported alongside the posture where it is `'on'`, because standing authority to merge that
+project's own pull requests is part of what the King is owed when a posture is quoted.
 
 ## Operationally read-only
 

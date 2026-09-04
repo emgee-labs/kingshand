@@ -1901,18 +1901,38 @@ depends on the task's resolved mode, because a `direct-PR` task runs no review g
 never executed for it:
 
 - **Resolved `no-mistakes`** - the gate completed every step through `pr`, the attribution scan
-  came back clean, and CI is green, or Step 1b established that this repository reports no checks
-  at all, which is the only case where an absent check counts as green.
+  came back clean, and CI is green, or Step 1b answered `no-ci`, which is the only absence that
+  counts as green. **An `unknown` from that preflight is not the absent-check case**: it says
+  nothing was established, so it goes to the user like any other unestablished green.
 - **Resolved `direct-PR`** - there is no gate to complete, so green is the attribution scan Step 7
   already ran coming back clean, plus CI green on the pull request. Step 1b never ran for this
   mode, so nothing has established whether anything reports a check here. Read it now rather than
-  assuming either way, and treat `no-ci` as the same absent-check case the other limb names:
+  assuming either way:
 
   ```powershell
   Import-Module $env:KINGSHAND_HOME\bin\Ci.psm1 -Force
   $ci = Get-RepoCiStatus -RepoPath "<absolute repo path>"
   "$($ci.status) - $($ci.detail)"
   ```
+
+  **All three answers mean something different here, and none of them may be collapsed:**
+
+  - `has-ci` - checks exist, so they must actually be green before the merge. Read them off the
+    pull request itself, and every check must pass:
+
+    ```powershell
+    gh pr checks "<full https:// URL>"
+    ```
+
+  - `no-ci` - the settled absent-check case, and the only absence that counts as green.
+  - `unknown` - **not green.** The lookup failed or the remote could not be read, so nothing was
+    established. It goes to the user rather than being merged.
+
+**`unknown` and `no-ci` are interchangeable at Step 1b and are not interchangeable here.** There
+they take the same brief line because that line tells the worker to *stop*, and stopping under
+uncertainty is safe; merging under uncertainty is not, so the two part company at exactly this
+step. A Hand who has read `bin\Ci.psm1` will otherwise carry the equivalence across, and be right
+to on that module's own terms.
 
 Anything red, anything that widened the brief, anything destructive, irreversible or
 security-sensitive goes to the user instead, exactly as Step 7's floors say. This is the moment
@@ -1941,13 +1961,26 @@ explicitly:
 gh pr merge "<full https:// URL>" --squash    # or --merge, or --rebase
 ```
 
-**Where more than one is allowed, stop and ask the user.** `+merge` answers whether you may merge
-and never how, so a repository that permits two strategies has not settled this one and neither
-may you: a strategy nobody chose rewrites that repository's settled history shape on an action
-nothing takes back.
+**Where more than one is allowed, the strategy is a standing per-project fact rather than a
+per-merge decision** - GitHub enables all three by default, so asking every time would turn a
+standing grant into a question every time. It belongs in `data\rules-<project>.md`: read it there
+first, and only where that file does not answer it, put it to the user once and record their answer
+there so the next merge does not ask again. `+merge` still answers whether you may merge and never
+how, which is why the answer is the user's either way - it is just asked once per repository rather
+than once per merge.
+
+**Never invent a default strategy.** Squash, merge commit and rebase shape history differently, and
+picking one here would override every repository's own choice at once.
 
 **Never run `gh pr merge` with no strategy flag.** It goes interactive, and a background prompt
 nothing can answer is not a merge that failed safely.
+
+**This whole procedure is GitHub-only.** `gh repo view` and `gh pr merge` are what it has, and
+nothing restricts `+merge` to a GitHub-hosted project - an Azure DevOps or other origin registers
+`[direct-PR +merge]` perfectly well. So it is bounded here rather than at registration: **where
+`gh` cannot resolve the repository, the merge is the user's** - stop and report that. Do not
+improvise another route, and in particular do not fall back to a web API or a raw git push to the
+default branch.
 
 Then set the stage and close the item exactly as the user-merged path below does.
 
