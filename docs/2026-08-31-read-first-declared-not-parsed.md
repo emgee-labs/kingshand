@@ -73,14 +73,15 @@ itself, whether or not anyone passed them. A file that arrives on every dispatch
 asked for is less evidence than one passed by rote, not more.
 
 *Amended 2026-09-04.* The dispatcher also WRITES to the brief now, inserting one `Read first` line
-per file it attached itself, directly under the heading. That is the same heading this document's
-first rule already locates, and the reason it is not the parser forbidden here is worth stating:
-the insertion point is a position in the file, the line inserted is text the dispatcher composed,
-and the idempotence check that stops a re-dispatch duplicating it is a whole-line comparison
-against that same composed text. No file name is ever read back out of the brief's prose. Staging a
-file without naming it would have been the original failure with one extra step - a copy beside the
-brief that nothing tells the worker to open - so the write is what makes the attachment worth
-having.
+per file it attached itself, at the end of the section under the heading this document's first rule
+already locates. It removes one too, where a standing file has gone and the dispatcher's own line
+for it is still there. The reason neither is the parser forbidden here is worth stating: the
+insertion point is a position in the file, the line inserted is text the dispatcher composed, and
+both the idempotence check that stops a re-dispatch duplicating a line and the match that finds one
+to remove are whole-line comparisons against that same composed text. No file name is ever read
+back out of the brief's prose. Staging a file without naming it would have been the original
+failure with one extra step - a copy beside the brief that nothing tells the worker to open - so
+the write is what makes the attachment worth having.
 
 **Every `-ReadPath` entry exists on disk.** A brief naming a file that is not there is a brief the
 worker cannot carry out.

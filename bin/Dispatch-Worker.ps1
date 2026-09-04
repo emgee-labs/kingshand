@@ -67,11 +67,18 @@
 
   Staging alone would not be enough: a file copied beside the brief that nothing tells the worker to
   read reaches it not at all, which is the original failure with an extra step. So this script also
-  writes one `Read first` line per file it staged itself, into the brief, immediately under that
-  heading. It writes a line only for a file IT staged - a file the Hand passed to -ReadPath is one
-  the Hand already named - and it recognises its own line verbatim, so a re-dispatch adds nothing.
-  That is an insertion at a heading this script already locates, and it is not a path parser: no
-  file name is ever read back out of the brief's prose.
+  writes one `Read first` line per file it staged itself, into the brief, at the END of that
+  section - below anything the Hand wrote there, because the lead-in carried above those lines says
+  the files named directly below it came from dispatch and not by hand. It writes a line only for a
+  file IT staged - a file the Hand passed to -ReadPath is one the Hand already named - and it
+  recognises its own line verbatim, so a re-dispatch adds nothing. That is an insertion at a
+  position inside a section this script already located, and it is not a path parser: no file name
+  is ever read back out of the brief's prose.
+
+  The reverse also holds. A standing file the King has REMOVED must stop reaching the worker, so
+  where this script's own composed line for that file is still in the section, that line is dropped
+  and the copy in read-first\ is deleted. Never a copy the Hand passed, whose line the Hand wrote -
+  the comment at that code owns the two conditions that make the removal safe.
 
   NEITHER counts towards the index gate below, for the reason the gate's own comment gives: a path
   that arrives on every dispatch is no evidence that the index was consulted for THIS task.

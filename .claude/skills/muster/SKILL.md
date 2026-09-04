@@ -242,10 +242,10 @@ that reason; the refusal is what stops a busy session skipping it.
 `-ReadPath` on every brief for a project that has one, and dispatch attaches both it and
 `data\rules-<project>.md` whether or not anyone passes them, so a gate that counted either would be
 one no dispatch could ever fail again - and dispatch knows it, discounting `done-<project>.md` and
-`rules-<project>.md` from the paths that satisfy this
-refusal. Where it is the only file this task touches, a line about the index still goes in the
-section beside it - but not the literal one above, which would tell the worker there is nothing
-beyond the brief in the same breath as handing it a file to read. Write what is true instead:
+`rules-<project>.md` from the paths that satisfy this refusal. Where it is the only file this task
+touches, a line about the index still goes in the section beside it - but not the literal one
+above, which would tell the worker there is nothing beyond the brief in the same breath as handing
+it a file to read. Write what is true instead:
 
 ```markdown
 - The index was checked; nothing in it applies to this task beyond the standing criteria above.
@@ -749,10 +749,12 @@ what was attached to it.
 
 **Dispatch attaches the project's own standing files itself and writes their `Read first` lines.**
 `data\done-<project>.md` and `data\rules-<project>.md` are staged whenever they exist, keyed off
-the project the registry resolves from the repo path, and a line naming each copy goes in under
-that heading. It writes no line for a file you passed yourself - that one you already named - and
-re-dispatching the same ticket adds nothing. A project with neither file dispatches exactly as it
-did before either existed.
+the project the registry resolves from the repo path, and a line naming each copy goes in at the
+end of that section, below anything you wrote there. It writes no line for a file you passed
+yourself - that one you already named - and re-dispatching the same ticket adds nothing. Retire one
+of those files and re-dispatch the same ticket, and dispatch takes its own line back out and
+deletes the copy, so removing a standing file is enough to stop it reaching a worker. A project
+with neither file dispatches exactly as it did before either existed.
 
 **Dispatch does not read the paths out of the brief's prose, and nothing may make it start.** An
 earlier version did, comparing what it parsed there against `-ReadPath`, and it cost six review
