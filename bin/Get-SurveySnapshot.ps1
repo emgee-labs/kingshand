@@ -27,9 +27,9 @@
   worker parked on, or the empty string when no park has been recorded on this record - which never
   means there is nothing to answer, since only a Hand who has read the report ever writes it. It is
   never cleared, so it says which decision that worker stopped on and not whether the decision is
-  still outstanding - that is the hold's own state, and this snapshot does not read the queue. Liveness cannot answer
-  either half, since a parked worker and a finished one both read `idle`. It is intent, so it
-  comes from crew.json and never from herdr.
+  still outstanding - that is the hold's own state, and this snapshot does not read the queue.
+  Liveness cannot answer either half, since a parked worker and a finished one both read `idle`.
+  It is intent, so it comes from crew.json and never from herdr.
 
   An empty registry and an absent crew.json are states, not errors: nothing can be dispatched
   until /annex runs, and nothing is dispatched until `muster` dispatches it.

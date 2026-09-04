@@ -30,11 +30,12 @@ exactly this skill's trigger.
 Give each distinct unresolved decision a **stable, privacy-safe key**, and register it under that
 key, so a retry lands on the same durable item rather than filing a second one while two different
 decisions keep two different durable identities. Which half of that registration a retry may
-safely replay is the mechanical facts' business, below, and the two verbs do not behave alike. `tasks-axi` ids are slug-shaped - letters, digits, `.`, `_` and
-`-`, with no spaces - so the key must be too. Derive it from the originating work id and the
-substance of the choice, and never from a customer name, a credential, a path, a ticket body or
-anything else the queue should not carry. A key that changes between retries files the same
-decision twice; a key shared by two decisions loses one of them.
+safely replay is the mechanical facts' business, below, and the two verbs do not behave alike.
+`tasks-axi` ids are slug-shaped - letters, digits, `.`, `_` and `-`, with no spaces - so the key
+must be too. Derive it from the originating work id and the substance of the choice, and never
+from a customer name, a credential, a path, a ticket body or anything else the queue should not
+carry. A key that changes between retries files the same decision twice; a key shared by two
+decisions loses one of them.
 
 **Where the decision came from a parked worker, the key is stable, privacy-safe and slug-shaped
 like any other, and it is always prefixed with the work id.** `muster` Step 6 writes the key you
@@ -120,10 +121,10 @@ Seven mechanical facts this depends on, each confirmed against the tool rather t
   it overwrites both `hold_reason` and `hold_kind` with whatever the replay passed - and passing
   nothing passes nothing, so an omitted `--kind` writes `-` over `captain` rather than leaving it
   where it was. The repair row above carries the kind explicitly for that reason. So does the
-  harm: the reason is the only thing recording whose
-  question an open hold is, so replaying `hold` with a fresh reason over an open one destroys the
-  discriminator and freezes a decision that was already registered correctly. Replay `add` freely;
-  leave an open hold's reason alone unless you are deliberately repairing it.
+  harm: the reason is the only thing recording whose question an open hold is, so replaying
+  `hold` with a fresh reason over an open one destroys the discriminator and freezes a decision
+  that was already registered correctly. Replay `add` freely; leave an open hold's reason alone
+  unless you are deliberately repairing it.
 - **`--reason` may not contain parentheses.** `tasks-axi` reserves them for its own markdown hold
   tags and refuses the whole command with a validation error. Rewrite the reason rather than
   quoting around it.
@@ -180,9 +181,9 @@ or on the Hand's own judgement.** `petition` owns which decisions those are and 
 position is; this is where the record lands, and it is registered and closed in the same pass
 because nobody is being waited for. **It is an `answered:` note like any other, so the block still
 happens** - the steered worker's own item is the dependent one, exactly as the bullet above says,
-and skipping it leaves a closed note claiming an authorisation the queue never recorded. Nothing else durably holds it - a regency's return digest is
-built inside one session, so a restart before he is back means he is never told a call was made in
-his name at all.
+and skipping it leaves a closed note claiming an authorisation the queue never recorded. Nothing
+else durably holds it - a regency's return digest is built inside one session, so a restart before
+he is back means he is never told a call was made in his name at all.
 
 Both carry the decision itself, not a pointer to where it was said. Chat does not survive a
 session; the note does. **A hold closed with no note leaves no durable answer**, so a later session

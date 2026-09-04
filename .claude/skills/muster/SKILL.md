@@ -1116,8 +1116,8 @@ Get-Content "$env:KINGSHAND_HOME\data\<id>\report.md" -Raw
 
 **A null says no park has been recorded on this record, and nothing more.** It does not say the
 report names no decision - the field is only ever written by a Hand who read that report, so on a
-first park it stays null until somebody looks. Skip that read and a parked worker passes the three facts, takes
-`gating`, and is landed and torn down with its question answered nowhere.
+first park it stays null until somebody looks. Skip that read and a parked worker passes the three
+facts, takes `gating`, and is landed and torn down with its question answered nowhere.
 
 **A pointer naming a closed hold does not excuse the read either.** It says the decision it names
 was answered; it does not say this wake is a delivery, because a steered worker goes back to work
@@ -1340,8 +1340,8 @@ would then diff and land a worktree that is still being written to.
 
 With all three confirmed and no hold of this worker's still open, **set its stage to `gating`** -
 the implementation is done and the work is waiting on the landing gate at Step 7. Say so in chat as
-an update: what finished, that the landing gate is now theirs, and the one next action. Keep it short
-because there is little to say, not because a line count says so:
+an update: what finished, that the landing gate is now theirs, and the one next action. Keep it
+short because there is little to say, not because a line count says so:
 
 ```powershell
 Set-CrewStage -State $s -WorkerId "<id>" -Stage 'gating'
@@ -1721,8 +1721,8 @@ set - so a user returning in a fresh session and saying "land T-1001" arrives wi
 advanced. That is the direct-entry path working as designed, not a reason to refuse. **It does
 mean the one check Step 6 owns has not run, so run it here: a worker whose pointer names a hold
 that is still open is mid-run, and so is one whose report names a decision no hold covers.** Leave
-the stage where it is, take it to Step 6, and close nothing out - a decision still owed is not a delivery,
-however good the branch looks. Otherwise set the stage to `gating` and carry on with the
+the stage where it is, take it to Step 6, and close nothing out - a decision still owed is not a
+delivery, however good the branch looks. Otherwise set the stage to `gating` and carry on with the
 rest of this step:
 
 ```powershell
