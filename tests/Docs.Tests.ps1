@@ -290,7 +290,15 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
     It 'every way of failing to read it means do not merge' {
         $step = Get-MusterStep 'Step 7 - Gate two'
         Assert-Phrase -Text $step -Where 'the landing gate' `
-            -Phrase ('including on an entry whose annotation could not be parsed')
+            -Phrase ('including on an entry the parser could not read in full, whichever way ' +
+                     'it failed')
+        # The two failures differ in what survives, and a reader who thinks an unrecognised token
+        # drops the mode too forms the wrong model of the parser at the step that decides a merge.
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('an unknown mode drops the whole annotation, while an unrecognised token ' +
+                     'keeps the mode and the `yolo` it did read and forces merge off on its own')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase '**`$proj.merge` reads `''off''` either way**'
         Assert-Phrase -Text $step -Where 'the landing gate' `
             -Phrase ('Where the registry cannot be read there is no value at all, because ' +
                      '`Get-ProjectEntry` throws rather than guessing')
@@ -373,6 +381,54 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
             -Phrase ('taking the strategy that repository already uses rather than a default ' +
                      'invented here')
+    }
+
+    # The command carried a placeholder no step could fill. A bare `gh pr merge` goes interactive
+    # and a guessed flag either fails or silently rewrites that repository's settled history shape.
+    It 'Step 8a resolves the strategy from the repository rather than guessing it' {
+        $step = Get-MusterStep 'Step 8a'
+        $step | Should -Match 'gh repo view --json mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**Where exactly one is allowed, that is the repository''s answer**'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**Where more than one is allowed, stop and ask the user.**'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**Never run `gh pr merge` with no strategy flag.**'
+        $step.Contains('--<the strategy that repository uses>') |
+            Should -BeFalse -Because 'a placeholder no step can fill strands the permission'
+    }
+
+    # Reading a repository's own merge settings is not the forbidden "decide the merge happened".
+    It 'the strategy probe is told apart from deciding a merge has happened' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
+            -Phrase ('**That is about deciding a merge has happened, never about reading a ' +
+                     'repository''s own settings**')
+    }
+
+    # The user approved a surface promising a push and a PR, and got a merge to the default branch.
+    # The authority is real; the disclosure was not.
+    It 'the landing gate surface names the merge where the permission is declared' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**On a project whose entry carries `+merge`, the merge is part of what ' +
+                     'this approval sets in motion, so the surface names it.**')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('that pull request merged to the default branch at Step 8a once it is green')
+        # The companion sentence is what naming it keeps true, so it must survive alongside.
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('An approval is never read as covering a comment, a work item or a merge ' +
+                     'that was not on the surface they answered')
+    }
+
+    It 'the import skill reads merge back before it is written' {
+        Assert-Phrase -Text (Get-DocText $script:ImportMd) -Where 'the import skill' `
+            -Phrase 'confirm name, path, mode, yolo and merge together'
+    }
+
+    # A +merge beside local-only is inert until the mode is raised by hand on that same line.
+    It 'the import skill flags a +merge in the brackets when a posture is raised' {
+        Assert-Phrase -Text (Get-DocText $script:ImportMd) -Where 'the import skill' `
+            -Phrase ('**Raising a mode: look at the brackets for a `+merge` before you do.**')
     }
 
     # Where the permission is absent, close-out must be unchanged: the item stays open and waits.

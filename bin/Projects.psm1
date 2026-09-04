@@ -241,6 +241,16 @@ function Add-ProjectEntry {
         throw "Invalid mode '$Mode'. Must be one of: $($script:ValidModes -join ', ')"
     }
 
+    # Refused at the one place the token is written, rather than left inert in the brackets. A
+    # local-only entry never reaches Step 8a, so `[local-only +merge]` grants nothing today - but a
+    # posture is raised by hand-editing that same annotation, and the moment the mode becomes
+    # push-capable a permission nobody re-considered is live forge merge authority.
+    if ($Merge -and $Mode -eq 'local-only') {
+        throw ("Cannot register '$Name' as local-only with -Merge: a local-only project never " +
+               'pushes, so it has no forge and no pull request to merge. Register it with a ' +
+               'push-capable mode, or register it without -Merge.')
+    }
+
     # Refused where the name is chosen, not later where it is used. Every durable file written for a
     # project is indexed under data\index\<name>.md, so a name the index cannot turn into a file name
     # is a project nothing can ever index - and the failure would land one brief at a time, after

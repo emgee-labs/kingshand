@@ -1576,9 +1576,12 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
 
 **Merging on the forge is a per-repository permission, and it is off unless declared.**
 `$proj.merge` is `'on'` only when that project's entry in `data\projects.md` carries the `+merge`
-token, and `'off'` everywhere else - including on an entry whose annotation could not be parsed,
-which drops the whole annotation rather than keeping part of it. Where the registry cannot be read
-there is no value at all, because `Get-ProjectEntry` throws rather than guessing. **Every one of
+token, and `'off'` everywhere else - including on an entry the parser could not read in full,
+whichever way it failed. The two failures are not the same shape: an unknown mode drops the whole
+annotation, while an unrecognised token keeps the mode and the `yolo` it did read and forces merge
+off on its own. **`$proj.merge` reads `'off'` either way**, which is the only part of that this
+step acts on. Where the registry cannot be read there is no value at all, because
+`Get-ProjectEntry` throws rather than guessing. **Every one of
 those means do not merge, and none of them ever means the other way.** Test it as
 `$proj.merge -eq 'on'`, the same string comparison `yolo` takes and for the same reason.
 
@@ -1701,6 +1704,14 @@ is the user's word for the outward step.** The worker stopped at the last local 
 the approval authorises: the branch pushed to `origin`, a pull request opened against the base
 ref, and nothing else. An approval is never read as covering a comment, a work item or a merge
 that was not on the surface they answered.
+
+**On a project whose entry carries `+merge`, the merge is part of what this approval sets in
+motion, so the surface names it.** Say the three things it ends in rather than two: the branch
+pushed to `origin`, a pull request opened against the base ref, and that pull request merged to
+the default branch at Step 8a once it is green. The permission is the user's own standing grant
+and asking again is not the fix - understating the sequence is the defect, because a surface
+promising a pull request and nothing more is answered by someone who does not know a merge
+follows. Naming it is what keeps the sentence above true rather than worked around.
 
 The worker is still alive at this point, so steer it to finish rather than doing the outward step
 yourself - it holds the worktree and it ran the gate. **There are two steers and the resolved mode
@@ -1893,11 +1904,27 @@ security-sensitive goes to the user instead, exactly as Step 7's floors say. Thi
 those floors are spent, so re-read them rather than remembering them.
 
 Then merge it, taking the strategy that repository already uses rather than a default invented
-here - squash, merge commit or rebase is the repository's settled choice and not yours:
+here - squash, merge commit or rebase is the repository's settled choice and not yours. Ask the
+tool that owns that fact rather than guessing at it or eyeballing the forge:
 
 ```powershell
-gh pr merge "<full https:// URL>" --<the strategy that repository uses>
+gh repo view --json mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed
 ```
+
+**Where exactly one is allowed, that is the repository's answer** - use it, and pass it
+explicitly:
+
+```powershell
+gh pr merge "<full https:// URL>" --squash    # or --merge, or --rebase
+```
+
+**Where more than one is allowed, stop and ask the user.** `+merge` answers whether you may merge
+and never how, so a repository that permits two strategies has not settled this one and neither
+may you: a strategy nobody chose rewrites that repository's settled history shape on an action
+nothing takes back.
+
+**Never run `gh pr merge` with no strategy flag.** It goes interactive, and a background prompt
+nothing can answer is not a merge that failed safely.
 
 Then set the stage and close the item exactly as the user-merged path below does.
 
@@ -1915,9 +1942,11 @@ Set-Location $env:KINGSHAND_HOME
 tasks-axi done "<id>" --pr "<full https:// URL>"
 ```
 
-Never check the forge and decide that yourself, and never merge it to make it true. A merge under
-`+merge` is one the block above performed against Step 7's floors and reported; a stage waiting to
-advance is never the reason for one. The stages are exactly `dispatched`, `implementing`,
+Never check the forge and decide that yourself, and never merge it to make it true. **That is
+about deciding a merge has happened, never about reading a repository's own settings** - the
+strategy probe above is a read of configuration, not a judgement about forge state, and the two do
+not collide. A merge under `+merge` is one the block above performed against Step 7's floors and
+reported; a stage waiting to advance is never the reason for one. The stages are exactly `dispatched`, `implementing`,
 `gating`, `ready`, `landed`, `failed` - `Set-CrewStage` throws on anything else, so do not invent
 one for this path.
 

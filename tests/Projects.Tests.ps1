@@ -593,6 +593,37 @@ Describe 'Add-ProjectEntry' {
                            -Description 'd' -RegistryPath $script:reg } | Should -Throw '*mode*'
     }
 
+    # `[local-only +merge]` is inert while the mode stays local-only, which is exactly what makes
+    # it a trap: a posture is raised by hand-editing that annotation, and the token nobody
+    # re-considered goes live the moment the mode becomes push-capable.
+    It 'refuses -Merge on a local-only project, and registers nothing' {
+        $err = { Add-ProjectEntry -Name proj -Path $script:RealPath -Mode 'local-only' -Merge `
+                                  -Description 'd' -RegistryPath $script:reg } | Should -Throw -PassThru
+        $err.Exception.Message | Should -BeLike '*local-only*'
+        Test-Path -LiteralPath $script:reg |
+            Should -BeFalse -Because 'a refused combination must leave no entry and no registry behind'
+    }
+
+    It 'still refuses -Merge on local-only when a registry already exists' {
+        Add-ProjectEntry -Name one -Path $script:RealPath -Mode 'local-only' `
+                         -Description 'd' -RegistryPath $script:reg
+        $other = Join-Path $script:RealPath 'two'
+        New-Item -ItemType Directory -Force -Path $other | Out-Null
+        { Add-ProjectEntry -Name two -Path $other -Mode 'local-only' -Merge `
+                           -Description 'd' -RegistryPath $script:reg } | Should -Throw '*local-only*'
+        @(Get-AllProjects -RegistryPath $script:reg | ForEach-Object { $_.name }) | Should -Be @('one')
+    }
+
+    It 'accepts -Merge on every push-capable mode' {
+        foreach ($mode in @('no-mistakes', 'direct-PR', 'no-mistakes-prod-only')) {
+            $p = Join-Path $script:RealPath $mode
+            New-Item -ItemType Directory -Force -Path $p | Out-Null
+            Add-ProjectEntry -Name $mode -Path $p -Mode $mode -Merge `
+                             -Description 'd' -RegistryPath $script:reg
+            (Get-ProjectEntry -Name $mode -RegistryPath $script:reg).merge | Should -Be 'on'
+        }
+    }
+
     # Every durable file written for a project is indexed at data\index\<name>.md, so a name the
     # index cannot turn into a file name is a project nothing can ever index. It used to register
     # happily and then fail each index write one brief at a time, after the brief was on disk.

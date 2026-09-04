@@ -177,9 +177,7 @@ Map the snapshot onto the four buckets like this, and nowhere else:
 
   Never describe an `idle` worker as hung, and never describe a `blocked` one as having finished.
 - A worker at stage `ready` - it is waiting at the landing gate for the user's approval.
-- An open PR waiting on a merge. Whether the Hand may merge it at all is that project's own
-  `+merge` permission, which `muster` Step 7 owns, so a PR sits here until somebody does. Full
-  `https://...` URL.
+- An open PR waiting on a merge. Full `https://...` URL.
 - A brief written but not yet dispatched - `$snap.data.undispatched`. The dispatch gate is the
   user's, so an un-dispatched brief is work waiting on them, not queued work.
 - A backlog item held with a hold kind of `captain` - an open decision waiting on the user's own

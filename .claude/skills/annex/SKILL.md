@@ -76,7 +76,9 @@ live production release, which is why the default runs this way and why this is 
 `muster` Step 7 owns what it permits.
 
 Tell the user what these mean in one line each if they have not seen them before, then confirm
-name, path, mode and yolo together.
+name, path, mode, yolo and merge together. **Merge is read back like the rest, never assumed from
+the conversation** - it is the one token whose own description says it can make every merge a live
+production release, so it is the last thing that should land in the registry unconfirmed.
 
 ## Step 3 - Preflight
 
@@ -269,8 +271,16 @@ Answer in at most six lines. If there is more to say than that, render it and us
 
 There is no command for this. Edit the entry's annotation in `data\projects.md` by hand, and
 record why in the description alongside the added date. The same edit adds or removes `+merge`,
-which is a permission rather than a posture but lives in the same brackets. The description
-doubles as the posture-change log:
+which is a permission rather than a posture but lives in the same brackets.
+
+**Raising a mode: look at the brackets for a `+merge` before you do.** A `+merge` beside
+`local-only` grants nothing, because that project never pushes and never reaches a pull request -
+but the moment the mode on that same line becomes push-capable, the token goes live and the Hand
+may merge that repository's own green pull requests. `Add-ProjectEntry` refuses the combination, so
+it can only be there by hand; either way, raising the mode is the moment to decide whether the
+permission was ever meant.
+
+The description doubles as the posture-change log:
 
 ```
 - acme-api [no-mistakes] - Acme .NET API (added 2026-08-24; raised from direct-PR 2026-09-02 once the gate was initialised)

@@ -36,8 +36,10 @@ everything else:
 So the permission is a `+merge` token in the annotation, parsed by `bin\Projects.psm1` into a
 `merge` key holding the string `'on'` or `'off'` - the same shape as `yolo`, tested the same way,
 and off unless the token is there. Every way of not reading it leaves it off: an unrecognised
-token warns and changes nothing, an unrecognised mode drops the whole annotation including a
-`+merge` that sat beside it, and an unreadable registry throws out of `Get-ProjectEntry` rather
+token of either shape - a `+something` the parser does not know, or a bare word after the mode -
+warns and forces merge off for that entry while leaving mode and yolo as they were, an
+unrecognised mode drops the whole annotation including a `+merge` that sat beside it, and an
+unreadable registry throws out of `Get-ProjectEntry` rather
 than returning a value at all. That last one matters on its own terms: unreadable has to read as
 unreadable, never as the state word `'off'`, or a caller cannot tell "declined" from "could not
 tell".
