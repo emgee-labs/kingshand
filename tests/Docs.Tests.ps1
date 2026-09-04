@@ -6844,14 +6844,22 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text $script:RouteHold -Where 'decree' `
             -Phrase ('Replaying `add` under an existing key changes nothing, so the pointer ends ' +
                      'up on the hold that exists.')
-        # The work id alone does not identify the hold: one report naming two decisions leaves two
-        # open captain holds under one work id, so a lookup that takes the first aims the pointer at
-        # a live decision belonging to something else and steers the worker on an answer that was
-        # never about it. Unestablished means escalate, not pick.
+        # The work id alone does not identify the hold: a lookup that takes what the work id
+        # returned aims the pointer at a live decision belonging to something else and steers the
+        # worker on an answer that was never about it. Unestablished means escalate, not pick - and
+        # the guard is keyed on coverage rather than on a count, so a single open hold whose reason
+        # does not establish coverage is refused by the same sentence. Keyed on the count, exactly
+        # one candidate reads as "take it", which is the failure this rule was added for.
         Assert-Phrase -Text $script:RouteHold -Where 'decree' `
-            -Phrase ('**Where more than one open captain hold shares the work id and which of ' +
-                     'them covers this decision cannot be established, do not guess and do not ' +
-                     'take the first** - say so and escalate, naming the candidates.')
+            -Phrase ('**Where which open captain hold covers this decision cannot be ' +
+                     'established, do not guess and do not take the first** - say so and ' +
+                     'escalate, naming the candidates.')
+        Assert-Phrase -Text $script:RouteHold -Where 'decree' `
+            -Phrase ('That is keyed on coverage and not on how many candidates the work id ' +
+                     'returned: a lone open hold whose reason does not establish that it covers ' +
+                     'this decision is refused by this same sentence')
+        $script:RouteHold | Should -Not -Match 'more than one open captain hold' `
+            -Because 'a count-keyed guard reads as take-it when exactly one candidate comes back'
         Assert-Phrase -Text $script:RouteHold -Where 'decree' `
             -Phrase ('It does not replay `hold`: that one is a write, and it would overwrite the ' +
                      'reason the open hold is already carrying.')

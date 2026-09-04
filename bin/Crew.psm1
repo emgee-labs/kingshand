@@ -41,15 +41,21 @@ Set-StrictMode -Version Latest
 $script:ValidStages = @('dispatched', 'implementing', 'gating', 'ready', 'landed', 'failed')
 $script:ValidKinds  = @('ticket', 'adhoc')
 
-# tasks-axi ids are slug-shaped - letters, digits, '.', '_' and '-', with no spaces. A key that
-# cannot be one is a key no hold was ever filed under, so it is refused here rather than stored
-# and discovered to match nothing later.
+# tasks-axi ids are slug-shaped - letters, digits, '.', '_' and '-', with no spaces - and the first
+# character must be a letter or a digit. A key that cannot be one is a key no hold was ever filed
+# under, so it is refused here rather than stored and discovered to match nothing later.
+#
+# The leading class is narrower than the rest on purpose, because the tool's own validator is:
+# ID_CHARS is `[A-Za-z0-9][A-Za-z0-9._-]*` in tasks-axi's markdown-grammar.js, anchored into ID_RE
+# and enforced by validateId. A key like '-1001-hero-copy' - a work id whose first character was
+# lost - would pass a uniform class and then resolve to nothing, which is the same
+# matches-no-hold failure the whitespace case below describes.
 #
 # Anchored \A..\z rather than ^..$ on purpose. In .NET, `$` also matches immediately before a
-# single trailing newline, so `^[A-Za-z0-9._-]+$` accepts "T-1001-hero-copy`n" - which is exactly
+# single trailing newline, so an `^...$` guard accepts "T-1001-hero-copy`n" - which is exactly
 # the key-that-matches-no-hold this guard exists to refuse, and a trailing newline is what a
 # pasted or here-string value arrives with. \z matches the end of the string and nothing else.
-$script:HoldKeyPattern = '\A[A-Za-z0-9._-]+\z'
+$script:HoldKeyPattern = '\A[A-Za-z0-9][A-Za-z0-9._-]*\z'
 
 function New-CrewState {
     [CmdletBinding()]
@@ -110,7 +116,8 @@ function Set-CrewWaitingOn {
         throw "Worker '$WorkerId' not found."
     }
     if ($HoldKey -notmatch $script:HoldKeyPattern) {
-        throw "Invalid hold key '$HoldKey'. Must be slug-shaped: letters, digits, '.', '_' or '-'."
+        throw ("Invalid hold key '$HoldKey'. Must be slug-shaped: letters, digits, '.', '_' or " +
+               "'-', and the first character must be a letter or a digit.")
     }
 
     $State.workers[$WorkerId].waiting_on = $HoldKey

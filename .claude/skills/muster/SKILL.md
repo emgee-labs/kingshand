@@ -1150,8 +1150,10 @@ they are answered - do not go back to the report for a key:
 ```powershell
 Set-Location $env:KINGSHAND_HOME
 $work = "<work id>"
-tasks-axi list --state held --fields 'hold_kind,hold_reason'
-tasks-axi list --state done --fields 'closed'
+tasks-axi list --state held --fields 'hold_kind,hold_reason' |
+  Select-String -Pattern "^\s*$([regex]::Escape($work))-"
+tasks-axi list --state done --fields 'closed' |
+  Select-String -Pattern "^\s*$([regex]::Escape($work))-"
 Select-String -Path data\done-archive.md -ErrorAction SilentlyContinue `
   -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($work))-"
 ```

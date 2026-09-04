@@ -28,9 +28,11 @@
   shows a prompt reports `blocked` whatever herdr calls it.
 
   `waitingOn` is crew.json's `waiting_on` pointer passed straight through: the tasks-axi hold key
-  the worker parked on, or the empty string when it has never parked. It is never cleared, so a
-  key here says which decision that worker stopped on, NOT that it is still stopped - whether the
-  decision is still outstanding is the hold's own state and this row does not read the queue.
+  the worker parked on, or the empty string when no park has been recorded on this record - which
+  never means there is nothing to answer, since only a Hand who has read the report ever writes it.
+  It is never cleared, so a key here says which decision that worker stopped on, NOT that it is
+  still stopped - whether the decision is still outstanding is the hold's own state and this row
+  does not read the queue.
   Liveness cannot answer any of it: a parked worker's turn ended cleanly, so it reads `idle`
   exactly like a finished one. It is intent, so crew.json owns it and herdr is never consulted.
 #>

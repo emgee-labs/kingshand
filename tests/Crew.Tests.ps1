@@ -81,9 +81,11 @@ Describe 'Set-CrewStage' {
     }
 }
 
-# waiting_on records which tasks-axi hold a worker parked on. Null means it has never parked; a key
-# means it did, and whether that decision is still outstanding is the hold's own state in the queue,
-# which this module does not read. It is deliberately not a stage: the six stages are a lifecycle a
+# waiting_on records which tasks-axi hold a worker parked on. Null means no park has been recorded
+# on this record - never that there is nothing to answer, since only a Hand who has read the report
+# ever writes it; a key means it did, and whether that decision is still outstanding is the hold's
+# own state in the queue, which this module does not read.
+# It is deliberately not a stage: the six stages are a lifecycle a
 # worker moves along, while waiting is a condition that can happen at any of them and resolves back
 # to the one the worker was already at.
 Describe 'waiting_on points at a hold and is never a stage' {
@@ -155,7 +157,27 @@ Describe 'waiting_on points at a hold and is never a stage' {
                 Should -Throw '*hold key*' -Because 'a key with whitespace on it names no hold'
         }
         $script:s.workers['a1'].waiting_on |
+            Should -BeNullOrEmpty -Because 'a key with whitespace on it names no hold'
+    }
+
+    # tasks-axi's own validator requires the first character to be a letter or a digit - ID_CHARS is
+    # `[A-Za-z0-9][A-Za-z0-9._-]*`. A work id that lost its leading character arrives as
+    # '-1001-hero-copy', which the tool can never resolve, so the guard must refuse it here rather
+    # than store a pointer that matches nothing and cannot be torn down without hand repair.
+    It 'refuses a key whose first character is punctuation, which no hold can exist under' {
+        foreach ($k in @('-1001-hero-copy', '.1001-hero-copy', '_1001-hero-copy')) {
+            { Set-CrewWaitingOn -State $script:s -WorkerId 'a1' -HoldKey $k } |
+                Should -Throw '*hold key*' -Because 'tasks-axi ids start with a letter or a digit'
+        }
+        $script:s.workers['a1'].waiting_on |
             Should -BeNullOrEmpty -Because 'a refused key must not have been stored on the way past'
+    }
+
+    It 'still saves a key that starts with a letter and one that starts with a digit' {
+        Set-CrewWaitingOn -State $script:s -WorkerId 'a1' -HoldKey 'T-1001-hero-copy'
+        $script:s.workers['a1'].waiting_on | Should -Be 'T-1001-hero-copy'
+        Set-CrewWaitingOn -State $script:s -WorkerId 'a1' -HoldKey '1001-hero-copy'
+        $script:s.workers['a1'].waiting_on | Should -Be '1001-hero-copy'
     }
 
     It 'refuses an unknown worker' {

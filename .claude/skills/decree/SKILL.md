@@ -51,9 +51,13 @@ registering anything, and points the record at the open hold there that covers t
 the report names - the work id narrows the search and the decision itself selects among what
 it returns. Replaying `add` under an existing key changes nothing, so the pointer ends up on
 the hold that exists. It does not replay `hold`: that one is a write, and it would overwrite
-the reason the open hold is already carrying. **Where more than one open captain hold shares
-the work id and which of them covers this decision cannot be established, do not guess and do
-not take the first** - say so and escalate, naming the candidates.
+the reason the open hold is already carrying. **Where which open captain hold covers this
+decision cannot be established, do not guess and do not take the first** - say so and escalate,
+naming the candidates. That is keyed on coverage and not on how many candidates the work id
+returned: a lone open hold whose reason does not establish that it covers this decision is
+refused by this same sentence, because taking it for want of an alternative points the record at
+a live decision belonging to other work and steers the worker on an answer that was never about
+it.
 **That lookup matches the full key, or the work id with the `-` that follows it, and never a bare
 prefix.** The composition above puts a `-` between the two halves precisely so it can be matched
 on: without it, `T-100` selects every `T-1001-` key as well, and the recovery re-registers a worker
