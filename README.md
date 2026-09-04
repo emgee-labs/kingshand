@@ -198,7 +198,7 @@ Sixteen, all project-local. Ten you invoke; six the Hand loads for itself.
 | `muster` | Dispatch and supervise workers across tickets and repos |
 | `survey` | Where everything stands - the catch-up digest |
 | `herald` | Owns reply shape, which is on by default. Load it to turn it off |
-| `regency` | Hold the fleet while you are away, and batch what does not need you. Also `/afk` |
+| `regency` | Hold the fleet while you are away, and batch what does not need you - `petition` below says what may be decided in your stead. Also `/afk` |
 | `audience` | What happened while you were away from this session |
 | `chronicle` | Curate durable memory before a context reset |
 | `counsel` | Break a story or a whole feature into work, and find where the stories overlap |
