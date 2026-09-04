@@ -4287,65 +4287,48 @@ Describe 'rally refuses to stop a worker that is only waiting on a decision' {
     }
 
     # The refusal's stated harm is liveness-only ("that live process is holding a review gate
-    # parked mid-run"), so written unconditionally it stranded a parked worker whose process was
-    # already gone: no rung of the ladder could run, and the branch with its commits and its open
-    # decision was unrecoverable. The exception is scoped by evidence and fails closed.
-    It 'routes a parked worker whose process is gone, on evidence and never on assumption' {
+    # parked mid-run"), so a parked worker whose process is gone has no rung of the ladder that
+    # fits it. A recovery route for that case was written and removed: three consecutive review
+    # rounds each found one more interaction between its liveness fence, its order of operations
+    # and the teardown floor. What is left is an escalation, and these pin it.
+    It 'escalates a parked worker whose process is gone rather than recovering it' {
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase '**The one exception is a parked worker whose process is already gone.**'
+            -Phrase ('**A parked worker whose process is gone is not something this playbook ' +
+                     'unblocks.**')
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('**Gone has to be proved, and it takes two positive facts in this order:** ' +
-                     'that the server answered at all, and that the worker is absent from the ' +
-                     'list it answered with.')
+            -Phrase ('Getting it moving again means either discarding the unlanded work in its ' +
+                     'worktree or answering the decision it parked on, and both of those belong ' +
+                     'to the King rather than to a recovery step.')
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase '**Only those two positive facts together open this branch.**'
+            -Phrase ('So it is reported to him as a blocker at step 5 below, with the worktree, ' +
+                     'the branch and every unlanded commit preserved untouched while he decides.')
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('**Everything else holds the refusal, and it is named rather than inferred**')
-        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('Being wrong in that direction costs a wait, and being wrong in the other ' +
-                     'ends a run that cannot be restarted.')
+            -Phrase ('A parked worker whose process is gone goes straight to step 5, because no ' +
+                     'rung above it can unblock one.')
     }
 
-    # Get-HerdrAgent and Get-HerdrAgentState return $null for "herdr has never heard of it" AND
-    # for "herdr could not be asked", so neither can supply the evidence this branch demands -
-    # reading a null from either as "gone" ends a live parked run because a server was briefly
-    # unreachable. Get-HerdrAgentInventory keeps the two apart, which is why it is the one used.
-    It 'proves gone from the inventory rather than from a null that means two things' {
-        @(Get-CodeFence $script:StuckMd | Where-Object {
-            $_.Contains('Get-HerdrServerState') -and $_.Contains('Get-HerdrAgentInventory') -and
-            $_.Contains('ConvertTo-HerdrAgentName') }).Count |
-            Should -Be 1 -Because 'the branch is gated on the server answering and the worker being absent from it'
-        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('**`Get-HerdrAgent` and `Get-HerdrAgentState` cannot answer this and must ' +
-                     'not be used for it.**')
-        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('Both return `$null` for "herdr has never heard of it" and for "herdr could ' +
-                     'not be asked" alike')
-        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('**absence from a list that was actually read is the only thing that means ' +
-                     'gone**')
-        # `dead` is not in herdr's vocabulary, so a rule written against it can never fire.
-        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('Neither is `dead` a state herdr reports - its words are `idle`, `working`, ' +
-                     '`blocked`, `done` and `unknown`')
-        $script:ParkedStuck.Contains('one whose state reads dead') |
-            Should -BeFalse -Because 'herdr never returns dead, so that rule could never have fired'
-        # A stopped server takes every pane with it, so it proves nothing about any one worker.
-        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('A stopped server is a refusal here rather than proof, and deliberately so: ' +
-                     'it takes every pane with it')
+    # The removed route's machinery, asserted as an absence, because re-deriving it is what
+    # regresses: a liveness fence here has to tell "herdr could not be asked" from "nobody is
+    # there" and then order itself against a teardown floor keyed on something else entirely.
+    It 'carries no liveness fence and no replacement-worker path for the gone case' {
+        foreach ($fragment in @(
+            'Get-HerdrServerState',
+            'Get-HerdrAgentInventory',
+            'ConvertTo-HerdrAgentName',
+            'GONE <worker id>',
+            'Carry the open decision into the replacement''s brief'
+        )) {
+            $script:ParkedStuck.Contains($fragment) |
+                Should -BeFalse -Because "the gone case is escalated, not proved and recovered ('$fragment')"
+        }
     }
 
-    It 'preserves the work on that branch and leaves the decision outstanding' {
-        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('prove no live agent still owns the recorded task, keep the same task ' +
-                     'identity, and preserve the worktree, the branch and every unlanded commit')
+    It 'leaves the decision outstanding when the process is lost' {
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
             -Phrase '**Losing the process does not answer the decision.**'
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
             -Phrase ('`decree` owns that hold until it closes and `petition` owns who may answer ' +
-                     'it - there is no second route to an answer here, and this branch does not ' +
-                     'create one.')
+                     'it - there is no second route to an answer here.')
     }
 
     It 'says plainly what relaunching or stopping a parked worker destroys' {
@@ -4457,10 +4440,17 @@ Describe 'the parked-decision record states what must not be undone' {
                      'at that point because it was keyed on the hold all along')
         Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
             -Phrase ('Nothing here makes a parked worker with unlanded work easier to tear down.')
+        # And what the liveness-scoped refusal leaves behind is escalated, not recovered. The note
+        # records that a recovery route was tried and removed, so a later editor reaching for one
+        # finds the reason rather than the gap.
         Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
-            -Phrase ('where liveness cannot be established the refusal holds')
+            -Phrase ('**A parked worker whose process is gone is escalated rather than recovered**')
         Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
-            -Phrase ('it answers nothing: the hold stays open and the question stays owed')
+            -Phrase ('`rally` reports it as a blocker with the worktree, the branch and the ' +
+                     'unlanded work preserved untouched, and carries no recovery route of its own.')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('it needed a liveness fence, an order of operations against the teardown ' +
+                     'floor and a replacement-worker path')
     }
 
     # Step 8b's floor is what the paragraph above describes, so the two are pinned together: if

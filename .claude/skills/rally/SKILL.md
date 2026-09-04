@@ -248,59 +248,16 @@ branch. End the process and the run can never be resumed, so the decision - once
 - has nowhere to go, and the branch is left part-finished with nothing watching it. The worktree
 surviving does not soften that, which is why the safe order above is not the whole guard here.
 
-**The one exception is a parked worker whose process is already gone.** The refusal above protects
-a live run; where no run is left, it protects nothing and instead leaves a branch carrying real
-commits that nobody is permitted to recover. This playbook is loaded on exactly that trigger - a
-worker that reads dead or has no live process - so the case has to be routed rather than refused
-into a corner. **Gone has to be proved, and it takes two positive facts in this order:** that the
-server answered at all, and that the worker is absent from the list it answered with.
-
-```powershell
-Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
-
-$srv  = Get-HerdrServerState                # running / stopped / unknown, with its detail
-$inv  = Get-HerdrAgentInventory             # .ok, .agents, .error - the failure is kept, not collapsed
-$name = ConvertTo-HerdrAgentName -Name "<worker id>"   # the module owns this mapping, never you
-
-if ($srv.state -ne 'running' -or -not $inv.ok) {
-    "REFUSE <worker id> - liveness not established: server=$($srv.state) $($srv.detail) $($inv.error)"
-} elseif (@($inv.agents | Where-Object {
-        $_.PSObject.Properties.Name -contains 'name' -and $_.name -eq $name }).Count -eq 0) {
-    "GONE <worker id> - the server answered and this worker is not in its list"
-} else {
-    "REFUSE <worker id> - herdr still has this worker"
-}
-```
-
-**`Get-HerdrAgent` and `Get-HerdrAgentState` cannot answer this and must not be used for it.** Both
-return `$null` for "herdr has never heard of it" and for "herdr could not be asked" alike, so a null
-from either is not evidence of anything - and reading one as `gone` ends a live parked run on the
-strength of a server that was merely unreachable. `Get-HerdrAgentInventory` exists for exactly this:
-it keeps `could not ask` and `nobody is there` apart, which is the whole distinction this branch
-turns on. Neither is `dead` a state herdr reports - its words are `idle`, `working`, `blocked`,
-`done` and `unknown` - so **absence from a list that was actually read is the only thing that means
-gone**, the same definition the status surfaces already use.
-
-**Only those two positive facts together open this branch.** **Everything else holds the refusal,
-and it is named rather than inferred** - a stopped or unknown server, an inventory that came back
-`.ok` false, a read nobody took. Say which of them it was, from `$srv.detail` and `$inv.error`, and
-stop there; do not turn an unreadable answer into a value. Being wrong in that direction costs a
-wait, and being wrong in the other ends a run that cannot be restarted.
-
-A stopped server is a refusal here rather than proof, and deliberately so: it takes every pane with
-it, so it makes every worker look gone at once while telling you nothing about any one of them.
-
-On that branch take the worker through `Reconcile the recorded work before deciding anything`
-above, unchanged and with every guarantee it already gives: prove no live agent still owns the
-recorded task, keep the same task identity, and preserve the worktree, the branch and every
-unlanded commit. Nothing here discards any of them, and the safe order above still governs the
-worktree.
+**A parked worker whose process is gone is not something this playbook unblocks.** Getting it
+moving again means either discarding the unlanded work in its worktree or answering the decision it
+parked on, and both of those belong to the King rather than to a recovery step. So it is reported to
+him as a blocker at step 5 below, with the worktree, the branch and every unlanded commit preserved
+untouched while he decides.
 
 **Losing the process does not answer the decision.** The hold stays open and `report.md` stays
 where it is, both outliving the worker by design, so the question is still owed and a dead worker
-is not a decided one. Carry the open decision into the replacement's brief. `decree` owns that hold
-until it closes and `petition` owns who may answer it - there is no second route to an answer here,
-and this branch does not create one.
+is not a decided one. `decree` owns that hold until it closes and `petition` owns who may answer
+it - there is no second route to an answer here.
 
 `muster` Step 6 owns the route an answer takes back into the worker, and `petition` owns who may
 answer it and by what test. Neither is restated here.
@@ -309,8 +266,8 @@ answer it and by what test. Neither is restated here.
 
 **The parked-worker check above comes before step 1.** A worker `muster` Step 6 finds parked is not
 escalated at all while its process is alive, and none of the five steps below is run against one.
-A parked worker whose process is confirmed gone is the single exception, and it takes the
-reconcile-then-relaunch path that section names rather than starting at the top of this one.
+A parked worker whose process is gone goes straight to step 5, because no rung above it can unblock
+one.
 
 1. **Peek.** `Read-HerdrAgent -Name <worker id>`, and `Get-HerdrAgentState -Name <worker id>` for
    the state to act on. Read what it is actually doing before doing anything to it, and do not
