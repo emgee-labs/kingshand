@@ -1150,10 +1150,20 @@ they are answered - do not go back to the report for a key:
 ```powershell
 Set-Location $env:KINGSHAND_HOME
 $work = "<work id>"
-tasks-axi list --state held --fields 'hold_kind,hold_reason' |
-  Select-String -Pattern "^\s*$([regex]::Escape($work))-"
-tasks-axi list --state done --fields 'closed' |
-  Select-String -Pattern "^\s*$([regex]::Escape($work))-"
+$keep = "^tasks\[|^\s*$([regex]::Escape($work))-"
+
+$held = tasks-axi list --state held --fields 'hold_kind,hold_reason'
+if ($LASTEXITCODE -ne 0) {
+  $held; throw "held lookup failed - establish why before registering anything"
+}
+$held | Select-String -Pattern $keep
+
+$done = tasks-axi list --state done --fields 'closed'
+if ($LASTEXITCODE -ne 0) {
+  $done; throw "done lookup failed - establish why before registering anything"
+}
+$done | Select-String -Pattern $keep
+
 Select-String -Path data\done-archive.md -ErrorAction SilentlyContinue `
   -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($work))-"
 ```
@@ -1163,6 +1173,21 @@ a two-element array and hands the native command one space-joined token, which `
 with `VALIDATION_ERROR` and no rows at all - so the lookup returns nothing and the Hand reads it as
 no hold covering the decision, then files a second one. `hold_reason` is the whole point of this
 line, because `decree` makes that reason the thing that says whose question an open hold is.
+
+**Capture each read and check its exit code before filtering, because a failed lookup must never
+read as an empty one.** `tasks-axi` prints its error block on stdout, not stderr, and exits
+non-zero, so a filter applied straight to the pipeline swallows the failure and leaves output
+byte-identical to a queue that genuinely holds nothing. The paragraph above is then exactly what
+happens: the Hand reads no hold covering the decision and files a second one, against a queue that
+never answered. Surface the tool's own output and stop the lookup - a read that could not get its
+evidence names the failure rather than passing for an answer.
+
+**Let the `tasks[` header through with the matched rows.** The row is seven values - `id`, `state`,
+`kind`, `repo`, `title`, `hold_kind`, `hold_reason` - and `kind` sits beside `hold_kind` while
+`title` sits beside `hold_reason`, so a headerless row can only be read by counting commas.
+Miscount once and `task` reads as the hold kind, so a captain hold looks like something else and the
+open branch below is skipped, or `title` reads as the reason and `decree`'s test for whose question
+the hold is cannot be applied at all.
 
 **The archive line is not optional, for the reason the pointer read-back names**: a hold pruned out
 of the backlog is invisible to `list` and still answered, and skipping it is how a decision the
@@ -1180,11 +1205,15 @@ ago, and whoever gave it - so it is neither registered again nor read as a quest
 answered itself. Filing it a second time puts it to the King twice and writes a second `answered:`
 note asserting an authorisation nobody gave.
 
-**Where an open `--kind captain` hold for this work is already there, point the record at that same
-key rather than filing a second one.** `add` under an existing key changes nothing, so replaying it
-is safe and the pointer ends up naming the hold that already exists. File a second key and the King
-is asked the same question twice, while the first is orphaned with no pointer naming it and nothing
-that will ever close it.
+**Where an open `--kind captain` hold covers the decision the report names, point the record at that
+same key rather than filing a second one.** What selects it is coverage and never its merely
+existing under this work id: an open hold belonging to another of this work's decisions is not this
+worker's, and pointing at it leaves this decision unregistered while steering an answer into a
+worker that asked something else. `decree` owns that test and what to do where coverage cannot be
+established. `add` under an existing key changes nothing, so replaying it is safe and the pointer
+ends up naming the hold that already exists. File a second key and the King is asked the same
+question twice, while the first is orphaned with no pointer naming it and nothing that will ever
+close it.
 
 **Do not replay `hold` on a hold that is already open.** It is a write, not a no-op - `decree`'s
 mechanical facts say what it does - and it overwrites the reason with whatever the replay passes.

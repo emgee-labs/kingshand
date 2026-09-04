@@ -391,6 +391,50 @@ Describe 'the tool facts the parked-decision route depends on' {
             Should -BeTrue -Because 'hold_reason is the whole point of asking for these fields'
     }
 
+    # Step 6's lookup filters the tool's output, and filtering alone loses two things the Hand
+    # needs. The tool prints its error block on STDOUT and exits non-zero, so a filter applied
+    # straight to the pipeline leaves a failed lookup byte-identical to a queue holding nothing -
+    # and muster's own text says what follows: the Hand reads no hold covering the decision and
+    # files a second one. The filter also drops the header naming the columns, leaving a row where
+    # `kind` sits beside `hold_kind` and `title` beside `hold_reason`.
+    It 'tells a failed lookup from an empty one, and keeps the column header' -Skip:(-not $HasTasksAxi) {
+        Invoke-FactAxi 'add' 'T-2001-hero-copy' 'which hero wording' | Out-Null
+        Invoke-FactAxi 'hold' 'T-2001-hero-copy' '--reason' 'the question is with him' '--kind' 'captain' | Out-Null
+        Invoke-FactAxi 'add' 'T-2002-other-scope' 'another work item' | Out-Null
+        Invoke-FactAxi 'hold' 'T-2002-other-scope' '--reason' 'also his to choose' '--kind' 'captain' | Out-Null
+
+        $work = 'T-2001'
+        $keep = "^tasks\[|^\s*$([regex]::Escape($work))-"
+
+        Push-Location $script:FactRoot
+        try {
+            $good = tasks-axi list --state held --fields 'hold_kind,hold_reason'
+            $goodExit = $LASTEXITCODE
+            # The space-joined token a bare comma list reaches the tool as - the documented gotcha.
+            $bad = tasks-axi list --state held --fields 'hold_kind hold_reason'
+            $badExit = $LASTEXITCODE
+        } finally { Pop-Location }
+
+        $goodFiltered = @($good | Select-String -Pattern $keep)
+        $badFiltered = @($bad | Select-String -Pattern $keep)
+
+        # The exit code is the only thing that separates the two, which is why the fence branches
+        # on it before filtering rather than reading the filtered output.
+        $badExit | Should -Not -Be 0 -Because 'a failed lookup must be distinguishable from an empty one'
+        ($bad -join "`n").Contains('VALIDATION_ERROR') |
+            Should -BeTrue -Because 'the error is on stdout, so capturing the read is what surfaces it'
+        $badFiltered.Count |
+            Should -Be 0 -Because 'filtering alone makes a failure look exactly like a queue holding nothing'
+
+        $goodExit | Should -Be 0
+        @($goodFiltered | Where-Object { $_.Line -match '^tasks\[' }).Count |
+            Should -Be 1 -Because 'the header is what names hold_kind and hold_reason for the row below'
+        ($goodFiltered -join "`n").Contains('T-2001-hero-copy') |
+            Should -BeTrue -Because 'the hold under this work id is what the lookup is for'
+        ($goodFiltered -join "`n").Contains('T-2002-other-scope') |
+            Should -BeFalse -Because 'the anchored match keeps another work''s live decision out'
+    }
+
     It 'leaves add inert on replay but rewrites a hold''s reason and kind' -Skip:(-not $HasTasksAxi) {
         Invoke-FactAxi 'add' 'fk-2' 'first title' | Out-Null
         Invoke-FactAxi 'hold' 'fk-2' '--reason' 'the question is with him: shorter or longer' '--kind' 'captain' | Out-Null

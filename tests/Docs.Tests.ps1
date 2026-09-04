@@ -6871,9 +6871,21 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('a null pointer over a report naming a decision has two causes: nobody ' +
                      'registered it, or somebody did and the pass ended before the pointer went in')
+        # muster executes the procedure decree owns the key for, so its open branch selects on the
+        # same thing decree does: coverage. Keyed on the hold merely existing under the work id, an
+        # open hold belonging to another of this work's decisions captures this one - the decision
+        # is never registered, and the answer to the other one is steered into a worker that asked
+        # something else. The two adjacent rules would then give opposite instructions.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('**Where an open `--kind captain` hold for this work is already there, point ' +
-                     'the record at that same key rather than filing a second one.**')
+            -Phrase ('**Where an open `--kind captain` hold covers the decision the report ' +
+                     'names, point the record at that same key rather than filing a second one.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('What selects it is coverage and never its merely existing under this work id')
+        $script:RouteStep6 | Should -Not -Match 'hold for this work is already there' `
+            -Because 'an existence-keyed branch captures another decision''s open hold'
+        # decree owns the coverage test; muster points at it rather than restating it.
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('`decree` owns that test and what to do where coverage cannot be established.')
         # And the lookup is the queue's, not the report's - stated in muster too, because that is
         # where the temptation is: the report is already open on the screen at this point.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
@@ -6982,6 +6994,37 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             Should -BeTrue -Because 'unquoted, the command returns a validation error and no holds'
         $lookup[0] -match '--fields\s+hold_kind,hold_reason' |
             Should -BeFalse -Because 'that exact form is the one that fails'
+    }
+
+    # Backlog.Tests.ps1 drives the real tool to prove both halves of this against tasks-axi: the
+    # error block is on stdout with a non-zero exit, and the filter drops the column header. These
+    # pin that the fence and its prose carry what was proven.
+    It 'the queue reads fail closed and keep their column header' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**Capture each read and check its exit code before filtering, because a ' +
+                     'failed lookup must never read as an empty one.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('`tasks-axi` prints its error block on stdout, not stderr, and exits ' +
+                     'non-zero, so a filter applied straight to the pipeline swallows the failure')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('Surface the tool''s own output and stop the lookup - a read that could not ' +
+                     'get its evidence names the failure rather than passing for an answer.')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase '**Let the `tasks[` header through with the matched rows.**'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('so a headerless row can only be read by counting commas')
+
+        $lookup = @($script:RouteFences | Where-Object { $_.Contains('tasks-axi list --state held') })
+        $lookup.Count | Should -Be 1
+        # Both reads are captured and both are guarded. A guard on one leaves the other fail-open.
+        @([regex]::Matches($lookup[0], '\$LASTEXITCODE -ne 0')).Count |
+            Should -Be 2 -Because 'the held read and the done read each have to name their own failure'
+        @([regex]::Matches($lookup[0], 'throw "')).Count |
+            Should -Be 2 -Because 'surfacing the output without stopping still continues on no evidence'
+        $lookup[0] -match '(?m)^\s*tasks-axi list [^\r\n]*\|\s*$' |
+            Should -BeFalse -Because 'a filter on the pipeline itself is what swallowed the error block'
+        $lookup[0].Contains('^tasks\[|') |
+            Should -BeTrue -Because 'the header alternative is what keeps the column names'
     }
 
     It 'nothing replays hold on an open hold, because the replay overwrites its reason' {
