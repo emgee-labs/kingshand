@@ -229,7 +229,7 @@ the task failed or blocked with the conflicting evidence. Set the stage with
 worker parked on a decision its brief did not settle is alive, reads `idle`, has nothing drawn on
 its screen and will not move again until an answer reaches it - the same signature as a worker that
 has stopped getting anywhere. Reading the screen harder cannot separate them, because there is
-nothing on it to read. Two recorded values can:
+nothing on it to read. What the worker left on disk can:
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Crew.psm1 -Force
@@ -260,16 +260,36 @@ fence is for: a closed hold gets pruned out of the backlog, so a key in neither 
 that has gone missing rather than a decision somebody made. `muster` Step 8b owns what a missing
 record means at a step that cannot be taken back, and stopping a parked worker is one of those.
 
-A null pointer, or a key whose hold is closed, leaves nothing outstanding on the record, so carry
-on below.
+**A null pointer is not an all-clear, and neither is a closed hold.** The field is only ever
+written by a Hand who has already read that worker's report, so it records what somebody looked at
+rather than what the worker is waiting for - `muster` Step 6 and `survey` own what a null means and
+neither is restated here. A worker on its first park has written its question down and has a null
+pointer for want of a reader, which is the case this playbook is most likely to be entered on: an
+unreadable liveness read, an unexplained input box, or a worker still recorded as working after the
+Hand's session restarted. So where the pointer does not itself name an open hold, the report is
+what settles it, and it is read before any rung of the ladder is climbed:
+
+```powershell
+Get-Content "$env:KINGSHAND_HOME\data\<id>\report.md" -Raw
+```
+
+**Where that report names a decision the worker's brief did not settle, the worker is parked too**,
+whatever the pointer says, and everything above applies to it unchanged - it is not steered, not
+relaunched and not stopped. Take it to `muster` Step 6, which is where the decision gets registered
+and where the pointer comes from in the first place.
+
+Only a worker whose pointer names no open hold **and** whose report names no such decision is
+wedged rather than waiting, and only that one carries on below. A settled worker with no report at
+all is neither: that is `muster` Step 6's case and it is suspicious rather than clear.
 
 `muster` Step 6 owns the route an answer takes back into the worker, and `petition` owns who may
 answer it and by what test. Neither is restated here.
 
 ## Escalation, in order
 
-**The parked-worker check above comes before step 1.** A worker waiting on an open hold is not
-escalated at all, and none of the five steps below is run against one.
+**The parked-worker check above comes before step 1.** A worker waiting on a decision is not
+escalated at all - whether an open hold names it or only its report does - and none of the five
+steps below is run against one.
 
 1. **Peek.** `Read-HerdrAgent -Name <worker id>`, and `Get-HerdrAgentState -Name <worker id>` for
    the state to act on. Read what it is actually doing before doing anything to it, and do not

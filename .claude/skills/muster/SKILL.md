@@ -1050,10 +1050,12 @@ $rec = Get-CrewWorker -State $s -WorkerId "<id>"
 $rec.waiting_on        # the key of the hold carrying its decision, or $null
 ```
 
-**The worker's record is `$rec` and never `$w`.** `$w` is this step's wake object from Step 4 - the
-three facts above read `$w.settled` and `$w.awaitingInput` off it - and it is re-read here rather
-than trusted, so binding the record over it leaves the re-read returning `$null` under normal mode
-and throwing under `Set-StrictMode`. Two objects, two names.
+**Inside this step the worker's record is `$rec` and never `$w`.** `$w` is this step's wake object
+from Step 4 - the three facts above read `$w.settled` and `$w.awaitingInput` off it - and it is
+re-read here rather than trusted, so binding the record over it leaves the re-read returning
+`$null` under normal mode and throwing under `Set-StrictMode`. Two objects, two names. The rule is
+this step's alone: Step 7 and Step 8 bind the record to `$w` with no wake object in scope, and
+neither is a collision to go and tidy.
 
 **The field is set or it is not, and there is no third value. Null means this worker has never
 parked; set means it parked, and the field names the hold carrying what it parked on.**
@@ -1069,12 +1071,20 @@ saying what was decided. Two sources, each owning its own half. `decree` owns th
 and `petition` owns who may answer it:
 
 ```powershell
-Set-Location $env:KINGSHAND_HOME
 $key = $rec.waiting_on
-tasks-axi show $key --full
-Select-String -Path data\done-archive.md -ErrorAction SilentlyContinue `
-  -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($key))\s+-"
+if ($key) {
+    Set-Location $env:KINGSHAND_HOME
+    tasks-axi show $key --full
+    Select-String -Path data\done-archive.md -ErrorAction SilentlyContinue `
+      -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($key))\s+-"
+}
 ```
+
+**The `if ($key)` is the same guard the other two copies of this lookup carry, and it is not
+decoration.** A null pointer hands `show` an empty argument, which comes back `NOT_FOUND` while the
+archive matches nothing - and that pair is exactly what the paragraph below reads as a record that
+has gone missing. A worker that has simply never parked would send the Hand looking for a lost
+record that never existed.
 
 **`NOT_FOUND` from `show` is not an answer on its own - a closed hold gets pruned out of the
 backlog.** `tasks-axi done` moves everything past `done_keep` into `data\done-archive.md`, which
@@ -1175,8 +1185,10 @@ mechanical facts say what it does - and it overwrites the reason with whatever t
 That reason is the only thing recording whose question the hold is, so a boilerplate replacement
 leaves a correctly escalated decision looking like a pass nobody can classify, and it freezes until
 somebody establishes why. The hold is open and its reason is already right: leave it alone. Where
-something does have to be re-run on it, pass back the reason it already carries rather than a new
-one.
+something does have to be re-run on it, pass back both the reason and the `--kind` it already
+carries rather than a new reason and no kind - an omitted kind is written as `-` rather than left
+alone, and a captain hold that stops being one drops off the surface built to show him what needs
+him.
 
 Register the decision there, and record the key it was registered under in the same turn:
 

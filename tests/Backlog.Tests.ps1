@@ -405,4 +405,34 @@ Describe 'the tool facts the parked-decision route depends on' {
         $row.Contains('external') |
             Should -BeTrue -Because 'the kind is overwritten with it, so a captain hold stops being one'
     }
+
+    # decree's repair row re-runs `hold` to restate an ambiguous reason. It used to omit --kind on
+    # the belief that the replay moved nothing else, which is the one path the test above cannot
+    # reach because it always passes --kind explicitly. Passing nothing passes `-`, and a captain
+    # hold that stops being one drops out of King's Call and out of muster's orphan lookup.
+    It 'clears the captain kind when a hold replay omits --kind' -Skip:(-not $HasTasksAxi) {
+        Invoke-FactAxi 'add' 'fk-3' 'an ambiguous reason to repair' | Out-Null
+        Invoke-FactAxi 'hold' 'fk-3' '--reason' 'the question is with him' '--kind' 'captain' | Out-Null
+
+        $before = @((Invoke-FactAxi 'list' '--state' 'held' '--fields' 'hold_kind,hold_reason') -split "`r?`n" |
+            Where-Object { $_ -match '^\s*fk-3,' })[0]
+        $before.Contains('captain') | Should -BeTrue -Because 'the fixture starts as a captain hold'
+
+        Invoke-FactAxi 'hold' 'fk-3' '--reason' 'restated reason, no kind passed' | Out-Null
+        $after = @((Invoke-FactAxi 'list' '--state' 'held' '--fields' 'hold_kind,hold_reason') -split "`r?`n" |
+            Where-Object { $_ -match '^\s*fk-3,' })[0]
+        $after.Contains('restated reason, no kind passed') |
+            Should -BeTrue -Because 'the repair did rewrite the reason, which is what the row is for'
+        $after.Contains('captain') |
+            Should -BeFalse -Because 'and it erased the kind, which is what the row failed to say'
+
+        # The corrected row carries the kind, and that restores it.
+        Invoke-FactAxi 'hold' 'fk-3' '--reason' 'restated reason, kind carried' '--kind' 'captain' | Out-Null
+        $repaired = @((Invoke-FactAxi 'list' '--state' 'held' '--fields' 'hold_kind,hold_reason') -split "`r?`n" |
+            Where-Object { $_ -match '^\s*fk-3,' })[0]
+        $repaired.Contains('captain') |
+            Should -BeTrue -Because 'passing the kind alongside the reason is what the fixed row does'
+        $repaired.Contains('restated reason, kind carried') |
+            Should -BeTrue -Because 'and it still rewrites the reason it was run for'
+    }
 }

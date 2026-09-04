@@ -4246,7 +4246,35 @@ Describe 'rally refuses to stop a worker that is only waiting on a decision' {
                      'stopping anything.**')
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
             -Phrase ('**The parked-worker check above comes before step 1.** A worker waiting on ' +
-                     'an open hold is not escalated at all')
+                     'a decision is not escalated at all - whether an open hold names it or only ' +
+                     'its report does')
+    }
+
+    # The pointer is written by a Hand who read the report, so a worker on its FIRST park has a
+    # null pointer and a question already written down. Reading that null as an all-clear drops it
+    # straight into a ladder that ends at a relaunch, which is the exact process the section above
+    # says must not be stopped - so the report settles what the pointer cannot.
+    It 'never reads a null pointer as nothing outstanding' {
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase '**A null pointer is not an all-clear, and neither is a closed hold.**'
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('where the pointer does not itself name an open hold, the report is what ' +
+                     'settles it, and it is read before any rung of the ladder is climbed')
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('**Where that report names a decision the worker''s brief did not settle, ' +
+                     'the worker is parked too**, whatever the pointer says')
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('Only a worker whose pointer names no open hold **and** whose report names ' +
+                     'no such decision is wedged rather than waiting')
+        @(Get-CodeFence $script:StuckMd | Where-Object {
+            $_.Contains('data\<id>\report.md') }).Count |
+            Should -BeGreaterOrEqual 1 -Because 'the report read is runnable, not described'
+        # The sentence that reopened the floor last round, asserted as an absence.
+        $script:ParkedStuck.Contains('leaves nothing outstanding on the record') |
+            Should -BeFalse -Because 'a null pointer means nobody has looked yet, not that nothing is owed'
+        # rally reads the pointer; muster and survey own what a null means.
+        $script:ParkedStuck.Contains('never means the worker finished') |
+            Should -BeFalse -Because 'survey owns that sentence, and rally cross-references instead'
     }
 
     It 'reads the pointer and its hold from the record, not from the screen' {
@@ -6274,7 +6302,12 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
     # names are kept apart and the reason is stated where the second object is introduced.
     It 'Step 6 keeps the crew record and the wake object under different names' {
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase '**The worker''s record is `$rec` and never `$w`.**'
+            -Phrase '**Inside this step the worker''s record is `$rec` and never `$w`.**'
+        # Scoped, because Step 7 and Step 8 legitimately bind the record to $w with no wake object
+        # in scope - an unscoped rule invites a later editor to churn them into agreement.
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('The rule is this step''s alone: Step 7 and Step 8 bind the record to `$w` ' +
+                     'with no wake object in scope, and neither is a collision to go and tidy.')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('binding the record over it leaves the re-read returning `$null` under normal ' +
                      'mode and throwing under `Set-StrictMode`')
@@ -6754,6 +6787,31 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         @($script:RouteFences | Where-Object {
             $_.Contains('$key = $rec.waiting_on') -and $_.Contains('data\done-archive.md') }).Count |
             Should -Be 1 -Because 'the pointer read-back is the other lookup that goes blind on a prune'
+        # All three copies of this lookup guard it, or a never-parked worker produces NOT_FOUND
+        # plus an empty archive match and gets read as a record that has gone missing.
+        @($script:RouteFences | Where-Object {
+            $_.Contains('$key = $rec.waiting_on') -and $_.Contains('if ($key) {') }).Count |
+            Should -Be 1 -Because 'a null pointer must not be handed to show as an empty argument'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**The `if ($key)` is the same guard the other two copies of this lookup ' +
+                     'carry, and it is not decoration.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('A worker that has simply never parked would send the Hand looking for a ' +
+                     'lost record that never existed.')
+    }
+
+    # The claim the whole parked-worker stall guard turns on: a motionless screen over an open
+    # hold is expected rather than wedged. Soften or delete it and rally's refusal to relaunch a
+    # parked worker loses its justification, so it is pinned as a sentence rather than by theme.
+    It 'Step 6 says a worker on an open hold is idle rather than hung' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase '**A worker waiting on an open hold is idle rather than hung**'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('the review-gate run it left parked keeps the branch and every fix commit ' +
+                     'already made')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**Do not set `gating`, do not close the backlog item, and above all do not ' +
+                     'tear it down.**')
     }
 
     # Two mechanical facts this round's instructions got wrong against the real tool, both of which
@@ -6786,6 +6844,14 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text $script:RouteHold -Where 'the decree mechanical facts' `
             -Phrase ('it prints `ok: hold <key> -> held (<kind>)`, never `already: true`, and it ' +
                      'overwrites both `hold_reason` and `hold_kind` with whatever the replay passed')
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree mechanical facts' `
+            -Phrase ('passing nothing passes nothing, so an omitted `--kind` writes `-` over ' +
+                     '`captain` rather than leaving it where it was')
+        # muster's copy of the leave-it-alone rule has to name the kind too, or a re-run that
+        # dutifully restores the reason still erases the marking that routes it to the King.
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('pass back both the reason and the `--kind` it already carries rather than a ' +
+                     'new reason and no kind')
         # The claim that was wrong, asserted as an absence in both files that leaned on it.
         foreach ($text in @($script:RouteHold, $script:RouteStep6)) {
             $text.Contains('`add` and `hold` are idempotent') |
@@ -6888,8 +6954,18 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase '| repair a reason that does not say which of the two open holds it is |'
         Assert-Phrase -Text $script:RouteHold -Where 'the decree lifecycle table' `
             -Phrase ('re-running `hold` under the same key rewrites the reason in place without ' +
-                     'opening a second hold or moving anything else, which is why this is a ' +
-                     'repair and not something to run by habit')
+                     'opening a second hold, which is why this is a repair and not something to ' +
+                     'run by habit')
+        # Verified against the real tool: an omitted --kind writes `-` over `captain`, so the row
+        # has to carry the kind or the repair silently drops the decision off King's Call.
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree lifecycle table' `
+            -Phrase '**The `--kind` is not optional on this row.**'
+        Assert-Phrase -Text $script:RouteHold -Where 'the decree lifecycle table' `
+            -Phrase ('An omitted one is not left alone: it is cleared to `-`, and the hold stops ' +
+                     'being a captain hold, which drops the decision out of King''s Call and out ' +
+                     'of the open-hold lookup that recovers an orphaned registration')
+        $script:RouteHold.Contains('without opening a second hold or moving anything else') |
+            Should -BeFalse -Because 'the replay does move something else, and the row said it did not'
     }
 
     # The repair row gives the command but a Hand has to know which of the two it is before it can
