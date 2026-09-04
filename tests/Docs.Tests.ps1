@@ -1280,15 +1280,17 @@ Describe 'intake resolves the project and refuses to read a diagnosis as authori
                      'exercise that is not expected to change it.')
     }
 
-    It 'points at the project''s own memory file rather than restating its contents' {
-        # Deliberately not a path. Naming one machine's project directory here is what made this
-        # file unusable by anyone else, and the rule it carries - conventions belong to the
-        # project, and are read rather than reconstructed - is what actually has to survive.
+    It 'points at the project''s own rules file rather than restating its contents' {
+        # The rule that has to survive is that conventions belong to the project and are read
+        # rather than reconstructed. What changed is only where they are read from: they have a
+        # named home now, so the Hand can open one rather than hunt for a memory file.
         $s = Get-HandSection 'Intake judgement'
         Assert-Phrase -Text $s -Where 'CLAUDE.md intake' `
             -Phrase ("Per-project conventions - a project's shorthand, its tagging, the vocabulary " +
-                     'its tickets use - live in that project''s own memory file, not here and not ' +
+                     'its tickets use - live in `data\rules-<project>.md`, not here and not ' +
                      'in the registry.')
+        Assert-Phrase -Text $s -Where 'CLAUDE.md intake' `
+            -Phrase '**read it before writing a brief or creating a work item**'
         Assert-Phrase -Text $s -Where 'CLAUDE.md intake' `
             -Phrase 'copy tag casing rather than reconstructing it'
     }
@@ -2174,7 +2176,23 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
                      '`king.md`, `learnings.md`, `corrections.md`, `memory-archive.md`, ' +
                      '`done-archive.md`, `projects.md` and `index.md`')
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
-            -Phrase ('and neither is any other name already in use for something else under `data\`')
+            -Phrase ('and neither is `done-<project>.md` or `rules-<project>.md` for any registered ' +
+                     'project, nor any other name already in use for something else under `data\`')
+    }
+
+    # The two per-project standing files are the King's word for that project, delivered to every
+    # worker dispatched into it. A curation pass that treated one as a decaying entry would
+    # eventually delete a standing instruction he set once and expected to hold for a year, and
+    # would do it in a pass nobody was watching.
+    It 'the per-project standing files are outside the budget and outside the sweep' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'chronicle' `
+            -Phrase ('**`data\rules-<project>.md` and `data\done-<project>.md` are outside this ' +
+                     'budget and outside this sweep, and this pass never edits, decays, archives, ' +
+                     'consolidates or offloads a line of either.**')
+        Assert-Phrase -Text $script:ChronicleText -Where 'chronicle' `
+            -Phrase 'they stand until he changes or removes them'
+        Assert-Phrase -Text $script:ChronicleText -Where 'chronicle' `
+            -Phrase 'Neither is measured against the startup budget, because neither is loaded'
     }
 
     # Two rules for a taken path in one paragraph, in the wrong order, sent a second pass on the same
@@ -2951,16 +2969,49 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     # The refusals are what a caller plans around, so their count and their subjects are pinned.
     # Each one knows its path exactly because the caller handed it over - that is what separates
     # this list from the parsed cross-check it replaced.
-    It 'muster states the five refusals dispatch still makes' {
+    It 'muster states the nine refusals dispatch still makes' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase ('There are five, and each is refused by name: a brief with no ' +
+            -Phrase ('There are nine, and each is refused by name: a brief with no ' +
                      '`## Read first` section at all, a brief that passes no `-ReadPath` and does ' +
-                     'not say the index was checked when anything at all is indexed - and the ' +
-                     'standing-criteria file does not count towards that one, per Step 2, which ' +
-                     'owns the rule - a path that does not exist, a directory where a file was ' +
-                     'meant, and two different files whose names would land on top of each other ' +
-                     'in the staging directory.')
+                     'not say the index was checked when anything at all is indexed - and neither ' +
+                     "the project's own standing files nor the browser procedure counts towards " +
+                     'that one, per Step 2, which owns the rule - a brief carrying a ' +
+                     '`## Browser checks` section that passes no `-ReadPath` for the browser ' +
+                     'procedure or for the module it imports, a path that does not exist, a ' +
+                     'directory where a file was meant, two different files whose names would ' +
+                     'land on top of each other in the staging directory, a standing file that ' +
+                     'exists and cannot be opened, a directory sitting where a standing file ' +
+                     'belongs, and a brief that cannot be opened for writing to be told what was ' +
+                     'attached to it.')
+    }
+
+    # The whole requirement, in the artefact the Hand reads at the moment it dispatches: the two
+    # per-project files arrive whether or not anyone remembered them, and the brief ends up naming
+    # each copy. Delivery by memory has already shipped a website without its settled brand.
+    It 'muster says dispatch attaches the standing files and names them itself' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ("**Dispatch attaches the project's own standing files itself and writes their " +
+                     '`Read first` lines.**')
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'It writes no line for a file you passed yourself'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'A project with neither file dispatches exactly as it did before either existed.'
+    }
+
+    # The rules file is reference, not a checklist, and the distinction is the reason it is a second
+    # file rather than more lines in the first. A worker answering n/a to "our tickets are tagged
+    # NG-" dilutes the self-check on the lines that are really tested.
+    It 'muster keeps the rules file out of the paste and out of -ReadPath' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase '**The project''s standing rules are not pasted and not passed.**'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase 'pass no `-ReadPath` for it and write no line for it'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase 'never ask the worker to report against it'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase '**Read it yourself before you write the brief**'
     }
 
     # A single quoted placeholder is filled in with two paths in one string, which names no file
@@ -3075,6 +3126,11 @@ Describe 'no long dash' {
         @{ file = 'docs\2026-09-02-prompt-box-safety.md' }
         @{ file = '.claude\skills\update\SKILL.md' }
         @{ file = 'docs\2026-09-03-versioning-and-update.md' }
+        @{ file = '.claude\skills\counsel\SKILL.md' }
+        @{ file = 'docs\2026-09-04-story-analysis-split.md' }
+        @{ file = '.claude\skills\witness\SKILL.md' }
+        @{ file = 'docs\2026-09-03-browser-verification.md' }
+        @{ file = 'docs\2026-09-04-worker-environment-propagation.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
@@ -3391,7 +3447,7 @@ Describe 'survey puts an open decision in King''s Call and only there' {
 }
 
 Describe 'the setup skill ships inside the repo so a fresh clone can bootstrap itself' {
-    # Every skill is project-local, under .claude\skills\, so all fourteen are readable the moment
+    # Every skill is project-local, under .claude\skills\, so all sixteen are readable the moment
     # someone opens Claude Code in this directory and none of them is reachable from anywhere
     # else on the machine. That is what lets "set it up" be the first thing anyone types.
     BeforeAll { $script:SetupText = Get-DocText $script:SetupMd }
@@ -3792,7 +3848,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
 
     It 'every skill directory lives under .claude\skills\' {
         $skills = @(Get-ChildItem (Join-Path $script:Root '.claude\skills') -Directory)
-        $skills.Count | Should -Be 14 -Because 'thirteen skills plus setup, all project-local'
+        $skills.Count | Should -Be 16 -Because 'fifteen skills plus setup, all project-local'
         @($skills.Name) | Should -Contain 'herald' -Because 'output shape has an owner the user can turn on'
         foreach ($s in $skills) {
             Test-Path -LiteralPath (Join-Path $s.FullName 'SKILL.md') |
@@ -4328,12 +4384,12 @@ Describe 'a project has a standing definition of done, and repeated findings are
     # dispatcher's index gate refuses only when no path was passed - so counting it would open that
     # gate permanently for exactly the projects furthest along. Dispatch-Worker.Tests.ps1 owns the
     # enforcement; this pins that the Hand is told the same thing the code does.
-    It 'the criteria file is said not to discharge the index obligation' {
+    It 'the standing files are said not to discharge the index obligation' {
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
-            -Phrase '**The standing-criteria file below does not discharge this.**'
+            -Phrase '**The project''s own two standing files do not discharge this.**'
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
-            -Phrase ('dispatch knows it, discounting `done-<project>.md` from the paths that ' +
-                     'satisfy this refusal')
+            -Phrase ('dispatch knows it, discounting `done-<project>.md` and `rules-<project>.md` ' +
+                     'from the paths that satisfy this refusal')
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
             -Phrase ('Where it is the only file this task touches, a line about the index still ' +
                      'goes in the section beside it')
@@ -4954,7 +5010,7 @@ Describe 'the installation has a version, and one command moves it to a release'
 
     It 'counts every skill that now loads' {
         Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'CLAUDE.md Skills' `
-            -Phrase 'so all fourteen load when Claude Code runs here'
+            -Phrase 'so all sixteen load when Claude Code runs here'
     }
 
     It 'gives the version and the update their own owners in the tooling table' {
@@ -5100,5 +5156,658 @@ Describe 'the installation has a version, and one command moves it to a release'
         Assert-Phrase -Text $script:VersionDoc -Where 'the versioning record' `
             -Phrase ('nothing may convert "cannot tell whether a worker is live" into "no workers are ' +
                      'live"')
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# Story analysis. The King asked for a breakdown skill after kingshand's own audit had already
+# concluded that an external brainstorming skill was not for us, for three independent reasons -
+# one of them structural, because a worker cannot address the user and so cannot hold a dialogue
+# at all. The resolution is a split: the dialogue is the Hand's, the reading is a worker's, and
+# the skill is user-invoked only so the Intake rule against volunteering a design exercise keeps
+# its force. Every line of that is prose, and prose is what nothing else in this suite would miss.
+# ---------------------------------------------------------------------------------------------
+Describe 'counsel splits the dialogue from the reading, and only the King starts it' {
+    BeforeAll {
+        $script:CounselMd   = Join-Path $script:Root '.claude\skills\counsel\SKILL.md'
+        $script:CounselText = Get-DocText $script:CounselMd
+        $script:CounselDoc  = Get-DocText (Join-Path $script:Root 'docs\2026-09-04-story-analysis-split.md')
+    }
+
+    It 'exists as a project-local skill with frontmatter that parses' {
+        Test-Path -LiteralPath $script:CounselMd |
+            Should -BeTrue -Because 'a skill nothing can load is not a skill'
+        $fm = Get-Frontmatter $script:CounselMd
+        $fm['name']    | Should -Be 'counsel' -Because 'the frontmatter name must match the skill directory'
+        $fm['version'] | Should -Be '1.0.0'
+    }
+
+    # The whole resolution of the audit's rejection rests on this pair: the King may ask, the Hand
+    # may not offer. The guard is the written rule, and the mechanical version of it was rejected
+    # because it takes the skill out of the Hand's listing altogether, so both halves are pinned.
+    It 'is user-invoked only, in frontmatter as well as in prose' {
+        $fm = Get-Frontmatter $script:CounselMd
+        $fm.ContainsKey('disable-model-invocation') |
+            Should -BeFalse -Because 'that key would kill the situational triggers statute requires a description to fire on'
+        $fm['user-invocable'] |
+            Should -Be 'true' -Because 'the King is the only way in, so his way in must stay open'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**The guard is a rule, not a mechanism.** The Hand loads this skill only when the ' +
+                     'King asks for it, and never beside an answer that is already good enough. The ' +
+                     'mechanical alternative was tried and rejected: `disable-model-invocation: true` ' +
+                     'removes the skill from the Hand''s own listing entirely, so the Hand could not act ' +
+                     'on the King''s request in his own words, and every situational trigger in the ' +
+                     'description above would be dead.')
+    }
+
+    It 'the description fires on the situation and on <trigger>' -ForEach @(
+        @{ trigger = '"/counsel"' }
+        @{ trigger = '"break this story down"' }
+        @{ trigger = '"brainstorm this with me"' }
+        @{ trigger = '"where do these stories overlap"' }
+    ) {
+        $description = (Get-Frontmatter $script:CounselMd)['description']
+        $description.Contains($trigger) |
+            Should -BeTrue -Because "a skill reached only by its own name is reached by nobody, so $trigger must fire it"
+    }
+
+    It 'names the contradiction it resolves rather than routing around it' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**That is a resolution of a contradiction, not an oversight, and it is written ' +
+                     'down here so nobody quietly reverses it.**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'concluded **not for us**, for three independent reasons'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'workers never address the user, so that dialogue cannot happen inside a dispatch at all'
+    }
+
+    It 'resolves the Intake rule by who may ask, without weakening it' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase '**the Intake rule binds what the Hand offers, never what the King may ask for.**'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('The Hand does not volunteer an analysis beside an answer that is already good ' +
+                     'enough, and does not run one to look thorough.')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase '**An analysis authorises nothing.**'
+    }
+
+    # Hard rule 1 is the one this skill is most exposed to: the reading half is exactly the work a
+    # busy Hand would do itself in one file open.
+    It 'gives the dialogue to the Hand and the reading to a worker, at every step' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('| Narrowing the problem, asking what is ambiguous, agreeing the division | the ' +
+                     'Hand, with the King | A worker never addresses the user, so it can ask him ' +
+                     'nothing |')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('| Opening the stories, the tickets and the code, finding what overlaps | a ' +
+                     'worker | Hard rule 1: the Hand routes, and never reads a project''s source |')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**A pass that has the Hand open the repository to see how the stories divide has ' +
+                     'broken it**')
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase '**The dialogue belongs to the Hand**, because only the Hand can reach the King.'
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase '**The reading belongs to a worker**, because it is a project''s own material.'
+    }
+
+    # The skill ships to strangers. One reader's layers are front end, back end and database; the
+    # next reader's are not, and a set written into the skill would be invisibly wrong for them.
+    It 'treats the layer set as a per-project fact and never as a constant' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**Which layers this project divides into.** This is a per-project fact and never ' +
+                     'a constant.')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('This skill ships to strangers, so it carries no project''s layer set, no product ' +
+                     'name and no real story as an example.')
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase '**No hardcoded layer set.**'
+    }
+
+    # Fail closed: an unstated layer set reads as unstated. Filling it in from another project is
+    # the failure that produces several wrong tasks with a tidy shape and no visible cause.
+    It 'stops on an unstated layer set rather than guessing one' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**Where the project states no layer set and the King is not there to answer, say ' +
+                     'the layer set is unstated and stop. Never fill it in from another project, and ' +
+                     'never let a guessed set reach a brief.**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('A decomposition divided along layers this project does not have is several wrong ' +
+                     'tasks wearing a tidy shape.')
+    }
+
+    # Seventeen stories pasted into one session exhausted the window. Worker isolation alone does
+    # not fix it, and one worker per story cannot see an overlap at all, so the map's shape and its
+    # size contract are the load-bearing parts.
+    It 'reads a whole story set in one worker and returns a short map' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**Worker isolation alone does not fix it**, because somebody still has to hold ' +
+                     'all seventeen at once to see an overlap at all.')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**The shape that works, and the one to use every time: one worker reads the whole ' +
+                     'set in its own full window and writes back a short map. The Hand reads the map ' +
+                     'and never the stories.**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'The map is short by contract, because a map as long as the stories has solved nothing'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'The overlap question is a whole-set question, so it is one worker.'
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase ('**What a future change must not undo:** the map''s size contract, and the rule ' +
+                     'that the Hand reads the map rather than the stories.')
+    }
+
+    It 'makes exactness checkable rather than asserted' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase '**A wrong decomposition is expensive in a way a slow one is not.**'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**The requirement ledger** - every requirement the worker read, each one marked ' +
+                     'as covered by a named task, judged ambiguous, or assumed with the assumption ' +
+                     'written out.')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'A requirement missing from the ledger is a requirement nobody read'
+    }
+
+    It 'sends an unsettled ambiguity to the decision owner instead of settling it' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('An ambiguity the analysis could not settle and the King has to is a decision, and ' +
+                     '`decree` owns what happens to it.')
+    }
+
+    It 'keeps brainstorming inside this skill rather than making a second one' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('two skills with overlapping descriptions means the wrong one loads, which ' +
+                     '`statute`''s trigger hygiene owns')
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase '**No second skill for brainstorming.**'
+    }
+
+    # The audit's one genuinely missing piece, and the one this skill refuses. A test that must
+    # fire when the King asks for implementation work cannot live in a skill loaded only when he
+    # asks for an analysis, and hard rule 1 stops the Hand evaluating one of its conditions at all.
+    It 'disclaims the trigger for settling a shape first and names its home' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**This skill deliberately does not own that trigger. Its home is `muster` Step 1 ' +
+                     'intake**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('The test has to fire when the King asks for implementation work, which is a ' +
+                     'situation this skill is never loaded for')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('whether a story can be divided without reading code nobody has read yet, is ' +
+                     'something hard rule 1 forbids the Hand from checking')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('`inquest` owns the diagnosis procedure, and `CLAUDE.md` already says a diagnosis ' +
+                     'is evidence rather than authorization')
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase ('**This task decided the trigger does not belong in `counsel`. Its home is `muster` ' +
+                     'Step 1 intake**')
+    }
+
+    # Roughly 22 review rounds across three tasks went into hand-written parsers of open-ended
+    # formats here. A story is prose, so this is the one hazard this skill could not be allowed to
+    # walk into.
+    It 'builds no story parser' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**Nothing in this skill extracts structure from story text with a regex, a line ' +
+                     'scan or a hand-written parser.**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'A parser for prose has no round after which it is finished'
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase '**No story parser.**'
+    }
+
+    It 'assumes no ticket system, and keeps hard rule 3 over whatever it reaches' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase '**A ticket system is not assumed.**'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'Azure DevOps is an optional integration and absent by default'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('nothing landing in a ticket, a commit message or a pull request names an agent or ' +
+                     'its tooling')
+    }
+
+    # Instructions that read as contradictions of the skill's own guards unless they are ranked:
+    # the ordering trigger looks like the Hand volunteering an analysis, posture looks like warrant
+    # to start one, and the read-only scope sits in the same brief as a Done-means block that opens
+    # by requiring a commit. Each pair needs a stated winner, not a stated resolution.
+    It 'ranks its authority rules and names which brief line wins' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**A counsel pass needs the King, whatever the posture.** The Hand never starts one ' +
+                     'on its own authority, and `+yolo` does not authorise one')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**An ordinary dispatch is `muster`''s to gate, unchanged.**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**That is about the dispatch decision and nothing else** - this skill neither ' +
+                     'widens nor narrows that gate, and it says nothing about how the dispatch ends.')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase '**Wherever both could be read to apply, rule 1 wins.**'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**Close-out is the one place this skill does narrow, deliberately, and the ' +
+                     'close-out section below says how and why.**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**Then say in one line which instruction wins: where the read-only scope and the ' +
+                     'pasted Done-means block disagree, the read-only scope wins - over committing on ' +
+                     'the branch, running the review gate, pushing, opening a pull request and merging ' +
+                     'alike.**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('An analysis that comes back with a commit, a pushed branch or a pull request has ' +
+                     'exceeded its brief.')
+    }
+
+    # muster's lifecycle assumes work that lands or pushes, and this dispatch makes no commits at
+    # all. An earlier attempt to specify the missing close-out here made counsel a second owner of
+    # the lifecycle, and every patch to it exposed the next assumption muster makes. So the rule is
+    # that counsel names the gap and refuses to work around it.
+    It 'names the read-only close-out gap instead of inventing a lifecycle for it' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**this skill does not invent a parallel lifecycle**, because `muster` owns the ' +
+                     'lifecycle and a second owner of it drifts the moment either file is edited')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('**do not set a stage `muster` does not define, do not tear the worker down on this ' +
+                     'skill''s authority, and do not skip `muster`''s base-ref verification in order to ' +
+                     'justify one.**')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('Closing this properly needs three things `muster` does not have yet: a Done-means ' +
+                     'block for a dispatch that produces no commits, a terminal stage for one, and a ' +
+                     'teardown rule keyed on the deliverable living outside the worktree')
+        Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
+            -Phrase '## The read-only close-out is deliberately left open'
+    }
+
+    It 'renders the decomposition and dispatches nothing by having read it' {
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase '**Nothing is dispatched by having been read.**'
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase 'An accepted decomposition is a queue, not a licence.'
+    }
+
+    It 'declares its trigger inline in CLAUDE.md, with the rule that nothing volunteers it' {
+        $skills = Get-HandSection 'Skills'
+        Assert-Phrase -Text $skills -Where 'CLAUDE.md Skills' `
+            -Phrase ('Invoke `counsel` when the King asks for a story, a feature or a pile of stories ' +
+                     'to be broken down, analysed or brainstormed before anything is built.')
+        Assert-Phrase -Text $skills -Where 'CLAUDE.md Skills' `
+            -Phrase '**Never launch it unprompted**'
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# Browser verification is opt-in, fails closed, and records what it saw.
+#
+# The failure this guards against is not a browser bug. It is a change that was never exercised
+# coming back reading like one that was - so the rules that must survive are the ones that refuse
+# a pass: no section means no browser step, an absent server means verification did not happen,
+# and a check that could not be answered is reported rather than skipped.
+#
+# docs\2026-09-03-browser-verification.md owns why each of these is shaped the way it is.
+# ---------------------------------------------------------------------------------------------
+Describe 'witness keeps the rules that stop an unexercised change reading as a pass' {
+    BeforeAll {
+        $script:WitnessMd   = Join-Path $script:Root '.claude\skills\witness\SKILL.md'
+        $script:WitnessText = Get-DocText $script:WitnessMd
+        $script:BrowserDoc  = Get-DocText (Join-Path $script:Root 'docs\2026-09-03-browser-verification.md')
+    }
+
+    It 'has frontmatter that parses, with the situation in the description' {
+        $fm = Get-Frontmatter $script:WitnessMd
+        $fm['name']    | Should -Be 'witness' -Because 'the frontmatter name must match the skill directory'
+        $fm['version'] | Should -Be '1.0.0'
+        $fm['description'].Length |
+            Should -BeGreaterThan 40 -Because 'the description is the trigger, and it must name the situation'
+        $fm['description'].Contains('`## Browser checks` section') |
+            Should -BeTrue -Because 'a reference skill is reached by recognising its situation, not by name'
+    }
+
+    # The opt-in. A browser step nobody asked for is cost with no answer attached, and the only
+    # thing standing between that and every dispatch is this sentence.
+    It 'gives no browser step to a brief that did not ask for one' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**A brief with no `## Browser checks` section gets no browser step.**'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'That section is the only input this procedure takes'
+        Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'the CLAUDE.md Skills section' `
+            -Phrase 'A brief with no such section gets no browser step at all.'
+    }
+
+    It 'is named inline as a reference procedure with its own load trigger' {
+        $skills = Get-HandSection 'Skills'
+        Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
+            -Phrase '`witness` - load before writing a `## Browser checks` section into a brief'
+        Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
+            -Phrase 'Six more are reference procedures'
+    }
+
+    # A skill nothing delivers is a skill nobody follows, and naming one delivers nothing: skills
+    # live in this repository and a worker runs in the target project's worktree. So the procedure
+    # travels as a file, through the same Read-first copy every other settled file uses, and the
+    # slot naming it sits above `## Done means`, which is the line the worker delivers on.
+    It 'reaches the worker as a file, because a skill does not travel to another repo' {
+        Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'the CLAUDE.md Skills section' `
+            -Phrase ('hand the worker the file itself under `Read first` rather than naming the ' +
+                     'skill: skills exist in this repository only')
+
+        $musterMd = Join-Path $script:Root '.claude\skills\muster\SKILL.md'
+        $template = @(Get-CodeFence $musterMd |
+            Where-Object { $_.Contains('## Goal') -and $_.Contains('## Done means') })
+        $template.Count | Should -Be 1 -Because 'the brief template is one fence'
+        $t = $template[0]
+        $t.Contains('## Browser checks') |
+            Should -BeTrue -Because 'the browser step needs a slot in the artefact the worker reads'
+        $t.Contains('read-first\SKILL.md') |
+            Should -BeTrue -Because 'the worker is pointed at the copy it can actually open'
+        $t.Contains('read-first\BrowserVerify.psm1') |
+            Should -BeTrue -Because 'the module travels the same way, into the one place it reaches'
+        $t | Should -Not -Match 'read-first\\SKILL\.md[\s\S]*?\\bin\\BrowserVerify\.psm1' `
+            -Because 'the installation''s own bin\ is not a place a worker can reach'
+        $t.IndexOf('## Browser checks') | Should -BeLessThan $t.IndexOf('## Done means')
+
+        # Both paths in that slot, not just the module one. A worker inherits a server environment
+        # that predates the variable, so either path written against it names no file at all.
+        $slot = $t.Substring($t.IndexOf('## Browser checks'))
+        $slot = $slot.Substring(0, $slot.IndexOf("`n## "))
+        $slot | Should -Not -Match '\$env:KINGSHAND_HOME' -Because 'a worker cannot expand it'
+
+        # Every other section of the template stays in every brief. This one arriving by accident
+        # is a browser step on a migration, so the fence itself has to say to delete it.
+        $t.Contains('## Browser checks  <- delete this whole section unless the task renders something to look at') |
+            Should -BeTrue -Because 'the only optional section needs the marker inside the fence'
+    }
+
+    # A record nobody reads back is an assertion again. The worker writes the verdict, and these
+    # are the two places on the Hand's side that have to act on it - otherwise a change that was
+    # never exercised lands looking exactly like one that was.
+    It 'reads the verdict back before the work is called done or landed' {
+        $step6 = Get-MusterStep 'Step 6 - Completion'
+        Assert-Phrase -Text $step6 -Where 'muster Step 6' `
+            -Phrase '**A brief that asked for browser checks needs a report that answers them.**'
+        Assert-Phrase -Text $step6 -Where 'muster Step 6' `
+            -Phrase ('A report without one is the same failure as a missing report and gets the ' +
+                     'same treatment')
+        Assert-Phrase -Text $step6 -Where 'muster Step 6' `
+            -Phrase '**Read the verdict on that block and relay it as a finding.**'
+
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate floors' `
+            -Phrase ('Never land a browser verdict that is not `verified`. A brief that asked for ' +
+                     'browser checks and came back `failed`, `not verified` or with no ' +
+                     '`## Browser verification` block at all goes to the user, on any posture.')
+    }
+
+    # Both ways: no section on a task that renders nothing, and no bare list of things to look at
+    # on a task that does.
+    It 'keeps the section out of every brief that does not need one' {
+        $step2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' -ToHeading 'Step 3 - Gate one'
+        Assert-Phrase -Text $step2 -Where 'muster Step 2' `
+            -Phrase '**`Browser checks` is the one optional section, and it is optional both ways.**'
+        Assert-Phrase -Text $step2 -Where 'muster Step 2' `
+            -Phrase ('**hand the worker the two files the step runs on rather than their names**')
+        Assert-Phrase -Text $step2 -Where 'muster Step 2' `
+            -Phrase '**Those copies do not discharge the index line.**'
+    }
+
+
+    # The server disconnected twice inside one conversation, so this path runs often. An absent
+    # browser has exactly one honest outcome and it is not a quiet one.
+    It 'treats an absent browser as verification that did not happen' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**When `$tools.available` is false, stop and write the record.**'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'the change was not exercised in a browser'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**Never let that read as a pass**'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'never soften it to "verified by inspection"'
+    }
+
+    It 'loads the browser tools in one call, and asks for every tool it then requires' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'load them in **one** call rather than one call per tool'
+
+        # The fence is what a reader copies. A skill that tells you to load a narrower set than
+        # its own availability check demands would fail closed on every run, for ever.
+        Import-Module (Join-Path $script:Root 'bin\BrowserVerify.psm1') -Force
+        $fence = @(Get-CodeFence $script:WitnessMd |
+                       Where-Object { $_.Contains('select:mcp__claude-in-chrome__') })
+        $fence.Count | Should -Be 1 -Because 'one batched load, stated once'
+        foreach ($tool in (Get-BrowserRequiredTools)) {
+            $fence[0].Contains($tool) |
+                Should -BeTrue -Because "the batched load must include $tool, which the check requires"
+        }
+    }
+
+    # The King's standing rule is that nothing changes on a server without his word. A
+    # verification step is not an exemption from it.
+    It 'stays read-only unless the brief authorised the action by name' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**Anything that changes state on a server is different, and the brief has to authorise it.**'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'the check is recorded `not checked` with the reason, and you move on'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**Do not ask** - there is nobody attached to a background worker'
+    }
+
+    It 'defers to the queued confirmation posture instead of growing a second one' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**Do not build a second confirmation path here**'
+    }
+
+    # One stray confirm costs the whole run, and nobody is there to dismiss it.
+    It 'forbids opening a dialog, and says what to do instead' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**there is nobody attached to a background worker**'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'Do not click a control that is guarded by a confirmation'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'log it and read it back with `read_console_messages`'
+    }
+
+    # A worker inherits its parent's environment at creation, so a login set today is invisible
+    # to it. A bare $env: read is the failure, and it looks exactly like a wrong password.
+    It 'reads a login from the environment and never writes it down' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase ('**No credential is ever written into this skill, a brief, a report or any ' +
+                     'file under `data\`.**')
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**Never fall back to a bare `$env:NAME` read**'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'the silent failure looks exactly like a wrong password'
+
+        # The worked example must not do the thing the rule beside it forbids: an unassigned call
+        # prints the login into a pane whose scrollback the Hand reads.
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**Be honest about what that costs.**'
+        $fences = @(Get-CodeFence $script:WitnessMd |
+                        Where-Object { $_.Contains('Get-BrowserCredentialValue') })
+        $fences.Count | Should -Be 1
+        $fences[0] | Should -Match '\$\w+\s*=\s*Get-BrowserCredentialValue' `
+            -Because 'the example assigns the login rather than echoing it'
+    }
+
+    # The headline requirement: a record of what was seen, per check, with nothing dropped.
+    It 'gives every check one of three outcomes and skips none of them' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**an item that could not be checked is reported, never skipped**'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase ('**`verified`** with what was observed, **`failed`** with what was observed ' +
+                     'instead, **`not checked`** with the reason')
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'a pass with no evidence behind it is exactly what this replaces'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**Copy the check ids out of the brief before you start**'
+    }
+
+    # A record built at the end from what the worker remembers doing is how a check goes missing,
+    # and the ids the brief declared are the only thing that catches it. The skill's own snippet
+    # has to hand them over, and the function has to take them.
+    It 'answers on the checks the brief declared, not just the ones the worker reported' {
+        Import-Module (Join-Path $script:Root 'bin\BrowserVerify.psm1') -Force
+        (Get-Command Get-BrowserVerificationRecord).Parameters.ContainsKey('Declared') |
+            Should -BeTrue -Because 'the skill tells the worker to pass the declared ids'
+
+        $fence = @(Get-CodeFence $script:WitnessMd |
+                       Where-Object { $_.Contains('Get-BrowserVerificationRecord') })
+        $fence.Count | Should -BeGreaterThan 0
+        foreach ($f in $fence) {
+            $f.Contains('-Declared') |
+                Should -BeTrue -Because 'every call a worker copies has to carry what was asked for'
+        }
+    }
+
+    It 'keeps the evidence as text, in the one file that survives teardown' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase '**Screenshots and recordings are not evidence this produces**'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'write it into `report.md` under `## Browser verification`'
+    }
+
+    It 'says which worker drives the browser, and what that costs' {
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase ('**The worker making the change does, at the end of its own task, before it ' +
+                     'runs the review gate.**')
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'Not a second worker afterwards.'
+    }
+
+    It 'gives the module its own row in the tooling table' {
+        Assert-Phrase -Text (Get-HandSection 'Tooling') -Where 'the CLAUDE.md tooling table' `
+            -Phrase ('| `bin\BrowserVerify.psm1` | the three answers a browser check must not give ' +
+                     'from memory: whether the browser tools all loaded, where a login is set ' +
+                     'without ever writing it down, and what a run of checks verified, failed or ' +
+                     'could not check |')
+    }
+
+    It 'records why the opt-in is not a registry field, and what would change that' {
+        Assert-Phrase -Text $script:BrowserDoc -Where 'the browser verification record' `
+            -Phrase '## The opt-in lives in the brief, not the registry'
+        Assert-Phrase -Text $script:BrowserDoc -Where 'the browser verification record' `
+            -Phrase '**What would change this decision:**'
+    }
+
+    It 'records the measurement behind the credential rule' {
+        Assert-Phrase -Text $script:BrowserDoc -Where 'the browser verification record' `
+            -Phrase '**Do not replace that second read with a bare `$env:` lookup.**'
+        Assert-Phrase -Text $script:BrowserDoc -Where 'the browser verification record' `
+            -Phrase ('**an item that could not be checked is reported, never skipped.**')
+    }
+}
+
+# The per-project rules file, and the one rule that makes it worth having: it reaches a worker
+# mechanically. Delivery by memory has already failed once here - a settled brand spec sat in data\
+# naming itself the input to the website brief while the site shipped without its logo, favicon,
+# tagline or palette, because no brief named the file. A per-project file is that failure with a
+# shorter fuse, because it applies to every task in the project rather than one.
+Describe 'a project carries standing rules that reach every worker without being passed' {
+    BeforeAll {
+        $script:RulesOwn    = Get-HandSection 'What you own'
+        $script:RulesRoute  = Get-HandSection 'Knowledge routing'
+        $script:RulesAnnex  = Get-DocText $script:ImportMd
+    }
+
+    It 'CLAUDE.md names the file and says what it is for' {
+        Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
+            -Phrase ('`data\rules-<project>.md` - one project''s standing rules: conventions, ' +
+                     'vocabulary, ticket tagging and casing, folders never to touch, branch naming, ' +
+                     'environment facts, and where a login is kept.')
+        Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
+            -Phrase 'Not criteria and never self-reported against'
+        Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
+            -Phrase '`annex` owns its format and offers to create it at import.'
+    }
+
+    # The actual requirement. Everything else is supporting: a file the Hand has to remember to
+    # pass is a file that gets forgotten, and the forgetting is silent.
+    It 'CLAUDE.md says the dispatcher delivers both without being asked' {
+        Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
+            -Phrase ('**Both of those reach a worker mechanically. `bin\Dispatch-Worker.ps1` ' +
+                     'attaches whichever of the two exists to every brief for that project and ' +
+                     'names each copy under `Read first` itself,**')
+        Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
+            -Phrase 'so delivery never depends on your remembering to pass it'
+    }
+
+    # This repository is public, data\ being gitignored is one `git add -f` from a permanent leak,
+    # a read-first file is copied per dispatch and outlives every worker, and report.md is durable
+    # and indexed. Three concrete routes out, none hypothetical.
+    It 'a credential value is never written into either file' {
+        Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
+            -Phrase ('Never store a credential value in either one: name the environment variable ' +
+                     'or the credential-store entry that holds it, and nothing else.')
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase ('**A credential value is never written here, or in `done-<name>.md`. Name the ' +
+                     'pointer.**')
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase 'one `git add -f` away from a permanent, unwithdrawable leak'
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase 'duplicated once per worker and outlive every one of them'
+    }
+
+    # Measured rather than assumed, because the failure it would have caused is indistinguishable
+    # from a wrong password: a pointer to a variable no worker can see.
+    It 'the import skill records that a variable set today reaches a worker' {
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase ('Measured 2026-09-04 against a herdr server that had been up for over 24 ' +
+                     'hours: a variable created after the server started was visible to a shell ' +
+                     'the server spawned seconds later')
+    }
+
+    # A one-sentence result nobody can re-check is a belief. The note carries the method and the raw
+    # output, so a later session can run it again rather than take this on trust - and the skill
+    # points at it, because a note nothing references is a note nobody opens.
+    It 'the measurement behind that claim is recorded where it can be re-run' {
+        $note = Join-Path (Split-Path $PSScriptRoot -Parent) `
+                          'docs\2026-09-04-worker-environment-propagation.md'
+        Test-Path -LiteralPath $note | Should -BeTrue
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase 'docs\2026-09-04-worker-environment-propagation.md'
+
+        $text = Get-Content -LiteralPath $note -Raw
+        foreach ($required in @(
+            'PROBEVAL=[set-after-server-start-034115]',   # the raw output, not a paraphrase of it
+            '2026-09-02 22:56',                           # server start, against a 2026-09-04 test
+            'herdr workspace create',                     # the method, step by step
+            'herdr pane run',
+            'herdr pane read',
+            'Re-running it')) {
+            $text.Contains($required) | Should -BeTrue -Because "the note must record '$required'"
+        }
+    }
+
+    It 'the import skill offers the file at import and writes nothing when there is nothing to write' {
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase '**Ask, in one line, whether this project has standing rules a worker must know**'
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase 'If they name none, **write nothing**.'
+    }
+
+    # Rules and criteria are different things handled differently, and conflating them is what this
+    # file exists to undo: a worker recording n/a against "our tickets are tagged NG-" dilutes the
+    # self-check on the lines that are really tested.
+    It 'the import skill separates rules from criteria and says how to tell them apart' {
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase '**It holds rules and context, never criteria.**'
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase ('A criterion is something a worker can report `pass` or `fixed` against, and ' +
+                     'those belong in `data\done-<name>.md`')
+        Assert-Phrase -Text $script:RulesRoute -Where 'CLAUDE.md knowledge routing' `
+            -Phrase ('Test the two apart by asking whether a worker could report pass or fixed ' +
+                     'against it; where it could not, it is a rule and not a criterion.')
+    }
+
+    # The King asked for a year, and meant it. chronicle curates against a budget and archives what
+    # goes stale, so without this a curation pass eventually deletes a standing instruction.
+    It 'nothing expires the file' {
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase '**Nothing expires this file.**'
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase 'it stands until the King changes or removes it'
+        Assert-Phrase -Text $script:RulesRoute -Where 'CLAUDE.md knowledge routing' `
+            -Phrase ('Both are outside `chronicle`''s budget and its sweep, and nothing expires them.')
+    }
+
+    # The dispatcher writes to the brief now, and statute said in plain words that it never did.
+    It 'statute no longer claims the dispatcher never writes to a brief' {
+        $g = Get-DocText $script:GuidelinesMd
+        Assert-Phrase -Text $g -Where 'the statute skill' `
+            -Phrase ('it does add lines to a brief - one `Read first` line per standing file it ' +
+                     'attached for the resolved project')
+        $g.Contains('it never adds a line to a brief') |
+            Should -BeFalse -Because 'the dispatcher does add lines to a brief now'
     }
 }

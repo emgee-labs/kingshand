@@ -238,12 +238,14 @@ failure this whole mechanism exists to stop - a settled spec that sat in `data\`
 site it described shipped without it. Reading the index is the first line of this step for exactly
 that reason; the refusal is what stops a busy session skipping it.
 
-**The standing-criteria file below does not discharge this.** It goes to `-ReadPath` on every brief
-for a project that has one, so a gate that counted it would be one no dispatch could ever fail
-again - and dispatch knows it, discounting `done-<project>.md` from the paths that satisfy this
-refusal. Where it is the only file this task touches, a line about the index still goes in the
-section beside it - but not the literal one above, which would tell the worker there is nothing
-beyond the brief in the same breath as handing it a file to read. Write what is true instead:
+**The project's own two standing files do not discharge this.** The criteria file goes to
+`-ReadPath` on every brief for a project that has one, and dispatch attaches both it and
+`data\rules-<project>.md` whether or not anyone passes them, so a gate that counted either would be
+one no dispatch could ever fail again - and dispatch knows it, discounting `done-<project>.md` and
+`rules-<project>.md` from the paths that satisfy this refusal. Where it is the only file this task
+touches, a line about the index still goes in the section beside it - but not the literal one
+above, which would tell the worker there is nothing beyond the brief in the same breath as handing
+it a file to read. Write what is true instead:
 
 ```markdown
 - The index was checked; nothing in it applies to this task beyond the standing criteria above.
@@ -303,6 +305,46 @@ is expected to meet. Where a criterion is one this task deliberately sets aside,
 `Requirements` or `Unchanged` and in the `Intent` section the gate is handed - the brief wins over
 the file, and a worker left to work out which source wins picks wrong half the time.
 
+**The project's standing rules are not pasted and not passed.** `data\rules-<project>.md` holds
+context and vocabulary - tagging and casing, shorthand, folders never to touch, branch naming,
+where a login is kept - and `annex` owns its format. Dispatch attaches it by itself and writes the
+`Read first` line naming the copy, so pass no `-ReadPath` for it and write no line for it. Do not
+paste it into the brief and never ask the worker to report against it: it is reference, and an
+`n/a` answered to "our tickets are tagged NG-" dilutes the self-check on the lines that are really
+tested. **Read it yourself before you write the brief** - the copy goes to the worker, and the
+ticket text is yours.
+
+Dispatch attaches `done-<project>.md` on the same terms if you did not pass it, which is a backstop
+and not a reason to stop passing it: the paste above is what the worker is judged against, and it
+is still yours to write.
+
+**`Browser checks` is the one optional section, and it is optional both ways.** Leave it out
+entirely unless this task changes something a browser renders and you can state what to look at -
+most tasks change nothing of the kind, and a browser step nobody asked for is cost with no answer
+attached. Where you do write it, load `witness` first, and then **hand the worker the two files the
+step runs on rather than their names**: pass both
+`$env:KINGSHAND_HOME\.claude\skills\witness\SKILL.md` and
+`$env:KINGSHAND_HOME\bin\BrowserVerify.psm1` to `-ReadPath` at Step 4 and name both copies under
+`Read first`, exactly as you would any other settled file. Naming them where they live is not
+delivery - a worker reaches its own worktree and the brief's directory and nowhere else, and it
+cannot load one of kingshand's skills at all - so a list of things to look at pointing at files
+outside both sends it into a browser without the read-only boundary, the credential rule or the
+record every check has to end up in, and the change comes back asserted, which is the one outcome
+the section exists to prevent. Write both paths in that section resolved, the same way the report
+path is: `$env:KINGSHAND_HOME` is often unset in a worker's session, so either path written
+against it names no file at all, and the browser step dies on the first line of the procedure it
+never read.
+
+**Those copies do not discharge the index line.** Dispatch discounts them exactly as it discounts
+the standing-criteria file, and for the same reason - every brief carrying browser checks passes
+them, so they are evidence of nothing about this task. It also refuses the dispatch outright where
+the section is there and either file was not passed, before anything is created, because a section
+pointing at a copy that does not exist is the delivery failure this whole route was built to end. It is the one section in the template carrying a delete marker for that reason: every
+other section stays in every brief, and this one arriving by accident is a browser step on a
+migration. Give each line an id - `C-001`, `C-002` - because the worker copies those ids out
+before it starts and the record answers on every one of them, which is what stops a check it never
+reached going missing.
+
 Write `$env:KINGSHAND_HOME\data\<id>\brief.md`:
 
 ```markdown
@@ -327,6 +369,15 @@ Do NOT touch: <explicit exclusions>
 
 ## Unchanged
 - <behaviour that must not change>
+
+## Browser checks  <- delete this whole section unless the task renders something to look at
+Read `<the resolved KINGSHAND_HOME>\data\<id>\read-first\SKILL.md` - the browser procedure, named
+under `Read first` above - in full before you touch a browser tool. It owns how the browser is driven,
+what you may not do to a live server, how a login is read, and the record each check below has to
+end up in: every one of them answered by its id in `report.md`, verified, failed or not checked.
+The module it tells you to import is beside it, at
+`<the resolved KINGSHAND_HOME>\data\<id>\read-first\BrowserVerify.psm1`.
+- C-001 <one thing to look at, stated as something observable in a browser>
 
 ## Standing criteria
 <the lines of `data\done-<project>.md`, pasted unchanged>
@@ -531,7 +582,10 @@ this, and do not try to pass it as a command-line argument: no arguments reach a
 - what was done;
 - what was decided and why, where a decision was not simply the brief;
 - anything the worker could not do, and why;
-- anything the next session would need in order to continue without asking.
+- anything the next session would need in order to continue without asking;
+- a `## Browser verification` block, where and only where this brief carries `## Browser checks`:
+  the verdict line, then every check id that section listed with what was seen. Step 6 reads it,
+  so a brief that asks for the checks asks for the block that answers them.
 
 Keep it short and tell the worker so. A report that runs to an essay is as much a failure as no
 report - the point is that a fresh session can pick the work up, not that the worker narrates.
@@ -683,11 +737,24 @@ brief already names, because that directory is the only place outside its worktr
 read. Drop the parameter only when the section states there is nothing to read.
 
 Every refusal comes before anything at all is created, so a mistake here costs nothing to fix.
-There are five, and each is refused by name: a brief with no `## Read first` section at all, a
+There are nine, and each is refused by name: a brief with no `## Read first` section at all, a
 brief that passes no `-ReadPath` and does not say the index was checked when anything at all is
-indexed - and the standing-criteria file does not count towards that one, per Step 2, which owns
-the rule - a path that does not exist, a directory where a file was meant, and two different files
-whose names would land on top of each other in the staging directory.
+indexed - and neither the project's own standing files nor the browser procedure counts towards
+that one, per Step 2, which owns the rule - a brief carrying a `## Browser checks` section that
+passes no `-ReadPath` for the browser procedure or for the module it imports, a path that does not
+exist, a directory where a file was meant, two different files whose names would land on top of
+each other in the staging directory, a standing file that exists and cannot be opened, a directory
+sitting where a standing file belongs, and a brief that cannot be opened for writing to be told
+what was attached to it.
+
+**Dispatch attaches the project's own standing files itself and writes their `Read first` lines.**
+`data\done-<project>.md` and `data\rules-<project>.md` are staged whenever they exist, keyed off
+the project the registry resolves from the repo path, and a line naming each copy goes in at the
+end of that section, below anything you wrote there. It writes no line for a file you passed
+yourself - that one you already named - and re-dispatching the same ticket adds nothing. Retire one
+of those files and re-dispatch the same ticket, and dispatch takes its own line back out and
+deletes the copy, so removing a standing file is enough to stop it reaching a worker. A project
+with neither file dispatches exactly as it did before either existed.
 
 **Dispatch does not read the paths out of the brief's prose, and nothing may make it start.** An
 earlier version did, comparing what it parsed there against `-ReadPath`, and it cost six review
@@ -953,6 +1020,17 @@ Get-Content "$env:KINGSHAND_HOME\data\<id>\report.md" -Raw
 say so to the user rather than quietly falling back - and treat everything else that worker
 claims with the same suspicion, since the one instruction you can check it against was ignored.
 
+**A brief that asked for browser checks needs a report that answers them.** Where you wrote a
+`## Browser checks` section into this brief, the report has to carry a `## Browser verification`
+block answering every check id that section listed. A report without one is the same failure as a
+missing report and gets the same treatment: say it to the user and do not advance the work on the
+worker's word. **Read the verdict on that block and relay it as a finding.** `failed` means the
+change is broken in a browser and `not verified` means part of it was never exercised - neither is
+a completion notice, both reach the user in this step whatever the project's posture, and only
+`verified` across every declared check is a browser step that passed. The whole capability exists
+so a change nobody exercised cannot read like one that was, and this is where that stops being
+true if nobody reads it.
+
 **Fold back what the standing criteria missed.** The worker's self-check block and the gate's
 round-one findings are two readings of the same change, so compare them. **That comparison needs a
 gate, and most projects have none.** On a `local-only` or `direct-PR` project - including a
@@ -1076,6 +1154,9 @@ PowerShell - it would skip this gate on every project and land work no one appro
 These floors hold regardless of posture and `+yolo` never relaxes them:
 
 - Never land red. A failing check is never routine.
+- Never land a browser verdict that is not `verified`. A brief that asked for browser checks and
+  came back `failed`, `not verified` or with no `## Browser verification` block at all goes to the
+  user, on any posture.
 - Never land work that materially expands the product or engineering contract beyond what the
   brief accepted. That goes back to the user.
 - Destructive, irreversible and security-sensitive actions always go to the user.
