@@ -98,6 +98,57 @@ BeforeAll {
     }
 }
 
+# regency's rule used to be "record it, never answer it". This change deliberately overrides it: a
+# decision a worker wrote into its report may be answered in the King's stead on `petition`'s
+# reversibility test. The digest is the Hand's first input in exactly that scenario, and CLAUDE.md
+# tells it to trust the digest rather than re-read the fleet behind it - so a digest still carrying
+# the old prohibition reinstates the overridden rule before `regency` is ever loaded, and a worker
+# parked on a reversible decision sits until morning.
+Describe 'the away block routes a parked decision instead of forbidding an answer' {
+    BeforeAll {
+        $script:Away = New-Fixture 'away'
+        Set-Content -Path (Join-Path $script:Away.Root 'state\.afk') -Encoding utf8 `
+            -Value @('since: 2026-09-04T08:33:19.8396570Z')
+        $script:AwayText = Get-Digest $script:Away
+    }
+
+    It 'reports the regency and points at the skill carrying the test rather than restating it' {
+        $script:AwayText.Contains('AWAY: a regency is in force') | Should -BeTrue
+        $script:AwayText.Contains('load `regency`') |
+            Should -BeTrue -Because 'the digest points at the skill that owns the reversibility test'
+        $script:AwayText.Contains('reversib') |
+            Should -BeFalse -Because 'petition owns that test and the digest never restates it'
+    }
+
+    It 'does not tell the Hand never to answer a worker''s question' {
+        $script:AwayText |
+            Should -Not -Match "never answer a worker's question" `
+            -Because 'that is the rule this change overrides, and the digest is read before regency'
+    }
+
+    It 'keeps the blocked-prompt floor and routes a report''s decision to petition' {
+        $script:AwayText.Contains('never answer a prompt a worker is blocked on') |
+            Should -BeTrue -Because 'the floor on an interactive prompt is untouched by the override'
+        $script:AwayText.Contains('decided under `petition`') |
+            Should -BeTrue -Because 'a decision written into a report is decided, not left parked'
+    }
+
+    It 'stays two lines rather than growing into a paragraph' {
+        $lines = @($script:AwayText -split "`r?`n")
+        $i = [array]::FindIndex($lines, [Predicate[string]] { $args[0] -match 'AWAY: a regency is in force' })
+        $i | Should -Not -Be -1 -Because 'the away flag has to surface at all'
+        $lines[$i + 1] | Should -Match 'Batch everything that does not need them'
+        $lines[$i + 2] |
+            Should -Not -Match 'petition|blocked on' -Because 'the block is two lines, not a paragraph'
+    }
+
+    It 'says nothing about a regency when the flag is absent' {
+        $bare = Get-Digest (New-Fixture 'no-away')
+        $bare.Contains('AWAY:') |
+            Should -BeFalse -Because 'the block is the flag''s consequence, not a permanent heading'
+    }
+}
+
 Describe 'a session with nothing recorded still gets a digest' {
     BeforeAll {
         $script:Bare     = New-Fixture 'bare'

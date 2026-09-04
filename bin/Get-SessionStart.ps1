@@ -283,7 +283,8 @@ if (Test-PathQuiet $afkFlag) {
         if ($line) { $since = ' (' + $line.Trim() + ')' }
     } catch { }
     Add-Line "  AWAY: a regency is in force$since - load ``regency``. The King is not at the machine."
-    Add-Line '        Batch everything that does not need them, and never answer a worker''s question for them.'
+    Add-Line ('        Batch everything that does not need them, never answer a prompt a worker ' +
+              'is blocked on, and a decision a worker wrote into its report is decided under `petition`.')
 }
 
 try {

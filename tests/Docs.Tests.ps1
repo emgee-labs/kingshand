@@ -7013,6 +7013,15 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase '**Let the `tasks[` header through with the matched rows.**'
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('so a headerless row can only be read by counting commas')
+        # The count is items.length after the --state filter but before the work-id filter, so the
+        # header survives with a number describing rows the Hand can no longer see. Read as this
+        # work's count, `tasks[2]` over nothing asserts two holds where the lookup found none.
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('**The `N` in that header counts the whole listing for that state, not the ' +
+                     'rows matching this work id.**')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('a header with no rows beneath it means no hold under this work whatever ' +
+                     'number it carries')
 
         $lookup = @($script:RouteFences | Where-Object { $_.Contains('tasks-axi list --state held') })
         $lookup.Count | Should -Be 1

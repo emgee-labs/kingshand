@@ -1189,6 +1189,12 @@ Miscount once and `task` reads as the hold kind, so a captain hold looks like so
 open branch below is skipped, or `title` reads as the reason and `decree`'s test for whose question
 the hold is cannot be applied at all.
 
+**The `N` in that header counts the whole listing for that state, not the rows matching this work
+id.** It is computed before the filter runs, so a header with no rows beneath it means no hold under
+this work whatever number it carries - `tasks[2]` over nothing is two holds in the queue and none of
+them this work's. A state holding nothing at all prints no `tasks[` line either, so both an empty
+listing and a filtered-out one are the same conclusion reached two ways, and neither is a hold.
+
 **The archive line is not optional, for the reason the pointer read-back names**: a hold pruned out
 of the backlog is invisible to `list` and still answered, and skipping it is how a decision the
 King settled last month reads as one nobody ever made.
