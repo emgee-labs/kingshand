@@ -620,8 +620,10 @@ still get checks from outside it, which is exactly the case a reading-by-eye get
 
 Hard rule 2 says nothing goes to a server until the user says so, and a worker cannot ask - so the
 brief stops it at the last local step, and the Step 7 gate, held before the push rather than after
-it, is where the user answers. **`local-only` is untouched**: it never reaches a server, so no
-block above changes and no separate confirmation exists for it.
+it, is where the user answers. **`local-only` is untouched**: no Done-means block above changes,
+because none of them pushes or opens a pull request, so there is nothing here to hold back and no
+separate confirmation exists for it. That is about this project's delivery and not about everything
+it touches - a comment or a work item on a `local-only` project is gated by rule 2 like any other.
 
 For a `direct-PR` task, replace the `Push the branch and open a pull request` bullet and the
 `Do not merge it` bullet after it with this one:
@@ -1746,8 +1748,13 @@ where the worker is gone or will not take it, `rally` owns the recovery.
 way Step 4 does before going quiet.** The push is not done when the prompt is sent, and the wait
 that watched the first run settled when that run ended.
 
-Then Step 8a confirms the branch really is on the remote and records the URL, exactly as it does
-on a `+yolo` project.
+**When the steered run finishes, it goes back through Step 6 exactly as the first run did** - the
+same three completion facts, the same parked-decision check - and only then to Step 8a, which
+confirms the branch really is on the remote and records the URL exactly as it does on a `+yolo`
+project. **The approved run is a full run, so it can park**: it reaches the review step, a finding
+there can be `ask-user`, and the brief tells the worker to write that question into `report.md` and
+stop. Step 6 is the only place a parked worker is seen, so a re-run routed straight to Step 8a
+reads a decision owed to the user as a pull request that never got pushed.
 
 When `$proj.yolo -eq 'on'`, the waiting is skipped and nothing else is: the evidence is
 still gathered and still checked, and a red check, an attribution hit, a scope expansion or
@@ -1900,10 +1907,20 @@ item stays open at `ready`, the pull request waits for the user, and you say so 
 depends on the task's resolved mode, because a `direct-PR` task runs no review gate and Step 1b
 never executed for it:
 
-- **Resolved `no-mistakes`** - the gate completed every step through `pr`, the attribution scan
-  came back clean, and CI is green, or Step 1b answered `no-ci`, which is the only absence that
-  counts as green. **An `unknown` from that preflight is not the absent-check case**: it says
-  nothing was established, so it goes to the user like any other unestablished green.
+- **Resolved `no-mistakes`** - the gate completed every step through `pr` and the attribution scan
+  came back clean, **and the run's own `ci` step came back green**. `ci` is the step *after* `pr`,
+  so "every step through `pr`" says nothing about it: a run whose `pr` step opened the pull request
+  and whose `ci` step was still waiting on pending checks satisfies that phrase entirely. Require
+  the `ci` outcome from the run itself, and read the checks off the pull request the same way the
+  limb below does, with every check passing:
+
+  ```powershell
+  gh pr checks "<full https:// URL>"
+  ```
+
+  Or Step 1b answered `no-ci`, which is the only absence that counts as green. **An `unknown` from
+  that preflight is not the absent-check case**: it says nothing was established, so it goes to the
+  user like any other unestablished green.
 - **Resolved `direct-PR`** - there is no gate to complete, so green is the attribution scan Step 7
   already ran coming back clean, plus CI green on the pull request. Step 1b never ran for this
   mode, so nothing has established whether anything reports a check here. Read it now rather than

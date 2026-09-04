@@ -399,6 +399,32 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
             -Because 'Step 1b never computed the CI answer for this mode, so it is read here'
     }
 
+    # `ci` runs after `pr`, so "every step through `pr`" is satisfied by a run whose checks were
+    # still pending - and "CI is green" carried no command while every sibling conjunct had one.
+    It 'the no-mistakes limb requires the ci step and supplies the read for it' {
+        $step = Get-MusterStep 'Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**and the run''s own `ci` step came back green**'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('`ci` is the step *after* `pr`, so "every step through `pr`" says nothing ' +
+                     'about it')
+        $step | Should -Match 'gh pr checks "<full https:// URL>"'
+    }
+
+    # The approved re-run is a full run: it reaches the review step, so it can park on an ask-user
+    # finding. Step 6 is the only step that reads the pointer, so routing round it reads a decision
+    # owed to the user as a pull request that never got pushed.
+    It 'the approved re-run goes back through Step 6 before Step 8a' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**When the steered run finishes, it goes back through Step 6 exactly as ' +
+                     'the first run did**')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase '**The approved run is a full run, so it can park**'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('Step 6 is the only place a parked worker is seen')
+    }
+
     # Get-RepoCiStatus returns three states and Ci.psm1 documents `unknown` taking `no-ci`'s brief
     # line on purpose. That equivalence is safe at Step 1b, where the line says STOP, and unsafe
     # here, where carrying it across merges with nothing established about the checks.
@@ -572,15 +598,31 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
             -Phrase 'a ticket is not exempt for not being code'
     }
 
-    # local-only never reaches a server, so the rule does not fire there and no separate confirm
-    # option exists for it. The King dropped that deliberately.
-    It 'local-only is named as needing nothing' {
+    # local-only's DELIVERY needs nothing - it stops on a branch, so there is no push and no pull
+    # request to hold back, and the King dropped the separate confirmation deliberately. Scoped to
+    # delivery rather than to the project: every cm-* entry here is local-only with its tickets in
+    # Azure DevOps, so a posture-shaped exemption would carve out the common case, and `counsel`
+    # already gates its work-item path with no local-only carve-out.
+    It 'the outward stop fires on the action rather than on the posture' {
         Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
-            -Phrase '`local-only` never fires it because it never reaches a server'
+            -Phrase ('**it fires on the action reaching a server, whatever posture the project ' +
+                     'is registered under**')
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
+            -Phrase ('a comment or a work item is not delivery, so a `local-only` project''s ' +
+                     'ticket is gated exactly like any other')
+        (Get-DocText $script:HandMd).Contains('`local-only` never fires it because it never reaches a server') |
+            Should -BeFalse -Because 'the posture-shaped claim was false of a local-only project with ADO tickets'
+    }
+
+    It 'local-only is named as needing nothing, scoped to its delivery' {
         Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
             -Where 'muster Step 2' `
-            -Phrase ('**`local-only` is untouched**: it never reaches a server, so no block ' +
-                     'above changes and no separate confirmation exists for it')
+            -Phrase ('**`local-only` is untouched**: no Done-means block above changes, because ' +
+                     'none of them pushes or opens a pull request')
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+            -Where 'muster Step 2' `
+            -Phrase ('a comment or a work item on a `local-only` project is gated by rule 2 like ' +
+                     'any other')
     }
 
     It 'muster Step 2 replaces the direct-PR outward bullet with a stop' {

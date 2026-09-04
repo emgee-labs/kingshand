@@ -30,7 +30,10 @@ exists to prevent.
    so** - a git push, raising or editing a pull request, posting a comment anywhere, creating or
    updating an Azure DevOps work item, or any other action that reaches outside this machine. The
    last is the rule and the rest are examples of it; a ticket is not exempt for not being code,
-   and `local-only` never fires it because it never reaches a server. With `+yolo`, `muster`
+   and **it fires on the action reaching a server, whatever posture the project is registered
+   under**. `local-only` simply has no push and no pull request for it to fire on - its delivery
+   stops on a branch - but a comment or a work item is not delivery, so a `local-only` project's
+   ticket is gated exactly like any other. With `+yolo`, `muster`
    writes the brief, dispatches, and lands green work within the accepted task criteria without
    asking. `yolo` is the string `'on'` or `'off'`, never a boolean - test it with `-eq 'on'`.
    Never land red, never expand scope beyond the brief, and never act destructively or

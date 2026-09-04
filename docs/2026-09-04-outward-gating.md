@@ -103,10 +103,14 @@ request; posting a comment anywhere; creating or updating an Azure DevOps work i
 action that reaches outside this machine. **The last is the rule and the others are examples of
 it** - an examples-only list invites the reading that anything unlisted is fine.
 
-`local-only` needs nothing. It never pushes, never opens a pull request and never reaches a
-server, so the rule does not fire there. That is why no separate confirmation exists for it: the
-King dropped that idea deliberately, having satisfied himself that a worker's branch is visible
-from his ordinary checkout.
+`local-only`'s delivery needs nothing. It never pushes and never opens a pull request, so the rule
+has nothing to fire on there - its work stops on a branch. That is why no separate confirmation
+exists for it: the King dropped that idea deliberately, having satisfied himself that a worker's
+branch is visible from his ordinary checkout. **That is scoped to delivery, not to the project.**
+The rule fires on the action reaching a server whatever the posture, so a comment or an Azure
+DevOps work item on a `local-only` project is gated exactly like any other - and every `cm-*`
+project in this registry is `local-only` with its tickets in Azure DevOps, so the posture-shaped
+reading would have carved out the common case rather than an edge one.
 
 `counsel` is covered by the same rule and does not get an exemption for producing tickets rather
 than code. `tasks-axi` is local and needs nothing; an Azure DevOps work item reaches a server.
