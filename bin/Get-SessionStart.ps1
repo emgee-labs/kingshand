@@ -314,7 +314,11 @@ try {
             # A hand-written name the index cannot resolve fails one brief at a time, always after
             # the brief is on disk, so it is said here rather than discovered there.
             $nameNote = if ($_.indexable) { '' } else { ' - NAME NOT INDEXABLE: rename it, or nothing written for it can be listed' }
-            "- $($_.name) [$($_.rawMode)] yolo $($_.yolo) - $pathNote$nameNote"
+            # Standing authority to merge that project's own green pull requests, which on a
+            # deploy-on-merge default branch is a live production release. Said only where it is
+            # held, so the common case prints exactly as it always has.
+            $mergeNote = if ($_.merge -eq 'on') { ' +merge' } else { '' }
+            "- $($_.name) [$($_.rawMode)] yolo $($_.yolo)$mergeNote - $pathNote$nameNote"
         })
     }
 

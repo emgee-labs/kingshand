@@ -11,11 +11,12 @@ version: 1.0.0
 
 You dispatch background workers, one per unit of work, each in its own git worktree. How much
 the user is involved depends on the project's posture. With `yolo` off, which is the default,
-they are involved at two moments: approving what gets dispatched, and approving what lands. With
-`+yolo` they are involved at neither - you proceed on your own, inside the floors in Step 7 that
-no posture relaxes. And for the push-capable modes, `direct-PR` and `no-mistakes`, your
-involvement ends at a pull request the user merges on the forge rather than at anything you land
-here.
+they are involved at two moments: approving what gets dispatched, and approving what lands - and
+that second gate is held **before** anything goes to a server rather than after it, because hard
+rule 2 says nothing reaches one until they say so. With `+yolo` they are involved at neither -
+you proceed on your own, inside the floors in Step 7 that no posture relaxes. And for the
+push-capable modes, `direct-PR` and `no-mistakes`, your involvement ends at a pull request, which
+you merge only where that project's registry entry declares `+merge`.
 
 Everything you are not gating on is yours, and you stay quiet through it.
 
@@ -96,7 +97,7 @@ Resolve the project through the registry. It supplies both the path and the post
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Projects.psm1 -Force
 $proj = Get-ProjectEntry -Name "<project name>"
-[pscustomobject]$proj | Format-List name, path, rawMode, yolo
+[pscustomobject]$proj | Format-List name, path, rawMode, yolo, merge
 ```
 
 **The `[pscustomobject]` cast is required.** `Get-ProjectEntry` returns a hashtable, and
@@ -111,6 +112,11 @@ dispatching shows you nothing.
 > landing gate at Step 7 - on projects the user never granted autonomy for. There is no
 > recovery from that; the work is already dispatched or already landed. Test the value, never
 > the variable.
+
+**`$proj.merge` is the same shape and takes the same test.** It is the string `'on'` or `'off'`,
+it says only whether this repository's own green pull requests may be merged on the forge, and it
+is `'off'` on every project that does not declare `+merge`. Test it as `$proj.merge -eq 'on'`.
+Step 7 owns what it permits, and nothing before Step 7 reads it.
 
 **An unregistered project stops the dispatch.** `Get-ProjectEntry` throws, and that is correct:
 posture is never inferred, only read. Tell the user the project is not registered and offer to
@@ -610,6 +616,45 @@ retyping it is the point: the two must agree, and only one of them is computed f
 repository actually has. **Do not decide between the two blocks yourself** - a repository with no workflow file may
 still get checks from outside it, which is exactly the case a reading-by-eye gets wrong.
 
+### With `yolo` off, a push-capable block stops before anything leaves the machine
+
+Hard rule 2 says nothing goes to a server until the user says so, and a worker cannot ask - so the
+brief stops it at the last local step, and the Step 7 gate, held before the push rather than after
+it, is where the user answers. **`local-only` is untouched**: no Done-means block above changes,
+because none of them pushes or opens a pull request, so there is nothing here to hold back and no
+separate confirmation exists for it. That is about this project's delivery and not about everything
+it touches - a comment or a work item on a `local-only` project is gated by rule 2 like any other.
+
+For a `direct-PR` task, replace the `Push the branch and open a pull request` bullet and the
+`Do not merge it` bullet after it with this one:
+
+```markdown
+- Leave the work committed and stop there. Do not push, do not open a pull request, do not
+  comment anywhere, and do not create or update a work item. Nothing this task produces goes to
+  a server yet. Say in your final message that the branch is ready to go out.
+```
+
+For a `no-mistakes` task, replace the whole `Drive the pipeline` bullet - whichever of the two
+Step 1b chose - with these two, and add `--skip push,pr,ci` to the gate line above them:
+
+```markdown
+- Run the gate with `--skip push,pr,ci` so it stops at the last local step, and fix everything it
+  parks. Do not push, do not open a pull request, do not comment anywhere, and do not create or
+  update a work item. Report what the gate found and stop there.
+- When you are told the push is approved, run the same gate line again without `--skip`.
+  <the `Drive the pipeline` bullet Step 1b chose, verbatim>
+```
+
+**`$ci.briefLine` is carried into that second bullet unchanged, never dropped.** The approved run
+is a full run and it reaches the `ci` step, so Step 1b's answer still decides how that step ends:
+on a repository where nothing reports checks, that line is the only thing telling the worker to
+report the pull request as delivered and stop rather than wait forever. Holding the push back
+delays the CI wait; it does not remove it, and a brief that drops the line reinstates the
+unbounded wait the preflight exists to end.
+
+Name the bullet by its text when you replace it, never by its position - bullets get inserted
+above these and an ordinal that has gone stale points at the wrong one.
+
 **The no-interactive-prompts rule is absolute, and it is there because a worker hung on it for
 hours.** Worker `7372d875` called `AskUserQuestion`, drew a menu that said "Enter to select,
 up/down to navigate", and waited five hours with nobody watching. herdr now recognises that state
@@ -650,10 +695,13 @@ so transcript saving is off and there is usually no transcript on disk to fall b
 finding that lives only in the worker's output cannot be recovered by a later session.
 `report.md` is kingshand state and survives teardown.
 
-The `--skip push,pr,ci` flags are gone from the `no-mistakes` variant deliberately. They existed
-because nothing could leave the machine; a project registered `no-mistakes` has consented to the
-full pipeline. Never add them back for a `no-mistakes` project, and never remove the push
-prohibition from the `local-only` variant.
+The `--skip push,pr,ci` flags are absent from the `no-mistakes` variant as written, and there is
+exactly one reason to add them: `yolo` off, per the section above, where they are what holds the
+push back until the user has answered. Registering `no-mistakes` consents to the full pipeline and
+`+yolo` is the consent to run it unattended, so on a `+yolo` project the flags never appear at
+all. Adding them for any other reason - to shorten a run, to get past a slow step, because CI
+looks unlikely to report - is the misuse this line names, and never remove the push prohibition
+from the `local-only` variant.
 
 **Say in `--intent` what this task deliberately sets aside.** You write that string, not the worker:
 it is the `Intent` section of the brief, and the two `no-mistakes` blocks hand it to the gate
@@ -1512,8 +1560,8 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
 - Never land work that materially expands the product or engineering contract beyond what the
   brief accepted. That goes back to the user.
 - Destructive, irreversible and security-sensitive actions always go to the user.
-- Never merge on the forge. `direct-PR` and `no-mistakes` work ends at a pull request the user
-  merges.
+- Merge on the forge only where this project's registry entry declares `+merge`, and never
+  otherwise. The rest of this step owns that rule.
 - Never push a project that is not registered with a push-capable posture.
 - **Never land a worker whose pointer names a hold that is still open.** It is mid-run rather than
   delivered, whatever its branch shows, and Step 6 owns what to do with it. **Read the pointer, and
@@ -1527,6 +1575,37 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
   nor anything you remember can tell you - Step 6's parked path runs to completion and deliberately
   leaves the stage where it was, so `dispatched` and `implementing` are what a worker steered an
   hour ago still reads. The read is cheap and the mistake it prevents cannot be taken back.
+
+**Merging on the forge is a per-repository permission, and it is off unless declared.**
+`$proj.merge` is `'on'` only when that project's entry in `data\projects.md` carries the `+merge`
+token, and `'off'` everywhere else - including on an entry the parser could not read in full,
+whichever way it failed. The two failures are not the same shape: an unknown mode drops the whole
+annotation, while an unrecognised token keeps the mode and the `yolo` it did read and forces merge
+off on its own. **`$proj.merge` reads `'off'` either way**, which is the only part of that this
+step acts on. Where the registry cannot be read there is no value at all, because
+`Get-ProjectEntry` throws rather than guessing. **Every one of
+those means do not merge, and none of them ever means the other way.** Test it as
+`$proj.merge -eq 'on'`, the same string comparison `yolo` takes and for the same reason.
+
+**It is not a mode and not a fourth posture.** The four modes decide how work ships and `yolo`
+decides whether you ask first; this decides one thing only, whether you may merge that
+repository's own green pull request. It is read per repository and never inferred from either of
+the others - a `+yolo` project you may not merge is an ordinary combination, not a contradiction.
+A project that says nothing is a project you do not merge, and `emgeelabs-site` is the worked
+example of why the default runs that way: its `main` is what Cloudflare Pages publishes, so a
+merge there is a live production release.
+
+**The permission changes who may merge, never what may be merged.** Every floor above still holds
+in full, and a run that meets none of them is not merged however the entry reads: never merge red,
+never merge work that materially widens the brief, never merge anything destructive, irreversible
+or security-sensitive, and on a `no-mistakes` project never merge a run whose gate did not
+complete every step through `pr` with a clean attribution scan.
+
+**This step decides whether, and Step 8a does it.** Read `$proj.merge` here and judge it against
+the floors here, because this is the gate; the merge itself happens at Step 8a, once the push is
+confirmed and the pull request exists. Never at this step - with `yolo` off this gate is held
+before the push, so at this moment there is no pull request to merge, no gate outcome to call
+green and nothing on the forge at all.
 
 **Verify the base ref resolves before gathering anything.** This check is not optional and
 nothing below it runs until it passes:
@@ -1621,6 +1700,62 @@ line in chat naming what is waiting and stop - the surface holds the detail, cha
 it as a harness-tracked background job whose completion wakes you. Never leave it detached with
 nothing to wake on - that is the same silence this whole layer exists to prevent.
 
+**On a push-capable project with `yolo` off, this gate is held before the push, and approving it
+is the user's word for the outward step.** The worker stopped at the last local step because Step
+2 told it to, so nothing has left the machine yet. Say that on the surface and name exactly what
+the approval authorises: the branch pushed to `origin`, a pull request opened against the base
+ref, and nothing else. An approval is never read as covering a comment, a work item or a merge
+that was not on the surface they answered.
+
+**On a project whose entry carries `+merge`, the merge is part of what this approval sets in
+motion, so the surface names it.** Say the three things it ends in rather than two: the branch
+pushed to `origin`, a pull request opened against the base ref, and that pull request merged to
+the default branch at Step 8a once it is green. The permission is the user's own standing grant
+and asking again is not the fix - understating the sequence is the defect, because a surface
+promising a pull request and nothing more is answered by someone who does not know a merge
+follows. Naming it is what keeps the sentence above true rather than worked around.
+
+The worker is still alive at this point, so steer it to finish rather than doing the outward step
+yourself - it holds the worktree and it ran the gate. **There are two steers and the resolved mode
+picks which**, because the two modes finish by different routes and sending the wrong one is not a
+wording slip.
+
+For a `direct-PR` worker, which pushes and opens the pull request itself:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
+Send-HerdrPrompt -Name "<worker id>" -Text "Approved. Push the branch and open the pull request against <base>, then report its full https:// URL. Change nothing else."
+```
+
+For a `no-mistakes` worker, which must re-enter the pipeline rather than push by hand:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
+Send-HerdrPrompt -Name "<worker id>" -Text "Approved. Run your gate line again without --skip so the pipeline pushes and opens the pull request, then report its full https:// URL. Change nothing else."
+```
+
+**Sending the `direct-PR` steer to a `no-mistakes` worker pushes around the gate**, skipping its
+own `push` and `pr` steps and everything they carry - the attribution scan, the pull request body
+and the CI hand-off - on a project registered specifically to have them. That is the failure this
+split prevents, and it looks like a delivered pull request either way.
+
+The re-run walks the local steps again against commits that have not changed, then pushes.
+**That re-run is the price of holding the push back, and it is the intended one** - do not drop the
+flags at dispatch to avoid it. Read the screen back afterwards to confirm the steer landed, and
+where the worker is gone or will not take it, `rally` owns the recovery.
+
+**A steered worker is a working worker again, so arm a fresh `Wait-HerdrAgentProgress` on it the
+way Step 4 does before going quiet.** The push is not done when the prompt is sent, and the wait
+that watched the first run settled when that run ended.
+
+**When the steered run finishes, it goes back through Step 6 exactly as the first run did** - the
+same three completion facts, the same parked-decision check - and only then to Step 8a, which
+confirms the branch really is on the remote and records the URL exactly as it does on a `+yolo`
+project. **The approved run is a full run, so it can park**: it reaches the review step, a finding
+there can be `ask-user`, and the brief tells the worker to write that question into `report.md` and
+stop. Step 6 is the only place a parked worker is seen, so a re-run routed straight to Step 8a
+reads a decision owed to the user as a pull request that never got pushed.
+
 When `$proj.yolo -eq 'on'`, the waiting is skipped and nothing else is: the evidence is
 still gathered and still checked, and a red check, an attribution hit, a scope expansion or
 anything destructive still goes to the user - rendered, because each of those is a decision.
@@ -1642,9 +1777,9 @@ worker would never reach a terminal stage or a teardown.
 ## Step 8 - Land
 
 Only for a `local-only` project, and only as a local merge. `direct-PR` and `no-mistakes` work
-ends at a pull request that the user merges on the forge; `muster` never merges there. For those
-modes, do not run this step at all - report the pull request's full https:// URL and go to
-Step 8a.
+ends at a pull request instead, and whether that may then be merged on the forge is Step 7's
+per-repository permission rather than anything this step does. For those modes, do not run this
+step at all - report the pull request's full https:// URL and go to Step 8a.
 
 ```powershell
 git -C "<repo path>" merge --ff-only "<branch>"
@@ -1689,7 +1824,9 @@ is not registered at all.
 ## Step 8a - Close out push-capable work
 
 Only for `direct-PR` and `no-mistakes` (including `no-mistakes-prod-only` resolved to either).
-There is nothing to merge here - the pull request is the deliverable, and the user merges it.
+The pull request is the deliverable here. Whether it may then be merged on the forge is Step 7's
+per-repository permission - this step neither grants it nor decides it - but where Step 7 said you
+may, this is where it happens, because this is the first point at which a pull request exists.
 
 **Load `decree` before closing this work out.** Close-out advances a stage and
 records a pull request; it never closes a decision the user has not answered. A hold opened from
@@ -1761,8 +1898,112 @@ tasks-axi update "<id>" --pr "<full https:// URL>"
 Leave the item open at `ready`. Nothing has landed yet, and an item closed here would report a
 merge the user has not made.
 
-Move to `landed` only when the user tells you the pull request was merged on the forge, and close
-the backlog item in the same breath:
+### Merging it, where Step 7 said you may
+
+**Only where `$proj.merge -eq 'on'`.** On every other project there is nothing to do here: the
+item stays open at `ready`, the pull request waits for the user, and you say so and stop.
+
+**Confirm green before anything else, and green is the whole of it** - and what it is made of
+depends on the task's resolved mode, because a `direct-PR` task runs no review gate and Step 1b
+never executed for it:
+
+- **Resolved `no-mistakes`** - the gate completed every step through `pr` and the attribution scan
+  came back clean, **and the run's own `ci` step came back green**. `ci` is the step *after* `pr`,
+  so "every step through `pr`" says nothing about it: a run whose `pr` step opened the pull request
+  and whose `ci` step was still waiting on pending checks satisfies that phrase entirely. Require
+  the `ci` outcome from the run itself, and read the checks off the pull request the same way the
+  limb below does, with every check passing:
+
+  ```powershell
+  gh pr checks "<full https:// URL>"
+  ```
+
+  Or Step 1b answered `no-ci`, which is the only absence that counts as green. **An `unknown` from
+  that preflight is not the absent-check case**: it says nothing was established, so it goes to the
+  user like any other unestablished green.
+- **Resolved `direct-PR`** - there is no gate to complete, so green is the attribution scan Step 7
+  already ran coming back clean, plus CI green on the pull request. Step 1b never ran for this
+  mode, so nothing has established whether anything reports a check here. Read it now rather than
+  assuming either way:
+
+  ```powershell
+  Import-Module $env:KINGSHAND_HOME\bin\Ci.psm1 -Force
+  $ci = Get-RepoCiStatus -RepoPath "<absolute repo path>"
+  "$($ci.status) - $($ci.detail)"
+  ```
+
+  **All three answers mean something different here, and none of them may be collapsed:**
+
+  - `has-ci` - checks exist, so they must actually be green before the merge. Read them off the
+    pull request itself, and every check must pass:
+
+    ```powershell
+    gh pr checks "<full https:// URL>"
+    ```
+
+  - `no-ci` - the settled absent-check case, and the only absence that counts as green.
+  - `unknown` - **not green.** The lookup failed or the remote could not be read, so nothing was
+    established. It goes to the user rather than being merged.
+
+**`unknown` and `no-ci` are interchangeable at Step 1b and are not interchangeable here.** There
+they take the same brief line because that line tells the worker to *stop*, and stopping under
+uncertainty is safe; merging under uncertainty is not, so the two part company at exactly this
+step. A Hand who has read `bin\Ci.psm1` will otherwise carry the equivalence across, and be right
+to on that module's own terms.
+
+Anything red, anything that widened the brief, anything destructive, irreversible or
+security-sensitive goes to the user instead, exactly as Step 7's floors say. This is the moment
+those floors are spent, so re-read them rather than remembering them.
+
+Then merge it, taking the strategy that repository already uses rather than a default invented
+here - squash, merge commit or rebase is the repository's settled choice and not yours. Ask the
+tool that owns that fact rather than guessing at it or eyeballing the forge:
+
+```powershell
+Push-Location "<absolute repo path>"
+gh repo view --json mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed
+Pop-Location
+```
+
+**The `Push-Location` is what makes that the right repository's answer.** The `tasks-axi` block
+above leaves the working directory at `KINGSHAND_HOME`, and `gh repo view` with no repository named
+resolves from the current directory's remotes - so run bare it reports kingshand's own merge
+settings and the Hand takes them for the project's. `gh pr merge` below is unaffected either way: a
+full `https://` URL names its own repository.
+
+**Where exactly one is allowed, that is the repository's answer** - use it, and pass it
+explicitly:
+
+```powershell
+gh pr merge "<full https:// URL>" --squash    # or --merge, or --rebase
+```
+
+**Where more than one is allowed, the strategy is a standing per-project fact rather than a
+per-merge decision** - GitHub enables all three by default, so asking every time would turn a
+standing grant into a question every time. It belongs in `data\rules-<project>.md`: read it there
+first, and only where that file does not answer it, put it to the user once and record their answer
+there so the next merge does not ask again. `+merge` still answers whether you may merge and never
+how, which is why the answer is the user's either way - it is just asked once per repository rather
+than once per merge.
+
+**Never invent a default strategy.** Squash, merge commit and rebase shape history differently, and
+picking one here would override every repository's own choice at once.
+
+**Never run `gh pr merge` with no strategy flag.** It goes interactive, and a background prompt
+nothing can answer is not a merge that failed safely.
+
+**This whole procedure is GitHub-only.** `gh repo view` and `gh pr merge` are what it has, and
+nothing restricts `+merge` to a GitHub-hosted project - an Azure DevOps or other origin registers
+`[direct-PR +merge]` perfectly well. So it is bounded here rather than at registration: **where
+`gh` cannot resolve the repository, the merge is the user's** - stop and report that. Do not
+improvise another route, and in particular do not fall back to a web API or a raw git push to the
+default branch.
+
+Then set the stage and close the item exactly as the user-merged path below does.
+
+Move to `landed` when the pull request has actually been merged on the forge - either the user
+tells you so, or you merged it yourself just now under Step 7's `+merge` permission - and close the
+backlog item in the same breath:
 
 ```powershell
 Set-CrewStage -State $s -WorkerId "<id>" -Stage 'landed'
@@ -1774,9 +2015,13 @@ Set-Location $env:KINGSHAND_HOME
 tasks-axi done "<id>" --pr "<full https:// URL>"
 ```
 
-Never check the forge and decide that yourself, and never merge it to make it true. The stages
-are exactly `dispatched`, `implementing`, `gating`, `ready`, `landed`, `failed` - `Set-CrewStage`
-throws on anything else, so do not invent one for this path.
+Never check the forge and decide that yourself, and never merge it to make it true. **That is
+about deciding a merge has happened, never about reading a repository's own settings** - the
+strategy probe above is a read of configuration, not a judgement about forge state, and the two do
+not collide. A merge under `+merge` is one the block above performed against Step 7's floors and
+reported; a stage waiting to advance is never the reason for one. The stages are exactly `dispatched`, `implementing`,
+`gating`, `ready`, `landed`, `failed` - `Set-CrewStage` throws on anything else, so do not invent
+one for this path.
 
 Then go to Step 8b. The confirmed push is what makes teardown safe here - waiting for the merge
 would leave the worktree and the live worker process sitting around until the user gets to it.

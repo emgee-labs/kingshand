@@ -333,6 +333,32 @@ Describe 'the registry is named project by project, with its posture' {
             Should -BeTrue -Because "the registry line is name, posture and path, and $name must carry all three"
     }
 
+    # The permission is standing authority to merge to a branch that may deploy on merge, and the
+    # digest is the King's whole picture of the fleet at session open. Without this an entry
+    # carrying it printed byte-identical to one that did not.
+    It 'says so on an entry carrying the merge permission, and stays silent on one that does not' {
+        $f = New-Fixture 'registry-merge'
+        foreach ($n in @('alpha', 'beta')) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $f.Root "repos\$n") | Out-Null
+        }
+        Add-RegistryEntry $f '- alpha [no-mistakes +yolo +merge] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        Add-RegistryEntry $f '- beta [no-mistakes +yolo] - beta repo (added 2026-01-02)' (Join-Path $f.Root 'repos\beta')
+        $text = Get-Digest $f
+        $text.Contains('- alpha [no-mistakes] yolo on +merge') | Should -BeTrue
+        $text.Contains('- beta [no-mistakes] yolo on -') |
+            Should -BeTrue -Because 'a project without the permission prints exactly as it always has'
+        $text.Contains('- beta [no-mistakes] yolo on +merge') | Should -BeFalse
+    }
+
+    # An annotation the parser could not read in full never yields the permission, so the digest
+    # must not announce one either - this is the surface the King would trust it from.
+    It 'does not announce merge on an entry whose annotation could not be read in full' {
+        $f = New-Fixture 'registry-merge-unreadable'
+        New-Item -ItemType Directory -Force -Path (Join-Path $f.Root 'repos\alpha') | Out-Null
+        Add-RegistryEntry $f '- alpha [no-mistakes garbage +merge] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        (Get-Digest $f).Contains('+merge') | Should -BeFalse
+    }
+
     It 'records each project''s path rather than the detail that belongs to the project' {
         $script:RegText.Contains((Join-Path $script:Reg.Root 'repos\alpha')) | Should -BeTrue
         $script:RegText.Contains('PATH MISSING') |

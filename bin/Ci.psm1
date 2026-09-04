@@ -294,7 +294,11 @@ function Get-CommitCheckCount {
 # .status       has-ci | no-ci | unknown
 # .signal       what settled it
 # .detail       one line naming the evidence, written to be read to a person
-# .briefLine    the Done-means line a `no-mistakes` brief must carry for this repository
+# .briefLine    the Done-means line a `no-mistakes` brief must carry for this repository. A
+#               `yolo`-off task defers it rather than dropping it: muster Step 2 holds the push
+#               back and carries this line verbatim into the bullet covering the approved run,
+#               which is a full run and still reaches the `ci` step. Nothing here reads posture -
+#               this module answers only what the repository has.
 #
 # `unknown` takes the same brief line as `no-ci` on purpose. Under uncertainty the terminating
 # instruction is the safe one: a worker told to stop at the pull request loses at most a wait for a

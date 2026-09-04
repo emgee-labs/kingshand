@@ -177,8 +177,7 @@ Map the snapshot onto the four buckets like this, and nowhere else:
 
   Never describe an `idle` worker as hung, and never describe a `blocked` one as having finished.
 - A worker at stage `ready` - it is waiting at the landing gate for the user's approval.
-- An open PR waiting on the user's merge. Muster never merges on the forge, so a PR sits here until
-  the user merges it. Full `https://...` URL.
+- An open PR waiting on a merge. Full `https://...` URL.
 - A brief written but not yet dispatched - `$snap.data.undispatched`. The dispatch gate is the
   user's, so an un-dispatched brief is work waiting on them, not queued work.
 - A backlog item held with a hold kind of `captain` - an open decision waiting on the user's own
@@ -229,7 +228,9 @@ true of an absent `crew.json`: nothing has been dispatched yet.
 
 `rawMode` is the registered posture and the one to quote; `mode` is the mechanical resolution and
 the two differ only for `no-mistakes-prod-only`. `yolo` is the string `'on'` or `'off'` - report
-it by comparing with `-eq 'on'`, never by testing it for truthiness.
+it by comparing with `-eq 'on'`, never by testing it for truthiness. `merge` reads the same way
+and is reported alongside the posture where it is `'on'`, because standing authority to merge that
+project's own pull requests is part of what the King is owed when a posture is quoted.
 
 ## Operationally read-only
 

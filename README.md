@@ -2,7 +2,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
-[![Tests](https://img.shields.io/badge/tests-1360%20passing-3fb950)](tests)
+[![Tests](https://img.shields.io/badge/tests-1552%20passing-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 # You rule. It executes.
@@ -226,7 +226,10 @@ What still constrains it:
   the machine. With no `~\.claude.json`, nothing is written and the worker stops at the dialog.
 - Nothing is dispatched into a repository you have not registered.
 - Nothing pushes unless that project is registered with a push-capable posture, and nothing is
-  merged on the forge at all.
+  merged on the forge unless that project's registry entry declares `+merge`, which is off unless
+  you write it.
+- With `yolo` off, nothing goes to a server until you say so - not a push, a pull request, a
+  comment, or a work item.
 - `deny` blocks reads of `~\.ssh`, AWS credentials and `config\credentials\`, and blocks edits to
   `instructions.md` - your standing instructions are protected by the permission layer, not just by
   prose asking nicely.

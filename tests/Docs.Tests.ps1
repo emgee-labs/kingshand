@@ -261,27 +261,457 @@ Describe 'the local-only push prohibition survives' {
     }
 }
 
-Describe 'muster never merges on the forge' {
-    It 'the landing gate lists it as a floor no posture relaxes' {
-        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate floors' `
-            -Phrase ('Never merge on the forge. `direct-PR` and `no-mistakes` work ends ' +
-                     'at a pull request the user merges')
+# Merging on the forge was an absolute "never" stated in three places, and all three were false:
+# the Hand already merges kingshand's and aegis-manager's own green pull requests on a permission
+# the King granted in the registry description. It is now a per-repository permission that is off
+# unless declared, with muster Step 7 owning the rule and the other two mentions reduced to
+# pointers. These assert the default stays off and the owner keeps saying so.
+Describe 'merging on the forge is a per-repository permission, off unless declared' {
+    It 'the landing gate floor names the permission rather than an absolute never' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('Merge on the forge only where this project''s registry entry declares ' +
+                     '`+merge`, and never otherwise')
+        $step.Contains('Never merge on the forge.') |
+            Should -BeFalse -Because 'the absolute was false on two live projects and is gone'
     }
 
-    It 'CLAUDE.md rule 2 states it' {
+    It 'Step 7 owns the rule in full' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**Merging on the forge is a per-repository permission, and it is off ' +
+                     'unless declared.**')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase "Test it as ```$proj.merge -eq 'on'``"
+    }
+
+    # Unreadable must never read as permitted, and must never read as a state word either:
+    # Get-ProjectEntry throws instead of returning 'off', which Projects.Tests.ps1 forces.
+    It 'every way of failing to read it means do not merge' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('including on an entry the parser could not read in full, whichever way ' +
+                     'it failed')
+        # The two failures differ in what survives, and a reader who thinks an unrecognised token
+        # drops the mode too forms the wrong model of the parser at the step that decides a merge.
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('an unknown mode drops the whole annotation, while an unrecognised token ' +
+                     'keeps the mode and the `yolo` it did read and forces merge off on its own')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase '**`$proj.merge` reads `''off''` either way**'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('Where the registry cannot be read there is no value at all, because ' +
+                     '`Get-ProjectEntry` throws rather than guessing')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**Every one of those means do not merge, and none of them ever means ' +
+                     'the other way.**')
+    }
+
+    It 'it is stated as neither a mode nor a posture' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase '**It is not a mode and not a fourth posture.**'
+    }
+
+    # The permission answers who may merge. What may be merged is unchanged, and a floor quietly
+    # dropped here is how a red run gets merged on a project that was allowed to merge green ones.
+    It 'green is unchanged by the permission' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase ('**The permission changes who may merge, never what may be merged.** Every ' +
+                     'floor above still holds in full')
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase ('never merge a run whose gate did not complete every step through `pr` ' +
+                     'with a clean attribution scan')
+    }
+
+    It 'CLAUDE.md rule 2 carries the default-off fact and points at the owner' {
         Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
-            -Phrase 'Muster never merges on the forge'
+            -Phrase ('**Merging on the forge is off unless that project''s registry entry ' +
+                     'declares `+merge`**, and an entry or a registry that cannot be read ' +
+                     'leaves it off - `muster` Step 7 owns the rule')
+        (Get-DocText $script:HandMd).Contains('Muster never merges on the forge') |
+            Should -BeFalse -Because 'the absolute is gone and rule 2 must not restate it'
     }
 
-    It 'the local merge step disclaims the push-capable modes' {
+    # Instruction precedence lists merge among the actions needing a fresh explicit word, and
+    # excludes +yolo from substituting for one. +merge has to be named there or the two rules
+    # contradict each other on the one action they both govern.
+    It 'instruction precedence names +merge as the standing grant, and still excludes +yolo' {
+        $section = Get-HandSection 'Instruction precedence'
+        Assert-Phrase -Text $section -Where 'CLAUDE.md Instruction precedence' `
+            -Phrase ('**The one merge that needs no fresh word is a project whose registry ' +
+                     'entry declares `+merge`.**')
+        Assert-Phrase -Text $section -Where 'CLAUDE.md Instruction precedence' `
+            -Phrase ('A project''s registered `+yolo` posture is standing routine authority ' +
+                     'only, and is never a substitute for a current explicit instruction')
+        Assert-Phrase -Text $section -Where 'CLAUDE.md Instruction precedence' `
+            -Phrase 'never inferred from `+yolo`, and never widened past a merge'
+    }
+
+    It 'the local merge step points at Step 7 rather than restating the rule' {
         Assert-Phrase -Text (Get-MusterStep 'Step 8 - Land') -Where 'muster Step 8' `
-            -Phrase ('`direct-PR` and `no-mistakes` work ends at a pull request that the ' +
-                     'user merges on the forge; `muster` never merges there')
+            -Phrase ('whether that may then be merged on the forge is Step 7''s per-repository ' +
+                     'permission rather than anything this step does')
+    }
+
+    It 'close-out points at Step 7 too' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
+            -Phrase ('Whether it may then be merged on the forge is Step 7''s per-repository ' +
+                     'permission - this step neither grants it nor decides it - but where Step 7 ' +
+                     'said you may, this is where it happens')
+    }
+
+    # The permission was granted with nothing to exercise it, and Step 8a's account of it assumed
+    # the decision happened at Step 7 - unreachable on a yolo-off project, where Step 7 is now
+    # held before the push and no pull request exists yet. Decided at 7, performed at 8a.
+    It 'Step 7 decides it and says the merge itself is not done there' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase '**This step decides whether, and Step 8a does it.**'
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase ('with `yolo` off this gate is held before the push, so at this moment ' +
+                     'there is no pull request to merge')
+    }
+
+    It 'Step 8a carries the procedure that performs it' {
+        $step = Get-MusterStep 'Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**Only where `$proj.merge -eq ''on''`.**'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**Confirm green before anything else, and green is the whole of it**'
+        $step | Should -Match 'gh pr merge' -Because 'a permission with no command strands the Hand'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('taking the strategy that repository already uses rather than a default ' +
+                     'invented here')
+    }
+
+    # `direct-PR +merge` is a combination Add-ProjectEntry accepts, and that mode runs no review
+    # gate and never reaches Step 1b - so a green stated in terms of both is unsatisfiable there,
+    # leaving the Hand to refuse a granted merge or improvise a green it was told not to eyeball.
+    It 'Step 8a states green per resolved mode rather than assuming a gate ran' {
+        $step = Get-MusterStep 'Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('what it is made of depends on the task''s resolved mode, because a ' +
+                     '`direct-PR` task runs no review gate and Step 1b never executed for it')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**Resolved `direct-PR`** - there is no gate to complete, so green is the ' +
+                     'attribution scan Step 7 already ran coming back clean, plus CI green on ' +
+                     'the pull request')
+        $step | Should -Match 'Get-RepoCiStatus -RepoPath' `
+            -Because 'Step 1b never computed the CI answer for this mode, so it is read here'
+    }
+
+    # `ci` runs after `pr`, so "every step through `pr`" is satisfied by a run whose checks were
+    # still pending - and "CI is green" carried no command while every sibling conjunct had one.
+    It 'the no-mistakes limb requires the ci step and supplies the read for it' {
+        $step = Get-MusterStep 'Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**and the run''s own `ci` step came back green**'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('`ci` is the step *after* `pr`, so "every step through `pr`" says nothing ' +
+                     'about it')
+        $step | Should -Match 'gh pr checks "<full https:// URL>"'
+    }
+
+    # The approved re-run is a full run: it reaches the review step, so it can park on an ask-user
+    # finding. Step 6 is the only step that reads the pointer, so routing round it reads a decision
+    # owed to the user as a pull request that never got pushed.
+    It 'the approved re-run goes back through Step 6 before Step 8a' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**When the steered run finishes, it goes back through Step 6 exactly as ' +
+                     'the first run did**')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase '**The approved run is a full run, so it can park**'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('Step 6 is the only place a parked worker is seen')
+    }
+
+    # Get-RepoCiStatus returns three states and Ci.psm1 documents `unknown` taking `no-ci`'s brief
+    # line on purpose. That equivalence is safe at Step 1b, where the line says STOP, and unsafe
+    # here, where carrying it across merges with nothing established about the checks.
+    It 'Step 8a keeps unknown apart from the absent-check case' {
+        $step = Get-MusterStep 'Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**`unknown` and `no-ci` are interchangeable at Step 1b and are not ' +
+                     'interchangeable here.**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('stopping under uncertainty is safe; merging under uncertainty is not, so ' +
+                     'the two part company at exactly this step')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('`unknown` - **not green.**')
+        # The no-mistakes limb leans on Step 1b's answer and must not inherit the equivalence.
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**An `unknown` from that preflight is not the absent-check case**')
+    }
+
+    # "CI green on the pull request" had no command, while every other evidence read in the step
+    # has one - and Get-RepoCiStatus answers about the repository, never about this pull request.
+    It 'Step 8a supplies the read for a has-ci pull request' {
+        $step = Get-MusterStep 'Step 8a'
+        $step | Should -Match 'gh pr checks "<full https:// URL>"'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('`has-ci` - checks exist, so they must actually be green before the merge')
+    }
+
+    # `gh repo view` and `gh pr merge` are the whole procedure, and nothing restricts `+merge` to a
+    # GitHub-hosted project - an Azure DevOps origin registers `[direct-PR +merge]` perfectly well.
+    It 'Step 8a bounds the procedure to GitHub and fails closed off it' {
+        $step = Get-MusterStep 'Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**This whole procedure is GitHub-only.**'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**where `gh` cannot resolve the repository, the merge is the user''s**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('do not fall back to a web API or a raw git push to the default branch')
+    }
+
+    # The command carried a placeholder no step could fill. A bare `gh pr merge` goes interactive
+    # and a guessed flag either fails or silently rewrites that repository's settled history shape.
+    It 'Step 8a resolves the strategy from the repository rather than guessing it' {
+        $step = Get-MusterStep 'Step 8a'
+        # Scoped to the target repository, not to wherever the Hand is standing. The `tasks-axi`
+        # block above leaves the working directory at KINGSHAND_HOME, so a bare `gh repo view`
+        # answers for kingshand and the Hand merges another repository on kingshand's settings.
+        $step | Should -Match ('Push-Location "<absolute repo path>"\s+' +
+                               'gh repo view --json mergeCommitAllowed,squashMergeAllowed,' +
+                               'rebaseMergeAllowed\s+Pop-Location')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**The `Push-Location` is what makes that the right repository''s answer.**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**Where exactly one is allowed, that is the repository''s answer**'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**Where more than one is allowed, the strategy is a standing per-project ' +
+                     'fact rather than a per-merge decision**')
+        # GitHub enables all three by default, so asking per merge would reduce a standing grant
+        # to a question every time. Asked once per repository and recorded instead.
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('It belongs in `data\rules-<project>.md`: read it there first, and only ' +
+                     'where that file does not answer it, put it to the user once and record ' +
+                     'their answer there so the next merge does not ask again')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**Never invent a default strategy.**'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**Never run `gh pr merge` with no strategy flag.**'
+        $step.Contains('--<the strategy that repository uses>') |
+            Should -BeFalse -Because 'a placeholder no step can fill strands the permission'
+    }
+
+    # Reading a repository's own merge settings is not the forbidden "decide the merge happened".
+    It 'the strategy probe is told apart from deciding a merge has happened' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
+            -Phrase ('**That is about deciding a merge has happened, never about reading a ' +
+                     'repository''s own settings**')
+    }
+
+    # The user approved a surface promising a push and a PR, and got a merge to the default branch.
+    # The authority is real; the disclosure was not.
+    It 'the landing gate surface names the merge where the permission is declared' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**On a project whose entry carries `+merge`, the merge is part of what ' +
+                     'this approval sets in motion, so the surface names it.**')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('that pull request merged to the default branch at Step 8a once it is green')
+        # The companion sentence is what naming it keeps true, so it must survive alongside.
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('An approval is never read as covering a comment, a work item or a merge ' +
+                     'that was not on the surface they answered')
+    }
+
+    It 'the import skill reads merge back before it is written' {
+        Assert-Phrase -Text (Get-DocText $script:ImportMd) -Where 'the import skill' `
+            -Phrase ('confirm name, path, mode and yolo together - and merge alongside them ' +
+                     '**where the chosen mode is push-capable**')
+    }
+
+    # Add-ProjectEntry throws on local-only with -Merge, so a skill that offers the token there
+    # invites a choice its own writer refuses and fails the import at its last step.
+    It 'the import skill does not offer merge on a posture that cannot carry it' {
+        $doc = Get-DocText $script:ImportMd
+        Assert-Phrase -Text $doc -Where 'the import skill' `
+            -Phrase ('**It belongs to the push-capable postures only, and `local-only` cannot ' +
+                     'carry it.**')
+        Assert-Phrase -Text $doc -Where 'the import skill' `
+            -Phrase '`-Merge` is available on the push-capable modes only'
+    }
+
+    # A +merge beside local-only is inert until the mode is raised by hand on that same line.
+    It 'the import skill flags a +merge in the brackets when a posture is raised' {
+        Assert-Phrase -Text (Get-DocText $script:ImportMd) -Where 'the import skill' `
+            -Phrase ('**Raising a mode: look at the brackets for a `+merge` before you do.**')
+    }
+
+    # Where the permission is absent, close-out must be unchanged: the item stays open and waits.
+    It 'a project without the permission is left exactly as it was' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
+            -Phrase ('On every other project there is nothing to do here: the item stays open at ' +
+                     '`ready`, the pull request waits for the user, and you say so and stop')
+    }
+
+    # Rule 2's open-ended clause covers a merge, and Instruction precedence says a +merge entry
+    # needs no fresh word. Both readings cannot stand, so rule 2 says which and why.
+    It 'rule 2 resolves the merge against its own outward stop' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
+            -Phrase ('A merge does reach a server, so the stop above covers it too, and ' +
+                     '`+merge` is itself the word that stop asks for - given in advance and ' +
+                     'recorded in the registry rather than fresh each time')
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
+            -Phrase ('the merge is refused outright on every project that does not')
     }
 
     It 'close-out refuses to make the merge true itself' {
         Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
             -Phrase 'never merge it to make it true'
+    }
+
+    It 'the import skill defaults it off and never proposes it' {
+        Assert-Phrase -Text (Get-DocText $script:ImportMd) -Where 'the import skill' `
+            -Phrase ('**Default it off, never propose it, and write it only where the user ' +
+                     'says so in the moment.**')
+        Assert-Phrase -Text (Get-DocText $script:ImportMd) -Where 'the import skill' `
+            -Phrase '`+yolo` does not imply it'
+    }
+}
+
+# With yolo off the Hand gated exactly two moments, dispatch and landing, and gated nothing in
+# between - so a worker committed, the gate pushed, and a pull request opened with nobody asked.
+# The rule now names the whole outward set, and muster holds the landing gate before the push
+# instead of after it.
+Describe 'with yolo off, nothing goes to a server until the user says so' {
+    It 'CLAUDE.md rule 2 states the rule and names the gated set' {
+        $text = Get-DocText $script:HandMd
+        Assert-Phrase -Text $text -Where 'CLAUDE.md rule 2' `
+            -Phrase '**nothing goes to a server until they say so**'
+        Assert-Phrase -Text $text -Where 'CLAUDE.md rule 2' `
+            -Phrase ('a git push, raising or editing a pull request, posting a comment ' +
+                     'anywhere, creating or updating an Azure DevOps work item, or any other ' +
+                     'action that reaches outside this machine')
+    }
+
+    # Naming examples without naming the rule invites a reading where anything unlisted is fine.
+    It 'the open-ended clause is stated as the rule, not as a fifth example' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
+            -Phrase 'The last is the rule and the rest are examples of it'
+    }
+
+    It 'a ticket is not exempt for not being code' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
+            -Phrase 'a ticket is not exempt for not being code'
+    }
+
+    # local-only's DELIVERY needs nothing - it stops on a branch, so there is no push and no pull
+    # request to hold back, and the King dropped the separate confirmation deliberately. Scoped to
+    # delivery rather than to the project: every cm-* entry here is local-only with its tickets in
+    # Azure DevOps, so a posture-shaped exemption would carve out the common case, and `counsel`
+    # already gates its work-item path with no local-only carve-out.
+    It 'the outward stop fires on the action rather than on the posture' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
+            -Phrase ('**it fires on the action reaching a server, whatever posture the project ' +
+                     'is registered under**')
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
+            -Phrase ('a comment or a work item is not delivery, so a `local-only` project''s ' +
+                     'ticket is gated exactly like any other')
+        (Get-DocText $script:HandMd).Contains('`local-only` never fires it because it never reaches a server') |
+            Should -BeFalse -Because 'the posture-shaped claim was false of a local-only project with ADO tickets'
+    }
+
+    It 'local-only is named as needing nothing, scoped to its delivery' {
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+            -Where 'muster Step 2' `
+            -Phrase ('**`local-only` is untouched**: no Done-means block above changes, because ' +
+                     'none of them pushes or opens a pull request')
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+            -Where 'muster Step 2' `
+            -Phrase ('a comment or a work item on a `local-only` project is gated by rule 2 like ' +
+                     'any other')
+    }
+
+    It 'muster Step 2 replaces the direct-PR outward bullet with a stop' {
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+            -Where 'muster Step 2' `
+            -Phrase ('Leave the work committed and stop there. Do not push, do not open a ' +
+                     'pull request, do not comment anywhere, and do not create or update a work ' +
+                     'item.')
+    }
+
+    It 'muster Step 2 replaces the no-mistakes pipeline bullet with a gate run that stops locally' {
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+            -Where 'muster Step 2' `
+            -Phrase ('Run the gate with `--skip push,pr,ci` so it stops at the last local step, ' +
+                     'and fix everything it parks.')
+    }
+
+    # Holding the push back delays the CI wait, it does not remove it: the approved run is a full
+    # run and reaches the ci step. Dropping $ci.briefLine here reinstates the unbounded wait that
+    # the Step 1b preflight exists to end, on exactly the repositories that cannot report a check.
+    It 'the approved run still carries the CI brief line rather than losing it' {
+        $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -'
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase ('- When you are told the push is approved, run the same gate line again ' +
+                     'without `--skip`. <the `Drive the pipeline` bullet Step 1b chose, verbatim>')
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase ('**`$ci.briefLine` is carried into that second bullet unchanged, never ' +
+                     'dropped.**')
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase ('Holding the push back delays the CI wait; it does not remove it')
+    }
+
+    # The flags used to be forbidden outright for a no-mistakes project. They are now the stop
+    # itself, which is exactly one reason - and a reason worth pinning, because "shorten the run"
+    # is the misuse the old prohibition existed to prevent and it is still a misuse.
+    It 'the skip flags have exactly one sanctioned use and it is named' {
+        $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -'
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase ('there is exactly one reason to add them: `yolo` off, per the section ' +
+                     'above, where they are what holds the push back until the user has answered')
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase 'on a `+yolo` project the flags never appear at all'
+    }
+
+    It 'the landing gate is held before the push and says what the approval buys' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**On a push-capable project with `yolo` off, this gate is held before ' +
+                     'the push, and approving it is the user''s word for the outward step.**')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('An approval is never read as covering a comment, a work item or a merge ' +
+                     'that was not on the surface they answered')
+    }
+
+    # A gate the Hand cannot act on is a gate that strands the work. The worker is still alive
+    # here, so the outward step is a steer rather than something the Hand does in the worktree.
+    It 'the approved outward step is a steer to the live worker' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        $step | Should -Match 'Send-HerdrPrompt' -Because 'the worker pushes, not the Hand'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**That re-run is the price of holding the push back, and it is the ' +
+                     'intended one**')
+    }
+
+    # One steer template served both modes, and the two modes finish by different routes. Sending
+    # the direct-PR text to a no-mistakes worker pushes around the gate's own push and pr steps -
+    # the attribution scan, the PR body, the CI hand-off - on a project registered to have them,
+    # and the result looks like a delivered pull request either way.
+    It 'the steer is split by mode, and the wrong one is named as the failure' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase '**There are two steers and the resolved mode picks which**'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('For a `no-mistakes` worker, which must re-enter the pipeline rather than ' +
+                     'push by hand')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**Sending the `direct-PR` steer to a `no-mistakes` worker pushes around ' +
+                     'the gate**')
+        $step | Should -Match 'Run your gate line again without --skip so the pipeline pushes' `
+            -Because 'the no-mistakes steer must re-enter the pipeline, not push by hand'
+    }
+
+    It 'the counsel skill applies it to work items rather than exempting them' {
+        $counsel = Get-DocText (Join-Path $script:Root '.claude\skills\counsel\SKILL.md')
+        Assert-Phrase -Text $counsel -Where 'the counsel skill' `
+            -Phrase ('**With `yolo` off, a work item that goes to a server waits for the ' +
+                     'King''s word.**')
+        Assert-Phrase -Text $counsel -Where 'the counsel skill' `
+            -Phrase 'Being a ticket rather than code is not an exemption'
     }
 }
 
@@ -3171,6 +3601,7 @@ Describe 'no long dash' {
         @{ file = 'docs\2026-09-04-worker-environment-propagation.md' }
         @{ file = 'docs\2026-09-04-parked-decision-route.md' }
         @{ file = '.claude\skills\regency\SKILL.md' }
+        @{ file = 'docs\2026-09-04-outward-gating.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
