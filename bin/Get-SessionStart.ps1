@@ -283,7 +283,8 @@ if (Test-PathQuiet $afkFlag) {
         if ($line) { $since = ' (' + $line.Trim() + ')' }
     } catch { }
     Add-Line "  AWAY: a regency is in force$since - load ``regency``. The King is not at the machine."
-    Add-Line '        Batch everything that does not need them, and never answer a worker''s question for them.'
+    Add-Line ('        Batch everything that does not need them, never answer a prompt a worker ' +
+              'is blocked on, and a decision a worker wrote into its report is decided under `petition`.')
 }
 
 try {
@@ -322,6 +323,19 @@ try {
     # The agent word appended after the slash is herdr's (idle, working, blocked, done, unknown)
     # corrected by the worker's own screen, and `idle` there means "not mid-turn", never
     # "finished" - a worker reads idle from the moment it starts.
+    #
+    # A worker parked on a decision the King owes settles cleanly, so it is live and `idle` and
+    # prints identically to one still working. crew.json's `waiting_on` pointer is what names the
+    # decision it stopped on, so the line carries it: the digest is this session's whole picture of
+    # the fleet, and a worker waiting on an answer must not read as a worker making progress.
+    #
+    # THE LINE SAYS "last parked on" AND NOT "parked on", AND THE WORD IS LOAD-BEARING. The pointer
+    # is never cleared, so it keeps naming that key for the rest of the worker's life - including
+    # long after the decision was answered and applied. Asserting a live park here would tell the
+    # King a decision is waiting on him that he settled hours ago, on the one surface CLAUDE.md
+    # tells the Hand to trust without re-reading the fleet behind it. The QUEUE section below is
+    # what says which holds are still open, so the line names the key and leaves the open-or-closed
+    # half to the source that owns it.
     $workers = @($snap.crew.workers)
     if ($workers.Count -eq 0) {
         Add-Line '  Workers: none recorded.'
@@ -332,7 +346,9 @@ try {
             $agent    = Get-Field $_ 'agentState'
             if ($agent) { $liveText += "/$agent" }
             $rep = if ($_.hasReport) { ', report on disk' } else { '' }
-            "- $($_.id) $($_.ticket) ($($_.repo)) stage $($_.stage), $liveText$rep"
+            $held = Get-Field $_ 'waitingOn'
+            $park = if ($held) { ", last parked on decision $held" } else { '' }
+            "- $($_.id) $($_.ticket) ($($_.repo)) stage $($_.stage), $liveText$park$rep"
         })
     }
 

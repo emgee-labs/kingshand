@@ -98,6 +98,57 @@ BeforeAll {
     }
 }
 
+# regency's rule used to be "record it, never answer it". This change deliberately overrides it: a
+# decision a worker wrote into its report may be answered in the King's stead on `petition`'s
+# reversibility test. The digest is the Hand's first input in exactly that scenario, and CLAUDE.md
+# tells it to trust the digest rather than re-read the fleet behind it - so a digest still carrying
+# the old prohibition reinstates the overridden rule before `regency` is ever loaded, and a worker
+# parked on a reversible decision sits until morning.
+Describe 'the away block routes a parked decision instead of forbidding an answer' {
+    BeforeAll {
+        $script:Away = New-Fixture 'away'
+        Set-Content -Path (Join-Path $script:Away.Root 'state\.afk') -Encoding utf8 `
+            -Value @('since: 2026-09-04T08:33:19.8396570Z')
+        $script:AwayText = Get-Digest $script:Away
+    }
+
+    It 'reports the regency and points at the skill carrying the test rather than restating it' {
+        $script:AwayText.Contains('AWAY: a regency is in force') | Should -BeTrue
+        $script:AwayText.Contains('load `regency`') |
+            Should -BeTrue -Because 'the digest points at the skill that owns the reversibility test'
+        $script:AwayText.Contains('reversib') |
+            Should -BeFalse -Because 'petition owns that test and the digest never restates it'
+    }
+
+    It 'does not tell the Hand never to answer a worker''s question' {
+        $script:AwayText |
+            Should -Not -Match "never answer a worker's question" `
+            -Because 'that is the rule this change overrides, and the digest is read before regency'
+    }
+
+    It 'keeps the blocked-prompt floor and routes a report''s decision to petition' {
+        $script:AwayText.Contains('never answer a prompt a worker is blocked on') |
+            Should -BeTrue -Because 'the floor on an interactive prompt is untouched by the override'
+        $script:AwayText.Contains('decided under `petition`') |
+            Should -BeTrue -Because 'a decision written into a report is decided, not left parked'
+    }
+
+    It 'stays two lines rather than growing into a paragraph' {
+        $lines = @($script:AwayText -split "`r?`n")
+        $i = [array]::FindIndex($lines, [Predicate[string]] { $args[0] -match 'AWAY: a regency is in force' })
+        $i | Should -Not -Be -1 -Because 'the away flag has to surface at all'
+        $lines[$i + 1] | Should -Match 'Batch everything that does not need them'
+        $lines[$i + 2] |
+            Should -Not -Match 'petition|blocked on' -Because 'the block is two lines, not a paragraph'
+    }
+
+    It 'says nothing about a regency when the flag is absent' {
+        $bare = Get-Digest (New-Fixture 'no-away')
+        $bare.Contains('AWAY:') |
+            Should -BeFalse -Because 'the block is the flag''s consequence, not a permanent heading'
+    }
+}
+
 Describe 'a session with nothing recorded still gets a digest' {
     BeforeAll {
         $script:Bare     = New-Fixture 'bare'
@@ -128,6 +179,52 @@ Describe 'a session with nothing recorded still gets a digest' {
         $missing = New-Fixture 'no-data' -NoDataDirectory
         { Get-Digest $missing } | Should -Not -Throw
         (Get-Digest $missing).Contains('ABSENT') | Should -BeTrue
+    }
+}
+
+# The digest is this session's whole picture of the fleet, and CLAUDE.md tells the Hand to trust it
+# rather than re-read the fleet behind it. A worker parked on a decision the King owes has settled,
+# so it is live and idle and prints identically to one still working - crew.json's pointer is the
+# only thing that separates them, and dropping it from the line puts the guess back on the surface
+# the field was added to take it off.
+Describe 'a worker parked on a decision is not printed as a worker still working' {
+    BeforeAll {
+        $script:Parked = New-Fixture 'parked'
+        @{
+            workers = @{
+                'w-parked'  = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-web'; stage = 'implementing'
+                                 waiting_on = 'T-1001-shorter-hero-copy' }
+                'w-running' = @{ ticket = 'T-1002'; kind = 'ticket'; repo = 'acme-api'; stage = 'implementing' }
+            }
+        } | ConvertTo-Json -Depth 10 | Set-Content -Path $script:Parked.State -Encoding utf8
+        $script:ParkedText = Get-Digest $script:Parked
+    }
+
+    It 'names the decision the parked worker stopped on, on its own line' {
+        $line = @($script:ParkedText -split "`r?`n" | Where-Object { $_ -match '^\s*- w-parked ' })[0]
+        $line | Should -Not -BeNullOrEmpty -Because 'a recorded worker is always listed'
+        $line.Contains('last parked on decision T-1001-shorter-hero-copy') |
+            Should -BeTrue -Because 'the pointer is the only thing that separates it from a worker making progress'
+    }
+
+    # The pointer is never cleared, so it names that key for the rest of the worker's life. A line
+    # that asserted a live park would tell the King a decision is waiting on him that he answered
+    # hours ago - on the surface CLAUDE.md tells the Hand to trust without re-reading the fleet.
+    It 'says the park is the last one rather than asserting it is still open' {
+        $line = @($script:ParkedText -split "`r?`n" | Where-Object { $_ -match '^\s*- w-parked ' })[0]
+        $line -match ',\s*parked on decision' |
+            Should -BeFalse -Because 'a worker answered hours ago still carries this key'
+    }
+
+    It 'adds nothing to the line of a worker that has never parked' {
+        $line = @($script:ParkedText -split "`r?`n" | Where-Object { $_ -match '^\s*- w-running ' })[0]
+        $line | Should -Not -BeNullOrEmpty
+        $line.Contains('parked on decision') |
+            Should -BeFalse -Because 'a null pointer is never parked, not parked on nothing'
+    }
+
+    It 'still renders without throwing, which is the whole contract of this script' {
+        { Get-Digest $script:Parked } | Should -Not -Throw
     }
 }
 

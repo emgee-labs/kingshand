@@ -23,6 +23,14 @@
   old supervisor vocabulary: herdr's `idle` means "not mid-turn", which a worker also is in the
   seconds after it starts, so it never means finished on its own.
 
+  `.crew.workers[].waitingOn` is crew.json's `waiting_on` pointer: the tasks-axi hold key the
+  worker parked on, or the empty string when no park has been recorded on this record - which never
+  means there is nothing to answer, since only a Hand who has read the report ever writes it. It is
+  never cleared, so it says which decision that worker stopped on and not whether the decision is
+  still outstanding - that is the hold's own state, and this snapshot does not read the queue.
+  Liveness cannot answer either half, since a parked worker and a finished one both read `idle`.
+  It is intent, so it comes from crew.json and never from herdr.
+
   An empty registry and an absent crew.json are states, not errors: nothing can be dispatched
   until /annex runs, and nothing is dispatched until `muster` dispatches it.
 
@@ -216,6 +224,10 @@ if ($crewReadable -and $crewIds.Count -gt 0) {
             agentState  = (Get-Field $row 'agentState')
             agentStatus = (Get-Field $row 'agentStatus')
             briefPath   = (Get-Field $w 'brief')
+            # Read from crew.json rather than from the liveness row: this is intent, and a parked
+            # worker reads `idle` exactly like a finished one. Which decision, never whether it is
+            # still owed - see the header.
+            waitingOn   = (Get-Field $w 'waiting_on')
             # report.md survives teardown, so a dead worker with a report is still readable work.
             hasReport   = (Test-PathQuiet $reportPath)
             reportPath  = $reportPath

@@ -260,7 +260,7 @@ Describe 'a worker is joined with its durable report' {
 
         $crew = @{
             workers = @{
-                'w-reported' = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-web'; stage = 'ready';       brief = 'data\w-reported\brief.md' }
+                'w-reported' = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-web'; stage = 'ready';       brief = 'data\w-reported\brief.md'; waiting_on = 'T-1001-shorter-hero-copy' }
                 'w-silent'   = @{ ticket = 'T-1002'; kind = 'ticket'; repo = 'acme-api'; stage = 'implementing'; brief = 'data\w-silent\brief.md' }
             }
         }
@@ -286,6 +286,16 @@ Describe 'a worker is joined with its durable report' {
     It 'marks the worker with no report.md as having none' {
         $silent = @($script:FleetSnap.crew.workers | Where-Object { $_.id -eq 'w-silent' })[0]
         $silent.hasReport | Should -BeFalse
+    }
+
+    # A worker parked on the King's own decision settles, so liveness reports it exactly as it
+    # reports a finished one. The pointer is the only thing that separates them, so the snapshot
+    # has to carry it or the digest is left guessing between finished and waiting on an answer.
+    It 'carries the parked-decision pointer, which liveness cannot answer' {
+        $parked = @($script:FleetSnap.crew.workers | Where-Object { $_.id -eq 'w-reported' })[0]
+        $silent = @($script:FleetSnap.crew.workers | Where-Object { $_.id -eq 'w-silent' })[0]
+        $parked.waitingOn | Should -Be 'T-1001-shorter-hero-copy'
+        $silent.waitingOn | Should -Be '' -Because 'a worker that has never parked has no key, not a missing field'
     }
 
     It 'does not call a dispatched brief un-dispatched work' {

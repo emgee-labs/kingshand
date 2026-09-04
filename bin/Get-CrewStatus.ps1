@@ -26,6 +26,15 @@
   while a genuinely finished worker reported `idle` - the two states inverted. So this reads
   Get-HerdrAgentState, which is the one place that correction lives, and a worker whose screen
   shows a prompt reports `blocked` whatever herdr calls it.
+
+  `waitingOn` is crew.json's `waiting_on` pointer passed straight through: the tasks-axi hold key
+  the worker parked on, or the empty string when no park has been recorded on this record - which
+  never means there is nothing to answer, since only a Hand who has read the report ever writes it.
+  It is never cleared, so a key here says which decision that worker stopped on, NOT that it is
+  still stopped - whether the decision is still outstanding is the hold's own state and this row
+  does not read the queue.
+  Liveness cannot answer any of it: a parked worker's turn ended cleanly, so it reads `idle`
+  exactly like a finished one. It is intent, so crew.json owns it and herdr is never consulted.
 #>
 [CmdletBinding()]
 param([string]$StatePath)
@@ -100,5 +109,9 @@ foreach ($id in $state.workers.Keys) {
         # The nearest thing herdr has to the old free-text status line. Its agent record carries a
         # state and a title and nothing else; the worker's actual words come from Read-HerdrAgent.
         agentStatus = if ($a -and $a.title) { "$($a.title)" } else { '' }
+        # crew.json's own pointer, appended last so no existing field moves. Import-CrewState
+        # guarantees the key on every record, so this is set or empty and never absent. Which
+        # decision, never whether it is still owed - see the header.
+        waitingOn   = if ($w.waiting_on) { "$($w.waiting_on)" } else { '' }
     }
 }

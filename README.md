@@ -198,14 +198,14 @@ Sixteen, all project-local. Ten you invoke; six the Hand loads for itself.
 | `muster` | Dispatch and supervise workers across tickets and repos |
 | `survey` | Where everything stands - the catch-up digest |
 | `herald` | Owns reply shape, which is on by default. Load it to turn it off |
-| `regency` | Hold the fleet while you are away, and batch what does not need you. Also `/afk` |
+| `regency` | Hold the fleet while you are away, and batch what does not need you - `petition` below says what may be decided in your stead. Also `/afk` |
 | `audience` | What happened while you were away from this session |
 | `chronicle` | Curate durable memory before a context reset |
 | `counsel` | Break a story or a whole feature into work, and find where the stories overlap |
 | `rally` | A worker that has stopped making progress |
 | `decree` | Finishing an investigation without losing a decision that is yours |
 | `inquest` | Diagnosing a reported bug before writing its brief |
-| `petition` | Deciding an ask-user finding from the review gate |
+| `petition` | Deciding an ask-user finding from the review gate, including in your stead while you are away |
 | `statute` | Changing kingshand's own tracked material |
 | `witness` | Exercising a front-end change in a real browser, and recording what was seen |
 

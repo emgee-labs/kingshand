@@ -231,6 +231,263 @@ Describe 'the repo config points the queue at kingshand''s own data directory' {
         $text.Contains('backend = "markdown"')            | Should -BeTrue
         $text.Contains('path = "data/backlog.md"')        | Should -BeTrue
         $text.Contains('archive = "data/done-archive.md"') | Should -BeTrue
-        $text.Contains('done_keep = 10')                  | Should -BeTrue
+    }
+
+    # A parked decision's answer lives in its closed hold and nowhere else, and `tasks-axi done`
+    # prunes past this number into the archive, where no tasks-axi command reads it back. So the
+    # retention is how long the route can answer "was this already decided" from the tool alone,
+    # and at ten it was under a day of ordinary fleet churn - after which delivered work reads as
+    # a worker that answered its own question. The archive fallback in muster covers the rest;
+    # this keeps the cliff a year out rather than an afternoon.
+    It 'keeps enough closed items that an answered decision outlives ordinary churn' {
+        $text = Get-Content -Path $script:TasksToml -Raw
+        $m = [regex]::Match($text, '(?m)^\s*done_keep\s*=\s*(\d+)\s*$')
+        $m.Success | Should -BeTrue -Because 'retention has to be set explicitly, not left to the tool default'
+        [int]$m.Groups[1].Value |
+            Should -BeGreaterOrEqual 200 -Because 'a closed decision hold pruned out of the backlog reads as a decision nobody made'
+    }
+}
+
+# The route now rests on a closed hold still being findable, and `tasks-axi` itself is what removes
+# it: `done` prunes past `done_keep` into the archive file, and no `list`, `show` or `ready` reads
+# that file back. This reproduces the loss on purpose, with retention turned down to 1 so it takes
+# two closures rather than two hundred, and pins both halves - the tool goes blind, and the record
+# with its `answered:` note is still on disk where muster's fallback looks.
+Describe 'a pruned decision hold leaves the tool but not the disk' {
+    BeforeAll {
+        $script:PruneRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("kingshand-prune-" + [guid]::NewGuid().ToString('N').Substring(0, 12))
+        New-Item -ItemType Directory -Path (Join-Path $script:PruneRoot 'data') -Force | Out-Null
+        Set-Content -Path (Join-Path $script:PruneRoot '.tasks.toml') -Encoding utf8 -Value @(
+            'backend = "markdown"'
+            ''
+            '[markdown]'
+            'path = "data/backlog.md"'
+            'archive = "data/done-archive.md"'
+            'done_keep = 1'
+        )
+        $script:ArchiveFile = Join-Path $script:PruneRoot 'data\done-archive.md'
+
+        function Invoke-PruneAxi {
+            param([Parameter(Mandatory, ValueFromRemainingArguments)][string[]]$Arguments)
+            Push-Location $script:PruneRoot
+            try { (& tasks-axi @Arguments 2>&1 | Out-String) }
+            finally { Pop-Location }
+        }
+    }
+
+    AfterAll {
+        if ($script:PruneRoot -and (Test-Path $script:PruneRoot)) {
+            Remove-Item -Path $script:PruneRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'archives the older answered hold and stops returning it from the tool' -Skip:(-not $HasTasksAxi) {
+        Invoke-PruneAxi 'add' 't-1001-hero-copy' 'which hero wording' | Out-Null
+        Invoke-PruneAxi 'hold' 't-1001-hero-copy' '--reason' 'his to choose' '--kind' 'captain' | Out-Null
+        Invoke-PruneAxi 'done' 't-1001-hero-copy' '--note' 'answered: the shorter wording' | Out-Null
+
+        Invoke-PruneAxi 'add' 't-2002-unrelated' 'something else entirely' | Out-Null
+        Invoke-PruneAxi 'done' 't-2002-unrelated' '--note' 'shipped' | Out-Null
+
+        # The blindness itself: neither lookup the route runs can see the answered hold any more.
+        (Invoke-PruneAxi 'list' '--state' 'done').Contains('t-1001-hero-copy') |
+            Should -BeFalse -Because 'this is the loss the archive fallback exists for'
+        $shown = Invoke-PruneAxi 'show' 't-1001-hero-copy' '--full'
+        $shown.Contains('NOT_FOUND') |
+            Should -BeTrue -Because 'a pruned key reads as NOT_FOUND, which is not the same as never decided'
+        $shown.Contains('answered: the shorter wording') |
+            Should -BeFalse -Because 'the answer is gone from the tool even though the key is echoed in the error'
+
+        # And the other half: the record and its answer are still on disk, so the fallback works.
+        Test-Path $script:ArchiveFile | Should -BeTrue
+        $archive = Get-Content -Path $script:ArchiveFile -Raw
+        $archive.Contains('t-1001-hero-copy') | Should -BeTrue
+        $archive.Contains('answered: the shorter wording') |
+            Should -BeTrue -Because 'the closing note is what says what was decided'
+    }
+
+    # The archive is read with Select-String, so the match is written by hand and a bare substring
+    # says "answered" over any longer key that merely starts the same way. At the teardown guard
+    # that turns a record which has gone missing - explicitly "a cause to establish, never a pass" -
+    # into permission to stop a worker. This drives the two patterns against the real archived line.
+    It 'a bare archive match claims a longer key''s answer, and the anchored one does not' -Skip:(-not $HasTasksAxi) {
+        Invoke-PruneAxi 'add' 't-100-copy-length' 'the longer sibling key' | Out-Null
+        Invoke-PruneAxi 'hold' 't-100-copy-length' '--reason' 'his to choose' '--kind' 'captain' | Out-Null
+        Invoke-PruneAxi 'done' 't-100-copy-length' '--note' 'answered: went long' | Out-Null
+        Invoke-PruneAxi 'add' 'filler-to-force-a-prune' 'filler' | Out-Null
+        Invoke-PruneAxi 'done' 'filler-to-force-a-prune' '--note' 'shipped' | Out-Null
+
+        # `t-100-copy` was never registered at all, so every read of it must come back empty.
+        $missing = 't-100-copy'
+        @(Select-String -Path $script:ArchiveFile -SimpleMatch -Pattern $missing).Count |
+            Should -BeGreaterThan 0 -Because 'this is the false positive: the bare match finds the longer key'
+        @(Select-String -Path $script:ArchiveFile -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($missing))\s+-").Count |
+            Should -Be 0 -Because 'anchored to a whole entry, an unregistered key is correctly absent'
+
+        # And the anchor still finds the key that really is there, or it would fail closed on every
+        # answered decision instead.
+        $real = 't-100-copy-length'
+        @(Select-String -Path $script:ArchiveFile -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($real))\s+-").Count |
+            Should -Be 1 -Because 'the archived entry renders as `- [x] <key> - <title>`'
+    }
+}
+
+# Two facts the route's instructions state about the tool and the shell. Both were wrong once, and
+# both fail silently rather than loudly: a lookup that errors reads as "no hold covers this", and a
+# replayed hold reads as inert while it overwrites the reason the whole discriminator rests on.
+Describe 'the tool facts the parked-decision route depends on' {
+    BeforeAll {
+        $script:FactRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("kingshand-facts-" + [guid]::NewGuid().ToString('N').Substring(0, 12))
+        New-Item -ItemType Directory -Path (Join-Path $script:FactRoot 'data') -Force | Out-Null
+        Set-Content -Path (Join-Path $script:FactRoot '.tasks.toml') -Encoding utf8 -Value @(
+            'backend = "markdown"'
+            ''
+            '[markdown]'
+            'path = "data/backlog.md"'
+            'archive = "data/done-archive.md"'
+            'done_keep = 200'
+        )
+
+        function Invoke-FactAxi {
+            param([Parameter(Mandatory, ValueFromRemainingArguments)][string[]]$Arguments)
+            Push-Location $script:FactRoot
+            try { (& tasks-axi @Arguments 2>&1 | Out-String) }
+            finally { Pop-Location }
+        }
+    }
+
+    AfterAll {
+        if ($script:FactRoot -and (Test-Path $script:FactRoot)) {
+            Remove-Item -Path $script:FactRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'refuses an unquoted comma-separated field list, which PowerShell splits' -Skip:(-not $HasTasksAxi) {
+        Invoke-FactAxi 'add' 'fk-1' 'a decision' | Out-Null
+        Invoke-FactAxi 'hold' 'fk-1' '--reason' 'the question is with him' '--kind' 'captain' | Out-Null
+
+        # What PowerShell hands the native command for a bare `hold_kind,hold_reason`: one
+        # space-joined token. Sent as that literal token so the assertion cannot be satisfied by
+        # some other validation error - measured against tasks-axi 0.2.5, the tool answers this
+        # exact form with `Unknown field(s): hold_kind hold_reason`.
+        $unquoted = Invoke-FactAxi 'list' '--state' 'held' '--fields' 'hold_kind hold_reason'
+        $unquoted.Contains('Unknown field(s): hold_kind hold_reason') |
+            Should -BeTrue -Because 'this is the tool''s actual answer to the space-joined token, not any validation error'
+        $unquoted.Contains('VALIDATION_ERROR') |
+            Should -BeTrue -Because 'the fence must quote the field list or this lookup returns no rows at all'
+        $unquoted.Contains('fk-1') |
+            Should -BeFalse -Because 'a validation error reads to the Hand as no hold covering the decision'
+
+        # And the token really is what a bare comma list becomes: `[string[]]` coerces the array
+        # PowerShell parses it into back to a single space-joined element, so the two forms are
+        # indistinguishable by the time the tool sees them. This is the step that makes the case
+        # above the documented gotcha rather than a hand-built lookalike.
+        $viaBareList = Invoke-FactAxi 'list' '--state' 'held' '--fields' @('hold_kind', 'hold_reason')
+        $viaBareList | Should -Be $unquoted -Because 'the bare comma list reaches the tool as that one token'
+
+        $quoted = Invoke-FactAxi 'list' '--state' 'held' '--fields' 'hold_kind,hold_reason'
+        $quoted.Contains('fk-1') | Should -BeTrue
+        $quoted.Contains('the question is with him') |
+            Should -BeTrue -Because 'hold_reason is the whole point of asking for these fields'
+    }
+
+    # Step 6's lookup filters the tool's output, and filtering alone loses two things the Hand
+    # needs. The tool prints its error block on STDOUT and exits non-zero, so a filter applied
+    # straight to the pipeline leaves a failed lookup byte-identical to a queue holding nothing -
+    # and muster's own text says what follows: the Hand reads no hold covering the decision and
+    # files a second one. The filter also drops the header naming the columns, leaving a row where
+    # `kind` sits beside `hold_kind` and `title` beside `hold_reason`.
+    It 'tells a failed lookup from an empty one, and keeps the column header' -Skip:(-not $HasTasksAxi) {
+        Invoke-FactAxi 'add' 'T-2001-hero-copy' 'which hero wording' | Out-Null
+        Invoke-FactAxi 'hold' 'T-2001-hero-copy' '--reason' 'the question is with him' '--kind' 'captain' | Out-Null
+        Invoke-FactAxi 'add' 'T-2002-other-scope' 'another work item' | Out-Null
+        Invoke-FactAxi 'hold' 'T-2002-other-scope' '--reason' 'also his to choose' '--kind' 'captain' | Out-Null
+
+        $work = 'T-2001'
+        $keep = "^tasks\[|^\s*$([regex]::Escape($work))-"
+
+        Push-Location $script:FactRoot
+        try {
+            $good = tasks-axi list --state held --fields 'hold_kind,hold_reason'
+            $goodExit = $LASTEXITCODE
+            # The space-joined token a bare comma list reaches the tool as - the documented gotcha.
+            $bad = tasks-axi list --state held --fields 'hold_kind hold_reason'
+            $badExit = $LASTEXITCODE
+        } finally { Pop-Location }
+
+        $goodFiltered = @($good | Select-String -Pattern $keep)
+        $badFiltered = @($bad | Select-String -Pattern $keep)
+
+        # The exit code is the only thing that separates the two, which is why the fence branches
+        # on it before filtering rather than reading the filtered output.
+        $badExit | Should -Not -Be 0 -Because 'a failed lookup must be distinguishable from an empty one'
+        ($bad -join "`n").Contains('VALIDATION_ERROR') |
+            Should -BeTrue -Because 'the error is on stdout, so capturing the read is what surfaces it'
+        $badFiltered.Count |
+            Should -Be 0 -Because 'filtering alone makes a failure look exactly like a queue holding nothing'
+
+        $goodExit | Should -Be 0
+        @($goodFiltered | Where-Object { $_.Line -match '^tasks\[' }).Count |
+            Should -Be 1 -Because 'the header is what names hold_kind and hold_reason for the row below'
+        ($goodFiltered -join "`n").Contains('T-2001-hero-copy') |
+            Should -BeTrue -Because 'the hold under this work id is what the lookup is for'
+        ($goodFiltered -join "`n").Contains('T-2002-other-scope') |
+            Should -BeFalse -Because 'the anchored match keeps another work''s live decision out'
+    }
+
+    It 'leaves add inert on replay but rewrites a hold''s reason and kind' -Skip:(-not $HasTasksAxi) {
+        Invoke-FactAxi 'add' 'fk-2' 'first title' | Out-Null
+        Invoke-FactAxi 'hold' 'fk-2' '--reason' 'the question is with him: shorter or longer' '--kind' 'captain' | Out-Null
+
+        $addAgain = Invoke-FactAxi 'add' 'fk-2' 'a completely different title'
+        $addAgain.Contains('already: true') | Should -BeTrue -Because 'add is the half that really is idempotent'
+        $addAgain.Contains('a completely different title') |
+            Should -BeFalse -Because 'a replayed add must not even change the title'
+
+        $holdAgain = Invoke-FactAxi 'hold' 'fk-2' '--reason' 'boilerplate second reason' '--kind' 'external'
+        $holdAgain.Contains('already: true') |
+            Should -BeFalse -Because 'hold reports a write, and the instructions must not call it inert'
+
+        # This fixture holds more than one item, so read the row for this key rather than the
+        # whole listing - another item's reason would otherwise satisfy the absence assertion.
+        $after = Invoke-FactAxi 'list' '--state' 'held' '--fields' 'hold_kind,hold_reason'
+        $row = @($after -split "`r?`n" | Where-Object { $_ -match '^\s*fk-2,' })[0]
+        $row | Should -Not -BeNullOrEmpty -Because 'the replay must leave the item held, not unhold it'
+        $row.Contains('boilerplate second reason') |
+            Should -BeTrue -Because 'this is the overwrite: the replay replaced the reason in place'
+        $row.Contains('the question is with him') |
+            Should -BeFalse -Because 'and the discriminator the route reads is what it destroyed'
+        $row.Contains('external') |
+            Should -BeTrue -Because 'the kind is overwritten with it, so a captain hold stops being one'
+    }
+
+    # decree's repair row re-runs `hold` to restate an ambiguous reason. It used to omit --kind on
+    # the belief that the replay moved nothing else, which is the one path the test above cannot
+    # reach because it always passes --kind explicitly. Passing nothing passes `-`, and a captain
+    # hold that stops being one drops out of King's Call and out of muster's orphan lookup.
+    It 'clears the captain kind when a hold replay omits --kind' -Skip:(-not $HasTasksAxi) {
+        Invoke-FactAxi 'add' 'fk-3' 'an ambiguous reason to repair' | Out-Null
+        Invoke-FactAxi 'hold' 'fk-3' '--reason' 'the question is with him' '--kind' 'captain' | Out-Null
+
+        $before = @((Invoke-FactAxi 'list' '--state' 'held' '--fields' 'hold_kind,hold_reason') -split "`r?`n" |
+            Where-Object { $_ -match '^\s*fk-3,' })[0]
+        $before.Contains('captain') | Should -BeTrue -Because 'the fixture starts as a captain hold'
+
+        Invoke-FactAxi 'hold' 'fk-3' '--reason' 'restated reason, no kind passed' | Out-Null
+        $after = @((Invoke-FactAxi 'list' '--state' 'held' '--fields' 'hold_kind,hold_reason') -split "`r?`n" |
+            Where-Object { $_ -match '^\s*fk-3,' })[0]
+        $after.Contains('restated reason, no kind passed') |
+            Should -BeTrue -Because 'the repair did rewrite the reason, which is what the row is for'
+        $after.Contains('captain') |
+            Should -BeFalse -Because 'and it erased the kind, which is what the row failed to say'
+
+        # The corrected row carries the kind, and that restores it.
+        Invoke-FactAxi 'hold' 'fk-3' '--reason' 'restated reason, kind carried' '--kind' 'captain' | Out-Null
+        $repaired = @((Invoke-FactAxi 'list' '--state' 'held' '--fields' 'hold_kind,hold_reason') -split "`r?`n" |
+            Where-Object { $_ -match '^\s*fk-3,' })[0]
+        $repaired.Contains('captain') |
+            Should -BeTrue -Because 'passing the kind alongside the reason is what the fixed row does'
+        $repaired.Contains('restated reason, kind carried') |
+            Should -BeTrue -Because 'and it still rewrites the reason it was run for'
     }
 }
