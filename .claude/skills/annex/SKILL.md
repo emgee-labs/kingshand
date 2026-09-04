@@ -75,10 +75,17 @@ says so in the moment.** A repository whose default branch deploys on merge make
 live production release, which is why the default runs this way and why this is never a tidy-up.
 `muster` Step 7 owns what it permits.
 
+**It belongs to the push-capable postures only, and `local-only` cannot carry it.**
+`Add-ProjectEntry` throws on that pair rather than writing it, because a local-only project never
+pushes and so has no forge and no pull request to merge. Do not offer it on a `local-only` import
+at all - inviting a choice the writer refuses turns a whole preflight into a failure at the last
+step.
+
 Tell the user what these mean in one line each if they have not seen them before, then confirm
-name, path, mode, yolo and merge together. **Merge is read back like the rest, never assumed from
-the conversation** - it is the one token whose own description says it can make every merge a live
-production release, so it is the last thing that should land in the registry unconfirmed.
+name, path, mode and yolo together - and merge alongside them **where the chosen mode is
+push-capable**. **Merge is read back like the rest, never assumed from the conversation** - it is
+the one token whose own description says it can make every merge a live production release, so it
+is the last thing that should land in the registry unconfirmed.
 
 ## Step 3 - Preflight
 
@@ -179,6 +186,9 @@ worker that tried would be writing configuration its brief never authorised.
 ```powershell
 Add-ProjectEntry -Name "<name>" -Path $path -Mode "<mode>" -Description "<desc>" [-Yolo] [-Merge]
 ```
+
+`-Merge` is available on the push-capable modes only. Passing it with `-Mode local-only` throws
+rather than registering anything, so it is not the freely optional flag the brackets make it look.
 
 Leave `-Merge` off unless the user asked for it in this conversation. Without it the entry is
 written exactly as it always was and the permission is absent, which is the off state - there is

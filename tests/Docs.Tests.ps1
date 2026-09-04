@@ -383,11 +383,34 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
                      'invented here')
     }
 
+    # `direct-PR +merge` is a combination Add-ProjectEntry accepts, and that mode runs no review
+    # gate and never reaches Step 1b - so a green stated in terms of both is unsatisfiable there,
+    # leaving the Hand to refuse a granted merge or improvise a green it was told not to eyeball.
+    It 'Step 8a states green per resolved mode rather than assuming a gate ran' {
+        $step = Get-MusterStep 'Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('what it is made of depends on the task''s resolved mode, because a ' +
+                     '`direct-PR` task runs no review gate and Step 1b never executed for it')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**Resolved `direct-PR`** - there is no gate to complete, so green is the ' +
+                     'attribution scan Step 7 already ran coming back clean, plus CI green on ' +
+                     'the pull request')
+        $step | Should -Match 'Get-RepoCiStatus -RepoPath' `
+            -Because 'Step 1b never computed the CI answer for this mode, so it is read here'
+    }
+
     # The command carried a placeholder no step could fill. A bare `gh pr merge` goes interactive
     # and a guessed flag either fails or silently rewrites that repository's settled history shape.
     It 'Step 8a resolves the strategy from the repository rather than guessing it' {
         $step = Get-MusterStep 'Step 8a'
-        $step | Should -Match 'gh repo view --json mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed'
+        # Scoped to the target repository, not to wherever the Hand is standing. The `tasks-axi`
+        # block above leaves the working directory at KINGSHAND_HOME, so a bare `gh repo view`
+        # answers for kingshand and the Hand merges another repository on kingshand's settings.
+        $step | Should -Match ('Push-Location "<absolute repo path>"\s+' +
+                               'gh repo view --json mergeCommitAllowed,squashMergeAllowed,' +
+                               'rebaseMergeAllowed\s+Pop-Location')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**The `Push-Location` is what makes that the right repository''s answer.**')
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
             -Phrase '**Where exactly one is allowed, that is the repository''s answer**'
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
@@ -422,7 +445,19 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
 
     It 'the import skill reads merge back before it is written' {
         Assert-Phrase -Text (Get-DocText $script:ImportMd) -Where 'the import skill' `
-            -Phrase 'confirm name, path, mode, yolo and merge together'
+            -Phrase ('confirm name, path, mode and yolo together - and merge alongside them ' +
+                     '**where the chosen mode is push-capable**')
+    }
+
+    # Add-ProjectEntry throws on local-only with -Merge, so a skill that offers the token there
+    # invites a choice its own writer refuses and fails the import at its last step.
+    It 'the import skill does not offer merge on a posture that cannot carry it' {
+        $doc = Get-DocText $script:ImportMd
+        Assert-Phrase -Text $doc -Where 'the import skill' `
+            -Phrase ('**It belongs to the push-capable postures only, and `local-only` cannot ' +
+                     'carry it.**')
+        Assert-Phrase -Text $doc -Where 'the import skill' `
+            -Phrase '`-Merge` is available on the push-capable modes only'
     }
 
     # A +merge beside local-only is inert until the mode is raised by hand on that same line.

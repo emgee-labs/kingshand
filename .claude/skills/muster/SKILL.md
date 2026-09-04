@@ -1896,10 +1896,25 @@ merge the user has not made.
 **Only where `$proj.merge -eq 'on'`.** On every other project there is nothing to do here: the
 item stays open at `ready`, the pull request waits for the user, and you say so and stop.
 
-**Confirm green before anything else, and green is the whole of it**: the gate completed every
-step through `pr`, the attribution scan came back clean, and CI is green - or Step 1b established
-that this repository reports no checks at all, which is the only case where an absent check counts
-as green. Anything red, anything that widened the brief, anything destructive, irreversible or
+**Confirm green before anything else, and green is the whole of it** - and what it is made of
+depends on the task's resolved mode, because a `direct-PR` task runs no review gate and Step 1b
+never executed for it:
+
+- **Resolved `no-mistakes`** - the gate completed every step through `pr`, the attribution scan
+  came back clean, and CI is green, or Step 1b established that this repository reports no checks
+  at all, which is the only case where an absent check counts as green.
+- **Resolved `direct-PR`** - there is no gate to complete, so green is the attribution scan Step 7
+  already ran coming back clean, plus CI green on the pull request. Step 1b never ran for this
+  mode, so nothing has established whether anything reports a check here. Read it now rather than
+  assuming either way, and treat `no-ci` as the same absent-check case the other limb names:
+
+  ```powershell
+  Import-Module $env:KINGSHAND_HOME\bin\Ci.psm1 -Force
+  $ci = Get-RepoCiStatus -RepoPath "<absolute repo path>"
+  "$($ci.status) - $($ci.detail)"
+  ```
+
+Anything red, anything that widened the brief, anything destructive, irreversible or
 security-sensitive goes to the user instead, exactly as Step 7's floors say. This is the moment
 those floors are spent, so re-read them rather than remembering them.
 
@@ -1908,8 +1923,16 @@ here - squash, merge commit or rebase is the repository's settled choice and not
 tool that owns that fact rather than guessing at it or eyeballing the forge:
 
 ```powershell
+Push-Location "<absolute repo path>"
 gh repo view --json mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed
+Pop-Location
 ```
+
+**The `Push-Location` is what makes that the right repository's answer.** The `tasks-axi` block
+above leaves the working directory at `KINGSHAND_HOME`, and `gh repo view` with no repository named
+resolves from the current directory's remotes - so run bare it reports kingshand's own merge
+settings and the Hand takes them for the project's. `gh pr merge` below is unaffected either way: a
+full `https://` URL names its own repository.
 
 **Where exactly one is allowed, that is the repository's answer** - use it, and pass it
 explicitly:
