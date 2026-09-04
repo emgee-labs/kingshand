@@ -4294,18 +4294,46 @@ Describe 'rally refuses to stop a worker that is only waiting on a decision' {
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
             -Phrase '**The one exception is a parked worker whose process is already gone.**'
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('**Only an actual negative liveness read opens this branch, and nothing else ' +
-                     'does.**')
+            -Phrase ('**Gone has to be proved, and it takes two positive facts in this order:** ' +
+                     'that the server answered at all, and that the worker is absent from the ' +
+                     'list it answered with.')
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('**Where liveness cannot be established, the refusal holds and the worker is ' +
-                     'treated as live**')
+            -Phrase '**Only those two positive facts together open this branch.**'
         Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
-            -Phrase ('Being wrong in that direction costs a wait; being wrong in the other ends a ' +
-                     'run that cannot be restarted.')
-        # The liveness read is runnable rather than described, and it is the module's call.
+            -Phrase ('**Everything else holds the refusal, and it is named rather than inferred**')
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('Being wrong in that direction costs a wait, and being wrong in the other ' +
+                     'ends a run that cannot be restarted.')
+    }
+
+    # Get-HerdrAgent and Get-HerdrAgentState return $null for "herdr has never heard of it" AND
+    # for "herdr could not be asked", so neither can supply the evidence this branch demands -
+    # reading a null from either as "gone" ends a live parked run because a server was briefly
+    # unreachable. Get-HerdrAgentInventory keeps the two apart, which is why it is the one used.
+    It 'proves gone from the inventory rather than from a null that means two things' {
         @(Get-CodeFence $script:StuckMd | Where-Object {
-            $_.Contains('Get-HerdrAgent -Name') -and $_.Contains('Test-HerdrAgentReadable') }).Count |
-            Should -BeGreaterOrEqual 1 -Because 'liveness is read, not assumed, and only through the module'
+            $_.Contains('Get-HerdrServerState') -and $_.Contains('Get-HerdrAgentInventory') -and
+            $_.Contains('ConvertTo-HerdrAgentName') }).Count |
+            Should -Be 1 -Because 'the branch is gated on the server answering and the worker being absent from it'
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('**`Get-HerdrAgent` and `Get-HerdrAgentState` cannot answer this and must ' +
+                     'not be used for it.**')
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('Both return `$null` for "herdr has never heard of it" and for "herdr could ' +
+                     'not be asked" alike')
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('**absence from a list that was actually read is the only thing that means ' +
+                     'gone**')
+        # `dead` is not in herdr's vocabulary, so a rule written against it can never fire.
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('Neither is `dead` a state herdr reports - its words are `idle`, `working`, ' +
+                     '`blocked`, `done` and `unknown`')
+        $script:ParkedStuck.Contains('one whose state reads dead') |
+            Should -BeFalse -Because 'herdr never returns dead, so that rule could never have fired'
+        # A stopped server takes every pane with it, so it proves nothing about any one worker.
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('A stopped server is a refusal here rather than proof, and deliberately so: ' +
+                     'it takes every pane with it')
     }
 
     It 'preserves the work on that branch and leaves the decision outstanding' {
@@ -4405,17 +4433,47 @@ Describe 'the parked-decision record states what must not be undone' {
                      'three rounds of dropped qualifiers that produced this arrangement.')
     }
 
-    It 'records that the refusal is scoped to a live process on purpose' {
+    # The note previously said "the refusal is scoped to a live process" directly under the
+    # two-floor list, which read as though the floors carried that scope too - they do not, and
+    # Step 8b states no liveness condition at all. The two protect different things, so the note
+    # says which is which rather than leaving a later editor to reconcile them the wrong way.
+    It 'records why the floors and rally''s refusal are scoped differently' {
         Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
-            -Phrase ('The refusal is scoped to a live process, and that scope is deliberate ' +
-                     'rather than an oversight to tighten.')
+            -Phrase ('**The two floors above and `rally`''s refusal are scoped differently, and ' +
+                     'that is deliberate rather than an inconsistency to reconcile.** They do not ' +
+                     'protect the same thing.')
         Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
-            -Phrase ('refusing there strands a branch holding real commits with nobody permitted ' +
-                     'to recover it')
+            -Phrase ('`rally`''s refusal protects the live process holding a parked review-gate ' +
+                     'run, so liveness is exactly its condition.')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('**The landing and teardown floors protect the worktree and the unlanded ' +
+                     'work inside it, so they are keyed on the hold and never on liveness.**')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('A dead parked worker still has unlanded work and an open question, so ' +
+                     'tearing it down discards the first while the second is unresolved')
+        # And the recovery still finishes, so nobody needs to bend the floor to make it work.
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('the hold closes when it is answered, and the floor stops barring teardown ' +
+                     'at that point because it was keyed on the hold all along')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('Nothing here makes a parked worker with unlanded work easier to tear down.')
         Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
             -Phrase ('where liveness cannot be established the refusal holds')
         Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
-            -Phrase ('It answers nothing: the hold stays open and the question stays owed.')
+            -Phrase ('it answers nothing: the hold stays open and the question stays owed')
+    }
+
+    # Step 8b's floor is what the paragraph above describes, so the two are pinned together: if
+    # anyone scopes the floor to liveness the note stops matching the skill.
+    It 'keeps the teardown floor unconditional on liveness' {
+        $step8b = Get-MusterStep 'Step 8b'
+        Assert-Phrase -Text $step8b -Where 'muster Step 8b' `
+            -Phrase ('**A worker whose pointer names a hold that is still open is never torn down ' +
+                     'either, and a confirmed push does not release that.**')
+        foreach ($fragment in @('Get-HerdrAgentInventory', 'Get-HerdrServerState')) {
+            $step8b.Contains($fragment) |
+                Should -BeFalse -Because "the teardown floor is keyed on the hold, not on liveness ('$fragment')"
+        }
     }
 
     It 'quotes the reversibility test and names the mis-statement to refuse' {
@@ -6840,9 +6898,26 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('**The `if ($key)` is the same guard the other two copies of this lookup ' +
                      'carry, and it is not decoration.**')
+        # Measured against tasks-axi 0.2.5: an empty id is `Missing id` / VALIDATION_ERROR, and
+        # NOT_FOUND is what a real key that is absent returns. This section's authority is that
+        # its facts were measured, so the guard's justification has to name the right one.
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('A worker that has simply never parked would send the Hand looking for a ' +
-                     'lost record that never existed.')
+            -Phrase ('it is a command that never ran: `error: Missing id`, `code: ' +
+                     'VALIDATION_ERROR`')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('A worker that has simply never parked would send the Hand chasing a record ' +
+                     'that never existed')
+        $script:RouteStep6.Contains('hands `show` an empty argument, which comes back `NOT_FOUND`') |
+            Should -BeFalse -Because 'an empty id is a validation error, and NOT_FOUND is a different answer'
+    }
+
+    # The archived entry of a key this route looks up was a hold, so it carries the hold suffixes.
+    # The rendering is stated here because the anchor is written by hand against it.
+    It 'renders the archive entry as the tool actually writes it for a hold' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('`- [x] <key> - <title> (done <date>) (hold: <reason>) (hold-kind: <kind>)`')
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('with the `answered:` note on the continuation line below it')
     }
 
     # The claim the whole parked-worker stall guard turns on: a motionless screen over an open

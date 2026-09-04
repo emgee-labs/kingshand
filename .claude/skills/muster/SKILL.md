@@ -1081,10 +1081,11 @@ if ($key) {
 ```
 
 **The `if ($key)` is the same guard the other two copies of this lookup carry, and it is not
-decoration.** A null pointer hands `show` an empty argument, which comes back `NOT_FOUND` while the
-archive matches nothing - and that pair is exactly what the paragraph below reads as a record that
-has gone missing. A worker that has simply never parked would send the Hand looking for a lost
-record that never existed.
+decoration.** A null pointer hands `show` an empty argument, and that is not a lookup that came back
+empty - it is a command that never ran: `error: Missing id`, `code: VALIDATION_ERROR`. Read past the
+guard it looks like a failed read of a key, when there was no key to read. A worker that has simply
+never parked would send the Hand chasing a record that never existed, and the archive line beside it
+matches nothing either, so nothing on screen says which of the two it was.
 
 **`NOT_FOUND` from `show` is not an answer on its own - a closed hold gets pruned out of the
 backlog.** `tasks-axi done` moves everything past `done_keep` into `data\done-archive.md`, which
@@ -1095,7 +1096,9 @@ found there is answered, and a key in neither place is a record that has gone mi
 a decision nobody made.
 
 **Every archive read is anchored to the whole key on its own entry, never a bare substring.** The
-archive renders one entry per line as `- [x] <key> - <title> (done <date>) (hold: <reason>)`, and
+archive renders one entry per line, and a key the route looks up was a hold, so its entry carries
+the hold suffixes too: `- [x] <key> - <title> (done <date>) (hold: <reason>) (hold-kind: <kind>)`,
+with the `answered:` note on the continuation line below it. The anchor reaches none of that, and
 a bare match for `t-100-copy` finds `t-100-copy-length` in it - so an unregistered decision reads
 as answered, and at the teardown a record that has gone missing reads as one that is fine. That is
 the same delimiter mistake the work-id enumeration below already refuses, and the anchor is what

@@ -252,20 +252,43 @@ surviving does not soften that, which is why the safe order above is not the who
 a live run; where no run is left, it protects nothing and instead leaves a branch carrying real
 commits that nobody is permitted to recover. This playbook is loaded on exactly that trigger - a
 worker that reads dead or has no live process - so the case has to be routed rather than refused
-into a corner. Read liveness rather than assuming it:
+into a corner. **Gone has to be proved, and it takes two positive facts in this order:** that the
+server answered at all, and that the worker is absent from the list it answered with.
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
-Get-HerdrAgent -Name "<worker id>"           # $null when herdr has never heard of it
-Get-HerdrAgentState -Name "<worker id>"      # the state to act on
-Test-HerdrAgentReadable -Name "<worker id>"  # $false means you cannot tell, not that it is gone
+
+$srv  = Get-HerdrServerState                # running / stopped / unknown, with its detail
+$inv  = Get-HerdrAgentInventory             # .ok, .agents, .error - the failure is kept, not collapsed
+$name = ConvertTo-HerdrAgentName -Name "<worker id>"   # the module owns this mapping, never you
+
+if ($srv.state -ne 'running' -or -not $inv.ok) {
+    "REFUSE <worker id> - liveness not established: server=$($srv.state) $($srv.detail) $($inv.error)"
+} elseif (@($inv.agents | Where-Object {
+        $_.PSObject.Properties.Name -contains 'name' -and $_.name -eq $name }).Count -eq 0) {
+    "GONE <worker id> - the server answered and this worker is not in its list"
+} else {
+    "REFUSE <worker id> - herdr still has this worker"
+}
 ```
 
-**Only an actual negative liveness read opens this branch, and nothing else does.** A worker herdr
-no longer has, or one whose state reads dead, is the case. **Where liveness cannot be established,
-the refusal holds and the worker is treated as live** - an unreadable pane, a herdr server that
-will not answer, a read nobody took. Being wrong in that direction costs a wait; being wrong in the
-other ends a run that cannot be restarted.
+**`Get-HerdrAgent` and `Get-HerdrAgentState` cannot answer this and must not be used for it.** Both
+return `$null` for "herdr has never heard of it" and for "herdr could not be asked" alike, so a null
+from either is not evidence of anything - and reading one as `gone` ends a live parked run on the
+strength of a server that was merely unreachable. `Get-HerdrAgentInventory` exists for exactly this:
+it keeps `could not ask` and `nobody is there` apart, which is the whole distinction this branch
+turns on. Neither is `dead` a state herdr reports - its words are `idle`, `working`, `blocked`,
+`done` and `unknown` - so **absence from a list that was actually read is the only thing that means
+gone**, the same definition the status surfaces already use.
+
+**Only those two positive facts together open this branch.** **Everything else holds the refusal,
+and it is named rather than inferred** - a stopped or unknown server, an inventory that came back
+`.ok` false, a read nobody took. Say which of them it was, from `$srv.detail` and `$inv.error`, and
+stop there; do not turn an unreadable answer into a value. Being wrong in that direction costs a
+wait, and being wrong in the other ends a run that cannot be restarted.
+
+A stopped server is a refusal here rather than proof, and deliberately so: it takes every pane with
+it, so it makes every worker look gone at once while telling you nothing about any one of them.
 
 On that branch take the worker through `Reconcile the recorded work before deciding anything`
 above, unchanged and with every guarantee it already gives: prove no live agent still owns the

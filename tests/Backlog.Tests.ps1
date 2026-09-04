@@ -366,13 +366,24 @@ Describe 'the tool facts the parked-decision route depends on' {
         Invoke-FactAxi 'add' 'fk-1' 'a decision' | Out-Null
         Invoke-FactAxi 'hold' 'fk-1' '--reason' 'the question is with him' '--kind' 'captain' | Out-Null
 
-        # Passed as PowerShell parses a bare `hold_kind,hold_reason`: a two-element array, which
-        # reaches the native command as one space-joined token.
-        $unquoted = Invoke-FactAxi 'list' '--state' 'held' '--fields' @('hold_kind', 'hold_reason')
+        # What PowerShell hands the native command for a bare `hold_kind,hold_reason`: one
+        # space-joined token. Sent as that literal token so the assertion cannot be satisfied by
+        # some other validation error - measured against tasks-axi 0.2.5, the tool answers this
+        # exact form with `Unknown field(s): hold_kind hold_reason`.
+        $unquoted = Invoke-FactAxi 'list' '--state' 'held' '--fields' 'hold_kind hold_reason'
+        $unquoted.Contains('Unknown field(s): hold_kind hold_reason') |
+            Should -BeTrue -Because 'this is the tool''s actual answer to the space-joined token, not any validation error'
         $unquoted.Contains('VALIDATION_ERROR') |
             Should -BeTrue -Because 'the fence must quote the field list or this lookup returns no rows at all'
         $unquoted.Contains('fk-1') |
             Should -BeFalse -Because 'a validation error reads to the Hand as no hold covering the decision'
+
+        # And the token really is what a bare comma list becomes: `[string[]]` coerces the array
+        # PowerShell parses it into back to a single space-joined element, so the two forms are
+        # indistinguishable by the time the tool sees them. This is the step that makes the case
+        # above the documented gotcha rather than a hand-built lookalike.
+        $viaBareList = Invoke-FactAxi 'list' '--state' 'held' '--fields' @('hold_kind', 'hold_reason')
+        $viaBareList | Should -Be $unquoted -Because 'the bare comma list reaches the tool as that one token'
 
         $quoted = Invoke-FactAxi 'list' '--state' 'held' '--fields' 'hold_kind,hold_reason'
         $quoted.Contains('fk-1') | Should -BeTrue

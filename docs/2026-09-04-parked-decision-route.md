@@ -102,13 +102,28 @@ Both refuse an action that cannot be taken back, over a worker whose work is not
   whether a worker is parked, and a version of it that grows one is drifting back toward the
   three rounds of dropped qualifiers that produced this arrangement.
 
-The refusal is scoped to a live process, and that scope is deliberate rather than an oversight to
-tighten. What it protects is the parked run itself; a parked worker whose process is confirmed gone
-has no run left to protect, and refusing there strands a branch holding real commits with nobody
-permitted to recover it. The exception opens only on an actual negative liveness read - where
-liveness cannot be established the refusal holds - and it recovers under `rally`'s existing
-same-identity rules, preserving the worktree, the branch and every unlanded commit. It answers
-nothing: the hold stays open and the question stays owed.
+**The two floors above and `rally`'s refusal are scoped differently, and that is deliberate rather
+than an inconsistency to reconcile.** They do not protect the same thing.
+
+`rally`'s refusal protects the live process holding a parked review-gate run, so liveness is exactly
+its condition. A parked worker whose process is confirmed gone has no run left to protect, and
+refusing there strands a branch holding real commits with nobody permitted to recover it. That
+exception opens only on proof that the server answered and the worker is absent from what it
+answered with; where liveness cannot be established the refusal holds. It recovers under `rally`'s
+existing same-identity rules, preserving the worktree, the branch and every unlanded commit, and it
+answers nothing: the hold stays open and the question stays owed.
+
+**The landing and teardown floors protect the worktree and the unlanded work inside it, so they are
+keyed on the hold and never on liveness.** What makes that work still needed is that the decision it
+is waiting on has not been answered, which is the hold's state and not the process's. A dead parked
+worker still has unlanded work and an open question, so tearing it down discards the first while
+the second is unresolved - which is why losing the process must not release the floor, and why
+`muster` Step 8b states it with no liveness condition at all.
+
+The recovery still completes without weakening either. The decision is answered while the worktree
+is preserved, the hold closes when it is answered, and the floor stops barring teardown at that
+point because it was keyed on the hold all along. Nothing here makes a parked worker with unlanded
+work easier to tear down.
 
 Both guards read the hold from the queue **and** from `data\done-archive.md`, anchored to the whole
 key on its own entry. Drop the archive line and a decision answered long enough ago to have been
