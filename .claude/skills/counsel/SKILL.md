@@ -260,6 +260,12 @@ owns the queue.
 default; `muster` Step 1 owns what happens when it is not there, and this skill adds nothing to
 that.
 
+**With `yolo` off, a work item that goes to a server waits for the King's word.** `tasks-axi` is
+local and needs nothing, but creating or updating an Azure DevOps work item reaches outside this
+machine, so hard rule 2's stop applies to it exactly as it applies to a push. Being a ticket
+rather than code is not an exemption, and neither is producing twelve of them at once - ask once,
+naming what would be created, and create nothing until the answer comes back.
+
 Whatever the destination, hard rule 3 holds for every word that reaches it: nothing landing in a
 ticket, a commit message or a pull request names an agent or its tooling. Write the decomposition
 in the words the reader would use for their own work.

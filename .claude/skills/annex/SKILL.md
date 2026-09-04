@@ -55,7 +55,7 @@ git -C $path remote get-url origin 2>&1
 
 The four modes:
 
-- `no-mistakes` - full validation pipeline, then a PR, then the user merges.
+- `no-mistakes` - full validation pipeline, then a PR.
 - `direct-PR` - push and open a PR without the pipeline.
 - `local-only` - no remote or PR required; lands through the guarded local fast-forward path.
 - `no-mistakes-prod-only` - a conditional policy, not a flat mode. Internal-only tooling,
@@ -65,7 +65,15 @@ The four modes:
 
 `+yolo` relaxes both of `muster`'s gates for this project: it writes the brief and dispatches
 without approval, and lands green work itself. Default it off and enable it only on the user's
-explicit instruction.
+explicit instruction. With it off, the second gate is also what holds back anything going to a
+server - a push, a pull request, a comment, a work item - per hard rule 2.
+
+`+merge` is a separate token answering a separate question: whether this repository's own green
+pull requests may be merged on the forge. It is off on every project that does not carry it, and
+`+yolo` does not imply it. **Default it off, never propose it, and write it only where the user
+says so in the moment.** A repository whose default branch deploys on merge makes every merge a
+live production release, which is why the default runs this way and why this is never a tidy-up.
+`muster` Step 7 owns what it permits.
 
 Tell the user what these mean in one line each if they have not seen them before, then confirm
 name, path, mode and yolo together.
@@ -167,8 +175,12 @@ A worker never runs `init` itself. It is environment setup, outside any task's s
 worker that tried would be writing configuration its brief never authorised.
 
 ```powershell
-Add-ProjectEntry -Name "<name>" -Path $path -Mode "<mode>" -Description "<desc>" [-Yolo]
+Add-ProjectEntry -Name "<name>" -Path $path -Mode "<mode>" -Description "<desc>" [-Yolo] [-Merge]
 ```
+
+Leave `-Merge` off unless the user asked for it in this conversation. Without it the entry is
+written exactly as it always was and the permission is absent, which is the off state - there is
+no "+merge off" spelling to write instead.
 
 The registry is a durable file under `data\`, so index it in the same step that writes it. It has
 a fixed name and the entry is rewritten in place, so this is safe to run on every import and the
@@ -244,7 +256,7 @@ and editing the file is the whole of changing what workers are told.
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Projects.psm1 -Force
 Get-AllProjects | ForEach-Object { [pscustomobject]$_ } |
-    Select-Object name, rawMode, yolo, path | Format-Table -AutoSize
+    Select-Object name, rawMode, yolo, merge, path | Format-Table -AutoSize
 ```
 
 **The `[pscustomobject]` cast is required.** `Get-AllProjects` returns hashtables, and
@@ -256,8 +268,9 @@ Answer in at most six lines. If there is more to say than that, render it and us
 ## Changing a posture later
 
 There is no command for this. Edit the entry's annotation in `data\projects.md` by hand, and
-record why in the description alongside the added date. The description doubles as the
-posture-change log:
+record why in the description alongside the added date. The same edit adds or removes `+merge`,
+which is a permission rather than a posture but lives in the same brackets. The description
+doubles as the posture-change log:
 
 ```
 - acme-api [no-mistakes] - Acme .NET API (added 2026-08-24; raised from direct-PR 2026-09-02 once the gate was initialised)

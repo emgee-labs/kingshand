@@ -7,8 +7,20 @@ Set-StrictMode -Version Latest
 # A task's mode is resolved at intake and passed explicitly to the brief and the dispatch.
 #
 # Entry format (data\projects.md), byte-compatible with firstmate's line plus a path line:
-#   - <name> [<mode> +yolo] - <desc> (added <date>)
+#   - <name> [<mode> +yolo +merge] - <desc> (added <date>)
 #         path: <absolute path>
+#
+# `+merge` is the per-repository permission to merge that project's own green pull requests on the
+# forge, reported as the string 'on' or 'off' on the entry's `merge` key. It is NOT a mode and not
+# a fourth posture: the mode decides how work ships, `yolo` decides whether the Hand asks first,
+# and this decides one thing only. `muster` Step 7 owns what it permits; this module only reports
+# what was declared.
+#
+# It is off unless the token is there, and every way of failing to read it leaves it off. An
+# unknown token warns and changes nothing, an unknown mode resets the whole annotation, and an
+# unreadable registry throws out of Get-ProjectEntry rather than returning a value at all - so a
+# caller never receives 'off' as a substitute for "could not tell", and never receives 'on' by
+# accident.
 #
 # All strictness lives in Get-ProjectEntry. Get-ProjectPosture inherits it by calling through.
 # Get-AllProjects is the sole lenient function: it is a listing and validates nothing.
@@ -44,10 +56,11 @@ function Read-Registry {
         $m = [regex]::Match($lines[$i], '^-\s+(?<name>\S+)(?:\s+\[(?<ann>[^\]]*)\])?\s+-\s+(?<desc>.*)$')
         if (-not $m.Success) { continue }
 
-        $name = $m.Groups['name'].Value
-        $desc = $m.Groups['desc'].Value.Trim()
-        $mode = 'no-mistakes'
-        $yolo = 'off'
+        $name  = $m.Groups['name'].Value
+        $desc  = $m.Groups['desc'].Value.Trim()
+        $mode  = 'no-mistakes'
+        $yolo  = 'off'
+        $merge = 'off'
 
         $ann = $m.Groups['ann'].Value.Trim()
         if ($ann) {
@@ -56,18 +69,25 @@ function Read-Registry {
                 if ($tok.StartsWith('+')) {
                     if ($tok -eq '+yolo') {
                         $yolo = 'on'
+                    } elseif ($tok -eq '+merge') {
+                        $merge = 'on'
                     } else {
-                        Write-Warning "Unknown autonomy token '$tok' for $name; leaving yolo off."
+                        Write-Warning ("Unknown autonomy token '$tok' for $name; " +
+                                       'leaving yolo and merge off.')
                     }
                 } elseif (-not $modeSeen) {
                     $modeSeen = $true
                     if ($script:ValidModes -contains $tok) {
                         $mode = $tok
                     } else {
-                        # A typo can only ever make a project stricter, never looser.
-                        Write-Warning "Unknown mode '$tok' for $name; defaulting to no-mistakes off."
-                        $mode = 'no-mistakes'
-                        $yolo = 'off'
+                        # A typo can only ever make a project stricter, never looser. Everything
+                        # the annotation granted is dropped with it, merge included - a line this
+                        # function could not read in full is not a line to take a permission from.
+                        Write-Warning ("Unknown mode '$tok' for $name; defaulting to " +
+                                       'no-mistakes off, merge off.')
+                        $mode  = 'no-mistakes'
+                        $yolo  = 'off'
+                        $merge = 'off'
                         break
                     }
                 }
@@ -112,6 +132,7 @@ function Read-Registry {
             mode        = $mode
             rawMode     = $rawMode
             yolo        = $yolo
+            merge       = $merge
             description = $desc
             added       = $added
             indexable   = $indexable
@@ -160,6 +181,8 @@ function Get-ProjectEntry {
     $entry
 }
 
+# The posture string is the mode and yolo, and deliberately not merge: merge is not a posture and
+# folding it in here would make it look like one. Read it off Get-ProjectEntry's `merge` key.
 function Get-ProjectPosture {
     [CmdletBinding()]
     param(
@@ -187,6 +210,7 @@ function Add-ProjectEntry {
         [Parameter(Mandatory)][string]$Mode,
         [Parameter(Mandatory)][string]$Description,
         [switch]$Yolo,
+        [switch]$Merge,
         [string]$RegistryPath = (Get-DefaultRegistryPath)
     )
 
@@ -223,7 +247,13 @@ function Add-ProjectEntry {
         Set-Content -Path $RegistryPath -Value "# Projects" -Encoding utf8
     }
 
-    $ann   = if ($Yolo) { "[$Mode +yolo]" } else { "[$Mode]" }
+    # Built from the tokens that were actually asked for, so an entry written without -Merge is
+    # byte-identical to what this function has always written and the permission is absent rather
+    # than present-and-off. There is no "+merge off" spelling: absence is the off state.
+    $tokens = @($Mode)
+    if ($Yolo)  { $tokens += '+yolo' }
+    if ($Merge) { $tokens += '+merge' }
+    $ann   = '[' + ($tokens -join ' ') + ']'
     $added = Get-Date -Format 'yyyy-MM-dd'
 
     # This function stamps the date itself, so a caller that also wrote one produced

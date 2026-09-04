@@ -109,6 +109,130 @@ Describe 'Get-ProjectPosture - typos fail safe' {
     }
 }
 
+# Merging on the forge is off unless the entry declares `+merge`. Nothing else in the suite would
+# notice if a parse bug turned that default on, and the failure is a merge nobody authorised on a
+# repository whose default branch may be a live deploy - so every way of not reading the token is
+# forced here, and each one has to leave the permission off.
+Describe '+merge is off unless declared' {
+    It 'is off on an entry with no annotation at all' {
+        $reg = New-TestRegistry @"
+- proj - a legacy entry (added 2026-08-24)
+      path: $script:RealPath
+"@
+        (Get-ProjectEntry -Name proj -RegistryPath $reg).merge | Should -Be 'off'
+    }
+
+    It 'is off for <mode> with no token' -ForEach @(
+        @{ mode = 'no-mistakes' }
+        @{ mode = 'direct-PR' }
+        @{ mode = 'local-only' }
+        @{ mode = 'no-mistakes-prod-only' }
+    ) {
+        $reg = New-TestRegistry @"
+- proj [$mode] - a project (added 2026-08-24)
+      path: $script:RealPath
+"@
+        (Get-ProjectEntry -Name proj -RegistryPath $reg).merge | Should -Be 'off'
+    }
+
+    It 'is on only where the token is written' {
+        $reg = New-TestRegistry @"
+- proj [no-mistakes +merge] - declared (added 2026-08-24)
+      path: $script:RealPath
+"@
+        (Get-ProjectEntry -Name proj -RegistryPath $reg).merge | Should -Be 'on'
+    }
+
+    # The two tokens are independent in both directions. +yolo granting a merge by implication is
+    # the exact confusion CLAUDE.md's instruction-precedence section refuses.
+    It '+yolo alone never turns it on' {
+        $reg = New-TestRegistry @"
+- proj [no-mistakes +yolo] - autonomous but not merge-capable (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg
+        $e.yolo  | Should -Be 'on'
+        $e.merge | Should -Be 'off'
+    }
+
+    It '+merge alone never turns yolo on' {
+        $reg = New-TestRegistry @"
+- proj [no-mistakes +merge] - merge-capable but gated (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg
+        $e.yolo  | Should -Be 'off'
+        $e.merge | Should -Be 'on'
+    }
+
+    It 'reads both when both are written, in either order' -ForEach @(
+        @{ ann = 'no-mistakes +yolo +merge' }
+        @{ ann = 'no-mistakes +merge +yolo' }
+    ) {
+        $reg = New-TestRegistry @"
+- proj [$ann] - both (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg
+        $e.yolo  | Should -Be 'on'
+        $e.merge | Should -Be 'on'
+    }
+
+    It 'warns and leaves it off on a mistyped merge token' {
+        $reg = New-TestRegistry @"
+- proj [no-mistakes +mrege] - typo in the token (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $w = @()
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg -WarningVariable w `
+                              -WarningAction SilentlyContinue
+        $e.merge   | Should -Be 'off'
+        $w.Count   | Should -BeGreaterThan 0
+        (@($w) -join ' ') | Should -BeLike '*+mrege*'
+    }
+
+    # An unknown mode drops the whole annotation. A line this parser could not read in full is not
+    # a line to take a permission from, so a granted +merge sitting beside a typo goes with it.
+    It 'an unknown mode resets it off even where the token was written' {
+        $reg = New-TestRegistry @"
+- proj [no-mstakes +yolo +merge] - typo in the mode (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg -WarningAction SilentlyContinue
+        $e.mode  | Should -Be 'no-mistakes'
+        $e.yolo  | Should -Be 'off'
+        $e.merge | Should -Be 'off'
+    }
+
+    # Unreadable must read as unreadable. Returning 'off' here would be a fabricated state word,
+    # and returning anything at all would let a caller treat a missing registry as an answer.
+    It 'throws rather than reporting a permission when the registry cannot be read' {
+        { Get-ProjectEntry -Name proj -RegistryPath 'C:\nope\projects.md' } |
+            Should -Throw '*registry*'
+    }
+
+    It 'throws rather than reporting a permission when the entry has no path line' {
+        $reg = New-TestRegistry '- proj [no-mistakes +merge] - no path line (added 2026-08-24)'
+        { Get-ProjectEntry -Name proj -RegistryPath $reg } | Should -Throw '*path*'
+    }
+
+    # Get-AllProjects is the lenient listing, and leniency must not extend to the permission.
+    It 'the lenient listing reports it per entry and defaults the rest off' {
+        $reg = New-TestRegistry @"
+# Projects
+
+- one [local-only] - first (added 2026-08-24)
+      path: $script:RealPath
+
+- two [no-mistakes +merge] - second (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $all = Get-AllProjects -RegistryPath $reg
+        $all[0].merge | Should -Be 'off'
+        $all[1].merge | Should -Be 'on'
+    }
+}
+
 Describe 'Get-ProjectEntry - refusals' {
     It 'refuses when the registry file is absent' {
         { Get-ProjectEntry -Name proj -RegistryPath 'C:\nope\projects.md' } | Should -Throw '*registry*'
@@ -148,6 +272,7 @@ Describe 'Get-ProjectEntry - fields' {
         $e.mode        | Should -Be 'direct-PR'
         $e.rawMode     | Should -Be 'direct-PR'
         $e.yolo        | Should -Be 'on'
+        $e.merge       | Should -Be 'off'
         $e.added       | Should -Be '2026-08-24'
         $e.description | Should -BeLike 'Acme .NET API*'
     }
@@ -349,6 +474,37 @@ Describe 'Add-ProjectEntry' {
         Add-ProjectEntry -Name proj -Path $script:RealPath -Mode 'direct-PR' `
                          -Description 'd' -RegistryPath $script:reg
         (Get-ProjectEntry -Name proj -RegistryPath $script:reg).yolo | Should -Be 'off'
+    }
+
+    # -Merge is the only caller path that writes the token, and every other caller exercises the
+    # default. The written line is asserted directly, not just the round trip: an entry that
+    # parses as 'off' because the token was misspelled on the way out would round-trip cleanly.
+    It 'defaults merge to off, and writes the annotation it always wrote' {
+        Add-ProjectEntry -Name proj -Path $script:RealPath -Mode 'direct-PR' -Yolo `
+                         -Description 'd' -RegistryPath $script:reg
+        $today = Get-Date -Format 'yyyy-MM-dd'
+        (Get-EntryBlock -Path $script:reg -Name 'proj')[0] |
+            Should -Be "- proj [direct-PR +yolo] - d (added $today)"
+        (Get-ProjectEntry -Name proj -RegistryPath $script:reg).merge | Should -Be 'off'
+    }
+
+    It 'writes the +merge token when the switch is passed, and it reads back on' {
+        Add-ProjectEntry -Name proj -Path $script:RealPath -Mode 'no-mistakes' -Merge `
+                         -Description 'd' -RegistryPath $script:reg
+        $today = Get-Date -Format 'yyyy-MM-dd'
+        (Get-EntryBlock -Path $script:reg -Name 'proj')[0] |
+            Should -Be "- proj [no-mistakes +merge] - d (added $today)"
+        $e = Get-ProjectEntry -Name proj -RegistryPath $script:reg
+        $e.merge | Should -Be 'on'
+        $e.yolo  | Should -Be 'off'
+    }
+
+    It 'writes both tokens in a fixed order when both switches are passed' {
+        Add-ProjectEntry -Name proj -Path $script:RealPath -Mode 'no-mistakes' -Yolo -Merge `
+                         -Description 'd' -RegistryPath $script:reg
+        $today = Get-Date -Format 'yyyy-MM-dd'
+        (Get-EntryBlock -Path $script:reg -Name 'proj')[0] |
+            Should -Be "- proj [no-mistakes +yolo +merge] - d (added $today)"
     }
 
     It 'refuses a duplicate name' {

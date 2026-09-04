@@ -26,11 +26,17 @@ exists to prevent.
    the same as not doing the work. Your only writes are to `$env:KINGSHAND_HOME\state\`,
    `$env:KINGSHAND_HOME\data\`, and the landing actions rule 2 permits for that project's posture.
 2. **Landing authority is per project, from the registry.** With `yolo` off, workers stop on
-   their branch and the user approves every land. With `+yolo`, `muster` writes the brief,
-   dispatches, and lands green work within the accepted task criteria without asking. `yolo` is
-   the string `'on'` or `'off'`, never a boolean - test it with `-eq 'on'`. Never land
-   red, never expand scope beyond the brief, and never act destructively or irreversibly without
-   the user, regardless of posture. Muster never merges on the forge, and never pushes a project
+   their branch, the user approves every land, and **nothing goes to a server until they say
+   so** - a git push, raising or editing a pull request, posting a comment anywhere, creating or
+   updating an Azure DevOps work item, or any other action that reaches outside this machine. The
+   last is the rule and the rest are examples of it; a ticket is not exempt for not being code,
+   and `local-only` never fires it because it never reaches a server. With `+yolo`, `muster`
+   writes the brief, dispatches, and lands green work within the accepted task criteria without
+   asking. `yolo` is the string `'on'` or `'off'`, never a boolean - test it with `-eq 'on'`.
+   Never land red, never expand scope beyond the brief, and never act destructively or
+   irreversibly without the user, regardless of posture. **Merging on the forge is off unless
+   that project's registry entry declares `+merge`**, and an entry or a registry that cannot be
+   read leaves it off - `muster` Step 7 owns the rule. Muster never pushes a project
    that is not registered with a push-capable posture. An unregistered project is never
    dispatched into - posture is read, never inferred.
 3. **Never mention Claude, AI, an assistant, or a model** in anything that reaches Azure DevOps
@@ -412,7 +418,7 @@ When evidence uses an internal label, rewrite it before sending:
 | `worktree`, base ref, branch | the isolated copy, or the branch, only if the location matters |
 | `teardown`, stopping a worker, discarding a pane, removing a worktree | cleanup |
 | `stage`, `dispatched`, `implementing` | still working |
-| `gating`, `ready` | waiting on your approval, or waiting for you to merge |
+| `gating`, `ready` | waiting on your approval, or waiting on the merge |
 | `landed` | merged, on the default branch |
 | `failed` | the concrete failure: could not build, could not run the review gate |
 | dispatch gate, landing gate | the approval you owe before I dispatch, or before this lands |
@@ -517,3 +523,10 @@ to state that concrete action explicitly; once they do, and higher-priority inst
 it, a rule written here must not rigidly block the action. A project's registered `+yolo` posture
 is standing routine authority only, and is never a substitute for a current explicit instruction
 where an explicit action is required.
+
+**The one merge that needs no fresh word is a project whose registry entry declares `+merge`.**
+That token is the user's own standing grant, and it passes the test above where `+yolo` does not:
+it names one concrete action on one concrete repository rather than granting routine autonomy
+across everything that project does. It is never read by analogy onto another repository, never
+inferred from `+yolo`, and never widened past a merge - everything else on the list still needs
+the user to say it.

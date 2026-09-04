@@ -261,27 +261,201 @@ Describe 'the local-only push prohibition survives' {
     }
 }
 
-Describe 'muster never merges on the forge' {
-    It 'the landing gate lists it as a floor no posture relaxes' {
-        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate floors' `
-            -Phrase ('Never merge on the forge. `direct-PR` and `no-mistakes` work ends ' +
-                     'at a pull request the user merges')
+# Merging on the forge was an absolute "never" stated in three places, and all three were false:
+# the Hand already merges kingshand's and aegis-manager's own green pull requests on a permission
+# the King granted in the registry description. It is now a per-repository permission that is off
+# unless declared, with muster Step 7 owning the rule and the other two mentions reduced to
+# pointers. These assert the default stays off and the owner keeps saying so.
+Describe 'merging on the forge is a per-repository permission, off unless declared' {
+    It 'the landing gate floor names the permission rather than an absolute never' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('Merge on the forge only where this project''s registry entry declares ' +
+                     '`+merge`, and never otherwise')
+        $step.Contains('Never merge on the forge.') |
+            Should -BeFalse -Because 'the absolute was false on two live projects and is gone'
     }
 
-    It 'CLAUDE.md rule 2 states it' {
+    It 'Step 7 owns the rule in full' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**Merging on the forge is a per-repository permission, and it is off ' +
+                     'unless declared.**')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase "Test it as ```$proj.merge -eq 'on'``"
+    }
+
+    # Unreadable must never read as permitted, and must never read as a state word either:
+    # Get-ProjectEntry throws instead of returning 'off', which Projects.Tests.ps1 forces.
+    It 'every way of failing to read it means do not merge' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('including on an entry whose annotation could not be parsed')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('Where the registry cannot be read there is no value at all, because ' +
+                     '`Get-ProjectEntry` throws rather than guessing')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**Every one of those means do not merge, and none of them ever means ' +
+                     'the other way.**')
+    }
+
+    It 'it is stated as neither a mode nor a posture' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase '**It is not a mode and not a fourth posture.**'
+    }
+
+    # The permission answers who may merge. What may be merged is unchanged, and a floor quietly
+    # dropped here is how a red run gets merged on a project that was allowed to merge green ones.
+    It 'green is unchanged by the permission' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase ('**The permission changes who may merge, never what may be merged.** Every ' +
+                     'floor above still holds in full')
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase ('never merge a run whose gate did not complete every step through `pr` ' +
+                     'with a clean attribution scan')
+    }
+
+    It 'CLAUDE.md rule 2 carries the default-off fact and points at the owner' {
         Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
-            -Phrase 'Muster never merges on the forge'
+            -Phrase ('**Merging on the forge is off unless that project''s registry entry ' +
+                     'declares `+merge`**, and an entry or a registry that cannot be read ' +
+                     'leaves it off - `muster` Step 7 owns the rule')
+        (Get-DocText $script:HandMd).Contains('Muster never merges on the forge') |
+            Should -BeFalse -Because 'the absolute is gone and rule 2 must not restate it'
     }
 
-    It 'the local merge step disclaims the push-capable modes' {
+    # Instruction precedence lists merge among the actions needing a fresh explicit word, and
+    # excludes +yolo from substituting for one. +merge has to be named there or the two rules
+    # contradict each other on the one action they both govern.
+    It 'instruction precedence names +merge as the standing grant, and still excludes +yolo' {
+        $section = Get-HandSection 'Instruction precedence'
+        Assert-Phrase -Text $section -Where 'CLAUDE.md Instruction precedence' `
+            -Phrase ('**The one merge that needs no fresh word is a project whose registry ' +
+                     'entry declares `+merge`.**')
+        Assert-Phrase -Text $section -Where 'CLAUDE.md Instruction precedence' `
+            -Phrase ('A project''s registered `+yolo` posture is standing routine authority ' +
+                     'only, and is never a substitute for a current explicit instruction')
+        Assert-Phrase -Text $section -Where 'CLAUDE.md Instruction precedence' `
+            -Phrase 'never inferred from `+yolo`, and never widened past a merge'
+    }
+
+    It 'the local merge step points at Step 7 rather than restating the rule' {
         Assert-Phrase -Text (Get-MusterStep 'Step 8 - Land') -Where 'muster Step 8' `
-            -Phrase ('`direct-PR` and `no-mistakes` work ends at a pull request that the ' +
-                     'user merges on the forge; `muster` never merges there')
+            -Phrase ('whether that may then be merged on the forge is Step 7''s per-repository ' +
+                     'permission rather than anything this step does')
+    }
+
+    It 'close-out points at Step 7 too' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
+            -Phrase ('Whether it may then be merged on the forge is Step 7''s per-repository ' +
+                     'permission, and this step neither grants it nor decides it')
     }
 
     It 'close-out refuses to make the merge true itself' {
         Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
             -Phrase 'never merge it to make it true'
+    }
+
+    It 'the import skill defaults it off and never proposes it' {
+        Assert-Phrase -Text (Get-DocText $script:ImportMd) -Where 'the import skill' `
+            -Phrase ('**Default it off, never propose it, and write it only where the user ' +
+                     'says so in the moment.**')
+        Assert-Phrase -Text (Get-DocText $script:ImportMd) -Where 'the import skill' `
+            -Phrase '`+yolo` does not imply it'
+    }
+}
+
+# With yolo off the Hand gated exactly two moments, dispatch and landing, and gated nothing in
+# between - so a worker committed, the gate pushed, and a pull request opened with nobody asked.
+# The rule now names the whole outward set, and muster holds the landing gate before the push
+# instead of after it.
+Describe 'with yolo off, nothing goes to a server until the user says so' {
+    It 'CLAUDE.md rule 2 states the rule and names the gated set' {
+        $text = Get-DocText $script:HandMd
+        Assert-Phrase -Text $text -Where 'CLAUDE.md rule 2' `
+            -Phrase '**nothing goes to a server until they say so**'
+        Assert-Phrase -Text $text -Where 'CLAUDE.md rule 2' `
+            -Phrase ('a git push, raising or editing a pull request, posting a comment ' +
+                     'anywhere, creating or updating an Azure DevOps work item, or any other ' +
+                     'action that reaches outside this machine')
+    }
+
+    # Naming examples without naming the rule invites a reading where anything unlisted is fine.
+    It 'the open-ended clause is stated as the rule, not as a fifth example' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
+            -Phrase 'The last is the rule and the rest are examples of it'
+    }
+
+    It 'a ticket is not exempt for not being code' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
+            -Phrase 'a ticket is not exempt for not being code'
+    }
+
+    # local-only never reaches a server, so the rule does not fire there and no separate confirm
+    # option exists for it. The King dropped that deliberately.
+    It 'local-only is named as needing nothing' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
+            -Phrase '`local-only` never fires it because it never reaches a server'
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+            -Where 'muster Step 2' `
+            -Phrase ('**`local-only` is untouched**: it never reaches a server, so no block ' +
+                     'above changes and no separate confirmation exists for it')
+    }
+
+    It 'muster Step 2 replaces the direct-PR outward bullet with a stop' {
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+            -Where 'muster Step 2' `
+            -Phrase ('Leave the work committed and stop there. Do not push, do not open a ' +
+                     'pull request, do not comment anywhere, and do not create or update a work ' +
+                     'item.')
+    }
+
+    It 'muster Step 2 replaces the no-mistakes pipeline bullet with a gate run that stops locally' {
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+            -Where 'muster Step 2' `
+            -Phrase ('Run the gate with `--skip push,pr,ci` so it stops at the last local step, ' +
+                     'and fix everything it parks.')
+    }
+
+    # The flags used to be forbidden outright for a no-mistakes project. They are now the stop
+    # itself, which is exactly one reason - and a reason worth pinning, because "shorten the run"
+    # is the misuse the old prohibition existed to prevent and it is still a misuse.
+    It 'the skip flags have exactly one sanctioned use and it is named' {
+        $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -'
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase ('there is exactly one reason to add them: `yolo` off, per the section ' +
+                     'above, where they are what holds the push back until the user has answered')
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase 'on a `+yolo` project the flags never appear at all'
+    }
+
+    It 'the landing gate is held before the push and says what the approval buys' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**On a push-capable project with `yolo` off, this gate is held before ' +
+                     'the push, and approving it is the user''s word for the outward step.**')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('An approval is never read as covering a comment, a work item or a merge ' +
+                     'that was not on the surface they answered')
+    }
+
+    # A gate the Hand cannot act on is a gate that strands the work. The worker is still alive
+    # here, so the outward step is a steer rather than something the Hand does in the worktree.
+    It 'the approved outward step is a steer to the live worker' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        $step | Should -Match 'Send-HerdrPrompt' -Because 'the worker pushes, not the Hand'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**That re-run is the price of holding the push back, and it is the ' +
+                     'intended one**')
+    }
+
+    It 'the counsel skill applies it to work items rather than exempting them' {
+        $counsel = Get-DocText (Join-Path $script:Root '.claude\skills\counsel\SKILL.md')
+        Assert-Phrase -Text $counsel -Where 'the counsel skill' `
+            -Phrase ('**With `yolo` off, a work item that goes to a server waits for the ' +
+                     'King''s word.**')
+        Assert-Phrase -Text $counsel -Where 'the counsel skill' `
+            -Phrase 'Being a ticket rather than code is not an exemption'
     }
 }
 
@@ -3171,6 +3345,7 @@ Describe 'no long dash' {
         @{ file = 'docs\2026-09-04-worker-environment-propagation.md' }
         @{ file = 'docs\2026-09-04-parked-decision-route.md' }
         @{ file = '.claude\skills\regency\SKILL.md' }
+        @{ file = 'docs\2026-09-04-outward-gating.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
