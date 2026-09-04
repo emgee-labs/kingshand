@@ -238,12 +238,14 @@ failure this whole mechanism exists to stop - a settled spec that sat in `data\`
 site it described shipped without it. Reading the index is the first line of this step for exactly
 that reason; the refusal is what stops a busy session skipping it.
 
-**The standing-criteria file below does not discharge this.** It goes to `-ReadPath` on every brief
-for a project that has one, so a gate that counted it would be one no dispatch could ever fail
-again - and dispatch knows it, discounting `done-<project>.md` from the paths that satisfy this
-refusal. Where it is the only file this task touches, a line about the index still goes in the
-section beside it - but not the literal one above, which would tell the worker there is nothing
-beyond the brief in the same breath as handing it a file to read. Write what is true instead:
+**The project's own two standing files do not discharge this.** The criteria file goes to
+`-ReadPath` on every brief for a project that has one, and dispatch attaches both it and
+`data\rules-<project>.md` whether or not anyone passes them, so a gate that counted either would be
+one no dispatch could ever fail again - and dispatch knows it, discounting `done-<project>.md` and
+`rules-<project>.md` from the paths that satisfy this refusal. Where it is the only file this task
+touches, a line about the index still goes in the section beside it - but not the literal one
+above, which would tell the worker there is nothing beyond the brief in the same breath as handing
+it a file to read. Write what is true instead:
 
 ```markdown
 - The index was checked; nothing in it applies to this task beyond the standing criteria above.
@@ -302,6 +304,19 @@ gate finding generalises, so a project with nothing standing today has criteria 
 is expected to meet. Where a criterion is one this task deliberately sets aside, say so in
 `Requirements` or `Unchanged` and in the `Intent` section the gate is handed - the brief wins over
 the file, and a worker left to work out which source wins picks wrong half the time.
+
+**The project's standing rules are not pasted and not passed.** `data\rules-<project>.md` holds
+context and vocabulary - tagging and casing, shorthand, folders never to touch, branch naming,
+where a login is kept - and `annex` owns its format. Dispatch attaches it by itself and writes the
+`Read first` line naming the copy, so pass no `-ReadPath` for it and write no line for it. Do not
+paste it into the brief and never ask the worker to report against it: it is reference, and an
+`n/a` answered to "our tickets are tagged NG-" dilutes the self-check on the lines that are really
+tested. **Read it yourself before you write the brief** - the copy goes to the worker, and the
+ticket text is yours.
+
+Dispatch attaches `done-<project>.md` on the same terms if you did not pass it, which is a backstop
+and not a reason to stop passing it: the paste above is what the worker is judged against, and it
+is still yours to write.
 
 **`Browser checks` is the one optional section, and it is optional both ways.** Leave it out
 entirely unless this task changes something a browser renders and you can state what to look at -
@@ -722,13 +737,24 @@ brief already names, because that directory is the only place outside its worktr
 read. Drop the parameter only when the section states there is nothing to read.
 
 Every refusal comes before anything at all is created, so a mistake here costs nothing to fix.
-There are six, and each is refused by name: a brief with no `## Read first` section at all, a
+There are nine, and each is refused by name: a brief with no `## Read first` section at all, a
 brief that passes no `-ReadPath` and does not say the index was checked when anything at all is
-indexed - and neither the standing-criteria file nor the browser procedure counts towards that one,
-per Step 2, which owns the rule - a brief carrying a `## Browser checks` section that passes no
-`-ReadPath` for the browser procedure or for the module it imports, a path that does not exist, a
-directory where a file was meant, and two different files whose names would land on top of each
-other in the staging directory.
+indexed - and neither the project's own standing files nor the browser procedure counts towards
+that one, per Step 2, which owns the rule - a brief carrying a `## Browser checks` section that
+passes no `-ReadPath` for the browser procedure or for the module it imports, a path that does not
+exist, a directory where a file was meant, two different files whose names would land on top of
+each other in the staging directory, a standing file that exists and cannot be opened, a directory
+sitting where a standing file belongs, and a brief that cannot be opened for writing to be told
+what was attached to it.
+
+**Dispatch attaches the project's own standing files itself and writes their `Read first` lines.**
+`data\done-<project>.md` and `data\rules-<project>.md` are staged whenever they exist, keyed off
+the project the registry resolves from the repo path, and a line naming each copy goes in at the
+end of that section, below anything you wrote there. It writes no line for a file you passed
+yourself - that one you already named - and re-dispatching the same ticket adds nothing. Retire one
+of those files and re-dispatch the same ticket, and dispatch takes its own line back out and
+deletes the copy, so removing a standing file is enough to stop it reaching a worker. A project
+with neither file dispatches exactly as it did before either existed.
 
 **Dispatch does not read the paths out of the brief's prose, and nothing may make it start.** An
 earlier version did, comparing what it parsed there against `-ReadPath`, and it cost six review

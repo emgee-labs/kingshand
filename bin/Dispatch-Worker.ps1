@@ -54,6 +54,42 @@
   derived from a file the index already lists at its own path, so Get-IndexableFiles excludes
   read-first\ and the drift count does not grow by one per dispatch forever.
 
+  TWO FILES ARE STAGED WITHOUT ANYONE PASSING THEM, keyed off the project this dispatch already
+  resolves from the registry: data\done-<project>.md, the standing criteria, and
+  data\rules-<project>.md, the standing rules - conventions, vocabulary, exclusions, branch naming,
+  where a login is kept. Each is staged when it exists, and its absence is an ordinary state.
+
+  Automatic because delivery by memory has already failed: a settled brand spec sat in data\ naming
+  itself the input to the website brief while the site shipped without its logo, favicon, tagline or
+  palette, because no brief named the file. A per-project file the Hand has to remember to pass is
+  that failure with a shorter fuse - it applies to EVERY task in the project, so forgetting it once
+  is forgetting it for whichever task happened to be dispatched that day.
+
+  Staging alone would not be enough: a file copied beside the brief that nothing tells the worker to
+  read reaches it not at all, which is the original failure with an extra step. So this script also
+  writes one `Read first` line per file it staged itself, into the brief, at the END of that
+  section - below anything the Hand wrote there, because the lead-in carried above those lines says
+  the files named directly below it came from dispatch and not by hand. It writes a line only for a
+  file IT staged - a file the Hand passed to -ReadPath is one the Hand already named - and it
+  recognises its own line verbatim, so a re-dispatch adds nothing. That is an insertion at a
+  position inside a section this script already located, and it is not a path parser: no file name
+  is ever read back out of the brief's prose.
+
+  The reverse also holds. A standing file the King has REMOVED must stop reaching the worker, so
+  where this script's own composed line for that file is still in the section, that line is dropped
+  and the copy in read-first\ is deleted. Never a copy the Hand passed, whose line the Hand wrote -
+  the comment at that code owns the two conditions that make the removal safe.
+
+  NEITHER counts towards the index gate below, for the reason the gate's own comment gives: a path
+  that arrives on every dispatch is no evidence that the index was consulted for THIS task.
+
+  A per-project file that exists and cannot be opened is refused by name. Reading it as absent would
+  be the worst outcome available - the worker would ship without standing rules nobody could see had
+  gone missing, which is the failure this whole mechanism exists to close.
+
+  Nothing here reads what is INSIDE either file. It is reference material handed to a worker whole,
+  so the only question this script asks is whether the file is there.
+
   The paths arrive STRUCTURALLY, in -ReadPath, and nothing here reads them back out of the brief's
   prose. An earlier version did: it parsed the `Read first` section for file paths and compared
   that set against -ReadPath in both directions. The intent was right and the mechanism has no last
@@ -86,24 +122,25 @@
   follow is the settled-spec failure at a larger scale and worse, because it looks solved. Neither
   way past is an absence: an empty section, or a heading with nothing under it, still refuses.
 
-  THREE -ReadPaths do not count towards it, and all for one reason: muster passes each of them by
-  rote rather than because this task touches it. The first is data\done-<project>.md for the project
-  this dispatch resolved to, the standing-criteria file muster hands over on every brief for a
-  project that has one. The other two are .claude\skills\witness\SKILL.md and bin\BrowserVerify.psm1,
-  the browser procedure and the module it imports, which muster hands over on every brief carrying a
-  `## Browser checks` section - a worker reaches its own worktree and the brief's directory and
-  nowhere else, and it cannot load a skill from this repository at all, so both travel as copies.
-  Those two discounts apply ONLY to a brief carrying that section, which is the one place the files
-  are passed by rote: a kingshand task to change the procedure itself passes it because it is
-  the subject, carries no browser checks, and engages the gate like any other chosen file.
-  Counting a path passed by rote would make this refusal unreachable from the moment the first
-  criteria file is written, and the premise of the whole check is that a -ReadPath is evidence the
-  Hand went through the index for THIS task. Every other path counts, including another file sitting
-  beside it in data\. When the discounted paths are the only ones the brief passed, the refusal says
-  which it discounted and why - a message denying what the reader can see it just did is one nobody
-  can act on - and it recommends muster's longer stated line rather than the short one, because the
-  short one would tell the worker there is nothing beyond the brief in the same breath as the section
-  hands it those copies.
+  FOUR PATHS do not count towards it, and all for one reason: each arrives by rote rather than
+  because this task touches it. THE PROJECT'S OWN TWO FILES are data\done-<project>.md and
+  data\rules-<project>.md for the project this dispatch resolved to. Both arrive on every brief for
+  a project that has them - the criteria file because muster hands it over, and either because this
+  script stages it whether or not anyone did. The other two are .claude\skills\witness\SKILL.md and
+  bin\BrowserVerify.psm1, the browser procedure and the module it imports, which muster hands over on
+  every brief carrying a `## Browser checks` section - a worker reaches its own worktree and the
+  brief's directory and nowhere else, and it cannot load a skill from this repository at all, so both
+  travel as copies. Those two discounts apply ONLY to a brief carrying that section, which is the one
+  place the files are passed by rote: a kingshand task to change the procedure itself passes it
+  because it is the subject, carries no browser checks, and engages the gate like any other chosen
+  file. Counting a path that arrives by rote would make this refusal unreachable from the moment the
+  first criteria file is written, and the premise of the whole check is that a -ReadPath is evidence
+  the Hand went through the index for THIS task. Every other path counts, including another file
+  sitting beside them in data\. When the discounted paths are the only ones the brief passed, the
+  refusal says which it discounted and why - a message denying what the reader can see it just
+  did is one nobody can act on - and it recommends muster's longer stated line rather than the short
+  one, because the short one would tell the worker there is nothing beyond the brief in the same
+  breath as the section hands it those copies.
 
   EVERY index that could cover the dispatch counts, and the root one counts first. data\index.md is
   where the settled files this gate exists to protect actually land - chronicle, annex and survey all
@@ -135,9 +172,10 @@
   Prose said so first and prose is not a mechanism; this is the same principle as the rest of the
   gate, that a check a forgotten argument switches off is not a check.
 
-  Everything else refused here is about -ReadPath itself, where the path is known exactly and
-  nothing is being read out of anything: a path that is not on disk, a directory where a file was
-  meant, and two entries whose file names would collide in the staging directory.
+  Everything else refused here is about a path that is known exactly, with nothing being read out of
+  anything: a -ReadPath that is not on disk, a directory where a file was meant, two entries whose
+  file names would collide in the staging directory, a project file that is there and cannot be
+  opened, and a brief that cannot be written to once there is something to auto-attach to it.
 .EXAMPLE
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md
   $r.id, $r.worktree, $r.branch
@@ -190,6 +228,91 @@ $BriefPath = (Resolve-Path $BriefPath).Path
 $briefDir  = Split-Path $BriefPath -Parent
 if (-not $DataPath.Trim()) { $DataPath = Get-DefaultIndexDataPath }
 
+# The data root, rooted ONCE by Index.psm1's own rule, so this script and the indexes it reads below
+# agree about where data\ is. [IO.Path]::GetFullPath would not be that rule: it resolves against the
+# process working directory, which Set-Location does not move, so a relative -DataPath could put the
+# project's own files somewhere the index never looked.
+#
+# Unguarded on purpose, and it decides where the per-project files are looked for as well as what
+# the index gate discounts. A root this cannot resolve has to stop the dispatch rather than fall
+# through to an empty answer that quietly attaches nothing and discounts nothing. Nothing is created
+# at this point, so throwing here costs the caller only the message.
+$dataRoot = Resolve-IndexDataPath -DataPath $DataPath
+
+# The project is resolved from the registry by repo path. Nothing is inferred from the path itself
+# and no -Project parameter is taken: a parameter can be omitted, and a gate or an attachment that a
+# forgotten argument switches off is not one. An unregistered repo therefore resolves to no project,
+# has no project index and gets no per-project files - but the root index is not project-scoped and
+# gates it all the same.
+#
+# The try covers the REGISTRY READ and nothing else, which is the only thing the catch below can
+# honestly claim to be a state rather than a fault. It used to wrap the whole loop, so one
+# hand-edited `path: ` line with no value - which parses, is truthy, and throws from GetFullPath -
+# abandoned resolution for every project at once and turned the gate off in silence.
+#
+# A registry that is not there at all is silent, and only that one: a fresh installation has
+# registered nothing yet, and a warning on every dispatch until the first /annex is noise that
+# teaches a reader to skip the next one. A registry that EXISTS and cannot be read is different -
+# something is wrong with a file somebody wrote - so that one says so.
+$project      = ''
+$registered   = @()
+$registryPath = Join-Path $DataPath 'projects.md'
+if (Test-Path -LiteralPath $registryPath -PathType Leaf) {
+    try {
+        # Get-AllProjects returns the whole array as ONE pipeline object - Projects.psm1's
+        # leading-comma idiom - so the loop below runs over the assigned value rather than an @()
+        # wrap, which would nest it a second time and iterate once over the array itself.
+        $registered = Get-AllProjects -RegistryPath $registryPath -WarningAction SilentlyContinue
+    } catch {
+        Write-Warning ("The project registry at $registryPath could not be read " +
+                       "($($_.Exception.Message)), so no project index can be checked for this " +
+                       "dispatch and no standing file can be attached. The root index still gates it.")
+        $registered = @()
+    }
+}
+
+$target = [IO.Path]::GetFullPath($RepoPath).TrimEnd('\')
+foreach ($entry in $registered) {
+    if (-not $entry.path -or -not $entry.indexable) { continue }
+    # Guarded per entry, so one unusable path costs that entry and not the whole resolution.
+    $entryPath = ''
+    try { $entryPath = [IO.Path]::GetFullPath($entry.path).TrimEnd('\') }
+    catch {
+        Write-Warning ("Project $($entry.name) records a 'path:' line that is not a usable path " +
+                       "($($_.Exception.Message)); skipping it while resolving this dispatch.")
+        continue
+    }
+    if ($entryPath.Equals($target, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $project = $entry.name
+        break
+    }
+}
+
+# The project's own two files, composed by name from the project the registry just resolved. Only a
+# name the index can turn into a file name ever reaches this - the loop above skips an entry whose
+# name is not indexable - so the leaf is letters, digits, '.', '_' and '-' and can hold no separator
+# and no traversal. That is the whole constraint keeping these two names inside the data root and
+# off any other file.
+$standing = [ordered]@{}
+if ($project) {
+    $standing["done-$project.md"]  = @{
+        path = Join-Path $dataRoot "done-$project.md"
+        what = "the standing definition of done for $project"
+        # Says only what is true from HERE. muster usually pastes these lines into the brief as well
+        # and writes its own line saying so, but this script never reads the brief's body, so a claim
+        # about what the body contains is one it cannot stand behind - and it would be wrong in
+        # exactly the case this attachment is the backstop for, where nobody pasted anything.
+        how  = 'Read it in full. It is this project''s standing definition of done, and you work its lines one by one.'
+    }
+    $standing["rules-$project.md"] = @{
+        path = Join-Path $dataRoot "rules-$project.md"
+        what = ("the standing rules for $project - conventions, vocabulary, exclusions, branch " +
+                "naming, environment facts")
+        how  = ('Read it in full before you start. It is reference to consult, not a list to ' +
+                'answer, so never self-report against its lines.')
+    }
+}
+
 # Staged BEFORE the worktree exists, for the same reason the base ref is resolved first: a brief
 # naming a file that is not there is a brief the worker cannot carry out, and finding that out
 # after a worker is running means one more dispatch spent discovering it. Every refusal below
@@ -223,6 +346,54 @@ foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
     $staged[$leaf] = $resolved
 }
 
+# What this dispatch attaches on its own, because nobody has to remember to. Order follows
+# $standing, so the criteria file is named before the rules file in every brief.
+#
+# ABSENT IS AN ORDINARY STATE and says so quietly: a project with neither file dispatches exactly as
+# it did before either existed. UNREADABLE IS NOT ABSENT, and the difference is the point - a rules
+# file skipped in silence ships a worker without the project's standing instructions and leaves no
+# trace that anything went missing, which is the failure this attachment exists to close. So a file
+# that is there and cannot be opened stops the dispatch and names itself.
+$autoStaged = [System.Collections.Generic.List[hashtable]]::new()
+foreach ($leaf in $standing.Keys) {
+    $p = $standing[$leaf].path
+    if (-not (Test-Path -LiteralPath $p)) { continue }
+
+    if (Test-Path -LiteralPath $p -PathType Container) {
+        throw ("$p is where project $project's file of that name belongs and it is a directory. " +
+               "A worker cannot be handed a directory to read. Move it aside, or put the file " +
+               "there. Nothing was created.")
+    }
+    # Test-Path answers whether the entry is there, never whether it can be read. Opened rather than
+    # read: this script never looks at what is inside either file, and a locked or unreadable file
+    # has to fail here rather than at the copy, where a worktree would already exist.
+    try { [System.IO.File]::OpenRead($p).Dispose() }
+    catch {
+        throw ("Project $project's file $p exists and could not be opened " +
+               "($($_.Exception.Message)), so the worker would go out without it and nothing would " +
+               "show that it had. Fix the file or move it aside deliberately - an absent file is " +
+               "attached as nothing, an unreadable one is refused. Nothing was created.")
+    }
+
+    if ($staged.ContainsKey($leaf)) {
+        # The same file, passed by hand as well. The Hand's own `Read first` line already names it,
+        # so this adds nothing and writes no second line for it.
+        if ($staged[$leaf].Equals($p, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        throw ("Read first names $($staged[$leaf]), and project $project's own $leaf at $p is " +
+               "attached to every brief for this project. Both would land on $leaf in the staging " +
+               "directory and one would overwrite the other. Pass the file under a distinct name, " +
+               "or leave it out and let the project's own copy be the one the worker reads. " +
+               "Nothing was created.")
+    }
+
+    $autoStaged.Add(@{
+        leaf = $leaf
+        path = $p
+        what = $standing[$leaf].what
+        how  = $standing[$leaf].how
+    })
+}
+
 # The heading, and NOTHING about the paths underneath it. The section's lines are what the worker
 # reads and acts on; the files it must be handed arrive in -ReadPath, from the same Hand that wrote
 # the section. An earlier version read the paths back out of these lines and compared the two sets,
@@ -242,26 +413,55 @@ foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
 # only: it is what tells the index gate below that the browser procedure was passed by rote rather
 # than because this task is about that file. Read under the same fence rule, so a brief quoting
 # muster's template does not acquire a browser step it never asked for.
-$hasSection   = $false
-$hasBrowser   = $false
-$inSection    = $false
-$inFence      = $false
-$sectionLines = [System.Collections.Generic.List[string]]::new()
-foreach ($line in @(Get-Content -LiteralPath $BriefPath)) {
+#
+# WHERE the section is, is remembered as well, so the lines for what this dispatch attaches on its
+# own can be inserted into it. That is a position in the file rather than anything read out of it,
+# and it is the section this loop was already finding.
+#
+# The POSITIONS are collected here, in this same pass, rather than by a second scan of their own.
+# A second scan is what went wrong: it started after the heading and ran to the end of the file
+# without skipping fences, so a brief quoting a generated line inside a fenced block under a later
+# heading moved the insertion anchor there - and the attached copy ended up named inside a quoted
+# block, in a section no worker acts on, which is the "a copy nothing names reaches nobody" failure
+# this attachment exists to close. One boundary rule, computed once, cannot disagree with itself.
+#
+# $sectionIndexes covers the FIRST section only, because that is where the insertion goes, while
+# $sectionLines keeps spanning every one of them - it feeds the index gate, which asks whether the
+# statement was made anywhere at all. $sectionEnd is the last line still inside that first section,
+# fenced lines included, so appending after it lands at the end of the section rather than inside a
+# block it happens to finish with.
+$briefLines     = @(Get-Content -LiteralPath $BriefPath)
+$hasSection     = $false
+$hasBrowser     = $false
+$inSection      = $false
+$inFence        = $false
+$headingIndex   = -1
+$sectionEnd     = -1
+$firstOpen      = $false
+$sectionLines   = [System.Collections.Generic.List[string]]::new()
+$sectionIndexes = [System.Collections.Generic.List[int]]::new()
+for ($i = 0; $i -lt $briefLines.Count; $i++) {
+    $line = $briefLines[$i]
     if ($line -match '^\s*```') {
         $inFence = -not $inFence
+        if ($firstOpen) { $sectionEnd = $i }
         continue
     }
-    if ($inFence) { continue }
+    if ($inFence) {
+        if ($firstOpen) { $sectionEnd = $i }
+        continue
+    }
     if ($line -match '^\s*##\s+Browser checks\b') { $hasBrowser = $true }
     if ($line -match '^\s*##\s+Read first\s*$') {
-        $hasSection = $true
-        $inSection  = $true
+        $hasSection   = $true
+        $inSection    = $true
+        if ($headingIndex -lt 0) { $headingIndex = $i; $sectionEnd = $i; $firstOpen = $true }
         continue
     }
     if ($inSection) {
-        if ($line -match '^\s*#{1,6}\s') { $inSection = $false; continue }
+        if ($line -match '^\s*#{1,6}\s') { $inSection = $false; $firstOpen = $false; continue }
         $sectionLines.Add($line)
+        if ($firstOpen) { $sectionIndexes.Add($i); $sectionEnd = $i }
     }
 }
 
@@ -327,54 +527,6 @@ if ($hasBrowser) {
 # settled brand spec named itself the input to the website brief and the site shipped without it. So
 # forgetting the index is refused here, at the moment it happens, rather than discovered later.
 #
-# The project is resolved from the registry by repo path. Nothing is inferred from the path itself
-# and no -Project parameter is taken: a parameter can be omitted, and a gate that a forgotten
-# argument switches off is not a gate. An unregistered repo therefore has no project index - but the
-# root index is not project-scoped and gates it all the same.
-#
-# The try covers the REGISTRY READ and nothing else, which is the only thing the catch below can
-# honestly claim to be a state rather than a fault. It used to wrap the whole loop, so one
-# hand-edited `path: ` line with no value - which parses, is truthy, and throws from GetFullPath -
-# abandoned resolution for every project at once and turned the gate off in silence.
-#
-# A registry that is not there at all is silent, and only that one: a fresh installation has
-# registered nothing yet, and a warning on every dispatch until the first /annex is noise that
-# teaches a reader to skip the next one. A registry that EXISTS and cannot be read is different -
-# something is wrong with a file somebody wrote - so that one says so.
-$project      = ''
-$registered   = @()
-$registryPath = Join-Path $DataPath 'projects.md'
-if (Test-Path -LiteralPath $registryPath -PathType Leaf) {
-    try {
-        # Get-AllProjects returns the whole array as ONE pipeline object - Projects.psm1's
-        # leading-comma idiom - so the loop below runs over the assigned value rather than an @()
-        # wrap, which would nest it a second time and iterate once over the array itself.
-        $registered = Get-AllProjects -RegistryPath $registryPath -WarningAction SilentlyContinue
-    } catch {
-        Write-Warning ("The project registry at $registryPath could not be read " +
-                       "($($_.Exception.Message)), so no project index can be checked for this " +
-                       "dispatch. The root index still gates it.")
-        $registered = @()
-    }
-}
-
-$target = [IO.Path]::GetFullPath($RepoPath).TrimEnd('\')
-foreach ($entry in $registered) {
-    if (-not $entry.path -or -not $entry.indexable) { continue }
-    # Guarded per entry, so one unusable path costs that entry and not the whole resolution.
-    $entryPath = ''
-    try { $entryPath = [IO.Path]::GetFullPath($entry.path).TrimEnd('\') }
-    catch {
-        Write-Warning ("Project $($entry.name) records a 'path:' line that is not a usable path " +
-                       "($($_.Exception.Message)); skipping it while resolving this dispatch.")
-        continue
-    }
-    if ($entryPath.Equals($target, [System.StringComparison]::OrdinalIgnoreCase)) {
-        $project = $entry.name
-        break
-    }
-}
-
 # Every index that could cover this dispatch. "Lists something" is Index.psm1's answer, never a
 # Test-Path of ours: an index file that lists nothing has nothing to consult, and demanding a
 # statement about an empty table of contents would refuse a dispatch nobody could act on.
@@ -434,27 +586,20 @@ if ($gates.Count -gt 0) {
         }
     }
 
-    # The project's standing-criteria file does not count towards this. muster hands it to -ReadPath
-    # on EVERY brief for a project that has one, so counting it would make this refusal unreachable
-    # from the moment the first one is written - and the gate's whole premise is that a -ReadPath is
-    # evidence the Hand went through the index for THIS task. A path passed by rote is no evidence.
-    # Every other -ReadPath still counts, including another file sitting beside it in data\.
+    # The project's own two standing files do not count towards this. Both arrive on EVERY brief for
+    # a project that has them - the criteria file because muster passes it, and either because this
+    # script attaches it whether or not anyone passed it - so counting one would make this refusal
+    # unreachable from the moment the first is written. The gate's whole premise is that a -ReadPath
+    # is evidence the Hand went through the index for THIS task, and a path that arrives by rote is
+    # no evidence. Every other -ReadPath still counts, including another file sitting beside them in
+    # data\.
     #
-    # The root comes from Index.psm1's own Resolve-IndexDataPath, so this path and the entries
-    # Get-IndexEntries just read above are rooted by one rule. GetFullPath alone would not be that
-    # rule: it resolves against the process working directory, which Set-Location does not move, so
-    # a relative -DataPath could put the criteria file somewhere the index never looked and the
-    # discount would silently stop discounting.
+    # $standing was composed from $dataRoot, which is Index.psm1's own Resolve-IndexDataPath answer,
+    # so these paths and the entries Get-IndexEntries just read above are rooted by one rule. Rooted
+    # any other way - GetFullPath resolves against the process working directory, which Set-Location
+    # does not move - a relative -DataPath would put the criteria file somewhere the index never
+    # looked and the discount would silently stop discounting.
     #
-    # Unguarded on purpose. A root this cannot resolve has to stop the dispatch, not fall through to
-    # an empty $byRote - that discounts nothing, opens the gate for the projects furthest along, and
-    # says so nowhere. Nothing is created before this point, so throwing here costs the caller only
-    # the message.
-    $byRote = ''
-    if ($project) {
-        $byRote = Join-Path (Resolve-IndexDataPath -DataPath $DataPath) "done-$project.md"
-    }
-
     # The browser procedure and its module are the other two files muster passes by rote, on every
     # brief carrying a `## Browser checks` section - and by the refusal above, every such brief
     # passes both.
@@ -467,13 +612,12 @@ if ($gates.Count -gt 0) {
     $procedure = if ($hasBrowser) { $procedurePath } else { '' }
     $module    = if ($hasBrowser) { $modulePath }    else { '' }
 
-    $discountedPaths = @(@($byRote, $procedure, $module) | Where-Object { $_ })
-    $isByRote = {
-        param($path)
-        @($discountedPaths | Where-Object {
-            $path.Equals($_, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
-    }
-    $engaged = @($staged.Values | Where-Object { -not (& $isByRote $_) })
+    $byRote = [System.Collections.Generic.HashSet[string]]::new(
+                  [System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($leaf in $standing.Keys) { $null = $byRote.Add($standing[$leaf].path) }
+    foreach ($p in @($procedure, $module)) { if ($p) { $null = $byRote.Add($p) } }
+
+    $engaged = @($staged.Values | Where-Object { -not $byRote.Contains($_) })
 
     if ($engaged.Count -eq 0 -and -not $statesIndexChecked) {
         # Every index that triggered this is named with its path, because the refusal is the Hand's
@@ -482,11 +626,22 @@ if ($gates.Count -gt 0) {
         # Said plainly when the brief DID pass a path, or the Hand reads a refusal denying what it
         # can see it just did and has no way to work out which path was discounted.
         #
-        # The line recommended below changes with it, and has to. In the ordinary case the section
-        # names no file and the literal line is true. In the discount case the section already hands
-        # the worker the criteria copy, so that same line would tell it there is nothing beyond the
-        # brief in the same breath - the contradiction muster rules out. So this branch recommends
-        # muster's paraphrase, which states both halves and passes the regex above unchanged.
+        # The line recommended below changes with it, and the two standing-file cases part company.
+        #
+        # A file the Hand PASSED by hand is named by a line the Hand wrote, and nothing scopes that
+        # line: the lead-in this script inserts covers only the bullets this script inserts. So the
+        # literal line would still tell the worker there is nothing beyond the brief in the same
+        # breath as the Hand's own line names a copy - the contradiction muster rules out, and the
+        # 2026-09-02 reasoning for the paraphrase stands unchanged. That branch keeps recommending
+        # muster's paraphrase, which states both halves and passes the regex above.
+        #
+        # A standing file this dispatch attaches ITSELF is different, and stopped being a
+        # contradiction when the lead-in below was introduced: the lead-in sits above those bullets
+        # and says in the section that they arrive on top of whatever else it says, including a line
+        # saying nothing beyond this brief was named. So that branch recommends the canonical short
+        # literal line, because the lead-in is what makes it true. $beyond is what tells the two
+        # apart: it is filled only from paths the brief actually passed.
+        #
         # Every clause stands on its own, because any of them can be the first one written. An
         # earlier version had the browser clause open with "for the same reason" and end with
         # "either", which on a project with no criteria file referred back to a sentence that was
@@ -496,17 +651,24 @@ if ($gates.Count -gt 0) {
             $path -and @($staged.Values | Where-Object {
                 $_.Equals($path, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
         }
-        $passedCriteria  = [bool](& $wasPassed $byRote)
+        # Walked in $standing's order, so the criteria file is named before the rules file wherever
+        # both were passed by hand.
+        $discountedPaths = @(foreach ($leaf in $standing.Keys) {
+            if (& $wasPassed $standing[$leaf].path) { $standing[$leaf].path }
+        })
         $passedProcedure = [bool](& $wasPassed $procedure)
         $passedModule    = [bool](& $wasPassed $module)
 
         $clauses = @()
         $beyond  = @()
-        if ($passedCriteria) {
-            $clauses += ("the standing-criteria file $byRote, which every brief for this project " +
-                         'passes')
-            $beyond  += 'the standing criteria'
+        if ($discountedPaths.Count -eq 1) {
+            $clauses += ("$($discountedPaths[0]), one of the project's own standing files, which " +
+                         'every brief for this project passes')
+        } elseif ($discountedPaths.Count -gt 1) {
+            $clauses += (($discountedPaths -join ' and ') + " - the project's own standing files, " +
+                         'which every brief for this project passes')
         }
+        if ($discountedPaths.Count -gt 0) { $beyond += 'the standing criteria' }
         if ($passedProcedure) {
             $clauses += ("the browser procedure $procedure, which every brief carrying browser " +
                          'checks passes')
@@ -521,15 +683,22 @@ if ($gates.Count -gt 0) {
         $discounted = ''
         $stated = "'- Nothing beyond this brief - the index was checked and nothing in it applies.'"
         if ($clauses.Count -gt 0) {
-            $lead = if ($clauses.Count -eq 1) { 'The only file this brief passes is' }
-                    else { 'The only files this brief passes are' }
+            $lead = if ($clauses.Count -eq 1 -and $discountedPaths.Count -le 1) {
+                        'The only file this brief passes is'
+                    } else { 'The only files this brief passes are' }
             $discounted = ("$lead " + ($clauses -join '; and ') + " - each passed by rote, so " +
                            'none of them says anything about this task. ')
+        } elseif ($autoStaged.Count -gt 0) {
+            $discounted = ("This dispatch attaches project $project's own " +
+                           "$(($autoStaged | ForEach-Object { $_.leaf }) -join ' and ') by itself, " +
+                           "and every brief for this project gets them, so they say nothing about " +
+                           "this task either. ")
         }
 
         # The recommended line names every copy the section already hands over, because a line
         # saying nothing applies beyond one of them, written beside a section naming two, is the
-        # same self-contradiction this branch exists to keep out of the brief.
+        # same self-contradiction this branch exists to keep out of the brief. Empty where the only
+        # copies came from this dispatch, so that case keeps the canonical short literal line.
         if ($beyond.Count -gt 0) {
             $beyondText = if ($beyond.Count -le 2) { $beyond -join ' and ' }
                           else { ($beyond[0..($beyond.Count - 2)] -join ', ') + ' and ' + $beyond[-1] }
@@ -548,16 +717,225 @@ if ($gates.Count -gt 0) {
     }
 }
 
+# The lines this dispatch will add to the brief for what it attached itself, composed here so the
+# same text is produced every time. That is what makes a re-dispatch add nothing: the check below is
+# a whole-line comparison against text this script wrote, never a search for a file name in prose.
+#
+# One physical line per file, however long. A brief is generated, and a line broken for width is a
+# line the idempotence check would have to reassemble.
+#
+# Composed through one function because the same text has to be produced for a file that is THERE
+# and for one that has since been REMOVED - the line an earlier dispatch wrote can only be found
+# again by composing exactly what was written. Everything it needs comes from $standing, which is
+# built from the project name alone and so survives the file itself going away.
+function New-AutoLine {
+    param([Parameter(Mandatory)][string]$Leaf, [Parameter(Mandatory)]$Entry)
+    "- ``$(Join-Path $readFirstDir $Leaf)`` - $($Entry.what), attached automatically at dispatch " +
+    "from ``$($Entry.path)`` rather than named by hand. $($Entry.how)"
+}
+
+$autoLines = @(foreach ($a in $autoStaged) { New-AutoLine -Leaf $a.leaf -Entry $standing[$a.leaf] })
+
+# The one line that goes above them, and the reason the block can be inserted into a section that
+# already says there is nothing to read. The Hand writes `- Nothing beyond this brief - the index was
+# checked and nothing in it applies.` when the index turns up nothing, and that line is true about
+# the index at the moment it was written; these copies arrive afterwards and from somewhere else. So
+# the block SCOPES ITSELF rather than editing what the Hand wrote - nothing here parses the section
+# looking for a sentence to rewrite, and nothing suppresses the attachment, because a standing file
+# that reaches nobody is the whole failure this exists to close.
+#
+# One physical line, like the bullets, so the idempotence check below is a whole-line comparison.
+$autoLeadIn = ('- The file(s) named directly below were attached by dispatch from this project''s ' +
+               'own standing files, not by hand. They apply as well as everything else in this ' +
+               'section, including any line saying nothing beyond this brief was named - that line ' +
+               'was written before these were attached. Read them.')
+
+# WHAT this dispatch will actually add to the brief, and WHERE - decided here, before anything is
+# created, because the preflight below has to key on whether there is a write at all rather than on
+# whether there is something attached. On an ordinary re-dispatch every line is already in the brief
+# and no write happens, so demanding an exclusive handle on the file would refuse over a write that
+# was never going to be performed - and a share lock is transient, where the read-only flag it
+# replaced was a deliberate persistent state.
+#
+# Only lines the brief does not already carry verbatim, so a second dispatch of the same ticket
+# changes nothing. Comparison is whole-line and ordinal against text this script composed itself -
+# never a search for a file name in prose, and no parser of the section.
+#
+# WHERE is decided per line rather than for the block as a whole, because the block is not always
+# added as a block. The lead-in scopes the bullets, so it stays above them; and $standing's order -
+# criteria before rules - has to survive the GROWTH CASE, where one file was already named by an
+# earlier dispatch and another has since appeared. Inserting the missing lines together at one anchor
+# under the lead-in put the newest file ABOVE one already there, silently reversing that order.
+#
+# So the composed lines are walked in their own order behind a moving anchor. A line already in the
+# brief moves the anchor onto it; a line that is missing is scheduled just after the current anchor
+# and becomes the anchor itself, so the next missing line lands after it rather than on top of it.
+# The anchor starts at the lead-in when the section already carries it, and at the END of the section
+# when it does not, in which case the lead-in is the first thing scheduled and every bullet follows
+# it. Appending rather than inserting at the top is what makes the lead-in's own sentence true: it
+# says the files named DIRECTLY BELOW were attached by dispatch and not by hand, so it must not be
+# put above lines the Hand wrote. The Hand's bullets keep their place, and the order among the
+# attached lines themselves is unchanged - lead-in, criteria, rules, for a first dispatch with either
+# or both files and for growth in either direction.
+#
+# Every comparison is whole-line and ordinal against text this script composed itself - never a
+# search for a file name in prose, and no parser of the section. Only lines INSIDE the Read first
+# section are indexed, by the same boundary the parse pass above computed, so a copy quoted in a
+# fenced block or under a later heading can neither claim the anchor nor pass for one already there.
+$toAdd = @()
+$plan  = [System.Collections.Generic.Dictionary[int, System.Collections.Generic.List[string]]]::new()
+$seen  = [System.Collections.Generic.Dictionary[string, int]]::new([System.StringComparer]::Ordinal)
+foreach ($idx in $sectionIndexes) {
+    $t = $briefLines[$idx].Trim()
+    if (-not $seen.ContainsKey($t)) { $seen[$t] = $idx }
+}
+
+# A standing file the King has REMOVED must stop reaching the worker. An earlier dispatch of this
+# same ticket copied it into read-first\ and wrote a line naming it; nothing about it being absent
+# now would otherwise undo either, so the worker would be handed rules the King deleted under a line
+# asserting they came from a file that is no longer there. Both are cleared instead, and the whole
+# thing is reversible: restore the file, re-dispatch, and both come back.
+#
+# Scoped as tightly as it can be, by TWO conditions that are only safe together.
+#
+# The first is the -ReadPath guard, and it covers this dispatch: a leaf the Hand passed is the Hand's
+# own file staged under the same name, and the line naming it is a line the Hand wrote. Neither is
+# this script's to touch.
+#
+# The second covers every EARLIER dispatch, which the first cannot see. `read-first\<leaf>` is one
+# directory shared by both routes, so the copy on disk carries no record of who put it there - and
+# muster passes `data\done-<project>.md` through -ReadPath on every brief it writes, with a bullet
+# of its own wording. Retire that file and re-dispatch, and the leaf looks exactly like an abandoned
+# auto-attachment: absent source, copy present, nothing passed this time. Deleting it on that
+# evidence removed the Hand's file while the Hand's differently-worded bullet survived, leaving the
+# brief naming a file that is gone - the very thing -ReadPath is refused for above, reached through
+# the pruning meant to prevent staleness.
+#
+# So the discriminator is this script's OWN composed bullet for that leaf being in the Read first
+# section. That line is written by nothing else, so its presence is the only available evidence that
+# this script staged the copy. Where it is absent - the Hand's own line is there instead, or no line
+# at all - nothing is removed and the copy is left alone: the copy is then not this script's to
+# delete, and a stale copy a line correctly names is better than a live line naming nothing.
+$staleBullets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+$staleCopies  = [System.Collections.Generic.List[string]]::new()
+foreach ($leaf in $standing.Keys) {
+    if ($staged.ContainsKey($leaf)) { continue }
+    if (Test-Path -LiteralPath $standing[$leaf].path) { continue }
+    $bullet = (New-AutoLine -Leaf $leaf -Entry $standing[$leaf]).Trim()
+    if (-not $seen.ContainsKey($bullet)) { continue }
+    $null = $staleBullets.Add($bullet)
+    $copy = Join-Path $readFirstDir $leaf
+    if (Test-Path -LiteralPath $copy -PathType Leaf) { $staleCopies.Add($copy) }
+}
+# With no attached bullet left, the lead-in introduces nothing and goes with them.
+if ($staleBullets.Count -gt 0 -and $autoLines.Count -eq 0) {
+    $null = $staleBullets.Add($autoLeadIn.Trim())
+}
+
+$removeIndexes = [System.Collections.Generic.HashSet[int]]::new()
+if ($staleBullets.Count -gt 0) {
+    foreach ($idx in $sectionIndexes) {
+        if ($staleBullets.Contains($briefLines[$idx].Trim())) { $null = $removeIndexes.Add($idx) }
+    }
+}
+
+if ($autoLines.Count -gt 0 -and $headingIndex -ge 0) {
+    if (@($autoLines | Where-Object { -not $seen.ContainsKey($_.Trim()) }).Count -gt 0) {
+        $anchor = $sectionEnd
+        if ($seen.ContainsKey($autoLeadIn.Trim())) {
+            $anchor = $seen[$autoLeadIn.Trim()]
+        } else {
+            if (-not $plan.ContainsKey($anchor)) {
+                $plan[$anchor] = [System.Collections.Generic.List[string]]::new()
+            }
+            $plan[$anchor].Add($autoLeadIn)
+            $toAdd += $autoLeadIn
+        }
+
+        foreach ($line in $autoLines) {
+            if ($seen.ContainsKey($line.Trim())) { $anchor = $seen[$line.Trim()]; continue }
+            if (-not $plan.ContainsKey($anchor)) {
+                $plan[$anchor] = [System.Collections.Generic.List[string]]::new()
+            }
+            $plan[$anchor].Add($line)
+            $toAdd += $line
+        }
+    }
+}
+
+# Refused BEFORE anything is created, like every other refusal here. A brief that cannot be written
+# to would leave the copies on disk with nothing telling the worker to open them - the failure this
+# attachment exists to close, arrived at through the attachment itself.
+#
+# The brief is OPENED for writing rather than inspected for its read-only flag. The flag is one cause
+# among several and not the common one: another process holding the file, or an ACL denying write,
+# reaches the Set-Content below exactly the same way and used to abort it with the copies already on
+# disk and no line naming them. Disposed at once - this asks the question, it is not the write.
+#
+# The residual this cannot close is a failure BETWEEN here and the write - a full disk, or another
+# process taking the file in that window. A retry is idempotent: the copies are overwritten in place
+# and the insertion is checked line by line against what the brief already carries, so nothing is
+# duplicated by running the dispatch again.
+#
+# Removing a stale line is a write like any other, and a stale copy is deleted just below it, so this
+# guards that case too rather than only an insertion.
+if ($toAdd.Count -gt 0 -or $removeIndexes.Count -gt 0) {
+    try { [System.IO.File]::Open($BriefPath, 'Open', 'ReadWrite', 'None').Dispose() }
+    catch {
+        $why = $_.Exception.Message
+        # Read back after the failure, so the read-only case keeps saying so plainly instead of
+        # being folded into a generic access message the reader has to interpret.
+        $readOnly = $false
+        try { $readOnly = (Get-Item -LiteralPath $BriefPath).IsReadOnly } catch { }
+        $cause = if ($readOnly) { 'that file is read-only' }
+                 else           { "that file could not be opened for writing ($why)" }
+        $fix   = if ($readOnly) { 'Clear the read-only flag on the brief.' }
+                 else           { 'Close whatever is holding it open, or fix its permissions.' }
+        throw ("Project $project's standing files have to be named in $BriefPath under 'Read first' " +
+               "and $cause, so the worker would be handed copies nothing tells it to read. $fix " +
+               "Nothing was created.")
+    }
+}
+
 # Copied only once every check above has passed, so a refusal is always true when it says nothing
 # was created. Staging first left a directory and a file on disk under a message denying both.
-if ($staged.Count -gt 0) {
+#
+# The two sources share one directory and one leaf-name space: $staged is keyed case-insensitively
+# and the auto-attach loop above refused any leaf already in it, so no copy here can land on
+# another. The order is the Hand's files first, then the project's, and it does not matter - by this
+# point every name is distinct.
+if ($staged.Count -gt 0 -or $autoStaged.Count -gt 0) {
     if (-not (Test-Path -LiteralPath $readFirstDir)) {
         New-Item -ItemType Directory -Force -Path $readFirstDir | Out-Null
     }
     foreach ($leaf in $staged.Keys) {
         Copy-Item -LiteralPath $staged[$leaf] -Destination (Join-Path $readFirstDir $leaf) -Force
     }
+    foreach ($a in $autoStaged) {
+        Copy-Item -LiteralPath $a.path -Destination (Join-Path $readFirstDir $a.leaf) -Force
+    }
 }
+
+# And the brief is told, because a copy nothing names reaches nobody. Written AFTER the copies, so
+# the brief never names a file that failed to arrive. What goes in and where it goes were both
+# decided above, so nothing is recomputed here.
+if ($toAdd.Count -gt 0 -or $removeIndexes.Count -gt 0) {
+    $rewritten = [System.Collections.Generic.List[string]]::new()
+    for ($i = 0; $i -lt $briefLines.Count; $i++) {
+        if (-not $removeIndexes.Contains($i)) { $rewritten.Add($briefLines[$i]) }
+        if ($plan.ContainsKey($i)) { foreach ($l in $plan[$i]) { $rewritten.Add($l) } }
+    }
+    Set-Content -LiteralPath $BriefPath -Encoding utf8 -Value $rewritten.ToArray()
+}
+
+# The copy of a standing file that is no longer there. Each path was composed above from a leaf this
+# script owns, confirmed to be a file, and confirmed to be named by this script's own bullet, so this
+# removes something this script itself staged and nothing else.
+#
+# Deleted AFTER the rewrite, which is the safe order for a removal: an addition writes the line only
+# once the file has arrived, and a removal deletes the file only once the line naming it has gone.
+# Fail in between either way and the brief still describes what is on disk.
+foreach ($copy in $staleCopies) { Remove-Item -LiteralPath $copy -Force }
 
 # WHICH ref this is belongs to Resolve-BaseRef.ps1's header, and nothing here restates it. What
 # matters at this call site is that the one string it returns is used twice below - as the branch

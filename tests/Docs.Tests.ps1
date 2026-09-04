@@ -1280,15 +1280,17 @@ Describe 'intake resolves the project and refuses to read a diagnosis as authori
                      'exercise that is not expected to change it.')
     }
 
-    It 'points at the project''s own memory file rather than restating its contents' {
-        # Deliberately not a path. Naming one machine's project directory here is what made this
-        # file unusable by anyone else, and the rule it carries - conventions belong to the
-        # project, and are read rather than reconstructed - is what actually has to survive.
+    It 'points at the project''s own rules file rather than restating its contents' {
+        # The rule that has to survive is that conventions belong to the project and are read
+        # rather than reconstructed. What changed is only where they are read from: they have a
+        # named home now, so the Hand can open one rather than hunt for a memory file.
         $s = Get-HandSection 'Intake judgement'
         Assert-Phrase -Text $s -Where 'CLAUDE.md intake' `
             -Phrase ("Per-project conventions - a project's shorthand, its tagging, the vocabulary " +
-                     'its tickets use - live in that project''s own memory file, not here and not ' +
+                     'its tickets use - live in `data\rules-<project>.md`, not here and not ' +
                      'in the registry.')
+        Assert-Phrase -Text $s -Where 'CLAUDE.md intake' `
+            -Phrase '**read it before writing a brief or creating a work item**'
         Assert-Phrase -Text $s -Where 'CLAUDE.md intake' `
             -Phrase 'copy tag casing rather than reconstructing it'
     }
@@ -2174,7 +2176,23 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
                      '`king.md`, `learnings.md`, `corrections.md`, `memory-archive.md`, ' +
                      '`done-archive.md`, `projects.md` and `index.md`')
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
-            -Phrase ('and neither is any other name already in use for something else under `data\`')
+            -Phrase ('and neither is `done-<project>.md` or `rules-<project>.md` for any registered ' +
+                     'project, nor any other name already in use for something else under `data\`')
+    }
+
+    # The two per-project standing files are the King's word for that project, delivered to every
+    # worker dispatched into it. A curation pass that treated one as a decaying entry would
+    # eventually delete a standing instruction he set once and expected to hold for a year, and
+    # would do it in a pass nobody was watching.
+    It 'the per-project standing files are outside the budget and outside the sweep' {
+        Assert-Phrase -Text $script:ChronicleText -Where 'chronicle' `
+            -Phrase ('**`data\rules-<project>.md` and `data\done-<project>.md` are outside this ' +
+                     'budget and outside this sweep, and this pass never edits, decays, archives, ' +
+                     'consolidates or offloads a line of either.**')
+        Assert-Phrase -Text $script:ChronicleText -Where 'chronicle' `
+            -Phrase 'they stand until he changes or removes them'
+        Assert-Phrase -Text $script:ChronicleText -Where 'chronicle' `
+            -Phrase 'Neither is measured against the startup budget, because neither is loaded'
     }
 
     # Two rules for a taken path in one paragraph, in the wrong order, sent a second pass on the same
@@ -2951,18 +2969,49 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     # The refusals are what a caller plans around, so their count and their subjects are pinned.
     # Each one knows its path exactly because the caller handed it over - that is what separates
     # this list from the parsed cross-check it replaced.
-    It 'muster states the six refusals dispatch still makes' {
+    It 'muster states the nine refusals dispatch still makes' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase ('There are six, and each is refused by name: a brief with no ' +
+            -Phrase ('There are nine, and each is refused by name: a brief with no ' +
                      '`## Read first` section at all, a brief that passes no `-ReadPath` and does ' +
                      'not say the index was checked when anything at all is indexed - and neither ' +
-                     'the standing-criteria file nor the browser procedure counts towards that ' +
-                     'one, per Step 2, which owns the rule - a brief carrying a ' +
+                     "the project's own standing files nor the browser procedure counts towards " +
+                     'that one, per Step 2, which owns the rule - a brief carrying a ' +
                      '`## Browser checks` section that passes no `-ReadPath` for the browser ' +
                      'procedure or for the module it imports, a path that does not exist, a ' +
-                     'directory where a file was meant, and two different files whose names would ' +
-                     'land on top of each other in the staging directory.')
+                     'directory where a file was meant, two different files whose names would ' +
+                     'land on top of each other in the staging directory, a standing file that ' +
+                     'exists and cannot be opened, a directory sitting where a standing file ' +
+                     'belongs, and a brief that cannot be opened for writing to be told what was ' +
+                     'attached to it.')
+    }
+
+    # The whole requirement, in the artefact the Hand reads at the moment it dispatches: the two
+    # per-project files arrive whether or not anyone remembered them, and the brief ends up naming
+    # each copy. Delivery by memory has already shipped a website without its settled brand.
+    It 'muster says dispatch attaches the standing files and names them itself' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ("**Dispatch attaches the project's own standing files itself and writes their " +
+                     '`Read first` lines.**')
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'It writes no line for a file you passed yourself'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'A project with neither file dispatches exactly as it did before either existed.'
+    }
+
+    # The rules file is reference, not a checklist, and the distinction is the reason it is a second
+    # file rather than more lines in the first. A worker answering n/a to "our tickets are tagged
+    # NG-" dilutes the self-check on the lines that are really tested.
+    It 'muster keeps the rules file out of the paste and out of -ReadPath' {
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase '**The project''s standing rules are not pasted and not passed.**'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase 'pass no `-ReadPath` for it and write no line for it'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase 'never ask the worker to report against it'
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase '**Read it yourself before you write the brief**'
     }
 
     # A single quoted placeholder is filled in with two paths in one string, which names no file
@@ -3081,6 +3130,7 @@ Describe 'no long dash' {
         @{ file = 'docs\2026-09-04-story-analysis-split.md' }
         @{ file = '.claude\skills\witness\SKILL.md' }
         @{ file = 'docs\2026-09-03-browser-verification.md' }
+        @{ file = 'docs\2026-09-04-worker-environment-propagation.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
@@ -4334,12 +4384,12 @@ Describe 'a project has a standing definition of done, and repeated findings are
     # dispatcher's index gate refuses only when no path was passed - so counting it would open that
     # gate permanently for exactly the projects furthest along. Dispatch-Worker.Tests.ps1 owns the
     # enforcement; this pins that the Hand is told the same thing the code does.
-    It 'the criteria file is said not to discharge the index obligation' {
+    It 'the standing files are said not to discharge the index obligation' {
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
-            -Phrase '**The standing-criteria file below does not discharge this.**'
+            -Phrase '**The project''s own two standing files do not discharge this.**'
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
-            -Phrase ('dispatch knows it, discounting `done-<project>.md` from the paths that ' +
-                     'satisfy this refusal')
+            -Phrase ('dispatch knows it, discounting `done-<project>.md` and `rules-<project>.md` ' +
+                     'from the paths that satisfy this refusal')
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
             -Phrase ('Where it is the only file this task touches, a line about the index still ' +
                      'goes in the section beside it')
@@ -5635,5 +5685,129 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
             -Phrase '**Do not replace that second read with a bare `$env:` lookup.**'
         Assert-Phrase -Text $script:BrowserDoc -Where 'the browser verification record' `
             -Phrase ('**an item that could not be checked is reported, never skipped.**')
+    }
+}
+
+# The per-project rules file, and the one rule that makes it worth having: it reaches a worker
+# mechanically. Delivery by memory has already failed once here - a settled brand spec sat in data\
+# naming itself the input to the website brief while the site shipped without its logo, favicon,
+# tagline or palette, because no brief named the file. A per-project file is that failure with a
+# shorter fuse, because it applies to every task in the project rather than one.
+Describe 'a project carries standing rules that reach every worker without being passed' {
+    BeforeAll {
+        $script:RulesOwn    = Get-HandSection 'What you own'
+        $script:RulesRoute  = Get-HandSection 'Knowledge routing'
+        $script:RulesAnnex  = Get-DocText $script:ImportMd
+    }
+
+    It 'CLAUDE.md names the file and says what it is for' {
+        Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
+            -Phrase ('`data\rules-<project>.md` - one project''s standing rules: conventions, ' +
+                     'vocabulary, ticket tagging and casing, folders never to touch, branch naming, ' +
+                     'environment facts, and where a login is kept.')
+        Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
+            -Phrase 'Not criteria and never self-reported against'
+        Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
+            -Phrase '`annex` owns its format and offers to create it at import.'
+    }
+
+    # The actual requirement. Everything else is supporting: a file the Hand has to remember to
+    # pass is a file that gets forgotten, and the forgetting is silent.
+    It 'CLAUDE.md says the dispatcher delivers both without being asked' {
+        Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
+            -Phrase ('**Both of those reach a worker mechanically. `bin\Dispatch-Worker.ps1` ' +
+                     'attaches whichever of the two exists to every brief for that project and ' +
+                     'names each copy under `Read first` itself,**')
+        Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
+            -Phrase 'so delivery never depends on your remembering to pass it'
+    }
+
+    # This repository is public, data\ being gitignored is one `git add -f` from a permanent leak,
+    # a read-first file is copied per dispatch and outlives every worker, and report.md is durable
+    # and indexed. Three concrete routes out, none hypothetical.
+    It 'a credential value is never written into either file' {
+        Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
+            -Phrase ('Never store a credential value in either one: name the environment variable ' +
+                     'or the credential-store entry that holds it, and nothing else.')
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase ('**A credential value is never written here, or in `done-<name>.md`. Name the ' +
+                     'pointer.**')
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase 'one `git add -f` away from a permanent, unwithdrawable leak'
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase 'duplicated once per worker and outlive every one of them'
+    }
+
+    # Measured rather than assumed, because the failure it would have caused is indistinguishable
+    # from a wrong password: a pointer to a variable no worker can see.
+    It 'the import skill records that a variable set today reaches a worker' {
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase ('Measured 2026-09-04 against a herdr server that had been up for over 24 ' +
+                     'hours: a variable created after the server started was visible to a shell ' +
+                     'the server spawned seconds later')
+    }
+
+    # A one-sentence result nobody can re-check is a belief. The note carries the method and the raw
+    # output, so a later session can run it again rather than take this on trust - and the skill
+    # points at it, because a note nothing references is a note nobody opens.
+    It 'the measurement behind that claim is recorded where it can be re-run' {
+        $note = Join-Path (Split-Path $PSScriptRoot -Parent) `
+                          'docs\2026-09-04-worker-environment-propagation.md'
+        Test-Path -LiteralPath $note | Should -BeTrue
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase 'docs\2026-09-04-worker-environment-propagation.md'
+
+        $text = Get-Content -LiteralPath $note -Raw
+        foreach ($required in @(
+            'PROBEVAL=[set-after-server-start-034115]',   # the raw output, not a paraphrase of it
+            '2026-09-02 22:56',                           # server start, against a 2026-09-04 test
+            'herdr workspace create',                     # the method, step by step
+            'herdr pane run',
+            'herdr pane read',
+            'Re-running it')) {
+            $text.Contains($required) | Should -BeTrue -Because "the note must record '$required'"
+        }
+    }
+
+    It 'the import skill offers the file at import and writes nothing when there is nothing to write' {
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase '**Ask, in one line, whether this project has standing rules a worker must know**'
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase 'If they name none, **write nothing**.'
+    }
+
+    # Rules and criteria are different things handled differently, and conflating them is what this
+    # file exists to undo: a worker recording n/a against "our tickets are tagged NG-" dilutes the
+    # self-check on the lines that are really tested.
+    It 'the import skill separates rules from criteria and says how to tell them apart' {
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase '**It holds rules and context, never criteria.**'
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase ('A criterion is something a worker can report `pass` or `fixed` against, and ' +
+                     'those belong in `data\done-<name>.md`')
+        Assert-Phrase -Text $script:RulesRoute -Where 'CLAUDE.md knowledge routing' `
+            -Phrase ('Test the two apart by asking whether a worker could report pass or fixed ' +
+                     'against it; where it could not, it is a rule and not a criterion.')
+    }
+
+    # The King asked for a year, and meant it. chronicle curates against a budget and archives what
+    # goes stale, so without this a curation pass eventually deletes a standing instruction.
+    It 'nothing expires the file' {
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase '**Nothing expires this file.**'
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase 'it stands until the King changes or removes it'
+        Assert-Phrase -Text $script:RulesRoute -Where 'CLAUDE.md knowledge routing' `
+            -Phrase ('Both are outside `chronicle`''s budget and its sweep, and nothing expires them.')
+    }
+
+    # The dispatcher writes to the brief now, and statute said in plain words that it never did.
+    It 'statute no longer claims the dispatcher never writes to a brief' {
+        $g = Get-DocText $script:GuidelinesMd
+        Assert-Phrase -Text $g -Where 'the statute skill' `
+            -Phrase ('it does add lines to a brief - one `Read first` line per standing file it ' +
+                     'attached for the resolved project')
+        $g.Contains('it never adds a line to a brief') |
+            Should -BeFalse -Because 'the dispatcher does add lines to a brief now'
     }
 }

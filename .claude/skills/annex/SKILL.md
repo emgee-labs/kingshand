@@ -1,6 +1,6 @@
 ---
 name: annex
-description: Use when the user wants to register a repository so work can be dispatched into it - e.g. "import C:\repos\acme-api", "register acme-web", "annex C:\repos\acme-api", "add this repo as direct-PR", "what projects are registered". Records the project's standing delivery posture, and offers to initialise the review gate when the chosen posture needs one. It never clones and never removes.
+description: Use when the user wants to register a repository so work can be dispatched into it - e.g. "import C:\repos\acme-api", "register acme-web", "annex C:\repos\acme-api", "add this repo as direct-PR", "what projects are registered". Records the project's standing delivery posture, offers to initialise the review gate when the chosen posture needs one, and offers to record the project's standing rules. It never clones and never removes.
 tools: Bash, PowerShell, Read, Write, Glob, Grep, AskUserQuestion
 version: 1.0.0
 ---
@@ -187,6 +187,58 @@ If the posture is `no-mistakes` or `no-mistakes-prod-only` and the gate is not i
 plainly - work dispatched there will stop at its review gate until `no-mistakes init` is run in
 that repository.
 
+## Step 4b - Offer the project's standing rules file
+
+**Ask, in one line, whether this project has standing rules a worker must know**, and offer
+examples: how its tickets are tagged and cased, its shorthand, folders never to touch, how its
+branches are named, which environment it runs against, where its login is kept. Import is the right
+moment, because the alternative is discovering the gap the first time a worker gets it wrong.
+
+If they name any, write `$env:KINGSHAND_HOME\data\rules-<name>.md` - written and indexed in one
+call, so the two cannot come apart:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
+Write-DataFile -Project "<name>" -Path "data\rules-<name>.md" -Content $text `
+    -Summary "standing rules for <name>: conventions, vocabulary and exclusions"
+```
+
+If they name none, **write nothing**. Absence is an ordinary state, the file is created the day
+there is something to put in it, and a placeholder file is a file the next reader has to open to
+learn it says nothing.
+
+### What the file holds, and what it must never hold
+
+Free-form Markdown, read whole by a worker. Nothing parses it, so its shape is the King's.
+
+**It holds rules and context, never criteria.** A criterion is something a worker can report `pass`
+or `fixed` against, and those belong in `data\done-<name>.md`, which is pasted into the brief and
+worked line by line. This file is reference, delivered as a read-first copy and never self-reported
+against - a worker answering `n/a` to "our tickets are tagged NG-" dilutes the self-check on the
+lines that are really tested. Where a statement fits neither, ask which the King means.
+
+**A credential value is never written here, or in `done-<name>.md`. Name the pointer.** Say the
+login is in a named user-scope environment variable or a named credential-store entry, and let the
+worker read it from there. Three concrete reasons, none hypothetical: this repository is public and
+`data\` being gitignored is one `git add -f` away from a permanent, unwithdrawable leak; a
+read-first file is COPIED into `data\<id>\read-first\` on every dispatch, so a secret would be
+duplicated once per worker and outlive every one of them; and `report.md` is durable and indexed.
+
+A pointer to a user-scope environment variable does reach a worker. Measured 2026-09-04 against a
+herdr server that had been up for over 24 hours: a variable created after the server started was
+visible to a shell the server spawned seconds later, so a worker sees a variable the King set
+today. That was worth measuring because the failure it would have caused looks exactly like a wrong
+password. The measurement, its method and how to re-run it are in
+`docs\2026-09-04-worker-environment-propagation.md`.
+
+**Nothing expires this file.** `chronicle` curates `king.md` and `learnings.md` against a startup
+budget and archives what goes stale; this file is outside that budget and outside that sweep, and
+it stands until the King changes or removes it.
+
+Every dispatch into this project attaches the file automatically - `bin\Dispatch-Worker.ps1` stages
+it beside the brief and names the copy under `Read first` - so nobody has to remember to pass it,
+and editing the file is the whole of changing what workers are told.
+
 ## Step 5 - Show what is registered
 
 ```powershell
@@ -220,7 +272,8 @@ where the path belongs, the entry parses with no path at all, and `Get-ProjectEn
 correct, one line further down. Never wrap; let the line run long.
 
 Keep the description useful for identifying the project. Do not turn the registry into project
-documentation - architecture, ADO tagging and shorthand belong in their existing homes.
+documentation - architecture belongs in the repository, and ADO tagging and shorthand belong in
+`data\rules-<name>.md`, per Step 4b.
 
 ## Not in scope
 

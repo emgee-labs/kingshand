@@ -101,9 +101,11 @@ A skill exposed to the Hand and to workers alike is reachable from inside a disp
 the skill which of the two is meant to load it and when.
 
 Briefs for tasks that touch kingshand's own tracked material should tell the worker to load this
-skill. Nothing in the dispatcher acts on that case - `Dispatch-Worker.ps1` does match the repo path
-against `data\projects.md`, but only to work out which index gates the dispatch, and it never adds
-a line to a brief. Add the instruction to kingshand-repo briefs by hand instead.
+skill. Nothing in the dispatcher acts on that case. `Dispatch-Worker.ps1` does match the repo path
+against `data\projects.md`, and it does add lines to a brief - one `Read first` line per standing
+file it attached for the resolved project - but it composes those lines itself and knows nothing
+about what a task touches. Add the instruction to kingshand-repo briefs by hand instead, or put it
+in `data\rules-kingshand.md`, which reaches every worker dispatched here without anyone passing it.
 
 ## Prose rules need tests
 
