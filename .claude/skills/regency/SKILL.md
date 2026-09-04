@@ -34,6 +34,7 @@ that take a minute to undo, so he replaced the knowledge test with a reversibili
 who finds `Record it, never answer it` in this file's history should read it as superseded rather
 than as a rule that went missing. Nothing else in the list above moved: this bought no authority
 at all over a land, a delete, a cost, or anything destructive, irreversible or security-sensitive.
+`docs\2026-09-04-parked-decision-route.md` is the record of why.
 
 If a choice is close enough that you find yourself building a case for it, that is the signal to
 batch it and stop.

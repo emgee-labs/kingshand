@@ -33,6 +33,8 @@ Set-StrictMode -Version Latest
 # lost or already-delivered work is refused and re-asked. So null means never parked and nothing
 # else, and whether a set pointer's decision is still outstanding is the hold's own state, read
 # from the queue under that key. Parking a second time replaces the key rather than clearing it.
+#
+# docs\2026-09-04-parked-decision-route.md is the design record behind both paragraphs above.
 
 $script:ValidStages = @('dispatched', 'implementing', 'gating', 'ready', 'landed', 'failed')
 $script:ValidKinds  = @('ticket', 'adhoc')

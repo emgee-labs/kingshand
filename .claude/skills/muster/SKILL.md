@@ -1046,9 +1046,14 @@ brief made it write the file, so the report exists. What separates it from a del
 that file at all - **it is `waiting_on` on the worker's own record:**
 
 ```powershell
-$w = Get-CrewWorker -State $s -WorkerId "<id>"
-$w.waiting_on          # the key of the hold carrying its decision, or $null
+$rec = Get-CrewWorker -State $s -WorkerId "<id>"
+$rec.waiting_on        # the key of the hold carrying its decision, or $null
 ```
+
+**The worker's record is `$rec` and never `$w`.** `$w` is this step's wake object from Step 4 - the
+three facts above read `$w.settled` and `$w.awaitingInput` off it - and it is re-read here rather
+than trusted, so binding the record over it leaves the re-read returning `$null` under normal mode
+and throwing under `Set-StrictMode`. Two objects, two names.
 
 **The field is set or it is not, and there is no third value. Null means this worker has never
 parked; set means it parked, and the field names the hold carrying what it parked on.**
@@ -1065,7 +1070,7 @@ and `petition` owns who may answer it:
 
 ```powershell
 Set-Location $env:KINGSHAND_HOME
-$key = $w.waiting_on
+$key = $rec.waiting_on
 tasks-axi show $key --full
 Select-String -Path data\done-archive.md -ErrorAction SilentlyContinue `
   -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($key))\s+-"
@@ -1108,11 +1113,9 @@ still open** - that worker is waiting rather than delivering, and the rest of th
 it.
 
 **This replaced a heading the Hand used to read out of `report.md`, and the replacement was
-deliberate.** The route's state was written as prose over a free-text file, so every review round
-turned up one more shape nobody had listed - an empty section, a worker parked twice, an answer
-with no record - and the rules for reading it ended up longer than the route itself. A field has no
-shapes. The report still carries the question and the reasoning, which is what prose is good for;
-it stopped being where the system reads whether.
+deliberate.** `docs\2026-09-04-parked-decision-route.md` carries the evidence and what a future
+change must not undo. The report still carries the question and the reasoning, which is what prose
+is good for; it stopped being where the system reads whether.
 
 **Where the report names a decision the worker's brief did not settle and no hold of this worker's
 covers it, that is `decree`'s trigger and nobody has pulled it yet.** A first park reaches it with

@@ -3169,6 +3169,8 @@ Describe 'no long dash' {
         @{ file = '.claude\skills\witness\SKILL.md' }
         @{ file = 'docs\2026-09-03-browser-verification.md' }
         @{ file = 'docs\2026-09-04-worker-environment-propagation.md' }
+        @{ file = 'docs\2026-09-04-parked-decision-route.md' }
+        @{ file = '.claude\skills\regency\SKILL.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
@@ -4216,13 +4218,154 @@ Describe 'rally owns a stalled worker, and the wait only reports one' {
             -Phrase 'You do not know that worker''s state rather than knowing it is stuck'
     }
 
-    It 'lists the three things a stall usually turns out to be' {
+    It 'lists the four things a stall usually turns out to be' {
         Assert-Phrase -Text $script:StuckText -Where 'rally' `
             -Phrase '**Waiting for something that cannot arrive.**'
         Assert-Phrase -Text $script:StuckText -Where 'rally' `
             -Phrase '**A prompt the screen guard did not match.**'
         Assert-Phrase -Text $script:StuckText -Where 'rally' `
             -Phrase '**Genuinely slow work.**'
+        Assert-Phrase -Text $script:StuckText -Where 'rally' `
+            -Phrase '**Parked on a decision.**'
+        Assert-Phrase -Text $script:StuckText -Where 'rally' `
+            -Phrase ('That is the state working exactly as designed rather than a stall, it is ' +
+                     'expected to last hours')
+    }
+}
+
+Describe 'rally refuses to stop a worker that is only waiting on a decision' {
+    # A parked worker is alive, idle, and its screen never moves again - the exact signature this
+    # playbook reads as a stall. The ladder ends at relaunch, and relaunching one ends the process
+    # the King's answer was going back to. So the discriminator runs before the ladder, off the
+    # same two recorded values muster's landing and teardown floors read.
+    BeforeAll { $script:ParkedStuck = Get-DocText $script:StuckMd }
+
+    It 'runs the pointer check before triaging or touching anything' {
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('**Run this before triaging a stall and before steering, relaunching or ' +
+                     'stopping anything.**')
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('**The parked-worker check above comes before step 1.** A worker waiting on ' +
+                     'an open hold is not escalated at all')
+    }
+
+    It 'reads the pointer and its hold from the record, not from the screen' {
+        $fences = @(Get-CodeFence $script:StuckMd)
+        @($fences | Where-Object {
+            $_.Contains('$key = $rec.waiting_on') -and $_.Contains('tasks-axi show $key --full') -and
+            $_.Contains('data\done-archive.md') }).Count |
+            Should -Be 1 -Because 'the discriminator is a runnable read of both recorded values'
+        # Anchored to the whole key on its own entry: a bare substring lets a longer sibling key
+        # read as this one's answer, which here means stopping a worker that is still waiting.
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase '-Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($key))\s+-"'
+    }
+
+    It 'takes an open hold out of the playbook entirely' {
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('**Where that key names a hold still open, the worker is waiting and none of ' +
+                     'this playbook applies to it.** Do not steer it, do not relaunch it, do not ' +
+                     'stop it, and do not remove its worktree.')
+    }
+
+    It 'says plainly what relaunching or stopping a parked worker destroys' {
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('**Relaunching or stopping one destroys what the answer was coming back to.**')
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('End the process and the run can never be resumed, so the decision - once ' +
+                     'somebody makes it')
+        # The old absolute is what made this reachable, so it is narrowed where it was stated.
+        $script:ParkedStuck.Contains('stopping is always safe') |
+            Should -BeFalse -Because 'stopping a parked worker is not safe, and the sentence said it was'
+        Assert-Phrase -Text $script:ParkedStuck -Where 'the removal hazard' `
+            -Phrase '**Stopping is not free in every direction, though.**'
+    }
+
+    It 'refuses a missing record as permission, and cross-references the owners' {
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase '**`NOT_FOUND` from `show` is not an answer on its own**'
+        Assert-Phrase -Text $script:ParkedStuck -Where 'rally' `
+            -Phrase ('`muster` Step 6 owns the route an answer takes back into the worker, and ' +
+                     '`petition` owns who may answer it and by what test. Neither is restated here.')
+        $script:ParkedStuck.Contains('reversible in minutes') |
+            Should -BeFalse -Because 'the reversibility test is stated once, in petition'
+    }
+}
+
+Describe 'the parked-decision record states what must not be undone' {
+    # The rationale for the field, the missing clearing verb and the replaced report heading is
+    # narrative, so it lives here rather than being paid for on every muster load. What it has to
+    # survive carrying is the set of reversals a later editor would otherwise make while tidying:
+    # a seventh stage, a clearing verb, the state back in the report, and the reversibility test
+    # softened into a knowledge test.
+    BeforeAll {
+        $script:ParkedDoc = Get-DocText (Join-Path $script:Root 'docs\2026-09-04-parked-decision-route.md')
+    }
+
+    It 'says why a condition is not a stage' {
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('Waiting for a decision is not a position in that lifecycle; it is a ' +
+                     'condition that can happen at any of them')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('destroying the one fact most needed when the answer comes back: what the ' +
+                     'worker was doing before it parked')
+    }
+
+    It 'keeps the clearing verb refused, from both directions' {
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('`Set-CrewWaitingOn` sets the field. Nothing clears it, and no function to ' +
+                     'clear it may be added.')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('either the question is lost or already-delivered work is refused and the ' +
+                     'King is asked the same thing twice')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase '**null means never parked and nothing else**'
+    }
+
+    It 'records the review history that condemned the report heading' {
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('every review round turned up one more shape nobody had listed - an empty ' +
+                     'section, a worker parked twice, an answer with no record')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('A field has no shapes.')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('**Putting the state back into the report is a reversal, not a tidy-up.**')
+    }
+
+    It 'names both irreversible floors and why the archive line and the anchor are in them' {
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('**A worker whose pointer names a hold that is still open is never landed.**')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('**A worker whose pointer names a hold that is still open is never torn ' +
+                     'down**, and a confirmed push does not release that.')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('Drop the archive line and a decision answered long enough ago to have been ' +
+                     'pruned reads as one nobody ever made.')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('Both mistakes were made and fixed during the change; neither is theoretical.')
+    }
+
+    It 'quotes the reversibility test and names the mis-statement to refuse' {
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase '**The test is reversibility, not knowledge.**'
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('**Decide it** - away or present, discussed or not - when the call is ' +
+                     'reversible in minutes and is')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('The mis-statement to refuse by name is "answer only what you know".')
+        # The quote is a record of what must not be reworded, and it says so - the rule itself is
+        # still stated in exactly one place.
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('`petition` states the test and is the only place it is stated.')
+    }
+
+    It 'keeps the prohibition on a worker opening an interactive prompt' {
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('Every brief forbids the worker from opening an interactive question, and ' +
+                     'parking does not relax it.')
+        Assert-Phrase -Text $script:ParkedDoc -Where 'the parked-decision record' `
+            -Phrase ('a worker sitting on a prompt has no pointer set and reads as an ordinary ' +
+                     'blocked worker')
     }
 }
 
@@ -6105,24 +6248,39 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase ('Two sources, each owning its own half. `decree` owns the hold''s lifecycle ' +
                      'and `petition` owns who may answer it')
         # And the read itself is runnable, because a described command is one nobody has run.
-        @($script:RouteFences | Where-Object { $_.Contains('$key = $w.waiting_on') }).Count |
+        @($script:RouteFences | Where-Object { $_.Contains('$key = $rec.waiting_on') }).Count |
             Should -Be 1 -Because 'the open-or-closed half is read from the queue, not guessed'
     }
 
     # Said in the file itself, so a reader who finds the old heading in git history reads it as
     # superseded rather than as a rule somebody lost - and so a later editor knows that putting the
-    # state back into the report is a reversal rather than a tidy-up.
+    # state back into the report is a reversal rather than a tidy-up. The evidence behind it is
+    # narrative, so it lives in the dated note and the step cross-references it rather than
+    # carrying it on every load.
     It 'Step 6 says the prose state it replaced was replaced deliberately' {
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('**This replaced a heading the Hand used to read out of `report.md`, and the ' +
                      'replacement was deliberate.**')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('every review round turned up one more shape nobody had listed - an empty ' +
-                     'section, a worker parked twice, an answer with no record - and the rules for ' +
-                     'reading it ended up longer than the route itself. A field has no shapes.')
+            -Phrase ('`docs\2026-09-04-parked-decision-route.md` carries the evidence and what a ' +
+                     'future change must not undo.')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
             -Phrase ('The report still carries the question and the reasoning, which is what prose ' +
                      'is good for; it stopped being where the system reads whether.')
+    }
+
+    # $w is Step 4's wake object and the three completion facts are read off it. Binding the crew
+    # record over it inside the same step leaves the instructed re-read returning $null, so the
+    # names are kept apart and the reason is stated where the second object is introduced.
+    It 'Step 6 keeps the crew record and the wake object under different names' {
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase '**The worker''s record is `$rec` and never `$w`.**'
+        Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
+            -Phrase ('binding the record over it leaves the re-read returning `$null` under normal ' +
+                     'mode and throwing under `Set-StrictMode`')
+        @($script:RouteFences | Where-Object { $_.Contains('$w = Get-CrewWorker') -and
+            $_.Contains('waiting_on') }).Count |
+            Should -Be 0 -Because 'the wake object must survive the pointer read'
     }
 
     # The field is the discriminator, but nothing writes it except a Hand who read the report - so
@@ -6594,7 +6752,7 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase ('a key found there is answered, and a key in neither place is a record that ' +
                      'has gone missing rather than a decision nobody made')
         @($script:RouteFences | Where-Object {
-            $_.Contains('$key = $w.waiting_on') -and $_.Contains('data\done-archive.md') }).Count |
+            $_.Contains('$key = $rec.waiting_on') -and $_.Contains('data\done-archive.md') }).Count |
             Should -Be 1 -Because 'the pointer read-back is the other lookup that goes blind on a prune'
     }
 

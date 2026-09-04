@@ -110,7 +110,7 @@ pane too narrow to render - the same width defect that inverts herdr's own class
 not know that worker's state rather than knowing it is stuck, and the cure is a herdr server restart
 once the workers have finished.
 
-Three things a stall commonly turns out to be, and only the first is the worker's fault:
+Four things a stall commonly turns out to be, and only the first is the worker's fault:
 
 - **Waiting for something that cannot arrive.** A review gate's `ci` step on a repository with no
   CI is the case that produced this. Confirm it with `Get-RepoCiStatus` from `bin\Ci.psm1`; where
@@ -121,12 +121,20 @@ Three things a stall commonly turns out to be, and only the first is the worker'
   user's decision rather than a stall.
 - **Genuinely slow work.** A review pass on kingshand has taken 38 minutes. Read the screen before
   concluding anything: a step that is slow prints as it goes, and its screen changes.
+- **Parked on a decision.** A worker that reached something its brief did not settle wrote the
+  question into its `report.md` and ended its turn, so it is alive, idle, and its screen will not
+  change again until an answer arrives. That is the state working exactly as designed rather than a
+  stall, it is expected to last hours, and the check in `A parked worker is waiting, not wedged`
+  below is what tells the two apart. Run that check before anything else here.
 
 ## Removing the worktree destroys any unlanded work
 
 Kingshand creates each worker's worktree itself, so kingshand is what removes it, and nothing
 else does. Stopping a worker never touches it: `Stop-HerdrAgent` exits the process and leaves the
-directory exactly where it was, which is why stopping is always safe and removing never is.
+directory exactly where it was, which is why stopping is safe for everything on disk and removing
+never is. **Stopping is not free in every direction, though.** A worker parked on a decision loses
+the run the answer was coming back to, and `A parked worker is waiting, not wedged` below owns that
+one.
 Running `git worktree remove` on a stuck worker that holds uncommitted changes or unpushed commits
 destroys that work, and hard rule 1's protection of unlanded work is what it breaks.
 
@@ -215,7 +223,53 @@ the task failed or blocked with the conflicting evidence. Set the stage with
 `Set-CrewStage -Stage 'failed'`; the valid stages are exactly `dispatched`, `implementing`,
 `gating`, `ready`, `landed`, `failed`, and `Set-CrewStage` throws on anything else.
 
+## A parked worker is waiting, not wedged
+
+**Run this before triaging a stall and before steering, relaunching or stopping anything.** A
+worker parked on a decision its brief did not settle is alive, reads `idle`, has nothing drawn on
+its screen and will not move again until an answer reaches it - the same signature as a worker that
+has stopped getting anywhere. Reading the screen harder cannot separate them, because there is
+nothing on it to read. Two recorded values can:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Crew.psm1 -Force
+$s   = Import-CrewState -Path $env:KINGSHAND_HOME\state\crew.json
+$rec = Get-CrewWorker -State $s -WorkerId "<worker id>"
+$key = $rec.waiting_on      # the hold carrying its decision, or $null
+if ($key) {
+    Set-Location $env:KINGSHAND_HOME
+    tasks-axi show $key --full
+    Select-String -Path data\done-archive.md -ErrorAction SilentlyContinue `
+      -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($key))\s+-"
+}
+```
+
+**Where that key names a hold still open, the worker is waiting and none of this playbook applies
+to it.** Do not steer it, do not relaunch it, do not stop it, and do not remove its worktree.
+There is no fault here to find: it is waiting on a person, and the delay belongs to the answer
+rather than to the worker.
+
+**Relaunching or stopping one destroys what the answer was coming back to.** That live process is
+holding a review gate parked mid-run, with every fix commit it has already made sitting on the
+branch. End the process and the run can never be resumed, so the decision - once somebody makes it
+- has nowhere to go, and the branch is left part-finished with nothing watching it. The worktree
+surviving does not soften that, which is why the safe order above is not the whole guard here.
+
+**`NOT_FOUND` from `show` is not an answer on its own**, and that is what the archive line in the
+fence is for: a closed hold gets pruned out of the backlog, so a key in neither place is a record
+that has gone missing rather than a decision somebody made. `muster` Step 8b owns what a missing
+record means at a step that cannot be taken back, and stopping a parked worker is one of those.
+
+A null pointer, or a key whose hold is closed, leaves nothing outstanding on the record, so carry
+on below.
+
+`muster` Step 6 owns the route an answer takes back into the worker, and `petition` owns who may
+answer it and by what test. Neither is restated here.
+
 ## Escalation, in order
+
+**The parked-worker check above comes before step 1.** A worker waiting on an open hold is not
+escalated at all, and none of the five steps below is run against one.
 
 1. **Peek.** `Read-HerdrAgent -Name <worker id>`, and `Get-HerdrAgentState -Name <worker id>` for
    the state to act on. Read what it is actually doing before doing anything to it, and do not
