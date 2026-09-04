@@ -191,6 +191,73 @@ Describe '+merge is off unless declared' {
         (@($w) -join ' ') | Should -BeLike '*+mrege*'
     }
 
+    # An annotation this parser could not read in full never yields the permission, whatever else
+    # the line says. The token order matters: forcing merge off as the junk token is read would be
+    # undone by the `+merge` that follows it, so the reset has to survive to the end of the line.
+    It 'is forced off by an unrecognised token written before it' {
+        $reg = New-TestRegistry @"
+- proj [no-mistakes garbage +merge] - junk before the token (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $w = @()
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg -WarningVariable w `
+                              -WarningAction SilentlyContinue
+        $e.merge          | Should -Be 'off'
+        $e.mode           | Should -Be 'no-mistakes'
+        $w.Count          | Should -BeGreaterThan 0
+        (@($w) -join ' ') | Should -BeLike '*garbage*'
+    }
+
+    It 'is forced off by an unrecognised + token written after it' {
+        $reg = New-TestRegistry @"
+- proj [no-mistakes +merge +mrege] - token then typo (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg -WarningAction SilentlyContinue
+        $e.merge | Should -Be 'off'
+    }
+
+    # Merge is the strict one on purpose. An unrecognised token has never changed mode or yolo and
+    # this is not the change that makes it, so the existing leniency has to survive intact.
+    It 'forces merge off without disturbing mode or yolo' {
+        $reg = New-TestRegistry @"
+- proj [direct-PR +yolo +bogus] - autonomous with a junk token (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg -WarningAction SilentlyContinue
+        $e.mode  | Should -Be 'direct-PR'
+        $e.yolo  | Should -Be 'on'
+        $e.merge | Should -Be 'off'
+    }
+
+    # The warning is read by a person deciding whether their typo cost them something. It must
+    # never state a value the code did not set - an earlier wording claimed yolo was left off on
+    # an entry where yolo was on.
+    It 'never states a value it did not set' {
+        $reg = New-TestRegistry @"
+- proj [direct-PR +yolo +bogus] - autonomous with a junk token (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $w = @()
+        Get-ProjectEntry -Name proj -RegistryPath $reg -WarningVariable w `
+                         -WarningAction SilentlyContinue | Out-Null
+        $text = @($w) -join ' '
+        $text | Should -BeLike '*it grants nothing*'
+        $text | Should -BeLike '*merge is forced off*'
+        $text | Should -Not -BeLike '*leaving yolo*'
+    }
+
+    # The posture string is the mode and yolo and must stay that way: folding merge in would make
+    # it read as a posture, which is the one thing it is not.
+    It 'never appears in the posture string' {
+        $reg = New-TestRegistry @"
+- proj [no-mistakes +merge] - declared (added 2026-08-24)
+      path: $script:RealPath
+"@
+        Get-ProjectPosture -Name proj -RegistryPath $reg      | Should -Be 'no-mistakes off'
+        Get-ProjectPosture -Name proj -RegistryPath $reg -Raw | Should -Be 'no-mistakes off'
+    }
+
     # An unknown mode drops the whole annotation. A line this parser could not read in full is not
     # a line to take a permission from, so a granted +merge sitting beside a typo goes with it.
     It 'an unknown mode resets it off even where the token was written' {

@@ -68,6 +68,27 @@ another repository, never inferred from `+yolo`, never widened past a merge.
 **Green is untouched by any of this.** The permission answers who may merge. What may be merged is
 the same list of floors it always was, and Step 7 restates none of them loosely.
 
+### Decided at Step 7, performed at Step 8a
+
+The first draft had Step 7 own the whole thing, and that does not work once `yolo` off holds Step 7
+before the push: at that moment there is no pull request to merge, no gate outcome to call green
+and nothing on the forge at all. So the two halves are separated. Step 7 reads `$proj.merge`, judges
+it against the floors and is the gate. Step 8a performs it, after the push is confirmed and the URL
+recorded at stage `ready`, which is the first point at which a pull request exists.
+
+The merge command is `gh pr merge` with the strategy that repository already uses. No strategy is
+prescribed here: squash, merge commit and rebase are settled per repository, and picking one in a
+skill would quietly override that choice on every project at once.
+
+### Merge against rule 2's own outward stop
+
+A merge reaches a server, so it falls inside rule 2's open-ended clause, and with `yolo` off that
+clause asks for the user's word. Read alongside a standing `+merge` permission that is exactly
+that word given in advance, the two could be taken either way, and a rule with two readings is not
+a rule. Rule 2 settles it: `+merge` is the word the stop asks for, recorded in the registry rather
+than given fresh each time, so it is not asked again on a project that declares it and the merge is
+refused outright on every project that does not.
+
 ## `yolo` off: the middle was ungated
 
 With `yolo` off, the Hand gated two moments - before dispatching, and before landing - and nothing
@@ -104,6 +125,16 @@ worktree.
 The `local-only` blocks are untouched. For `direct-PR` the outward bullet is replaced with a stop.
 For `no-mistakes` the gate runs with `--skip push,pr,ci`, which stops it at the last local step.
 
+Two things about that split are easy to get wrong and are written down for it. **The approved run
+still needs `$ci.briefLine`.** Holding the push back delays the CI wait rather than removing it -
+the approved run is a full run and reaches the `ci` step - so Step 1b's answer is carried verbatim
+into the bullet covering that second run. Dropping it reinstates the unbounded wait the preflight
+exists to end, on exactly the repositories that cannot report a check. And **the steer differs by
+mode.** A `direct-PR` worker pushes and opens the pull request itself; a `no-mistakes` worker has
+to re-enter the pipeline, because a worker steered to push by hand goes around the gate's own
+`push` and `pr` steps and everything they carry, and the result looks like a delivered pull request
+either way.
+
 ### The `--skip` prohibition that had to be reopened
 
 `muster` Step 2 said the flags were removed deliberately and "never add them back for a
@@ -123,10 +154,17 @@ puts the push back before the user, which is the whole defect.
 
 ## What a future change must not undo
 
-- `+merge` defaults off, and every failure to read it leaves it off. A default that flips on for
-  convenience is a merge nobody authorised on a branch that may deploy.
+- `+merge` defaults off, and an annotation the parser could not read in full never yields it -
+  whichever token was the unreadable one, and whatever order it was written in. A default that
+  flips on for convenience is a merge nobody authorised on a branch that may deploy. Merge is the
+  strict one there while mode and yolo keep their existing leniency, deliberately: an unrecognised
+  token has never changed either of those, and this was not the change to make it.
 - Unreadable stays unreadable. `Get-ProjectEntry` throws; it never substitutes `'off'` for
-  "could not tell".
+  "could not tell". The warnings say what was ignored and what it cost, never what state resulted -
+  a warning claiming a value the code did not set is read as a lost permission on an entry that
+  still has one.
+- The merge stays decided at Step 7 and performed at Step 8a. Folding it back into one step puts
+  the decision where no pull request exists.
 - `+merge` stays out of the mode set and out of `Get-ProjectPosture`'s string. Putting it in
   either makes it look like a posture, which is the thing it is not.
 - The named outward set keeps its open-ended clause stated as the rule.

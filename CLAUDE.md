@@ -36,7 +36,12 @@ exists to prevent.
    Never land red, never expand scope beyond the brief, and never act destructively or
    irreversibly without the user, regardless of posture. **Merging on the forge is off unless
    that project's registry entry declares `+merge`**, and an entry or a registry that cannot be
-   read leaves it off - `muster` Step 7 owns the rule. Muster never pushes a project
+   read leaves it off - `muster` Step 7 owns the rule. A merge does reach a server, so the stop
+   above covers it too, and `+merge` is itself the word that stop asks for - given in advance and
+   recorded in the registry rather than fresh each time, so it is not asked again on a project
+   that declares it and the merge is refused outright on every project that does not. Instruction
+   precedence below owns why a standing token settles this one action when `+yolo` settles
+   nothing. Muster never pushes a project
    that is not registered with a push-capable posture. An unregistered project is never
    dispatched into - posture is read, never inferred.
 3. **Never mention Claude, AI, an assistant, or a model** in anything that reaches Azure DevOps

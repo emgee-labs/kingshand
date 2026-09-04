@@ -633,14 +633,22 @@ For a `direct-PR` task, replace the `Push the branch and open a pull request` bu
 ```
 
 For a `no-mistakes` task, replace the whole `Drive the pipeline` bullet - whichever of the two
-Step 1b chose, because with the push held back there is no CI wait left for that choice to change
-- with this one, and add `--skip push,pr,ci` to the gate line above it:
+Step 1b chose - with these two, and add `--skip push,pr,ci` to the gate line above them:
 
 ```markdown
 - Run the gate with `--skip push,pr,ci` so it stops at the last local step, and fix everything it
   parks. Do not push, do not open a pull request, do not comment anywhere, and do not create or
   update a work item. Report what the gate found and stop there.
+- When you are told the push is approved, run the same gate line again without `--skip`.
+  <the `Drive the pipeline` bullet Step 1b chose, verbatim>
 ```
+
+**`$ci.briefLine` is carried into that second bullet unchanged, never dropped.** The approved run
+is a full run and it reaches the `ci` step, so Step 1b's answer still decides how that step ends:
+on a repository where nothing reports checks, that line is the only thing telling the worker to
+report the pull request as delivered and stop rather than wait forever. Holding the push back
+delays the CI wait; it does not remove it, and a brief that drops the line reinstates the
+unbounded wait the preflight exists to end.
 
 Name the bullet by its text when you replace it, never by its position - bullets get inserted
 above these and an ordinal that has gone stale points at the wrong one.
@@ -1588,6 +1596,12 @@ never merge work that materially widens the brief, never merge anything destruct
 or security-sensitive, and on a `no-mistakes` project never merge a run whose gate did not
 complete every step through `pr` with a clean attribution scan.
 
+**This step decides whether, and Step 8a does it.** Read `$proj.merge` here and judge it against
+the floors here, because this is the gate; the merge itself happens at Step 8a, once the push is
+confirmed and the pull request exists. Never at this step - with `yolo` off this gate is held
+before the push, so at this moment there is no pull request to merge, no gate outcome to call
+green and nothing on the forge at all.
+
 **Verify the base ref resolves before gathering anything.** This check is not optional and
 nothing below it runs until it passes:
 
@@ -1689,18 +1703,33 @@ ref, and nothing else. An approval is never read as covering a comment, a work i
 that was not on the surface they answered.
 
 The worker is still alive at this point, so steer it to finish rather than doing the outward step
-yourself - it holds the worktree and it ran the gate:
+yourself - it holds the worktree and it ran the gate. **There are two steers and the resolved mode
+picks which**, because the two modes finish by different routes and sending the wrong one is not a
+wording slip.
+
+For a `direct-PR` worker, which pushes and opens the pull request itself:
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
 Send-HerdrPrompt -Name "<worker id>" -Text "Approved. Push the branch and open the pull request against <base>, then report its full https:// URL. Change nothing else."
 ```
 
-A `no-mistakes` worker finishes by running its gate line again without `--skip`, which re-runs the
-local steps against commits that have not changed and then pushes. **That re-run is the price of
-holding the push back, and it is the intended one** - do not drop the flags at dispatch to avoid
-it. Read the screen back afterwards to confirm the steer landed, and where the worker is gone or
-will not take it, `rally` owns the recovery.
+For a `no-mistakes` worker, which must re-enter the pipeline rather than push by hand:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
+Send-HerdrPrompt -Name "<worker id>" -Text "Approved. Run your gate line again without --skip so the pipeline pushes and opens the pull request, then report its full https:// URL. Change nothing else."
+```
+
+**Sending the `direct-PR` steer to a `no-mistakes` worker pushes around the gate**, skipping its
+own `push` and `pr` steps and everything they carry - the attribution scan, the pull request body
+and the CI hand-off - on a project registered specifically to have them. That is the failure this
+split prevents, and it looks like a delivered pull request either way.
+
+The re-run walks the local steps again against commits that have not changed, then pushes.
+**That re-run is the price of holding the push back, and it is the intended one** - do not drop the
+flags at dispatch to avoid it. Read the screen back afterwards to confirm the steer landed, and
+where the worker is gone or will not take it, `rally` owns the recovery.
 
 **A steered worker is a working worker again, so arm a fresh `Wait-HerdrAgentProgress` on it the
 way Step 4 does before going quiet.** The push is not done when the prompt is sent, and the wait
@@ -1778,7 +1807,8 @@ is not registered at all.
 
 Only for `direct-PR` and `no-mistakes` (including `no-mistakes-prod-only` resolved to either).
 The pull request is the deliverable here. Whether it may then be merged on the forge is Step 7's
-per-repository permission, and this step neither grants it nor decides it.
+per-repository permission - this step neither grants it nor decides it - but where Step 7 said you
+may, this is where it happens, because this is the first point at which a pull request exists.
 
 **Load `decree` before closing this work out.** Close-out advances a stage and
 records a pull request; it never closes a decision the user has not answered. A hold opened from
@@ -1850,9 +1880,30 @@ tasks-axi update "<id>" --pr "<full https:// URL>"
 Leave the item open at `ready`. Nothing has landed yet, and an item closed here would report a
 merge the user has not made.
 
+### Merging it, where Step 7 said you may
+
+**Only where `$proj.merge -eq 'on'`.** On every other project there is nothing to do here: the
+item stays open at `ready`, the pull request waits for the user, and you say so and stop.
+
+**Confirm green before anything else, and green is the whole of it**: the gate completed every
+step through `pr`, the attribution scan came back clean, and CI is green - or Step 1b established
+that this repository reports no checks at all, which is the only case where an absent check counts
+as green. Anything red, anything that widened the brief, anything destructive, irreversible or
+security-sensitive goes to the user instead, exactly as Step 7's floors say. This is the moment
+those floors are spent, so re-read them rather than remembering them.
+
+Then merge it, taking the strategy that repository already uses rather than a default invented
+here - squash, merge commit or rebase is the repository's settled choice and not yours:
+
+```powershell
+gh pr merge "<full https:// URL>" --<the strategy that repository uses>
+```
+
+Then set the stage and close the item exactly as the user-merged path below does.
+
 Move to `landed` when the pull request has actually been merged on the forge - either the user
-tells you so, or you merged it yourself under Step 7's `+merge` permission, having cleared every
-floor there - and close the backlog item in the same breath:
+tells you so, or you merged it yourself just now under Step 7's `+merge` permission - and close the
+backlog item in the same breath:
 
 ```powershell
 Set-CrewStage -State $s -WorkerId "<id>" -Stage 'landed'
@@ -1865,7 +1916,7 @@ tasks-axi done "<id>" --pr "<full https:// URL>"
 ```
 
 Never check the forge and decide that yourself, and never merge it to make it true. A merge under
-`+merge` is one you decided at Step 7 against its floors and then reported; a stage waiting to
+`+merge` is one the block above performed against Step 7's floors and reported; a stage waiting to
 advance is never the reason for one. The stages are exactly `dispatched`, `implementing`,
 `gating`, `ready`, `landed`, `failed` - `Set-CrewStage` throws on anything else, so do not invent
 one for this path.

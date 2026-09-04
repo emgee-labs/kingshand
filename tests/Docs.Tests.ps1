@@ -348,7 +348,49 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
     It 'close-out points at Step 7 too' {
         Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
             -Phrase ('Whether it may then be merged on the forge is Step 7''s per-repository ' +
-                     'permission, and this step neither grants it nor decides it')
+                     'permission - this step neither grants it nor decides it - but where Step 7 ' +
+                     'said you may, this is where it happens')
+    }
+
+    # The permission was granted with nothing to exercise it, and Step 8a's account of it assumed
+    # the decision happened at Step 7 - unreachable on a yolo-off project, where Step 7 is now
+    # held before the push and no pull request exists yet. Decided at 7, performed at 8a.
+    It 'Step 7 decides it and says the merge itself is not done there' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase '**This step decides whether, and Step 8a does it.**'
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase ('with `yolo` off this gate is held before the push, so at this moment ' +
+                     'there is no pull request to merge')
+    }
+
+    It 'Step 8a carries the procedure that performs it' {
+        $step = Get-MusterStep 'Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**Only where `$proj.merge -eq ''on''`.**'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**Confirm green before anything else, and green is the whole of it**'
+        $step | Should -Match 'gh pr merge' -Because 'a permission with no command strands the Hand'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('taking the strategy that repository already uses rather than a default ' +
+                     'invented here')
+    }
+
+    # Where the permission is absent, close-out must be unchanged: the item stays open and waits.
+    It 'a project without the permission is left exactly as it was' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
+            -Phrase ('On every other project there is nothing to do here: the item stays open at ' +
+                     '`ready`, the pull request waits for the user, and you say so and stop')
+    }
+
+    # Rule 2's open-ended clause covers a merge, and Instruction precedence says a +merge entry
+    # needs no fresh word. Both readings cannot stand, so rule 2 says which and why.
+    It 'rule 2 resolves the merge against its own outward stop' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
+            -Phrase ('A merge does reach a server, so the stop above covers it too, and ' +
+                     '`+merge` is itself the word that stop asks for - given in advance and ' +
+                     'recorded in the registry rather than fresh each time')
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
+            -Phrase ('the merge is refused outright on every project that does not')
     }
 
     It 'close-out refuses to make the merge true itself' {
@@ -417,6 +459,21 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
                      'and fix everything it parks.')
     }
 
+    # Holding the push back delays the CI wait, it does not remove it: the approved run is a full
+    # run and reaches the ci step. Dropping $ci.briefLine here reinstates the unbounded wait that
+    # the Step 1b preflight exists to end, on exactly the repositories that cannot report a check.
+    It 'the approved run still carries the CI brief line rather than losing it' {
+        $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -'
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase ('- When you are told the push is approved, run the same gate line again ' +
+                     'without `--skip`. <the `Drive the pipeline` bullet Step 1b chose, verbatim>')
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase ('**`$ci.briefLine` is carried into that second bullet unchanged, never ' +
+                     'dropped.**')
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase ('Holding the push back delays the CI wait; it does not remove it')
+    }
+
     # The flags used to be forbidden outright for a no-mistakes project. They are now the stop
     # itself, which is exactly one reason - and a reason worth pinning, because "shorten the run"
     # is the misuse the old prohibition existed to prevent and it is still a misuse.
@@ -447,6 +504,24 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
         Assert-Phrase -Text $step -Where 'the landing gate' `
             -Phrase ('**That re-run is the price of holding the push back, and it is the ' +
                      'intended one**')
+    }
+
+    # One steer template served both modes, and the two modes finish by different routes. Sending
+    # the direct-PR text to a no-mistakes worker pushes around the gate's own push and pr steps -
+    # the attribution scan, the PR body, the CI hand-off - on a project registered to have them,
+    # and the result looks like a delivered pull request either way.
+    It 'the steer is split by mode, and the wrong one is named as the failure' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase '**There are two steers and the resolved mode picks which**'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('For a `no-mistakes` worker, which must re-enter the pipeline rather than ' +
+                     'push by hand')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**Sending the `direct-PR` steer to a `no-mistakes` worker pushes around ' +
+                     'the gate**')
+        $step | Should -Match 'Run your gate line again without --skip so the pipeline pushes' `
+            -Because 'the no-mistakes steer must re-enter the pipeline, not push by hand'
     }
 
     It 'the counsel skill applies it to work items rather than exempting them' {

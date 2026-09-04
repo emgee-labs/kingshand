@@ -16,11 +16,15 @@ Set-StrictMode -Version Latest
 # and this decides one thing only. `muster` Step 7 owns what it permits; this module only reports
 # what was declared.
 #
-# It is off unless the token is there, and every way of failing to read it leaves it off. An
-# unknown token warns and changes nothing, an unknown mode resets the whole annotation, and an
-# unreadable registry throws out of Get-ProjectEntry rather than returning a value at all - so a
-# caller never receives 'off' as a substitute for "could not tell", and never receives 'on' by
-# accident.
+# It is off unless the token is there, and an annotation this parser could not read in full never
+# yields it whatever else that line says. An unrecognised token of either shape - a `+something`
+# it does not know, or a bare word after the mode - warns and forces merge off for that entry; an
+# unknown mode resets the whole annotation; and an unreadable registry throws out of
+# Get-ProjectEntry rather than returning a value at all, so a caller never receives 'off' as a
+# substitute for "could not tell", and never receives 'on' by accident.
+#
+# Merge is the strict one, deliberately: mode and yolo keep their existing leniency, because an
+# unrecognised token has never changed either and this is not the change that makes it.
 #
 # All strictness lives in Get-ProjectEntry. Get-ProjectPosture inherits it by calling through.
 # Get-AllProjects is the sole lenient function: it is a listing and validates nothing.
@@ -65,6 +69,13 @@ function Read-Registry {
         $ann = $m.Groups['ann'].Value.Trim()
         if ($ann) {
             $modeSeen = $false
+
+            # Whether every token in this annotation was recognised. A false here forces merge off
+            # after the loop, and after is the only place it can be done: forcing it inside would
+            # be undone by a later `+merge`, so `[no-mistakes garbage +merge]` would still grant
+            # the permission from a line this parser demonstrably could not read in full.
+            $annReadInFull = $true
+
             foreach ($tok in ($ann -split '\s+' | Where-Object { $_ })) {
                 if ($tok.StartsWith('+')) {
                     if ($tok -eq '+yolo') {
@@ -72,8 +83,12 @@ function Read-Registry {
                     } elseif ($tok -eq '+merge') {
                         $merge = 'on'
                     } else {
-                        Write-Warning ("Unknown autonomy token '$tok' for $name; " +
-                                       'leaving yolo and merge off.')
+                        # Says what was ignored and what that costs, never what state resulted.
+                        # An earlier wording claimed it left yolo and merge off when it changed
+                        # neither, which read as a lost permission on an entry that still had one.
+                        Write-Warning ("Unrecognised token '$tok' for $name; it grants nothing, " +
+                                       'and merge is forced off for this entry.')
+                        $annReadInFull = $false
                     }
                 } elseif (-not $modeSeen) {
                     $modeSeen = $true
@@ -90,8 +105,16 @@ function Read-Registry {
                         $merge = 'off'
                         break
                     }
+                } else {
+                    # A bare token after the mode used to fall through both branches in silence,
+                    # so the annotation was partly unread and nothing said so.
+                    Write-Warning ("Unrecognised token '$tok' for $name; it grants nothing, " +
+                                   'and merge is forced off for this entry.')
+                    $annReadInFull = $false
                 }
             }
+
+            if (-not $annReadInFull) { $merge = 'off' }
         }
 
         $added = ''
