@@ -62,7 +62,27 @@ function Get-JsonField {
     if ($null -eq $Object) { return $null }
     if ($Object -isnot [psobject]) { return $null }
     if ($Object.PSObject.Properties.Name -notcontains $Name) { return $null }
-    $Object.$Name
+
+    # The leading comma is the same load-bearing idiom ConvertTo-JsonList documents, and it is here
+    # for the case that idiom exists for: PowerShell unrolls an array on return, so a field the tool
+    # wrote as `[]` came back as $null - indistinguishable from one it wrote as `null`, which is the
+    # difference between "there are none" and "the tool did not say". The outer array survives the
+    # unwrap and every scalar field reads exactly as it did.
+    , $Object.$Name
+}
+
+# WHETHER THE TOOL WROTE THE FIELD AT ALL, which is a different question from what it wrote there.
+#
+# Get-JsonField answers $null to both an absent key and a key the tool wrote as JSON `null`, and
+# collapsing those two is how a renamed field would read as a settled fact about this machine. "The
+# tool did not mention windows" and "the tool says there are none" are not the same sentence.
+function Test-JsonField {
+    [CmdletBinding()]
+    param($Object, [Parameter(Mandatory)][string]$Name)
+
+    if ($null -eq $Object) { return $false }
+    if ($Object -isnot [psobject]) { return $false }
+    $Object.PSObject.Properties.Name -contains $Name
 }
 
 # A JSON field that should be a list, as a list - with $null meaning EMPTY rather than one item.
@@ -247,13 +267,20 @@ function Format-UsageWindowName {
 
 # How much of the current usage window is spent.
 #
-# .status    has-usage | no-usage | unknown
-# .signal    what settled it
-# .percent   the percentage used, or $null - NEVER 0 as a stand-in for "not known"
-# .detail    one line naming the evidence, written to be read to a person
-# .resetsAt  when the limiting window resets, ISO, or '' where that could not be read
-# .window    which window the percentage came from, or ''
-# .takenAt   when this reading was taken, ISO
+# .status        has-usage | no-usage | unknown
+# .signal        what settled it
+# .percent       the percentage used, or $null - NEVER 0 as a stand-in for "not known"
+# .detail        one line naming the evidence, written to be read to a person
+# .resetsAt      when the limiting window resets, ISO, or '' where that could not be read
+# .window        which window the percentage came from, or ''
+# .schemaVersion the schema the tool stamped its answer with, as it wrote it, or ''
+# .takenAt       when this reading was taken, ISO
+#
+# THE SCHEMA VERSION IS RECORDED AND NEVER REFUSED ON. It is what tells a later reader whether an
+# answer this could not make sense of came from a format that has moved on, so it is carried on the
+# reading and named in the detail of every answer that is not a percentage. Refusing an unfamiliar
+# version would be the opposite mistake: a compatible bump would take the reader out on a machine
+# where it was working the day before, and this guard fails open by design.
 #
 # WHICH WINDOW, AND WHY IT IS NOT THE WORST OF THEM. An account has several windows and they do not
 # all bound the same thing: a spend-limit window sitting at 100 percent says nothing about whether
@@ -266,13 +293,14 @@ function Get-UsageWindow {
     param([int]$TimeoutSeconds = $script:DefaultTimeoutSeconds)
 
     $result = [ordered]@{
-        status   = 'unknown'
-        signal   = ''
-        percent  = $null
-        detail   = ''
-        resetsAt = ''
-        window   = ''
-        takenAt  = (Get-Date).ToUniversalTime().ToString('o')
+        status        = 'unknown'
+        signal        = ''
+        percent       = $null
+        detail        = ''
+        resetsAt      = ''
+        window        = ''
+        schemaVersion = ''
+        takenAt       = (Get-Date).ToUniversalTime().ToString('o')
     }
     $finish = {
         param($status, $signal, $detail)
@@ -301,13 +329,23 @@ function Get-UsageWindow {
                  "($($_.Exception.Message)), so the usage window is not known.")
         }
 
+        # Recorded from the answer, never compared against a version this was written for. The note
+        # rides along on every answer below that is not a percentage, which are exactly the ones a
+        # later reader would want to know the schema for.
+        $result.schemaVersion = "$(Get-JsonField $json 'schemaVersion')".Trim()
+        $schema = if ($result.schemaVersion) {
+            " The answer was stamped schema version $($result.schemaVersion)."
+        } else {
+            ' The answer carried no schema version.'
+        }
+
         $providers = ConvertTo-JsonList (Get-JsonField $json 'providers')
         $claude = @($providers | Where-Object { (Get-JsonField $_ 'provider') -eq 'claude' }) |
                   Select-Object -First 1
         if (-not $claude) {
             return & $finish 'unknown' 'no-provider' `
                 ('quota-axi answered without reporting on the Claude account, so how much of the ' +
-                 'usage window is spent was not established.')
+                 'usage window is spent was not established.' + $schema)
         }
 
         # A reading the tool itself calls stale is not this window's answer. Presenting it as
@@ -318,14 +356,34 @@ function Get-UsageWindow {
         if ($true -eq (Get-JsonField $state 'stale')) {
             return & $finish 'unknown' 'stale-reading' `
                 ('quota-axi reports its own Claude reading as stale, so it describes an earlier ' +
-                 'moment rather than this one and no current percentage can be given.')
+                 'moment rather than this one and no current percentage can be given.' + $schema)
         }
 
-        $windows = ConvertTo-JsonList (Get-JsonField $claude 'windows')
+        # THREE FACTS, NOT ONE, AND ONLY ONE OF THEM SWITCHES THE GUARD OFF QUIETLY. An empty list
+        # is the tool saying there are no windows here, which is a settled fact about this machine
+        # and rightly draws no warning on a dispatch. A field the tool never wrote, and one it wrote
+        # as null, are the tool not answering - and a renamed field would otherwise read as that
+        # settled fact, leaving every dispatch unguarded with nothing said to anybody. Not knowing
+        # is `unknown`, which is the one answer of the three that warns.
+        $windowsValue = Get-JsonField $claude 'windows'
+        if (-not (Test-JsonField $claude 'windows')) {
+            return & $finish 'unknown' 'no-windows-field' `
+                ('quota-axi answered about the Claude account without saying anything about usage ' +
+                 'windows at all, so how much of the window is spent was not established - the ' +
+                 'field this reads them from was not there.' + $schema)
+        }
+        if ($null -eq $windowsValue) {
+            return & $finish 'unknown' 'windows-not-reported' `
+                ('quota-axi reported the Claude account with its usage windows left empty rather ' +
+                 'than listed, so it did not say what they are and how much of the window is ' +
+                 'spent is not known.' + $schema)
+        }
+
+        $windows = ConvertTo-JsonList $windowsValue
         if ($windows.Count -eq 0) {
             return & $finish 'no-usage' 'no-windows' `
                 ('quota-axi reports the Claude account with no usage windows at all, so there is ' +
-                 'no window percentage to watch on this machine.')
+                 'no window percentage to watch on this machine.' + $schema)
         }
 
         # BY ID, NEVER BY POSITION. The order windows arrive in is the tool's business and it has
@@ -388,7 +446,7 @@ function Get-UsageWindow {
 
         & $finish 'unknown' 'no-percentage' `
             ('quota-axi reported ' + $windows.Count + ' Claude window(s) and a used percentage ' +
-             'could not be read from any of them, so the usage window is not known.')
+             'could not be read from any of them, so the usage window is not known.' + $schema)
     } catch {
         # Reset rather than reported as read. A field set on the way to a throw is a half-finished
         # answer, and a percentage carried out of a reading that failed is the fabrication this
@@ -578,6 +636,19 @@ function Get-WorkerLabel {
     'a worker'
 }
 
+# THE ONE ROUNDING OF A PERCENTAGE IN THIS MODULE, so the number the pulse prints and the band that
+# decides whether it prints at all cannot disagree. They did: the band floored the raw percentage
+# while the line rounded it, so 69.6 and 70.2 fell in different bands and printed the identical
+# "70% used" - the same sentence twice, for a change the reader could not see.
+function Get-UsagePercentShown {
+    [CmdletBinding()]
+    param($Percent)
+
+    $n = ConvertTo-UsageNumber $Percent
+    if ($null -eq $n) { return $null }
+    [int][Math]::Round($n)
+}
+
 # One line. ONE LINE, whatever is live - the tail becomes a count rather than a second line.
 function Format-UsagePulse {
     [CmdletBinding()]
@@ -586,8 +657,9 @@ function Format-UsagePulse {
         [Parameter(Mandatory)][AllowEmptyCollection()][array]$Live
     )
 
-    $head = if ($Reading.status -eq 'has-usage' -and $null -ne $Reading.percent) {
-        "$([int][Math]::Round([double]$Reading.percent))% used"
+    $shown = Get-UsagePercentShown $Reading.percent
+    $head = if ($Reading.status -eq 'has-usage' -and $null -ne $shown) {
+        "$shown% used"
     } elseif ($Reading.status -eq 'no-usage') {
         'usage not reported here'
     } else {
@@ -629,8 +701,12 @@ function Get-UsagePulse {
     # The band, so a percentage that ticks from 61 to 62 does not speak while one that crosses 70
     # does. An unknown reading is its own band, so losing the number is itself a change worth one
     # line rather than a silence indistinguishable from nothing happening.
-    $band = if ($reading.status -eq 'has-usage' -and $null -ne $reading.percent) {
-        "b$([int][Math]::Floor([double]$reading.percent / 10))"
+    #
+    # Banded on the number the line will print, not on the raw percentage, so the two can never
+    # part company and speak for a change the reader cannot see.
+    $shown = Get-UsagePercentShown $reading.percent
+    $band = if ($reading.status -eq 'has-usage' -and $null -ne $shown) {
+        "b$([int][Math]::Floor($shown / 10))"
     } else {
         $reading.status
     }
@@ -685,12 +761,24 @@ function Watch-UsagePulse {
 
     # Recorded before the first tick, so the cadence a session is actually running at is on disk
     # rather than only in the job that armed it.
-    $state = Import-UsageState -StatePath $StatePath
-    $state['pulse'] = @{
-        intervalMinutes = $IntervalMinutes
-        armedAt         = (Get-Date).ToUniversalTime().ToString('o')
+    #
+    # AND IT MAY NOT STOP THE PULSE STARTING. This record is a note about the cadence, nothing the
+    # pulse needs to run, so a file that cannot be read or written here costs the note and not the
+    # session. Uncontained it killed the job at the moment it was armed - another session part-way
+    # through its own move is enough - and a pulse that never started looks exactly like a quiet one.
+    # The refusal is not lost: every tick writes the record too, and reports it through the
+    # contained path once per interval.
+    try {
+        $state = Import-UsageState -StatePath $StatePath
+        $state['pulse'] = @{
+            intervalMinutes = $IntervalMinutes
+            armedAt         = (Get-Date).ToUniversalTime().ToString('o')
+        }
+        Save-UsageState -State $state -StatePath $StatePath
+    } catch {
+        Write-Warning ("The usage pulse could not record the cadence it is running at, and is " +
+                       "starting anyway: $($_.Exception.Message)")
     }
-    Save-UsageState -State $state -StatePath $StatePath
 
     $i = 0
     while ($Count -eq 0 -or $i -lt $Count) {
@@ -713,7 +801,7 @@ function Watch-UsagePulse {
 }
 
 Export-ModuleMember -Function Get-QuotaAxiCommandPath, Get-QuotaAxiHint, Invoke-QuotaAxi,
-                              ConvertTo-JsonList, ConvertTo-UsageNumber,
+                              ConvertTo-JsonList, Test-JsonField, ConvertTo-UsageNumber,
                               ConvertTo-UsageResetTime, Format-UsageResetTime,
                               Format-UsageWindowName, Get-UsageWindow, Get-UsageStatePath,
                               Import-UsageState, Save-UsageState, Get-UsageFleet,

@@ -50,6 +50,8 @@ BeforeAll {
             [string]$SevenDayResets = '2026-09-12T10:00:00+00:00',
             [bool]$Stale = $false,
             [switch]$NoWindows,
+            # $null omits the field, which is the answer of a tool that stamps no version at all.
+            [object]$SchemaVersion = 3,
             [string]$Provider = 'claude'
         )
 
@@ -90,16 +92,26 @@ BeforeAll {
             }
         }
 
-        @{
-            generatedAt   = '2026-09-05T17:40:31.826Z'
-            schemaVersion = 3
-            providers     = @(@{
+        $report = @{
+            generatedAt = '2026-09-05T17:40:31.826Z'
+            providers   = @(@{
                 provider = $Provider; label = 'Claude'; source = 'oauth'; plan = 'team'
                 windows  = $windows
                 state    = @{ status = if ($Stale) { 'stale' } else { 'fresh' }; stale = $Stale }
                 quotaSemantics = $semantics
             })
-        } | ConvertTo-Json -Depth 12
+        }
+        if ($null -ne $SchemaVersion) { $report['schemaVersion'] = $SchemaVersion }
+        $report | ConvertTo-Json -Depth 12
+    }
+
+    # One Claude provider and nothing else, so a test about the shape of the report can write only
+    # the part it is about. Every field the reader looks for is one the tool is allowed to leave
+    # out, which is the whole reason these cases have to be told apart.
+    function New-AxiProviderJson {
+        param([string]$Body, [string]$Schema = '"schemaVersion": 3, ')
+        '{ ' + $Schema + '"providers": [ { "provider": "claude", ' +
+        '"state": { "stale": false }' + $(if ($Body) { ", $Body" } else { '' }) + ' } ] }'
     }
 
     # A fleet row in the shape Get-CrewStatus.ps1 emits. Only the fields the pulse reads are set,
@@ -290,15 +302,12 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
 
         # `@($null)` is an array of one, so a field written as `null` used to arrive looking like a
         # window that exists and then failed every test of what was in it - which fell through to
-        # the wrong answer rather than to no-usage.
+        # the wrong answer rather than to an answer at all.
         It 'reads a null window list as none rather than as one phantom window' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk ('{ "providers": [ { "provider": "claude", "windows": null, ' +
-                           '"state": { "stale": false } } ] }')
-            }
+            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiProviderJson '"windows": null') }
 
             $r = Get-UsageWindow
-            $r.status  | Should -Be 'no-usage'
+            $r.status  | Should -Be 'unknown'
             $r.percent | Should -BeNullOrEmpty
         }
 
@@ -314,6 +323,92 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
                 $r.status  | Should -Not -Be 'has-usage'
                 $r.percent | Should -BeNullOrEmpty -Because 'a fabricated 0 reads as a wide open window'
             }
+        }
+    }
+
+    Context 'what the tool said about windows, told apart from what it did not say' {
+        # THREE FACTS THAT USED TO COLLAPSE INTO ONE, and only one of them is settled. `no-usage` is
+        # the single answer that neither refuses a dispatch nor warns on one, so reading "the tool
+        # never mentioned windows" as "there are none here" switches the guard off on every dispatch
+        # from then on and tells nobody. A field the tool renamed is exactly how that would arrive.
+
+        It 'settles on no-usage only where the tool affirmatively lists none' {
+            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiProviderJson '"windows": []') }
+
+            $r = Get-UsageWindow
+            $r.status | Should -Be 'no-usage'
+            $r.signal | Should -Be 'no-windows'
+        }
+
+        It 'reports unknown when the windows field is not in the answer at all' {
+            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiProviderJson '') }
+
+            $r = Get-UsageWindow
+            $r.status  | Should -Be 'unknown'
+            $r.signal  | Should -Be 'no-windows-field'
+            $r.percent | Should -BeNullOrEmpty
+        }
+
+        It 'reports unknown when the windows field is there and says nothing' {
+            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiProviderJson '"windows": null') }
+
+            $r = Get-UsageWindow
+            $r.status  | Should -Be 'unknown'
+            $r.signal  | Should -Be 'windows-not-reported'
+            $r.percent | Should -BeNullOrEmpty
+        }
+
+        # The consequence, in the words the King reads. `usage unknown` is the one that says the
+        # question could not be settled; `usage not reported here` is a fact about the machine, and
+        # a reader shown it for a renamed field would never look again.
+        It 'says the usage is unknown rather than that this machine reports none' {
+            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiProviderJson '') }
+            Mock -ModuleName Usage Get-UsageFleet { @() }
+
+            Get-UsagePulse -StatePath (New-StatePath) | Should -Be 'usage unknown - nothing running'
+        }
+    }
+
+    Context 'the schema the answer was stamped with' {
+        # Recorded so a later reader can see which format produced an answer this could not use,
+        # and never compared against a version this was written for: a compatible bump must not
+        # take the reader out on a machine where it worked the day before.
+
+        It 'carries the version the tool stamped on its answer' {
+            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -SchemaVersion 3) }
+            (Get-UsageWindow).schemaVersion | Should -Be '3'
+        }
+
+        It 'reads an answer stamped with a version it has never seen rather than refusing it' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -SchemaVersion 99 -EffectiveRemaining 96)
+            }
+
+            $r = Get-UsageWindow
+            $r.status        | Should -Be 'has-usage'
+            $r.percent       | Should -Be 4
+            $r.schemaVersion | Should -Be '99'
+        }
+
+        It 'names the version in the detail of an answer that is not a percentage' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiProviderJson '' -Schema '"schemaVersion": 7, ')
+            }
+
+            $r = Get-UsageWindow
+            $r.schemaVersion | Should -Be '7'
+            $r.detail        | Should -BeLike '*schema version 7*'
+        }
+
+        It 'says the answer carried no version rather than inventing one' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiProviderJson '"windows": []' -Schema '')
+            }
+
+            $r = Get-UsageWindow
+            $r.status        | Should -Be 'no-usage'
+            $r.schemaVersion | Should -Be ''
+            $r.detail        | Should -BeLike '*no schema version*'
         }
     }
 
@@ -673,6 +768,40 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
         Get-UsagePulse -StatePath $p | Should -Be '71% used - nothing running'
     }
 
+    # THE SAME SENTENCE TWICE IS NOT A CHANGE. The band that decides whether the pulse speaks and
+    # the number it prints used to round differently - the band floored the raw percentage and the
+    # line rounded it - so 69.6 printed "70% used" in band b6 and 70.2 printed "70% used" again in
+    # band b7, for a change the reader could not see anywhere in the line.
+    It 'never prints the identical line twice for a number that has not moved' {
+        $p = New-StatePath
+        Mock -ModuleName Usage Get-UsageWindow {
+            [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 69.6; detail = 'x'
+                               resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
+        }
+        Get-UsagePulse -StatePath $p | Should -Be '70% used - nothing running'
+
+        Mock -ModuleName Usage Get-UsageWindow {
+            [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 70.2; detail = 'x'
+                               resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
+        }
+        Get-UsagePulse -StatePath $p | Should -BeNullOrEmpty
+    }
+
+    It 'still speaks when the number it prints crosses into the next ten' {
+        $p = New-StatePath
+        Mock -ModuleName Usage Get-UsageWindow {
+            [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 69.2; detail = 'x'
+                               resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
+        }
+        Get-UsagePulse -StatePath $p | Should -Be '69% used - nothing running'
+
+        Mock -ModuleName Usage Get-UsageWindow {
+            [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 70.2; detail = 'x'
+                               resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
+        }
+        Get-UsagePulse -StatePath $p | Should -Be '70% used - nothing running'
+    }
+
     # Losing the number is itself a change worth one line. Reported as the same silence as
     # "nothing happened", a reader could not tell a quiet fleet from a broken reader.
     It 'says the usage is unknown rather than inventing one, and speaks when the reading is lost' {
@@ -775,6 +904,23 @@ Describe 'The pulse on a timer' {
 
         { Watch-UsagePulse -Count 1 -StatePath $p } | Should -Not -Throw
         (Import-UsageState -StatePath $p).pulse.intervalMinutes | Should -Be 10
+    }
+
+    # A PULSE THAT NEVER STARTED LOOKS EXACTLY LIKE A QUIET ONE. The cadence note is written before
+    # the loop, outside the containment the loop has, so a record it could not read or write killed
+    # the job at the moment it was armed and the Hand spent the session believing a pulse was
+    # running. The note is worth a warning, never the session.
+    It 'starts the pulse even when the record cannot be written at arm time' {
+        $p = New-StatePath -Leaf 'crew.json'
+        @{ workers = @{ 'T-1001' = @{ stage = 'implementing' } } } | ConvertTo-Json -Depth 5 |
+            Set-Content -LiteralPath $p -Encoding utf8
+
+        { Watch-UsagePulse -Count 1 -StatePath $p -WarningAction SilentlyContinue } | Should -Not -Throw
+        Should -Invoke -ModuleName Usage Get-UsageFleet -Times 1 -Exactly `
+            -Because 'the tick has to run even though the cadence could not be recorded'
+
+        # And the refusal that protects the fleet is untouched by starting anyway.
+        (Get-Content -LiteralPath $p -Raw) | Should -BeLike '*T-1001*'
     }
 
     It 'takes a different cadence when a session asks for one' {
