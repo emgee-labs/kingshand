@@ -513,6 +513,52 @@ Describe 'A timestamp carries its offset, and is never read as local' {
         Format-UsageResetTime -IsoTime 'whenever' | Should -Be ''
         ConvertTo-UsageResetTime 'whenever'       | Should -Be ''
     }
+
+    # THE SENTENCE THE USER ACTS ON. This is pasted into the dispatch refusal right before "Wait
+    # for the window to reset", and the limiting window is not always the five-hour one - a weekly
+    # window six days out used to read as a bare "10:00", so the reader waited for this morning and
+    # found the window still spent. Nothing errored and no number was wrong, only the sentence.
+    It 'says the day as well when the window does not reset today' {
+        $days = (Get-Date).Date.AddDays(6).AddHours(10)
+        $s = Format-UsageResetTime -IsoTime (([datetimeoffset]$days).ToString('o'))
+
+        $s | Should -BeLike '*10:00 local time*'
+        $s | Should -BeLike "*$($days.ToString('MMM'))*" -Because 'the reader has to see which day'
+        $s | Should -Not -Be (Format-UsageResetTime `
+                -IsoTime (([datetimeoffset]((Get-Date).Date.AddHours(10))).ToString('o')))
+    }
+
+    # Decided against the local day rather than a number of hours out, so a reset a few hours from
+    # now that lands after midnight still says which day it lands on.
+    It 'says the day for a reset that is hours away but on tomorrow' {
+        $tomorrow = (Get-Date).Date.AddDays(1).AddHours(1)
+        Format-UsageResetTime -IsoTime (([datetimeoffset]$tomorrow).ToString('o')) |
+            Should -BeLike '*01:00 local time on *'
+    }
+
+    # Shortest in the common case: the five-hour window always resets inside the day, and a date
+    # there is noise in a line that is read out loud.
+    It 'says only the time when the window resets later today' {
+        $today = (Get-Date).Date.AddHours(23).AddMinutes(15)
+        $s = Format-UsageResetTime -IsoTime (([datetimeoffset]$today).ToString('o'))
+
+        $s | Should -Be ' It resets at 23:15 local time.'
+    }
+
+    # End to end, because the refusal quotes `detail` verbatim and that is where it reached a
+    # person. Dated from now rather than from a fixture literal, so this keeps testing what it says
+    # it tests as the calendar moves.
+    It 'carries the day into the detail a refusal quotes' {
+        $days = (Get-Date).Date.AddDays(6).AddHours(10)
+        Mock -ModuleName Usage Invoke-QuotaAxi {
+            New-AxiOk (New-AxiReport -EffectiveRemaining 5 `
+                                     -FiveHourResets (([datetimeoffset]$days).ToString('o')))
+        }
+
+        $r = Get-UsageWindow
+        $r.status | Should -Be 'has-usage'
+        $r.detail | Should -BeLike "*10:00 local time on *$($days.ToString('MMM'))*"
+    }
 }
 
 Describe 'The launchable quota-axi, and why a .ps1 is never it' {
@@ -771,6 +817,52 @@ Describe 'The pulse takes the fleet from the reader that already joins intent to
 
         Get-UsagePulse -CrewStatePath $crew |
             Should -Be '5% used - nothing running'
+    }
+
+    # A RECORD WITH A FIELD MISSING USED TO END THE PULSE FOR THE SESSION. This module runs under
+    # StrictMode Latest and a script invoked with `&` inherits it, so a crew record written before
+    # `stage` existed - or a herdr agent with no `title` - turned an optional read inside the crew
+    # reader into an exception. The tick threw, the loop turned it into a warning, and it did the
+    # same again every interval, which is indistinguishable from a pulse that has nothing to say.
+    #
+    # Run against the real crew reader with a worker in the record, so the loop body that does
+    # those reads actually executes - the empty-record case above never enters it. herdr is a shim
+    # on PATH answering with no agents, the same way CrewStatus.Tests.ps1 stubs it, so the real
+    # argument list and JSON parsing are exercised without a server.
+    It 'survives a crew record that is missing a field the reader treats as optional' {
+        Mock -ModuleName Usage Get-UsageWindow {
+            [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 5; detail = 'x'
+                               resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
+        }
+        InModuleScope Usage { $script:LastSpoken = $null }
+
+        $shim = New-TempFixtureDir -Prefix 'herdr-shim-'
+        Set-Content -Path (Join-Path $shim 'herdr.cmd') -Encoding ascii -Value @(
+            '@echo off',
+            'type "%KINGSHAND_TEST_USAGE_HERDR%"'
+        )
+        $reply = Join-Path $shim 'agents.json'
+        '{ "agents": [] }' | Set-Content -LiteralPath $reply -Encoding utf8
+
+        $dir  = New-TempFixtureDir
+        $crew = Join-Path $dir 'crew.json'
+        # No `stage`, which is what an older writer left behind and what Import-CrewState does not
+        # backfill.
+        '{ "workers": { "T-1": { "ticket": "T-1", "repo": "C:\\repo" } } }' |
+            Set-Content -LiteralPath $crew -Encoding utf8
+
+        $savedPath = $env:PATH
+        $savedVar  = $env:KINGSHAND_TEST_USAGE_HERDR
+        try {
+            $env:PATH = $shim + [IO.Path]::PathSeparator + $savedPath
+            $env:KINGSHAND_TEST_USAGE_HERDR = $reply
+
+            { Get-UsageFleet -CrewStatePath $crew } | Should -Not -Throw
+            Get-UsagePulse -CrewStatePath $crew | Should -Be '5% used - nothing running'
+        } finally {
+            $env:PATH = $savedPath
+            $env:KINGSHAND_TEST_USAGE_HERDR = $savedVar
+        }
     }
 }
 

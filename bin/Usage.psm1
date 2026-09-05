@@ -253,6 +253,16 @@ function ConvertTo-UsageResetTime {
 # reads out and CLAUDE.md has it translate internal labels before they leave. The window names are
 # a closed set of two and anything else passes through as the tool's own word rather than being
 # renamed into something this cannot stand behind.
+#
+# THE DAY IS SAID WHENEVER IT IS NOT TODAY, and that is not decoration. This sentence is pasted
+# straight into the dispatch refusal, immediately before "Wait for the window to reset", so it is
+# the sentence the user acts on. The limiting window is not always the five-hour one - the weekly
+# window bounds the answer often enough to be ordinary - and a reset six days out rendered as a
+# bare "10:00" reads as this morning. Nothing errors and no number is wrong; the reader simply
+# waits for a time that has already passed and finds the window still spent.
+#
+# Decided against the local day of the reset itself rather than against a fixed number of hours,
+# so a reset at one in the morning says tomorrow's date instead of reading as tonight.
 function Format-UsageResetTime {
     [CmdletBinding()]
     param([string]$IsoTime)
@@ -260,7 +270,11 @@ function Format-UsageResetTime {
     if (-not $IsoTime) { return '' }
     $parsed = [datetimeoffset]::MinValue
     if (-not [datetimeoffset]::TryParse($IsoTime, [ref]$parsed)) { return '' }
-    ' It resets at ' + $parsed.ToLocalTime().ToString('HH:mm') + ' local time.'
+
+    $local = $parsed.ToLocalTime()
+    $when  = $local.ToString('HH:mm') + ' local time'
+    if ($local.Date -ne (Get-Date).Date) { $when += ' on ' + $local.ToString('ddd d MMM') }
+    " It resets at $when."
 }
 
 function Format-UsageWindowName {
@@ -476,8 +490,19 @@ function Get-UsageFleet {
     [CmdletBinding()]
     param([string]$CrewStatePath = '')
 
+    # INVOKED IN A CHILD SCOPE WITH STRICT MODE OFF, the same way bin\Get-SurveySnapshot.ps1 calls
+    # this very script and for the same reason. A script run with `&` inherits the caller's strict
+    # mode, this module runs under Latest, and Get-CrewStatus.ps1 reads fields that are optional in
+    # practice - a crew record written by an older version with no `stage`, a herdr agent with no
+    # `title`. Under Latest each of those is an exception instead of a $null, and one such record
+    # would take the pulse out for the whole session: the tick throws, the loop's containment turns
+    # it into a warning, and it does the same again every interval from then on.
     $script = Join-Path $PSScriptRoot 'Get-CrewStatus.ps1'
-    if ($CrewStatePath) { @(& $script -StatePath $CrewStatePath) } else { @(& $script) }
+    if ($CrewStatePath) {
+        @(& { Set-StrictMode -Off; & $script -StatePath $CrewStatePath })
+    } else {
+        @(& { Set-StrictMode -Off; & $script })
+    }
 }
 
 # What one live worker is doing, in the King's own words rather than in a stage label.
