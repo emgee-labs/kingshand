@@ -5762,6 +5762,21 @@ Describe 'the default branch and the integration branch are two things' {
             -Phrase 'A widened diff on a re-dispatched ticket is that, not the worker''s doing.'
     }
 
+    # Step 7 is where that widened diff is actually read, and it used to say the opposite of
+    # Step 4 while citing it - that the recorded base is what predates the repository change.
+    # It is the other way round: the base is re-resolved on every dispatch and the branch point
+    # is the one left behind, so a reader who trusts the old line goes looking for a stale base,
+    # finds it current, and concludes the extra commits are the worker's.
+    It 'muster Step 7 says which of the two a re-dispatch leaves behind' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'muster Step 7' `
+            -Phrase ('On a re-dispatched ticket it is the other way round, as Step 4 says: the ' +
+                     'base is resolved fresh and the branch point is the older of the two, so ' +
+                     're-resolving the base finds it current and tells you nothing.')
+        $step.Contains('the recorded base can itself predate a repository change') |
+            Should -BeFalse -Because 'Step 4 says the base is the fresh one, so this contradicted it'
+    }
+
     # The claim in that row that a reviewer cannot check by reading: that the two consumers of the
     # declaration read the same key from the same file. A row saying so while the gate read
     # something else would be worse than a row saying nothing.
