@@ -39,13 +39,21 @@ BeforeAll {
     # output rather than from a guess. Every case below varies one thing about it.
     function New-AxiReport {
         param(
-            [double]$FiveHourPercent = 4,
+            # Typed as an object rather than a double so a field the tool wrote as a word can be
+            # put through the same reader. A fixture that could only hold a number could not
+            # exercise the case where the number is not one.
+            [object]$FiveHourPercent = 4,
             [string]$FiveHourResets  = '2026-09-05T22:20:00.227705+00:00',
             [object]$EffectiveRemaining = 96,
+            [string[]]$LimitingWindowIds = @('five_hour'),
+            [switch]$WithSevenDay,
+            [string]$SevenDayResets = '2026-09-12T10:00:00+00:00',
             [bool]$Stale = $false,
             [switch]$NoWindows,
             [string]$Provider = 'claude'
         )
+
+        $fiveRemaining = if ($FiveHourPercent -is [string]) { $null } else { 100 - $FiveHourPercent }
 
         # Assigned in two statements rather than out of an `if`. `$x = if ($true) { @() }` is $null,
         # not an empty array - the expression emits nothing to the pipeline - and a fixture that
@@ -55,12 +63,17 @@ BeforeAll {
             $windows = @(
                 @{ id = 'five_hour'; label = 'session'; kind = 'session'
                    percentUsed = $FiveHourPercent; resetsAt = $FiveHourResets
-                   windowSeconds = 18000; percentRemaining = (100 - $FiveHourPercent) },
+                   windowSeconds = 18000; percentRemaining = $fiveRemaining },
                 # The spend cap sitting at 100 is real on this machine and it must NOT decide the
                 # answer: taking the worst window would refuse every dispatch.
                 @{ id = 'extra_usage'; label = 'extra usage'; kind = 'credits'
                    percentUsed = 100; spentUsd = 50.04; limitUsd = 50; percentRemaining = 0 }
             )
+            if ($WithSevenDay) {
+                $windows += @{ id = 'seven_day'; label = 'weekly'; kind = 'rolling'
+                               percentUsed = 61; resetsAt = $SevenDayResets
+                               windowSeconds = 604800; percentRemaining = 39 }
+            }
         }
 
         $semantics = if ($null -eq $EffectiveRemaining) {
@@ -72,7 +85,7 @@ BeforeAll {
                     scope = 'all_models'; status = 'known'
                     effectivePercentRemaining = $EffectiveRemaining
                     boundedBy = @('five_hour', 'seven_day')
-                    limitingWindowIds = @('five_hour')
+                    limitingWindowIds = $LimitingWindowIds
                 })
             }
         }
@@ -172,6 +185,39 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
             $r.resetsAt | Should -Be ''
             $r.detail   | Should -Not -BeLike '*resets at*'
         }
+
+        # Two ids is the case a single id hid. The list used to be handed to the window lookup
+        # whole, which coerces to "seven_day five_hour" and matches no window at all - so the
+        # reader lost the reset time and named a window that does not exist, silently, because
+        # every fixture until now reported exactly one limiting window.
+        It 'names the first limiting window when the tool reports more than one' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -EffectiveRemaining 12 -WithSevenDay `
+                                         -LimitingWindowIds @('seven_day', 'five_hour') `
+                                         -SevenDayResets '2026-09-12T10:00:00+00:00')
+            }
+
+            $r = Get-UsageWindow
+            $r.status  | Should -Be 'has-usage'
+            $r.percent | Should -Be 88
+            $r.window  | Should -Be 'seven_day'
+            ([datetimeoffset]$r.resetsAt).UtcDateTime |
+                Should -Be ([datetimeoffset]'2026-09-12T10:00:00+00:00').UtcDateTime `
+                -Because 'the reset time comes from the window that was named'
+        }
+
+        # By id and never by position. A window the tool has renamed or dropped is not known, and
+        # reading whichever window happened to be first would report a spend cap as the session.
+        It 'leaves the reset time unread when the limiting window is not in the list' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -EffectiveRemaining 12 -LimitingWindowIds @('renamed_window'))
+            }
+
+            $r = Get-UsageWindow
+            $r.percent  | Should -Be 88
+            $r.window   | Should -Be 'renamed_window'
+            $r.resetsAt | Should -Be ''
+        }
     }
 
     Context 'when nothing answers - one case per failure path, with the failure forced' {
@@ -270,6 +316,79 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
             }
         }
     }
+
+    Context 'when the answer is malformed - the guard fails open and never throws' {
+        # THE FAILURE THESE PIN. Dispatch-Worker.ps1 calls Get-UsageWindow as the first check of a
+        # dispatch, under $ErrorActionPreference = 'Stop'. An exception out of the reader therefore
+        # does not degrade to a warning - it stops the dispatch outright, which turns a guard
+        # written to fail OPEN into the hard block the design rules out. A reading nobody could
+        # take must come back as `unknown`, whatever it was that could not be read.
+
+        It 'reads a percentage the tool wrote as a word as no percentage, not as an error' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -EffectiveRemaining 'plenty' -FiveHourPercent 37)
+            }
+
+            { Get-UsageWindow } | Should -Not -Throw
+
+            $r = Get-UsageWindow
+            $r.status  | Should -Be 'has-usage' -Because 'the five-hour window still answered'
+            $r.signal  | Should -Be 'five-hour-window'
+            $r.percent | Should -Be 37
+        }
+
+        It 'settles on unknown when no window carries a percentage that is a number' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -EffectiveRemaining 'plenty' -FiveHourPercent 'lots')
+            }
+
+            $r = Get-UsageWindow
+            $r.status  | Should -Be 'unknown'
+            $r.signal  | Should -Be 'no-percentage'
+            $r.percent | Should -BeNullOrEmpty
+        }
+
+        It 'never reads a true as one percent spent' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -EffectiveRemaining $true -FiveHourPercent $true)
+            }
+
+            $r = Get-UsageWindow
+            $r.status  | Should -Be 'unknown'
+            $r.percent | Should -BeNullOrEmpty
+        }
+
+        # The catch-all, tested by making the one boundary itself fail in a way nothing below
+        # anticipates. Whatever breaks in there, the dispatch gets an answer rather than a throw.
+        It 'answers unknown rather than throwing when the boundary itself fails unexpectedly' {
+            Mock -ModuleName Usage Invoke-QuotaAxi { throw 'the temp directory is gone' }
+
+            { Get-UsageWindow } | Should -Not -Throw
+
+            $r = Get-UsageWindow
+            $r.status  | Should -Be 'unknown'
+            $r.signal  | Should -Be 'lookup-failed'
+            $r.percent | Should -BeNullOrEmpty
+            $r.window  | Should -Be ''
+            $r.detail  | Should -BeLike '*the temp directory is gone*'
+        }
+    }
+}
+
+Describe 'A number that is not one is no number, and never a percentage' {
+    It 'reads the numbers a JSON report actually carries' {
+        ConvertTo-UsageNumber 4      | Should -Be 4
+        ConvertTo-UsageNumber 96.5   | Should -Be 96.5
+        ConvertTo-UsageNumber '37.5' | Should -Be 37.5
+        ConvertTo-UsageNumber 0      | Should -Be 0
+    }
+
+    It 'refuses everything a percentage cannot be, rather than throwing on it' {
+        foreach ($v in @($null, '', '   ', 'plenty', $true, $false, @(1, 2), @{ a = 1 },
+                         'NaN', 'Infinity')) {
+            ConvertTo-UsageNumber $v | Should -BeNullOrEmpty
+        }
+    }
 }
 
 Describe 'A timestamp carries its offset, and is never read as local' {
@@ -335,6 +454,33 @@ Describe 'The launchable quota-axi, and why a .ps1 is never it' {
         $r = Invoke-QuotaAxi -Arguments @('--json')
         $r.ok    | Should -BeFalse
         $r.error | Should -BeLike '*npm install -g quota-axi*'
+    }
+
+    # This function promises it never throws, and the whole fail-open guard rests on that promise.
+    # The scratch files it redirects the tool's output into were created above the try, so a temp
+    # directory that is not there took the promise with it - and the exception surfaced inside a
+    # dispatch running under ErrorActionPreference Stop.
+    It 'reports a temp directory it cannot use rather than throwing out of the boundary' {
+        $shim = New-TempFixtureDir -Prefix 'quota-shim-'
+        Set-Content -Path (Join-Path $shim 'quota-axi.cmd') -Value '@echo off' -Encoding ascii
+        $gone = Join-Path (New-TempFixtureDir -Prefix 'quota-notemp-') 'no-such-directory'
+
+        $savedTmp  = $env:TMP
+        $savedTemp = $env:TEMP
+        try {
+            $env:PATH = $shim + [IO.Path]::PathSeparator + $script:SavedPath
+            $env:TMP  = $gone
+            $env:TEMP = $gone
+
+            $r = $null
+            { $script:NoTempResult = Invoke-QuotaAxi -Arguments @('--json') } | Should -Not -Throw
+            $r = $script:NoTempResult
+            $r.ok    | Should -BeFalse
+            $r.error | Should -BeLike '*quota-axi could not be run*'
+        } finally {
+            $env:TMP  = $savedTmp
+            $env:TEMP = $savedTemp
+        }
     }
 }
 
@@ -583,5 +729,40 @@ Describe 'The pulse on a timer' {
     It 'refuses a negative cadence rather than looping on one' {
         { Watch-UsagePulse -Count 1 -IntervalMinutes -1 -StatePath (New-StatePath) } |
             Should -Throw '*cannot be negative*'
+    }
+
+    # A DEAD PULSE LOOKS EXACTLY LIKE A HEALTHY ONE, because saying nothing is the documented
+    # normal case. So a tick that fails must cost that tick and nothing more - crew.json is
+    # written without a temp-and-rename, and a tick that reads it mid-write is the ordinary way
+    # this happens. Before this was contained, the first such tick ended the pulse for the session
+    # and the King would have found out by noticing he had heard nothing all afternoon.
+    It 'keeps pulsing after a tick that failed' {
+        $global:UsageTickCount = 0
+        Mock -ModuleName Usage Get-UsageFleet {
+            $global:UsageTickCount++
+            if ($global:UsageTickCount -eq 1) { throw 'crew.json was half written' }
+            @()
+        }
+
+        $out = @(Watch-UsagePulse -Count 2 -IntervalMinutes 0 -StatePath (New-StatePath) `
+                                  -WarningAction SilentlyContinue)
+        $global:UsageTickCount | Should -Be 2 -Because 'the second tick has to happen at all'
+        $out.Count | Should -Be 1
+        $out[0]    | Should -Be '5% used - nothing running'
+        Remove-Variable -Name UsageTickCount -Scope Global -ErrorAction SilentlyContinue
+    }
+
+    It 'says which tick failed rather than dying silently' {
+        $global:UsageTickCount = 0
+        Mock -ModuleName Usage Get-UsageFleet {
+            $global:UsageTickCount++
+            throw 'crew.json was half written'
+        }
+
+        $warnings = @()
+        Watch-UsagePulse -Count 1 -IntervalMinutes 0 -StatePath (New-StatePath) `
+                         -WarningVariable warnings -WarningAction SilentlyContinue | Out-Null
+        "$warnings" | Should -BeLike '*crew.json was half written*'
+        Remove-Variable -Name UsageTickCount -Scope Global -ErrorAction SilentlyContinue
     }
 }

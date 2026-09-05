@@ -136,9 +136,14 @@ function Invoke-QuotaAxi {
         return [pscustomobject]@{ ok = $false; value = ''; error = (Get-QuotaAxiHint) }
     }
 
-    $out = [System.IO.Path]::GetTempFileName()
-    $err = [System.IO.Path]::GetTempFileName()
+    # Created inside the try, not beside it. A temp directory that is full, read-only or missing
+    # makes GetTempFileName throw, and a line above the try is a line outside the promise this
+    # function makes - the exception would reach Get-UsageWindow and through it the dispatch.
+    $out = $null
+    $err = $null
     try {
+        $out = [System.IO.Path]::GetTempFileName()
+        $err = [System.IO.Path]::GetTempFileName()
         $p = Start-Process -FilePath $exe -ArgumentList $Arguments -NoNewWindow -PassThru `
                            -RedirectStandardOutput $out -RedirectStandardError $err
         if (-not $p.WaitForExit($TimeoutSeconds * 1000)) {
@@ -164,8 +169,35 @@ function Invoke-QuotaAxi {
             error = "quota-axi could not be run: $($_.Exception.Message)"
         }
     } finally {
-        Remove-Item -LiteralPath $out, $err -Force -ErrorAction SilentlyContinue
+        foreach ($f in @($out, $err)) {
+            if ($f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
+        }
     }
+}
+
+# A JSON field that must be a number, as a double - or $null where it is anything else.
+#
+# WHY THIS IS NOT A CAST. `[double]$Value` on a field the tool wrote as a word, an object or a list
+# raises a terminating error, and the one caller that matters runs under
+# $ErrorActionPreference = 'Stop' with nothing between it and the dispatch. A percentage that cannot
+# be read is the `unknown` this module already has an answer for, so it is converted here and tested
+# for $null there rather than thrown from the middle of a reading.
+#
+# $true converts to 1 and would read as one percent spent, so a boolean is refused by name rather
+# than left to the framework. NaN and infinity go the same way: both survive a conversion and
+# neither is a percentage anything downstream can compare against.
+function ConvertTo-UsageNumber {
+    [CmdletBinding()]
+    param($Value)
+
+    if ($null -eq $Value)  { return $null }
+    if ($Value -is [bool]) { return $null }
+    if ($Value -is [string] -and -not $Value.Trim()) { return $null }
+
+    $n = $null
+    try { $n = [System.Convert]::ToDouble($Value, [cultureinfo]::InvariantCulture) } catch { return $null }
+    if ([double]::IsNaN($n) -or [double]::IsInfinity($n)) { return $null }
+    $n
 }
 
 # The reset time as an ISO string, or '' when the tool did not give one that parses.
@@ -250,94 +282,124 @@ function Get-UsageWindow {
         [pscustomobject]$result
     }
 
-    $r = Invoke-QuotaAxi -Arguments @('--provider', 'claude', '--json') -TimeoutSeconds $TimeoutSeconds
-    if (-not $r.ok) {
-        return & $finish 'unknown' 'lookup-failed' `
-            "How much of the usage window is spent could not be established: $($r.error)"
+    # NOTHING BELOW MAY LEAVE THIS FUNCTION AS AN EXCEPTION, and the try is what guarantees it
+    # rather than each read being individually careful. Dispatch-Worker.ps1 calls this under
+    # $ErrorActionPreference = 'Stop' as the first check of a dispatch, so a throw would stop the
+    # dispatch dead - turning a guard that was written to fail OPEN into the hard block the whole
+    # design rules out. A reading nobody could take is `unknown`, whatever went wrong taking it.
+    try {
+        $r = Invoke-QuotaAxi -Arguments @('--provider', 'claude', '--json') -TimeoutSeconds $TimeoutSeconds
+        if (-not $r.ok) {
+            return & $finish 'unknown' 'lookup-failed' `
+                "How much of the usage window is spent could not be established: $($r.error)"
+        }
+
+        $json = $null
+        try { $json = $r.value | ConvertFrom-Json } catch {
+            return & $finish 'unknown' 'unreadable-answer' `
+                ('quota-axi answered with something that is not the JSON report this reads ' +
+                 "($($_.Exception.Message)), so the usage window is not known.")
+        }
+
+        $providers = ConvertTo-JsonList (Get-JsonField $json 'providers')
+        $claude = @($providers | Where-Object { (Get-JsonField $_ 'provider') -eq 'claude' }) |
+                  Select-Object -First 1
+        if (-not $claude) {
+            return & $finish 'unknown' 'no-provider' `
+                ('quota-axi answered without reporting on the Claude account, so how much of the ' +
+                 'usage window is spent was not established.')
+        }
+
+        # A reading the tool itself calls stale is not this window's answer. Presenting it as
+        # current is the "stale value presented as current" R-003 rules out, and it is worse than
+        # saying nothing: an old low percentage is exactly what would wave through a dispatch near
+        # the limit.
+        $state = Get-JsonField $claude 'state'
+        if ($true -eq (Get-JsonField $state 'stale')) {
+            return & $finish 'unknown' 'stale-reading' `
+                ('quota-axi reports its own Claude reading as stale, so it describes an earlier ' +
+                 'moment rather than this one and no current percentage can be given.')
+        }
+
+        $windows = ConvertTo-JsonList (Get-JsonField $claude 'windows')
+        if ($windows.Count -eq 0) {
+            return & $finish 'no-usage' 'no-windows' `
+                ('quota-axi reports the Claude account with no usage windows at all, so there is ' +
+                 'no window percentage to watch on this machine.')
+        }
+
+        # BY ID, NEVER BY POSITION. The order windows arrive in is the tool's business and it has
+        # already changed once; a window looked up by where it sat in the list would read a spend
+        # cap as the session window and never say a word about it. A window that is missing or has
+        # been renamed comes back as $null here and is treated as not known, which is the whole
+        # point of looking it up by name.
+        $byId = {
+            param($id)
+            @($windows | Where-Object { (Get-JsonField $_ 'id') -eq $id }) | Select-Object -First 1
+        }
+
+        # The tool's own answer for what bounds every model, which is the question a dispatch is
+        # really asking. `boundedBy` names the windows it took into account, so the reader can see
+        # for themselves that a spend cap or a single model's window did not decide it.
+        $semantics = Get-JsonField $claude 'quotaSemantics'
+        # Assigned before it is piped. ConvertTo-JsonList hands its array back through the
+        # leading-comma idiom, so piping the call directly would give Where-Object the whole array
+        # as one item and match nothing at all.
+        $availability = ConvertTo-JsonList (Get-JsonField $semantics 'effectiveAvailability')
+        $effective = @($availability | Where-Object { (Get-JsonField $_ 'scope') -eq 'all_models' -and
+                                                      (Get-JsonField $_ 'status') -eq 'known' }) |
+                     Select-Object -First 1
+
+        $remaining = if ($effective) {
+            ConvertTo-UsageNumber (Get-JsonField $effective 'effectivePercentRemaining')
+        } else { $null }
+        if ($null -ne $remaining) {
+            $percent = 100 - $remaining
+            # Assigned, then indexed. The same leading-comma idiom means `@(ConvertTo-JsonList ...)`
+            # collects ONE item - the inner list - so `[0]` on it hands back the whole list rather
+            # than its first id. With a single id the coercion back to a string hides it; with two,
+            # the window is looked up under "id1 id2" and never found.
+            $ids      = ConvertTo-JsonList (Get-JsonField $effective 'limitingWindowIds')
+            $limiting = if ($ids.Count -gt 0) { "$($ids[0])".Trim() } else { '' }
+            $bounded  = ConvertTo-JsonList (Get-JsonField $effective 'boundedBy')
+            $w        = if ($limiting) { & $byId $limiting } else { $null }
+            $result.percent  = $percent
+            $result.window   = $limiting
+            $result.resetsAt = ConvertTo-UsageResetTime (Get-JsonField $w 'resetsAt')
+            $when   = Format-UsageResetTime -IsoTime $result.resetsAt
+            $names  = @($bounded | ForEach-Object { Format-UsageWindowName -Id "$_" })
+            $across = if ($names.Count -gt 0) { " across $($names -join ' and ')" } else { '' }
+            return & $finish 'has-usage' 'effective-availability' `
+                ("$([Math]::Round($percent, 1)) percent of the usage window is spent$across." + $when)
+        }
+
+        # The five-hour session window on its own, for a tool that reported windows but would not
+        # say what they add up to. Narrower than the answer above and still a real reading.
+        $five = & $byId 'five_hour'
+        $used = if ($five) { ConvertTo-UsageNumber (Get-JsonField $five 'percentUsed') } else { $null }
+        if ($null -ne $used) {
+            $result.percent  = $used
+            $result.window   = 'five_hour'
+            $result.resetsAt = ConvertTo-UsageResetTime (Get-JsonField $five 'resetsAt')
+            $when = Format-UsageResetTime -IsoTime $result.resetsAt
+            return & $finish 'has-usage' 'five-hour-window' `
+                ("$([Math]::Round($used, 1)) percent of the five-hour session window is spent." + $when)
+        }
+
+        & $finish 'unknown' 'no-percentage' `
+            ('quota-axi reported ' + $windows.Count + ' Claude window(s) and a used percentage ' +
+             'could not be read from any of them, so the usage window is not known.')
+    } catch {
+        # Reset rather than reported as read. A field set on the way to a throw is a half-finished
+        # answer, and a percentage carried out of a reading that failed is the fabrication this
+        # module exists to refuse.
+        $result.percent  = $null
+        $result.window   = ''
+        $result.resetsAt = ''
+        & $finish 'unknown' 'lookup-failed' `
+            ('How much of the usage window is spent could not be established: quota-axi answered ' +
+             "with something this could not read ($($_.Exception.Message)).")
     }
-
-    $json = $null
-    try { $json = $r.value | ConvertFrom-Json } catch {
-        return & $finish 'unknown' 'unreadable-answer' `
-            ('quota-axi answered with something that is not the JSON report this reads ' +
-             "($($_.Exception.Message)), so the usage window is not known.")
-    }
-
-    $providers = ConvertTo-JsonList (Get-JsonField $json 'providers')
-    $claude = @($providers | Where-Object { (Get-JsonField $_ 'provider') -eq 'claude' }) |
-              Select-Object -First 1
-    if (-not $claude) {
-        return & $finish 'unknown' 'no-provider' `
-            ('quota-axi answered without reporting on the Claude account, so how much of the ' +
-             'usage window is spent was not established.')
-    }
-
-    # A reading the tool itself calls stale is not this window's answer. Presenting it as current is
-    # the "stale value presented as current" R-003 rules out, and it is worse than saying nothing:
-    # an old low percentage is exactly what would wave through a dispatch near the limit.
-    $state = Get-JsonField $claude 'state'
-    if ($true -eq (Get-JsonField $state 'stale')) {
-        return & $finish 'unknown' 'stale-reading' `
-            ('quota-axi reports its own Claude reading as stale, so it describes an earlier moment ' +
-             'rather than this one and no current percentage can be given.')
-    }
-
-    $windows = ConvertTo-JsonList (Get-JsonField $claude 'windows')
-    if ($windows.Count -eq 0) {
-        return & $finish 'no-usage' 'no-windows' `
-            ('quota-axi reports the Claude account with no usage windows at all, so there is no ' +
-             'window percentage to watch on this machine.')
-    }
-
-    $byId = {
-        param($id)
-        @($windows | Where-Object { (Get-JsonField $_ 'id') -eq $id }) | Select-Object -First 1
-    }
-
-    # The tool's own answer for what bounds every model, which is the question a dispatch is really
-    # asking. `boundedBy` names the windows it took into account, so the reader can see for
-    # themselves that a spend cap or a single model's window did not decide it.
-    $semantics = Get-JsonField $claude 'quotaSemantics'
-    # Assigned before it is piped. ConvertTo-JsonList hands its array back through the
-    # leading-comma idiom, so piping the call directly would give Where-Object the whole array as
-    # one item and match nothing at all.
-    $availability = ConvertTo-JsonList (Get-JsonField $semantics 'effectiveAvailability')
-    $effective = @($availability | Where-Object { (Get-JsonField $_ 'scope') -eq 'all_models' -and
-                                                  (Get-JsonField $_ 'status') -eq 'known' }) |
-                 Select-Object -First 1
-
-    $remaining = if ($effective) { Get-JsonField $effective 'effectivePercentRemaining' } else { $null }
-    if ($null -ne $remaining) {
-        $percent = 100 - [double]$remaining
-        $limiting = @(ConvertTo-JsonList (Get-JsonField $effective 'limitingWindowIds'))[0]
-        $bounded  = ConvertTo-JsonList (Get-JsonField $effective 'boundedBy')
-        $w        = if ($limiting) { & $byId $limiting } else { $null }
-        $result.percent  = $percent
-        $result.window   = if ($limiting) { "$limiting" } else { '' }
-        $result.resetsAt = ConvertTo-UsageResetTime (Get-JsonField $w 'resetsAt')
-        $when   = Format-UsageResetTime -IsoTime $result.resetsAt
-        $names  = @($bounded | ForEach-Object { Format-UsageWindowName -Id "$_" })
-        $across = if ($names.Count -gt 0) { " across $($names -join ' and ')" } else { '' }
-        return & $finish 'has-usage' 'effective-availability' `
-            ("$([Math]::Round($percent, 1)) percent of the usage window is spent$across." + $when)
-    }
-
-    # The five-hour session window on its own, for a tool that reported windows but would not say
-    # what they add up to. Narrower than the answer above and still a real reading.
-    $five = & $byId 'five_hour'
-    $used = if ($five) { Get-JsonField $five 'percentUsed' } else { $null }
-    if ($null -ne $used) {
-        $result.percent  = [double]$used
-        $result.window   = 'five_hour'
-        $result.resetsAt = ConvertTo-UsageResetTime (Get-JsonField $five 'resetsAt')
-        $when = Format-UsageResetTime -IsoTime $result.resetsAt
-        return & $finish 'has-usage' 'five-hour-window' `
-            ("$([Math]::Round([double]$used, 1)) percent of the five-hour session window is spent." + $when)
-    }
-
-    & $finish 'unknown' 'no-percentage' `
-        ('quota-axi reported ' + $windows.Count + ' Claude window(s) and a used percentage could ' +
-         'not be read from any of them, so the usage window is not known.')
 }
 
 # state\usage.json under this installation's root, unless a caller names another file.
@@ -578,13 +640,24 @@ function Watch-UsagePulse {
         if ($i -gt 0 -and $IntervalMinutes -gt 0) {
             Start-Sleep -Milliseconds ([int]($IntervalMinutes * 60000))
         }
-        Get-UsagePulse -StatePath $StatePath -CrewStatePath $CrewStatePath
+        # ONE BAD TICK COSTS ONE TICK, never the session. This runs as a background job whose
+        # normal output is nothing at all, so an exception out of the loop would end the pulse in a
+        # way that looks exactly like a healthy quiet interval - and the King would find out by
+        # noticing he had heard nothing for hours. crew.json is written without a temp-and-rename,
+        # so a tick that reads it mid-write is the ordinary way this happens.
+        try {
+            Get-UsagePulse -StatePath $StatePath -CrewStatePath $CrewStatePath
+        } catch {
+            Write-Warning ("The usage pulse could not take this reading and will try again next " +
+                           "interval: $($_.Exception.Message)")
+        }
         $i++
     }
 }
 
 Export-ModuleMember -Function Get-QuotaAxiCommandPath, Get-QuotaAxiHint, Invoke-QuotaAxi,
-                              ConvertTo-JsonList, ConvertTo-UsageResetTime, Format-UsageResetTime,
+                              ConvertTo-JsonList, ConvertTo-UsageNumber,
+                              ConvertTo-UsageResetTime, Format-UsageResetTime,
                               Format-UsageWindowName, Get-UsageWindow, Get-UsageStatePath,
                               Import-UsageState, Save-UsageState, Get-UsageFleet,
                               Get-WorkerPhrase, Get-WorkerLabel, Format-UsagePulse,
