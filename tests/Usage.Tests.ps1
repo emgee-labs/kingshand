@@ -1,8 +1,9 @@
 #Requires -Version 7.0
 Set-StrictMode -Version Latest
 
-# bin\Usage.psm1 is exercised here against a mocked quota-axi and throwaway state files. Nothing
-# below reaches the network, needs a subscription, or reads or writes the live state\ directory.
+# bin\Usage.psm1 is exercised here against a mocked quota-axi. Nothing below reaches the network,
+# needs a subscription, or writes anywhere at all - the module keeps no file, and one of the cases
+# below is there to keep it that way.
 #
 # `Invoke-QuotaAxi` is the module's single boundary to the outside world - every lookup goes through
 # that one function - so mocking it is what makes the whole answer testable, including the cases
@@ -23,11 +24,6 @@ BeforeAll {
         New-Item -ItemType Directory -Force -Path $p | Out-Null
         $script:TempFixtures.Add($p)
         $p
-    }
-
-    function New-StatePath {
-        param([string]$Leaf = 'usage.json')
-        Join-Path (New-TempFixtureDir) $Leaf
     }
 
     # quota-axi's two reply shapes, and nothing invented: a success carrying its stdout as text, and
@@ -365,7 +361,7 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
             Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiProviderJson '') }
             Mock -ModuleName Usage Get-UsageFleet { @() }
 
-            Get-UsagePulse -StatePath (New-StatePath) | Should -Be 'usage unknown - nothing running'
+            Get-UsagePulse | Should -Be 'usage unknown - nothing running'
         }
     }
 
@@ -579,107 +575,6 @@ Describe 'The launchable quota-axi, and why a .ps1 is never it' {
     }
 }
 
-Describe 'The usage record refuses to overwrite a file it does not own' {
-    # state\ is the Hand's own directory and it already holds crew.json, the record of every
-    # dispatched worker. The constraint on the path is the file's own `kind` marker and nothing
-    # else - not its name, not its location, because both can be mistyped.
-
-    It 'writes and reads back its own file' {
-        $p = New-StatePath
-        Save-UsageState -State @{ lastSpoken = @{ band = 'b4' } } -StatePath $p
-        (Import-UsageState -StatePath $p).lastSpoken.band | Should -Be 'b4'
-    }
-
-    It 'refuses a crew.json standing where the usage record would go' {
-        $p = New-StatePath -Leaf 'crew.json'
-        @{ workers = @{ 'T-1001' = @{ stage = 'implementing' } } } | ConvertTo-Json -Depth 5 |
-            Set-Content -LiteralPath $p -Encoding utf8
-
-        { Save-UsageState -State @{} -StatePath $p } |
-            Should -Throw '*belongs to something else*'
-        # And the refusal is true when it says nothing was written.
-        (Get-Content -LiteralPath $p -Raw) | Should -BeLike '*T-1001*'
-    }
-
-    It 'refuses a file that is not JSON at all rather than destroying it' {
-        $p = New-StatePath -Leaf 'notes.txt'
-        Set-Content -LiteralPath $p -Value 'the King wrote this by hand' -Encoding utf8
-
-        { Save-UsageState -State @{} -StatePath $p } | Should -Throw '*Nothing was written*'
-        (Get-Content -LiteralPath $p -Raw) | Should -BeLike '*by hand*'
-    }
-
-    It 'refuses a directory standing where the file belongs' {
-        $p = Join-Path (New-TempFixtureDir) 'usage.json'
-        New-Item -ItemType Directory -Force -Path $p | Out-Null
-        { Save-UsageState -State @{} -StatePath $p } | Should -Throw '*is a directory*'
-    }
-
-    It 'refuses to read a foreign file as well as to write over it' {
-        $p = New-StatePath -Leaf 'crew.json'
-        @{ workers = @{} } | ConvertTo-Json | Set-Content -LiteralPath $p -Encoding utf8
-        { Import-UsageState -StatePath $p } | Should -Throw '*belongs to something else*'
-    }
-
-    It 'treats an absent record as an ordinary state, never an error' {
-        { Import-UsageState -StatePath (New-StatePath) } | Should -Not -Throw
-    }
-
-    # THE FAILURE THIS PINS MUTED THE PULSE FOR GOOD. Set-Content truncates before it fills, so a
-    # pulse job killed mid-write left `{"lastReading":{"stat` on disk - and every later read
-    # refused it as a file that belongs to something else, in this session and in every session
-    # after it, because nothing on this machine would ever repair it. The record holds a cached
-    # reading and a comparison baseline and nothing else, so the answer is to rebuild it.
-    It 'rebuilds a half-written record rather than refusing it for good' {
-        $p = New-StatePath
-        Set-Content -LiteralPath $p -Value '{"lastReading":{"stat' -Encoding utf8 -NoNewline
-
-        { Import-UsageState -StatePath $p } | Should -Not -Throw
-        (Import-UsageState -StatePath $p).Keys | Should -Not -Contain 'lastReading'
-
-        { Save-UsageState -State @{ lastSpoken = @{ band = 'b4' } } -StatePath $p } | Should -Not -Throw
-        (Import-UsageState -StatePath $p).lastSpoken.band | Should -Be 'b4'
-    }
-
-    # The other shape a killed write leaves: truncated to nothing before anything was filled in.
-    It 'rebuilds a record with nothing at all in it' {
-        $p = New-StatePath
-        Set-Content -LiteralPath $p -Value '' -Encoding utf8 -NoNewline
-
-        { Import-UsageState -StatePath $p } | Should -Not -Throw
-        { Save-UsageState -State @{ lastSpoken = @{ band = 'b4' } } -StatePath $p } | Should -Not -Throw
-        (Import-UsageState -StatePath $p).lastSpoken.band | Should -Be 'b4'
-    }
-
-    # Recovering our own half-written file must not become a licence to overwrite anything that
-    # will not parse. A file that parses and belongs to somebody else is still crew.json, and a
-    # file that is not JSON at all is still somebody's.
-    It 'still refuses a file that belongs to something else after a torn one is rebuilt' {
-        $p = New-StatePath -Leaf 'crew.json'
-        @{ workers = @{ 'T-1001' = @{ stage = 'implementing' } } } | ConvertTo-Json -Depth 5 |
-            Set-Content -LiteralPath $p -Encoding utf8
-
-        { Import-UsageState -StatePath $p } | Should -Throw '*belongs to something else*'
-        { Save-UsageState -State @{} -StatePath $p } | Should -Throw '*Nothing was written*'
-        (Get-Content -LiteralPath $p -Raw) | Should -BeLike '*T-1001*'
-    }
-
-    # The scratch file the atomic write goes through is not litter the Hand's own state directory
-    # has to live with, and a leftover would sit beside crew.json forever.
-    It 'leaves nothing behind beside the record it wrote' {
-        $p = New-StatePath
-        Save-UsageState -State @{ lastSpoken = @{ band = 'b4' } } -StatePath $p
-        Save-UsageState -State @{ lastSpoken = @{ band = 'b5' } } -StatePath $p
-
-        @(Get-ChildItem -LiteralPath (Split-Path -Parent $p) -File).Count | Should -Be 1
-        (Import-UsageState -StatePath $p).lastSpoken.band | Should -Be 'b5'
-    }
-
-    It 'defaults to state\usage.json under this installation, not to a path written out twice' {
-        Get-UsageStatePath | Should -BeLike '*\state\usage.json'
-    }
-}
-
 Describe 'The pulse is one line, and it says nothing when nothing has changed' {
     BeforeEach {
         Mock -ModuleName Usage Get-UsageWindow {
@@ -688,6 +583,11 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                takenAt = '2026-09-05T00:00:00.0000000Z' }
         }
         Mock -ModuleName Usage Get-UsageFleet { @() }
+
+        # The baseline the pulse compares against is one variable inside the module, living for the
+        # life of the process - so each case starts from a pulse that has never spoken, the way a
+        # freshly armed job does.
+        InModuleScope Usage { $script:LastSpoken = $null }
     }
 
     It 'names the percentage, the count and what each worker is doing' {
@@ -696,7 +596,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
               (New-FleetRow -Ticket 'emgee-seo'      -Stage 'ready'))
         }
 
-        Get-UsagePulse -StatePath (New-StatePath) |
+        Get-UsagePulse |
             Should -Be '62% used - 2 running: kh-usage-watch running checks, emgee-seo waiting on you'
     }
 
@@ -707,7 +607,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
             @(1..6 | ForEach-Object { New-FleetRow -Ticket "task-$_" })
         }
 
-        $line = Get-UsagePulse -StatePath (New-StatePath)
+        $line = Get-UsagePulse
         $line | Should -Not -BeNullOrEmpty
         $line.Contains("`n") | Should -BeFalse -Because 'the pulse is one line, hard cap'
         $line.Contains("`r") | Should -BeFalse -Because 'the pulse is one line, hard cap'
@@ -718,7 +618,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
     It 'stays on one line when a worker name carries a newline' {
         Mock -ModuleName Usage Get-UsageFleet { @(New-FleetRow -Ticket "one`ntwo") }
 
-        $line = Get-UsagePulse -StatePath (New-StatePath)
+        $line = Get-UsagePulse
         $line.Contains("`n") | Should -BeFalse
     }
 
@@ -727,45 +627,42 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
             @((New-FleetRow -Ticket 'live-one'), (New-FleetRow -Ticket 'gone' -Live $false))
         }
 
-        Get-UsagePulse -StatePath (New-StatePath) | Should -BeLike '*1 running: live-one*'
+        Get-UsagePulse | Should -BeLike '*1 running: live-one*'
     }
 
     It 'says so when there is nothing running' {
-        Get-UsagePulse -StatePath (New-StatePath) | Should -Be '62% used - nothing running'
+        Get-UsagePulse | Should -Be '62% used - nothing running'
     }
 
     # A line every interval regardless is the progress narration hard rule 6 forbids, and the King
     # asked for this so he would not have to ask for updates - not so he would get a heartbeat.
     It 'says nothing at all on a second tick with nothing moved' {
-        $p = New-StatePath
-        Get-UsagePulse -StatePath $p | Should -Not -BeNullOrEmpty
-        Get-UsagePulse -StatePath $p | Should -BeNullOrEmpty
+        Get-UsagePulse | Should -Not -BeNullOrEmpty
+        Get-UsagePulse | Should -BeNullOrEmpty
     }
 
     It 'speaks again when a worker changes what it is doing' {
-        $p = New-StatePath
         Mock -ModuleName Usage Get-UsageFleet { @(New-FleetRow -Ticket 'kh' -Stage 'implementing') }
-        Get-UsagePulse -StatePath $p | Should -BeLike '*kh working*'
+        Get-UsagePulse | Should -BeLike '*kh working*'
 
         Mock -ModuleName Usage Get-UsageFleet { @(New-FleetRow -Ticket 'kh' -Stage 'gating') }
-        Get-UsagePulse -StatePath $p | Should -BeLike '*kh running checks*'
+        Get-UsagePulse | Should -BeLike '*kh running checks*'
     }
 
     It 'stays quiet on a percentage that moves inside its band, and speaks when it crosses one' {
-        $p = New-StatePath
-        Get-UsagePulse -StatePath $p | Should -Not -BeNullOrEmpty
+        Get-UsagePulse | Should -Not -BeNullOrEmpty
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 67; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse -StatePath $p | Should -BeNullOrEmpty
+        Get-UsagePulse | Should -BeNullOrEmpty
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 71; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse -StatePath $p | Should -Be '71% used - nothing running'
+        Get-UsagePulse | Should -Be '71% used - nothing running'
     }
 
     # THE SAME SENTENCE TWICE IS NOT A CHANGE. The band that decides whether the pulse speaks and
@@ -773,46 +670,43 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
     # line rounded it - so 69.6 printed "70% used" in band b6 and 70.2 printed "70% used" again in
     # band b7, for a change the reader could not see anywhere in the line.
     It 'never prints the identical line twice for a number that has not moved' {
-        $p = New-StatePath
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 69.6; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse -StatePath $p | Should -Be '70% used - nothing running'
+        Get-UsagePulse | Should -Be '70% used - nothing running'
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 70.2; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse -StatePath $p | Should -BeNullOrEmpty
+        Get-UsagePulse | Should -BeNullOrEmpty
     }
 
     It 'still speaks when the number it prints crosses into the next ten' {
-        $p = New-StatePath
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 69.2; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse -StatePath $p | Should -Be '69% used - nothing running'
+        Get-UsagePulse | Should -Be '69% used - nothing running'
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 70.2; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse -StatePath $p | Should -Be '70% used - nothing running'
+        Get-UsagePulse | Should -Be '70% used - nothing running'
     }
 
     # Losing the number is itself a change worth one line. Reported as the same silence as
     # "nothing happened", a reader could not tell a quiet fleet from a broken reader.
     It 'says the usage is unknown rather than inventing one, and speaks when the reading is lost' {
-        $p = New-StatePath
-        Get-UsagePulse -StatePath $p | Should -Not -BeNullOrEmpty
+        Get-UsagePulse | Should -Not -BeNullOrEmpty
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'unknown'; signal = 'lookup-failed'; percent = $null
                                detail = 'x'; resetsAt = ''; window = ''; takenAt = 'now' }
         }
-        $line = Get-UsagePulse -StatePath $p
+        $line = Get-UsagePulse
         $line | Should -Be 'usage unknown - nothing running'
         $line | Should -Not -BeLike '*0%*'
     }
@@ -821,42 +715,43 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
         Mock -ModuleName Usage Get-UsageFleet {
             @(New-FleetRow -Ticket 'odd' -Stage 'something-nobody-recognises')
         }
-        Get-UsagePulse -StatePath (New-StatePath) | Should -BeLike '*odd phase not known*'
+        Get-UsagePulse | Should -BeLike '*odd phase not known*'
     }
 
     It 'says a worker is stuck on a question whatever stage it was recorded at' {
         Mock -ModuleName Usage Get-UsageFleet {
             @(New-FleetRow -Ticket 'kh' -Stage 'implementing' -AgentState 'blocked')
         }
-        Get-UsagePulse -StatePath (New-StatePath) | Should -BeLike '*kh stuck on a question*'
+        Get-UsagePulse | Should -BeLike '*kh stuck on a question*'
     }
 
     It 'falls back to the worker id where there is no ticket to name' {
         Mock -ModuleName Usage Get-UsageFleet {
             @(New-FleetRow -Ticket '' -Id 'T-9001' -Stage 'implementing')
         }
-        Get-UsagePulse -StatePath (New-StatePath) | Should -BeLike '*T-9001 working*'
+        Get-UsagePulse | Should -BeLike '*T-9001 working*'
     }
 
-    # End to end, because this is the failure as the King would have met it: the pulse silent for
-    # the rest of the session and every session after, and silence is what a working pulse looks
-    # like. It has to speak on the very next tick.
-    It 'keeps pulsing when the record was left half written' {
-        $p = New-StatePath
-        Set-Content -LiteralPath $p -Value '{"lastReading":{"stat' -Encoding utf8 -NoNewline
+    # THE PULSE KEEPS NOTHING ON DISK, and that is the property this pins rather than a detail of
+    # how it remembers. A record living in state\ was the whole of a data-loss hazard - it sits
+    # beside crew.json, and the guard that stopped a mistyped path replacing the fleet read a
+    # half-written crew.json as a half-written record of its own and overwrote it. There is nothing
+    # left to mistype: the baseline is a variable, and every tick below leaves the installation's
+    # own directory exactly as empty as it found it.
+    It 'writes nothing anywhere, however many times it pulses' {
+        $root  = New-TempFixtureDir -Prefix 'usage-home-'
+        $saved = $env:KINGSHAND_HOME
+        try {
+            $env:KINGSHAND_HOME = $root
+            Get-UsagePulse | Should -Not -BeNullOrEmpty
+            Get-UsagePulse | Should -BeNullOrEmpty
+            Get-UsagePulse | Should -BeNullOrEmpty
 
-        Get-UsagePulse -StatePath $p | Should -Be '62% used - nothing running'
-        (Import-UsageState -StatePath $p).lastSpoken.band | Should -Be 'b6'
-    }
-
-    It 'records the last reading whether or not it spoke' {
-        $p = New-StatePath
-        Get-UsagePulse -StatePath $p | Out-Null
-        Get-UsagePulse -StatePath $p | Should -BeNullOrEmpty
-
-        $state = Import-UsageState -StatePath $p
-        $state.lastReading.percent | Should -Be 62
-        $state.lastReading.status  | Should -Be 'has-usage'
+            @(Get-ChildItem -LiteralPath $root -Recurse -Force).Count |
+                Should -Be 0 -Because 'the pulse has no on-disk store at all'
+        } finally {
+            $env:KINGSHAND_HOME = $saved
+        }
     }
 }
 
@@ -869,11 +764,12 @@ Describe 'The pulse takes the fleet from the reader that already joins intent to
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 5; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
+        InModuleScope Usage { $script:LastSpoken = $null }
         $dir = New-TempFixtureDir
         $crew = Join-Path $dir 'crew.json'
         '{ "workers": {} }' | Set-Content -LiteralPath $crew -Encoding utf8
 
-        Get-UsagePulse -StatePath (Join-Path $dir 'usage.json') -CrewStatePath $crew |
+        Get-UsagePulse -CrewStatePath $crew |
             Should -Be '5% used - nothing running'
     }
 }
@@ -885,53 +781,32 @@ Describe 'The pulse on a timer' {
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
         Mock -ModuleName Usage Get-UsageFleet { @() }
+        InModuleScope Usage { $script:LastSpoken = $null }
     }
 
     # The default is what the documented background job takes - it passes no interval at all - so
-    # the cadence a session is really running at has to be the default's value and not a caller's.
-    It 'runs at ten minutes when nobody says otherwise' {
-        $p = New-StatePath
-        Watch-UsagePulse -Count 1 -StatePath $p | Out-Null
-        (Import-UsageState -StatePath $p).pulse.intervalMinutes | Should -Be 10
-    }
+    # the cadence is read off the wait the loop actually performs rather than off a note about it.
+    It 'waits ten minutes between ticks when nobody says otherwise' {
+        $global:UsageSleeps = @()
+        Mock -ModuleName Usage Start-Sleep { $global:UsageSleeps += $Milliseconds }
 
-    # Arming reads and writes the record before the loop's own containment can help, so a record
-    # left half written used to kill the job at the moment it was armed - and the Hand would have
-    # gone the whole session believing a pulse was running.
-    It 'arms on a record that was left half written' {
-        $p = New-StatePath
-        Set-Content -LiteralPath $p -Value '{"pulse":{"interval' -Encoding utf8 -NoNewline
-
-        { Watch-UsagePulse -Count 1 -StatePath $p } | Should -Not -Throw
-        (Import-UsageState -StatePath $p).pulse.intervalMinutes | Should -Be 10
-    }
-
-    # A PULSE THAT NEVER STARTED LOOKS EXACTLY LIKE A QUIET ONE. The cadence note is written before
-    # the loop, outside the containment the loop has, so a record it could not read or write killed
-    # the job at the moment it was armed and the Hand spent the session believing a pulse was
-    # running. The note is worth a warning, never the session.
-    It 'starts the pulse even when the record cannot be written at arm time' {
-        $p = New-StatePath -Leaf 'crew.json'
-        @{ workers = @{ 'T-1001' = @{ stage = 'implementing' } } } | ConvertTo-Json -Depth 5 |
-            Set-Content -LiteralPath $p -Encoding utf8
-
-        { Watch-UsagePulse -Count 1 -StatePath $p -WarningAction SilentlyContinue } | Should -Not -Throw
-        Should -Invoke -ModuleName Usage Get-UsageFleet -Times 1 -Exactly `
-            -Because 'the tick has to run even though the cadence could not be recorded'
-
-        # And the refusal that protects the fleet is untouched by starting anyway.
-        (Get-Content -LiteralPath $p -Raw) | Should -BeLike '*T-1001*'
+        Watch-UsagePulse -Count 2 | Out-Null
+        @($global:UsageSleeps) | Should -Be @(600000)
+        Remove-Variable -Name UsageSleeps -Scope Global -ErrorAction SilentlyContinue
     }
 
     It 'takes a different cadence when a session asks for one' {
-        $p = New-StatePath
-        Watch-UsagePulse -Count 1 -IntervalMinutes 2 -StatePath $p | Out-Null
-        (Import-UsageState -StatePath $p).pulse.intervalMinutes | Should -Be 2
+        $global:UsageSleeps = @()
+        Mock -ModuleName Usage Start-Sleep { $global:UsageSleeps += $Milliseconds }
+
+        Watch-UsagePulse -Count 3 -IntervalMinutes 2 | Out-Null
+        @($global:UsageSleeps) | Should -Be @(120000, 120000)
+        Remove-Variable -Name UsageSleeps -Scope Global -ErrorAction SilentlyContinue
     }
 
     It 'speaks on the first tick without waiting out an interval' {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $out = @(Watch-UsagePulse -Count 1 -StatePath (New-StatePath))
+        $out = @(Watch-UsagePulse -Count 1)
         $sw.Stop()
         $out.Count | Should -Be 1
         $sw.Elapsed.TotalSeconds | Should -BeLessThan 60 -Because 'arming the pulse costs nothing'
@@ -939,13 +814,13 @@ Describe 'The pulse on a timer' {
 
     It 'waits between ticks rather than spinning' {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        Watch-UsagePulse -Count 2 -IntervalMinutes 0.05 -StatePath (New-StatePath) | Out-Null
+        Watch-UsagePulse -Count 2 -IntervalMinutes 0.05 | Out-Null
         $sw.Stop()
         $sw.Elapsed.TotalSeconds | Should -BeGreaterThan 2
     }
 
     It 'refuses a negative cadence rather than looping on one' {
-        { Watch-UsagePulse -Count 1 -IntervalMinutes -1 -StatePath (New-StatePath) } |
+        { Watch-UsagePulse -Count 1 -IntervalMinutes -1 } |
             Should -Throw '*cannot be negative*'
     }
 
@@ -956,7 +831,7 @@ Describe 'The pulse on a timer' {
     # asked for a constant pulse would have got exactly this. It has to refuse instead of spinning,
     # and the refusal has to say what to pass instead.
     It 'refuses an interval of nothing on a run with no end' {
-        $err = { Watch-UsagePulse -IntervalMinutes 0 -StatePath (New-StatePath) } |
+        $err = { Watch-UsagePulse -IntervalMinutes 0 } |
             Should -Throw -PassThru
         "$($err.Exception.Message)" | Should -BeLike '*needs an interval to wait out*'
         "$($err.Exception.Message)" | Should -BeLike '*-Count*'
@@ -965,7 +840,7 @@ Describe 'The pulse on a timer' {
     # Bounded is the case zero was written for: a caller that wants two ticks back to back should
     # not sit through a wait, and there is no loop to run away with.
     It 'still runs a bounded set of ticks with no wait between them' {
-        $out = @(Watch-UsagePulse -Count 2 -IntervalMinutes 0 -StatePath (New-StatePath))
+        $out = @(Watch-UsagePulse -Count 2 -IntervalMinutes 0)
         $out.Count | Should -Be 1 -Because 'the second tick has nothing new to say'
     }
 
@@ -982,7 +857,7 @@ Describe 'The pulse on a timer' {
             @()
         }
 
-        $out = @(Watch-UsagePulse -Count 2 -IntervalMinutes 0 -StatePath (New-StatePath) `
+        $out = @(Watch-UsagePulse -Count 2 -IntervalMinutes 0 `
                                   -WarningAction SilentlyContinue)
         $global:UsageTickCount | Should -Be 2 -Because 'the second tick has to happen at all'
         $out.Count | Should -Be 1
@@ -998,7 +873,7 @@ Describe 'The pulse on a timer' {
         }
 
         $warnings = @()
-        Watch-UsagePulse -Count 1 -IntervalMinutes 0 -StatePath (New-StatePath) `
+        Watch-UsagePulse -Count 1 -IntervalMinutes 0 `
                          -WarningVariable warnings -WarningAction SilentlyContinue | Out-Null
         "$warnings" | Should -BeLike '*crew.json was half written*'
         Remove-Variable -Name UsageTickCount -Scope Global -ErrorAction SilentlyContinue

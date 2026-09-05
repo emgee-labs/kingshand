@@ -117,8 +117,10 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
 
 - `state\crew.json` - worker id to ticket, repo, stage, and which decision it parked on. Maintained
   via `bin\Crew.psm1`.
-- `state\usage.json` - the last usage reading, what the pulse last said, and the cadence it is armed
-  at. Maintained via `bin\Usage.psm1`, which refuses to write over a file it did not itself write.
+- The usage pulse owns no file at all. What it last said lives in the background job that is
+  pulsing, for as long as that job runs, and `bin\Usage.psm1` writes nothing to disk - so `state\`
+  keeps crew.json as its only file, and the cost is one line a restarted session might have held
+  back.
 - `data\projects.md` - the project registry: standing delivery posture per project. Maintained
   via `/annex` or by hand.
 - `data\done-<project>.md` - one project's standing definition of done, one `-` bullet per
@@ -197,7 +199,7 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Memory.psm1` | the startup-memory budget: what the two memory files cost, against what is allowed |
 | `bin\Index.psm1` | the data index: write a file and index it in one call, add an entry for a file another tool wrote, read a project's index, count the drift, drop an entry whose file is gone |
 | `bin\BrowserVerify.psm1` | the three answers a browser check must not give from memory: whether the browser tools all loaded, where a login is set without ever writing it down, and what a run of checks verified, failed or could not check |
-| `bin\Usage.psm1` | how much of the current usage window is spent, and the one-line pulse: three answers where a percentage that could not be read is never a number, the record under `state\usage.json`, and the pulse on its timer |
+| `bin\Usage.psm1` | how much of the current usage window is spent, and the one-line pulse: three answers where a percentage that could not be read is never a number, a baseline held in memory and written nowhere, and the pulse on its timer |
 
 ## Skills
 

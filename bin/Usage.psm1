@@ -32,8 +32,6 @@ Set-StrictMode -Version Latest
 # scanner standing criterion 12 forbids, and there is no round after which such a matcher is
 # finished. The switch is a person's word read by the Hand, and it stays that way.
 
-Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
-
 # Ten minutes between pulses, and it is a parameter on Watch-UsagePulse rather than a constant so a
 # session that wants a different cadence can say so without editing this file.
 $script:DefaultPulseIntervalMinutes = 10
@@ -47,10 +45,21 @@ $script:DefaultTimeoutSeconds = 20
 # however many workers are live - so the tail is summarised rather than wrapped.
 $script:PulseNameLimit = 3
 
-# The file's own marker. A write destination that cannot prove it owns the file it is about to
-# overwrite refuses, and this is the proof: state\ also holds crew.json, and a mistyped path that
-# silently replaced the worker records would lose the fleet.
-$script:StateKind = 'kingshand-usage'
+# WHAT THE PULSE LAST SAID, HELD FOR THE LIFE OF THE PROCESS AND WRITTEN NOWHERE.
+#
+# This is the whole of the pulse's memory: the band and the fleet shape of the last line it spoke.
+# It never needs to outlive the process, because a tick is only ever compared against the tick
+# before it and the documented arming is one long-lived background job.
+#
+# NOTHING IN THIS MODULE OPENS A FILE TO KEEP IT, and that is deliberate rather than incidental. A
+# record here would live in state\, beside crew.json, and every guard written to stop a mistyped
+# path replacing the fleet is a guard that can be got wrong - a half-written crew.json read as a
+# half-written record of ours was exactly that, and it cost the fleet with nothing raised anywhere.
+# There is no path to mistype and no file to overwrite when the baseline is a variable.
+#
+# The accepted cost is one line: a restarted session speaks its first pulse even where nothing has
+# moved, because it has nothing yet to compare against.
+$script:LastSpoken = $null
 
 # A property off a ConvertFrom-Json object, or $null when it is not there. Under
 # Set-StrictMode -Version Latest a missing property throws, and every field below is one the tool
@@ -460,135 +469,6 @@ function Get-UsageWindow {
     }
 }
 
-# state\usage.json under this installation's root, unless a caller names another file.
-#
-# The default is composed here rather than at a parameter default so every caller lands on one
-# answer, and so the root comes from Paths.psm1 - the one place that decision is made - rather than
-# from a path written out a second time.
-function Get-UsageStatePath {
-    [CmdletBinding()]
-    param([string]$StatePath = '')
-
-    if ($StatePath -and $StatePath.Trim()) { return $StatePath.Trim() }
-    Join-Path (Get-KingshandHome) 'state\usage.json'
-}
-
-# WHAT IS STANDING WHERE THE RECORD GOES, DECIDED ONCE. The reader and the writer both ask this, so
-# they cannot disagree about whether a file is ours - and the two answers that matter are told apart
-# here rather than at each call site.
-#
-#   absent     nothing there, or a file with nothing in it
-#   ours       a usage record this module wrote, proved by its own `kind` marker
-#   torn       a half-written record of ours: a JSON object that does not parse
-#   foreign    a file that parses and belongs to something else, or is not JSON at all
-#   unreadable a file that could not be opened, so nothing about it can be proved
-#   directory  a directory standing where the file belongs
-#
-# TORN IS ITS OWN ANSWER AND THAT IS THE POINT. This file holds a cached reading and a comparison
-# baseline, both of which the next tick rebuilds from scratch, so a half-written one is worth
-# nothing and refusing it costs the pulse permanently - in this session and in every later one,
-# because nothing else on this machine would ever repair it. A JSON object that will not parse is
-# the shape a killed write leaves, so it is replaced. Anything else is still refused: a file that
-# parses and carries somebody else's marker is state\crew.json, which is the fleet.
-function Get-UsageStateVerdict {
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Path)
-
-    if (Test-Path -LiteralPath $Path -PathType Container)  { return 'directory' }
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return 'absent' }
-
-    $raw = ''
-    try { $raw = "$(Get-Content -LiteralPath $Path -Raw -ErrorAction Stop)" } catch { return 'unreadable' }
-    if (-not $raw.Trim()) { return 'absent' }
-
-    $existing = $null
-    try { $existing = $raw | ConvertFrom-Json } catch {
-        if ($raw.TrimStart().StartsWith('{')) { return 'torn' }
-        return 'foreign'
-    }
-    if ((Get-JsonField $existing 'kind') -eq $script:StateKind) { return 'ours' }
-    'foreign'
-}
-
-# THE CONSTRAINT ON THE DESTINATION, IN ONE PLACE. state\ is the Hand's own directory and it already
-# holds crew.json, which is the record of every dispatched worker. A write here refuses unless the
-# file is absent, is one this module wrote, or is one this module left half written.
-# Refusing costs a message; guessing wrong costs the fleet.
-function Assert-UsageStateOwned {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$Path,
-        [string]$Verdict = ''
-    )
-
-    if (-not $Verdict) { $Verdict = Get-UsageStateVerdict -Path $Path }
-
-    switch ($Verdict) {
-        'directory' {
-            throw ("$Path is where the usage record belongs and it is a directory. Move it aside, " +
-                   "or point the usage record at a file. Nothing was written.")
-        }
-        'unreadable' {
-            throw ("$Path is where the usage record belongs and it could not be opened at all, so " +
-                   "there is no way to tell whether it is one this wrote. Overwriting it would " +
-                   "destroy whatever it is. Nothing was written.")
-        }
-        'foreign' {
-            throw ("$Path already exists and does not carry the '$($script:StateKind)' marker, so " +
-                   "it belongs to something else - state\crew.json is the file this refusal exists " +
-                   "to protect. Point the usage record at another file. Nothing was written.")
-        }
-    }
-}
-
-# The record, or a fresh empty one. An absent file is an ordinary state - nothing has pulsed yet -
-# and never an error, and so is a half-written one, which carries nothing the next tick will not
-# work out again. A file that is there and belongs to something else is refused rather than read.
-function Import-UsageState {
-    [CmdletBinding()]
-    param([string]$StatePath = '')
-
-    $path    = Get-UsageStatePath -StatePath $StatePath
-    $verdict = Get-UsageStateVerdict -Path $path
-    if ($verdict -eq 'absent' -or $verdict -eq 'torn') {
-        return @{ kind = $script:StateKind }
-    }
-    Assert-UsageStateOwned -Path $path -Verdict $verdict
-    (Get-Content -LiteralPath $path -Raw) | ConvertFrom-Json -AsHashtable
-}
-
-function Save-UsageState {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][hashtable]$State,
-        [string]$StatePath = ''
-    )
-
-    $path = Get-UsageStatePath -StatePath $StatePath
-    Assert-UsageStateOwned -Path $path
-
-    $State['kind'] = $script:StateKind
-    $dir = Split-Path -Parent $path
-    if ($dir -and -not (Test-Path -LiteralPath $dir)) {
-        New-Item -ItemType Directory -Force -Path $dir | Out-Null
-    }
-
-    # WRITTEN BESIDE THE FILE AND MOVED ONTO IT, never written through it. Set-Content truncates
-    # first and fills afterwards, so a pulse job killed between the two - session end, the machine
-    # sleeping, a Ctrl-C - left a half-written record on disk. A move is one step: what survives a
-    # kill is the whole of the old file or the whole of the new one, and never a piece of either.
-    # The scratch file is a sibling so the move stays on one volume, where it is atomic.
-    $temp = "$path.$([guid]::NewGuid().ToString('N')).tmp"
-    try {
-        $State | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $temp -Encoding utf8
-        Move-Item -LiteralPath $temp -Destination $path -Force
-    } finally {
-        if (Test-Path -LiteralPath $temp) {
-            Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
-        }
-    }
-}
-
 # What the fleet is doing, taken from the readers that already join intent to liveness rather than
 # from a second inventory of this module's own. Get-CrewStatus.ps1 owns that join; this is only the
 # seam that lets the pulse be exercised without a herdr server.
@@ -689,10 +569,7 @@ function Format-UsagePulse {
 # against. Ticks in between update the last reading and say nothing.
 function Get-UsagePulse {
     [CmdletBinding()]
-    param(
-        [string]$StatePath = '',
-        [string]$CrewStatePath = ''
-    )
+    param([string]$CrewStatePath = '')
 
     $reading = Get-UsageWindow
     $fleet   = @(Get-UsageFleet -CrewStatePath $CrewStatePath)
@@ -712,32 +589,16 @@ function Get-UsagePulse {
     }
     $shape = (@($live | ForEach-Object { "$(Get-WorkerLabel $_)=$(Get-WorkerPhrase $_)" }) -join '|')
 
-    $state = Import-UsageState -StatePath $StatePath
-    $state['lastReading'] = @{
-        status   = $reading.status
-        signal   = $reading.signal
-        percent  = $reading.percent
-        resetsAt = $reading.resetsAt
-        window   = $reading.window
-        takenAt  = $reading.takenAt
-    }
-
-    $spoken = if ($state.ContainsKey('lastSpoken')) { $state['lastSpoken'] } else { $null }
-    $sameBand  = $spoken -and "$(Get-JsonField ([pscustomobject]$spoken) 'band')"  -eq $band
-    $sameShape = $spoken -and "$(Get-JsonField ([pscustomobject]$spoken) 'shape')" -eq $shape
-    if ($sameBand -and $sameShape) {
-        Save-UsageState -State $state -StatePath $StatePath
-        return
-    }
+    $spoken = $script:LastSpoken
+    if ($spoken -and $spoken.band -eq $band -and $spoken.shape -eq $shape) { return }
 
     $line = Format-UsagePulse -Reading $reading -Live $live
-    $state['lastSpoken'] = @{
+    $script:LastSpoken = @{
         band  = $band
         shape = $shape
         line  = $line
         at    = (Get-Date).ToUniversalTime().ToString('o')
     }
-    Save-UsageState -State $state -StatePath $StatePath
     $line
 }
 
@@ -752,7 +613,6 @@ function Watch-UsagePulse {
     param(
         [double]$IntervalMinutes = $script:DefaultPulseIntervalMinutes,
         [int]$Count = 0,
-        [string]$StatePath = '',
         [string]$CrewStatePath = ''
     )
 
@@ -761,36 +621,15 @@ function Watch-UsagePulse {
 
     # NO INTERVAL AND NO END IS A BUSY LOOP, and this is the one shape of it. The sleep is skipped
     # for an interval of zero, which is right for a bounded run - a test asking for two ticks back
-    # to back should not wait - and catastrophic for an unbounded one: every pass starts quota-axi,
-    # reads the fleet through herdr and rewrites the record, as fast as the machine allows, for the
-    # life of the session. It is silent while it does it, because after the first tick nothing has
-    # changed and the pulse's normal answer is nothing at all, which the King is taught to read as a
-    # pulse that is working. Refused rather than quietly given a cadence nobody asked for.
+    # to back should not wait - and catastrophic for an unbounded one: every pass starts quota-axi
+    # and reads the fleet through herdr, as fast as the machine allows, for the life of the session.
+    # It is silent while it does it, because after the first tick nothing has changed and the
+    # pulse's normal answer is nothing at all, which the King is taught to read as a pulse that is
+    # working. Refused rather than quietly given a cadence nobody asked for.
     if ($Count -eq 0 -and $IntervalMinutes -le 0) {
         throw ("A pulse that runs until it is stopped needs an interval to wait out; got " +
                "$IntervalMinutes. Give -IntervalMinutes a positive number of minutes, or pass " +
                "-Count to bound the run if you want ticks with no wait between them.")
-    }
-
-    # Recorded before the first tick, so the cadence a session is actually running at is on disk
-    # rather than only in the job that armed it.
-    #
-    # AND IT MAY NOT STOP THE PULSE STARTING. This record is a note about the cadence, nothing the
-    # pulse needs to run, so a file that cannot be read or written here costs the note and not the
-    # session. Uncontained it killed the job at the moment it was armed - another session part-way
-    # through its own move is enough - and a pulse that never started looks exactly like a quiet one.
-    # The refusal is not lost: every tick writes the record too, and reports it through the
-    # contained path once per interval.
-    try {
-        $state = Import-UsageState -StatePath $StatePath
-        $state['pulse'] = @{
-            intervalMinutes = $IntervalMinutes
-            armedAt         = (Get-Date).ToUniversalTime().ToString('o')
-        }
-        Save-UsageState -State $state -StatePath $StatePath
-    } catch {
-        Write-Warning ("The usage pulse could not record the cadence it is running at, and is " +
-                       "starting anyway: $($_.Exception.Message)")
     }
 
     $i = 0
@@ -804,7 +643,7 @@ function Watch-UsagePulse {
         # noticing he had heard nothing for hours. crew.json is written without a temp-and-rename,
         # so a tick that reads it mid-write is the ordinary way this happens.
         try {
-            Get-UsagePulse -StatePath $StatePath -CrewStatePath $CrewStatePath
+            Get-UsagePulse -CrewStatePath $CrewStatePath
         } catch {
             Write-Warning ("The usage pulse could not take this reading and will try again next " +
                            "interval: $($_.Exception.Message)")
@@ -816,7 +655,6 @@ function Watch-UsagePulse {
 Export-ModuleMember -Function Get-QuotaAxiCommandPath, Get-QuotaAxiHint, Invoke-QuotaAxi,
                               ConvertTo-JsonList, Test-JsonField, ConvertTo-UsageNumber,
                               ConvertTo-UsageResetTime, Format-UsageResetTime,
-                              Format-UsageWindowName, Get-UsageWindow, Get-UsageStatePath,
-                              Import-UsageState, Save-UsageState, Get-UsageFleet,
+                              Format-UsageWindowName, Get-UsageWindow, Get-UsageFleet,
                               Get-WorkerPhrase, Get-WorkerLabel, Format-UsagePulse,
                               Get-UsagePulse, Watch-UsagePulse

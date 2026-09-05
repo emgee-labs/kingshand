@@ -4536,13 +4536,14 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             Assert-Phrase -Text (Get-HandSection 'Tooling') -Where 'the CLAUDE.md tooling table' `
                 -Phrase ('| `bin\Usage.psm1` | how much of the current usage window is spent, and the ' +
                          'one-line pulse: three answers where a percentage that could not be read is ' +
-                         'never a number, the record under `state\usage.json`, and the pulse on its timer |')
+                         'never a number, a baseline held in memory and written nowhere, and the ' +
+                         'pulse on its timer |')
         }
 
-        It 'names the new state file among what the Hand owns' {
+        It 'says the pulse owns no file, among what the Hand owns' {
             Assert-Phrase -Text (Get-HandSection 'What you own') -Where 'CLAUDE.md' `
-                -Phrase ('`state\usage.json` - the last usage reading, what the pulse last said, and ' +
-                         'the cadence it is armed at.')
+                -Phrase ('The usage pulse owns no file at all. What it last said lives in the ' +
+                         'background job that is pulsing, for as long as that job runs')
         }
     }
 
