@@ -530,6 +530,56 @@ Describe 'The usage record refuses to overwrite a file it does not own' {
         { Import-UsageState -StatePath (New-StatePath) } | Should -Not -Throw
     }
 
+    # THE FAILURE THIS PINS MUTED THE PULSE FOR GOOD. Set-Content truncates before it fills, so a
+    # pulse job killed mid-write left `{"lastReading":{"stat` on disk - and every later read
+    # refused it as a file that belongs to something else, in this session and in every session
+    # after it, because nothing on this machine would ever repair it. The record holds a cached
+    # reading and a comparison baseline and nothing else, so the answer is to rebuild it.
+    It 'rebuilds a half-written record rather than refusing it for good' {
+        $p = New-StatePath
+        Set-Content -LiteralPath $p -Value '{"lastReading":{"stat' -Encoding utf8 -NoNewline
+
+        { Import-UsageState -StatePath $p } | Should -Not -Throw
+        (Import-UsageState -StatePath $p).Keys | Should -Not -Contain 'lastReading'
+
+        { Save-UsageState -State @{ lastSpoken = @{ band = 'b4' } } -StatePath $p } | Should -Not -Throw
+        (Import-UsageState -StatePath $p).lastSpoken.band | Should -Be 'b4'
+    }
+
+    # The other shape a killed write leaves: truncated to nothing before anything was filled in.
+    It 'rebuilds a record with nothing at all in it' {
+        $p = New-StatePath
+        Set-Content -LiteralPath $p -Value '' -Encoding utf8 -NoNewline
+
+        { Import-UsageState -StatePath $p } | Should -Not -Throw
+        { Save-UsageState -State @{ lastSpoken = @{ band = 'b4' } } -StatePath $p } | Should -Not -Throw
+        (Import-UsageState -StatePath $p).lastSpoken.band | Should -Be 'b4'
+    }
+
+    # Recovering our own half-written file must not become a licence to overwrite anything that
+    # will not parse. A file that parses and belongs to somebody else is still crew.json, and a
+    # file that is not JSON at all is still somebody's.
+    It 'still refuses a file that belongs to something else after a torn one is rebuilt' {
+        $p = New-StatePath -Leaf 'crew.json'
+        @{ workers = @{ 'T-1001' = @{ stage = 'implementing' } } } | ConvertTo-Json -Depth 5 |
+            Set-Content -LiteralPath $p -Encoding utf8
+
+        { Import-UsageState -StatePath $p } | Should -Throw '*belongs to something else*'
+        { Save-UsageState -State @{} -StatePath $p } | Should -Throw '*Nothing was written*'
+        (Get-Content -LiteralPath $p -Raw) | Should -BeLike '*T-1001*'
+    }
+
+    # The scratch file the atomic write goes through is not litter the Hand's own state directory
+    # has to live with, and a leftover would sit beside crew.json forever.
+    It 'leaves nothing behind beside the record it wrote' {
+        $p = New-StatePath
+        Save-UsageState -State @{ lastSpoken = @{ band = 'b4' } } -StatePath $p
+        Save-UsageState -State @{ lastSpoken = @{ band = 'b5' } } -StatePath $p
+
+        @(Get-ChildItem -LiteralPath (Split-Path -Parent $p) -File).Count | Should -Be 1
+        (Import-UsageState -StatePath $p).lastSpoken.band | Should -Be 'b5'
+    }
+
     It 'defaults to state\usage.json under this installation, not to a path written out twice' {
         Get-UsageStatePath | Should -BeLike '*\state\usage.json'
     }
@@ -659,6 +709,17 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
         Get-UsagePulse -StatePath (New-StatePath) | Should -BeLike '*T-9001 working*'
     }
 
+    # End to end, because this is the failure as the King would have met it: the pulse silent for
+    # the rest of the session and every session after, and silence is what a working pulse looks
+    # like. It has to speak on the very next tick.
+    It 'keeps pulsing when the record was left half written' {
+        $p = New-StatePath
+        Set-Content -LiteralPath $p -Value '{"lastReading":{"stat' -Encoding utf8 -NoNewline
+
+        Get-UsagePulse -StatePath $p | Should -Be '62% used - nothing running'
+        (Import-UsageState -StatePath $p).lastSpoken.band | Should -Be 'b6'
+    }
+
     It 'records the last reading whether or not it spoke' {
         $p = New-StatePath
         Get-UsagePulse -StatePath $p | Out-Null
@@ -702,6 +763,17 @@ Describe 'The pulse on a timer' {
     It 'runs at ten minutes when nobody says otherwise' {
         $p = New-StatePath
         Watch-UsagePulse -Count 1 -StatePath $p | Out-Null
+        (Import-UsageState -StatePath $p).pulse.intervalMinutes | Should -Be 10
+    }
+
+    # Arming reads and writes the record before the loop's own containment can help, so a record
+    # left half written used to kill the job at the moment it was armed - and the Hand would have
+    # gone the whole session believing a pulse was running.
+    It 'arms on a record that was left half written' {
+        $p = New-StatePath
+        Set-Content -LiteralPath $p -Value '{"pulse":{"interval' -Encoding utf8 -NoNewline
+
+        { Watch-UsagePulse -Count 1 -StatePath $p } | Should -Not -Throw
         (Import-UsageState -StatePath $p).pulse.intervalMinutes | Should -Be 10
     }
 

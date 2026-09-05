@@ -415,44 +415,87 @@ function Get-UsageStatePath {
     Join-Path (Get-KingshandHome) 'state\usage.json'
 }
 
-# THE CONSTRAINT ON THE DESTINATION, IN ONE PLACE. state\ is the Hand's own directory and it already
-# holds crew.json, which is the record of every dispatched worker. A write here refuses unless the
-# file is absent or is one this module wrote - proved by its own `kind` marker and nothing else.
-# Refusing costs a message; guessing wrong costs the fleet.
-function Assert-UsageStateOwned {
+# WHAT IS STANDING WHERE THE RECORD GOES, DECIDED ONCE. The reader and the writer both ask this, so
+# they cannot disagree about whether a file is ours - and the two answers that matter are told apart
+# here rather than at each call site.
+#
+#   absent     nothing there, or a file with nothing in it
+#   ours       a usage record this module wrote, proved by its own `kind` marker
+#   torn       a half-written record of ours: a JSON object that does not parse
+#   foreign    a file that parses and belongs to something else, or is not JSON at all
+#   unreadable a file that could not be opened, so nothing about it can be proved
+#   directory  a directory standing where the file belongs
+#
+# TORN IS ITS OWN ANSWER AND THAT IS THE POINT. This file holds a cached reading and a comparison
+# baseline, both of which the next tick rebuilds from scratch, so a half-written one is worth
+# nothing and refusing it costs the pulse permanently - in this session and in every later one,
+# because nothing else on this machine would ever repair it. A JSON object that will not parse is
+# the shape a killed write leaves, so it is replaced. Anything else is still refused: a file that
+# parses and carries somebody else's marker is state\crew.json, which is the fleet.
+function Get-UsageStateVerdict {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Path)
 
-    if (Test-Path -LiteralPath $Path -PathType Container) {
-        throw ("$Path is where the usage record belongs and it is a directory. Move it aside, or " +
-               "point the usage record at a file. Nothing was written.")
-    }
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+    if (Test-Path -LiteralPath $Path -PathType Container)  { return 'directory' }
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return 'absent' }
+
+    $raw = ''
+    try { $raw = "$(Get-Content -LiteralPath $Path -Raw -ErrorAction Stop)" } catch { return 'unreadable' }
+    if (-not $raw.Trim()) { return 'absent' }
 
     $existing = $null
-    try { $existing = (Get-Content -LiteralPath $Path -Raw) | ConvertFrom-Json } catch {
-        throw ("$Path already exists and is not a usage record this wrote - it could not be read " +
-               "as JSON at all ($($_.Exception.Message)). Overwriting it would destroy whatever " +
-               "it is. Point the usage record at another file. Nothing was written.")
+    try { $existing = $raw | ConvertFrom-Json } catch {
+        if ($raw.TrimStart().StartsWith('{')) { return 'torn' }
+        return 'foreign'
     }
-    if ((Get-JsonField $existing 'kind') -ne $script:StateKind) {
-        throw ("$Path already exists and does not carry the '$($script:StateKind)' marker, so it " +
-               "belongs to something else - state\crew.json is the file this refusal exists to " +
-               "protect. Point the usage record at another file. Nothing was written.")
+    if ((Get-JsonField $existing 'kind') -eq $script:StateKind) { return 'ours' }
+    'foreign'
+}
+
+# THE CONSTRAINT ON THE DESTINATION, IN ONE PLACE. state\ is the Hand's own directory and it already
+# holds crew.json, which is the record of every dispatched worker. A write here refuses unless the
+# file is absent, is one this module wrote, or is one this module left half written.
+# Refusing costs a message; guessing wrong costs the fleet.
+function Assert-UsageStateOwned {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [string]$Verdict = ''
+    )
+
+    if (-not $Verdict) { $Verdict = Get-UsageStateVerdict -Path $Path }
+
+    switch ($Verdict) {
+        'directory' {
+            throw ("$Path is where the usage record belongs and it is a directory. Move it aside, " +
+                   "or point the usage record at a file. Nothing was written.")
+        }
+        'unreadable' {
+            throw ("$Path is where the usage record belongs and it could not be opened at all, so " +
+                   "there is no way to tell whether it is one this wrote. Overwriting it would " +
+                   "destroy whatever it is. Nothing was written.")
+        }
+        'foreign' {
+            throw ("$Path already exists and does not carry the '$($script:StateKind)' marker, so " +
+                   "it belongs to something else - state\crew.json is the file this refusal exists " +
+                   "to protect. Point the usage record at another file. Nothing was written.")
+        }
     }
 }
 
 # The record, or a fresh empty one. An absent file is an ordinary state - nothing has pulsed yet -
-# and never an error. A file that is there and is not ours is refused rather than read.
+# and never an error, and so is a half-written one, which carries nothing the next tick will not
+# work out again. A file that is there and belongs to something else is refused rather than read.
 function Import-UsageState {
     [CmdletBinding()]
     param([string]$StatePath = '')
 
-    $path = Get-UsageStatePath -StatePath $StatePath
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+    $path    = Get-UsageStatePath -StatePath $StatePath
+    $verdict = Get-UsageStateVerdict -Path $path
+    if ($verdict -eq 'absent' -or $verdict -eq 'torn') {
         return @{ kind = $script:StateKind }
     }
-    Assert-UsageStateOwned -Path $path
+    Assert-UsageStateOwned -Path $path -Verdict $verdict
     (Get-Content -LiteralPath $path -Raw) | ConvertFrom-Json -AsHashtable
 }
 
@@ -471,7 +514,21 @@ function Save-UsageState {
     if ($dir -and -not (Test-Path -LiteralPath $dir)) {
         New-Item -ItemType Directory -Force -Path $dir | Out-Null
     }
-    $State | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $path -Encoding utf8
+
+    # WRITTEN BESIDE THE FILE AND MOVED ONTO IT, never written through it. Set-Content truncates
+    # first and fills afterwards, so a pulse job killed between the two - session end, the machine
+    # sleeping, a Ctrl-C - left a half-written record on disk. A move is one step: what survives a
+    # kill is the whole of the old file or the whole of the new one, and never a piece of either.
+    # The scratch file is a sibling so the move stays on one volume, where it is atomic.
+    $temp = "$path.$([guid]::NewGuid().ToString('N')).tmp"
+    try {
+        $State | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $temp -Encoding utf8
+        Move-Item -LiteralPath $temp -Destination $path -Force
+    } finally {
+        if (Test-Path -LiteralPath $temp) {
+            Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 # What the fleet is doing, taken from the readers that already join intent to liveness rather than
