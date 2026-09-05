@@ -500,6 +500,38 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
             $r.signal | Should -Be 'no-windows'
         }
 
+        # THE SAME RULE ONE LEVEL DOWN, AND THE RENAME IT EXISTS FOR. A tool that lists windows and
+        # calls the session one something else has not said there are none - it has said something
+        # this cannot read. Settling on no-usage there is the single answer that neither refuses nor
+        # warns, so every dispatch from then on would go out unguarded with nothing reaching
+        # anybody, which is the failure the whole feature was written to prevent. This tool's window
+        # ordering has already changed once, so the rename is not hypothetical.
+        It 'reports unknown when a populated window list holds no id this recognises' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiProviderJson ('"windows": [ { "id": "session", ' +
+                                                '"percentUsed": 95, ' +
+                                                '"resetsAt": "2099-01-01T00:00:00Z" } ]'))
+            }
+
+            $r = Get-UsageWindow
+            $r.status  | Should -Be 'unknown' -Because 'a rename must not read as a settled fact'
+            $r.signal  | Should -Be 'no-account-windows'
+            $r.percent | Should -BeNullOrEmpty
+            $r.detail  | Should -BeLike '*It reported session instead*'
+        }
+
+        # Naming what it saw is what lets a person tell a rename from an account that really does
+        # carry only a spend cap, so the ids ride along rather than the answer being bare.
+        It 'names every window id it did see when it recognises none of them' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiProviderJson ('"windows": [ { "id": "extra_usage", ' +
+                                                '"percentUsed": 100 }, ' +
+                                                '{ "id": "opus_weekly", "percentUsed": 12 } ]'))
+            }
+
+            (Get-UsageWindow).detail | Should -BeLike '*extra_usage, opus_weekly*'
+        }
+
         It 'reports unknown when the windows field is not in the answer at all' {
             Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiProviderJson '') }
 

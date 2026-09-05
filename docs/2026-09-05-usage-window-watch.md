@@ -2,7 +2,7 @@
 
 Kingshand could spend the whole of a five-hour usage window without noticing, and the King found out
 when work died mid-run. This records where the number comes from, what was tried and rejected on the
-way to it, and the six decisions that shape what was built.
+way to it, and the decisions that shape what was built.
 
 ## Where the number comes from
 
@@ -62,7 +62,7 @@ Two files that look like they should answer and do not: the policy-limits file h
 restrictions rather than usage, and the top-level configuration holds a rate-limit tier name with no
 figure attached to it.
 
-## Six decisions
+## The decisions
 
 **The refusal fails open.** Dispatch refuses a new worker once the window is 90 percent spent, and a
 reading nobody could take never refuses anything - it warns and dispatches. A missing tool, a lookup
@@ -77,6 +77,15 @@ answers and the reader keeps them apart, which is the three-valued shape `Ci.psm
 account that genuinely reports no windows is a stable fact about the machine, and a warning on every
 dispatch for a state nobody can act on teaches the reader to skip the next one. A lookup that did
 not settle is something wrong, and it says so with the command that fixes it.
+
+**And "nothing here reports this" is the empty list alone.** The quiet answer is the only one that
+neither refuses a dispatch nor warns on one, so anything mistaken for it switches the guard off for
+good and tells nobody. A list of windows this recognises none of is therefore *not* that answer: the
+tool has said something the reader cannot read, not that there is nothing to read. It comes back
+unknown - which still warns and still dispatches - and names the ids it did see, so a renamed window
+can be told apart from an account that genuinely carries only a spend cap. This tool's window
+ordering has already changed once, so the rename is a real thing to guard rather than a
+hypothetical one.
 
 **Kingshand sums nothing, so it never has to choose which token counts to add.** The percentage
 comes from the account's own windows as the tool reports them. Had it been computed here from

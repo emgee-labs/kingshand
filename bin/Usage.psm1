@@ -581,14 +581,28 @@ function Get-UsageWindow {
         # one of them stop applying.
         $present = Get-AccountUsageWindows -Windows $windows
 
-        # An account-level window that IS there and has rolled is a different fact from there being
-        # none at all, and the two get different answers. None at all is settled: this account has
-        # no session or weekly window and there is nothing here to watch. One that exists and
-        # describes a window already over is something the reader has to say out loud.
+        # A LIST OF WINDOWS THIS RECOGNISES NONE OF IS NOT AN ACCOUNT WITH NO WINDOWS. It is the
+        # tool saying something this cannot read, and the difference decides whether every dispatch
+        # from now on is guarded. `no-usage` is the one answer that neither refuses nor warns, so
+        # settling on it here would switch the guard off permanently and tell nobody - which is
+        # exactly what a renamed window id would produce, and this tool's window ordering has
+        # already changed once. Only the literal empty list above is the tool affirmatively saying
+        # there are none; this is `unknown`, which warns and still dispatches, so the reader stays
+        # fail-open while saying plainly what it saw.
+        #
+        # The ids it did report are named, because the whole point is that a person can tell a
+        # rename from an account that really has only a spend cap.
         if ($present.Count -eq 0) {
-            return & $finish 'no-usage' 'no-account-windows' `
-                ('quota-axi reports the Claude account with no session or weekly window, so there ' +
-                 'is no window percentage to watch on this machine.' + $schema)
+            $seen = @($windows | ForEach-Object { "$(Get-JsonField $_ 'id')".Trim() } |
+                      Where-Object { $_ } | Select-Object -Unique)
+            $listed = if ($seen.Count -gt 0) {
+                ' It reported ' + ($seen -join ', ') + ' instead.'
+            } else { ' None of them carried an id this could read.' }
+            return & $finish 'unknown' 'no-account-windows' `
+                ('quota-axi reported usage windows for the Claude account and not one of them is ' +
+                 'the session or weekly window this reads, so how much of the window is spent was ' +
+                 'not established - a renamed window id arrives looking exactly like this.' +
+                 $listed + $schema)
         }
 
         # Every note this reading could carry, computed once from every window present rather than
@@ -808,7 +822,13 @@ function Format-UsagePulse {
 # narration CLAUDE.md hard rule 6 forbids, and the King asked for this so he would not have to ask
 # for updates - not so he would get a heartbeat. So it speaks only when the fleet has moved or the
 # percentage has crossed into a new band, and the record of what it last said is what it compares
-# against. Ticks in between update the last reading and say nothing.
+# against.
+#
+# A SILENT TICK UPDATES NOTHING AT ALL, and that is load-bearing rather than incidental. The
+# baseline holds the band, shape and account of the last line actually SPOKEN, so it is only
+# written on the way out of a tick that spoke. Advance it on a silent tick instead - move the
+# assignment above the early return - and every reading becomes its own baseline, nothing ever
+# differs from the tick before it, and the pulse goes quiet for good after the first line.
 function Get-UsagePulse {
     [CmdletBinding()]
     param([string]$CrewStatePath = '')
