@@ -478,6 +478,9 @@ Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
         $text | Should -BeLike '*worker branch*'
         $text | Should -Not -BeLike '*neither origin/worktree-other nor worktree-other resolves*'
         $text | Should -Not -BeLike '*Fetch worktree-other*'
+        $text | Should -BeLike '*refused on its name alone*'
+        $text | Should -Not -BeLike '*It resolves fine*'
+        $text | Should -Not -BeLike '*it belongs to another worker*'
     }
 
     # `$declaredIsWorker` is decided on the NAME, so this warning fires whether or not the declared
@@ -498,6 +501,7 @@ Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
         $text | Should -BeLike '*worktree-ghost*'
         $text | Should -BeLike '*refused on its name alone*'
         $text | Should -Not -BeLike '*It resolves fine*'
+        $text | Should -Not -BeLike '*it belongs to another worker*'
     }
 
     It 'says the same thing in the refusal when a declared worker branch is all there is' {

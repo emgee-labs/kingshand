@@ -39,8 +39,8 @@
   than sending the reader after an upstream that is not there either; or it names a `worktree-*`
   branch, which is refused on its name alone whether or not it resolves, so telling that reader to
   fetch it points at the wrong thing entirely - fetching cannot help a branch that would be
-  refused after it arrived - while the real fault, a declaration pointing at another worker's
-  branch, goes unsaid. That the name is what decides it is why this warning says nothing about
+  refused after it arrived - while the real fault, a declaration pointing into another worker's
+  branch namespace, goes unsaid. That the name is what decides it is why this warning says nothing about
   whether the ref exists: it fires identically for another worker's live branch and for a
   `worktree-*` name nobody ever created.
 
@@ -327,10 +327,11 @@ function Resolve-BaseRef {
             if ($declared -and $c -ne $declared -and $c -ne "origin/$declared") {
                 if ($declaredIsWorker) {
                     Write-Warning ("$RepoPath declares $declared as the branch its work " +
-                                   "integrates into, but that is a kingshand worker branch and " +
-                                   "a worktree-* ref is never a base - it belongs to another " +
-                                   "worker, so basing on it would measure this worker's diff " +
-                                   "and attribution scan against unlanded work. It is refused " +
+                                   "integrates into, but that name is in kingshand's worker " +
+                                   "branch namespace and a worktree-* ref is never a base - a " +
+                                   "branch there would belong to another worker, so basing on " +
+                                   "it would measure this worker's diff and attribution scan " +
+                                   "against unlanded work. It is refused " +
                                    "on its name alone, whether or not it resolves here, so " +
                                    "neither fetching nor creating it changes anything: this " +
                                    "worker is based on $c instead, while its pull request is " +
