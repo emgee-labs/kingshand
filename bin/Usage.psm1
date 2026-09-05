@@ -759,6 +759,19 @@ function Watch-UsagePulse {
     if ($IntervalMinutes -lt 0) { throw "IntervalMinutes cannot be negative; got $IntervalMinutes." }
     if ($Count -lt 0)           { throw "Count cannot be negative; got $Count." }
 
+    # NO INTERVAL AND NO END IS A BUSY LOOP, and this is the one shape of it. The sleep is skipped
+    # for an interval of zero, which is right for a bounded run - a test asking for two ticks back
+    # to back should not wait - and catastrophic for an unbounded one: every pass starts quota-axi,
+    # reads the fleet through herdr and rewrites the record, as fast as the machine allows, for the
+    # life of the session. It is silent while it does it, because after the first tick nothing has
+    # changed and the pulse's normal answer is nothing at all, which the King is taught to read as a
+    # pulse that is working. Refused rather than quietly given a cadence nobody asked for.
+    if ($Count -eq 0 -and $IntervalMinutes -le 0) {
+        throw ("A pulse that runs until it is stopped needs an interval to wait out; got " +
+               "$IntervalMinutes. Give -IntervalMinutes a positive number of minutes, or pass " +
+               "-Count to bound the run if you want ticks with no wait between them.")
+    }
+
     # Recorded before the first tick, so the cadence a session is actually running at is on disk
     # rather than only in the job that armed it.
     #

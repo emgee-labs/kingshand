@@ -4443,8 +4443,13 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                 -Where 'the vigil skill' -Phrase 'The switch is a person''s word, read by the Hand.'
         }
 
-        # Asserted on the source deliberately, which is what this file is for: the rule above is
-        # about what no script may do, and only the scripts themselves can answer that.
+        # A DELIBERATE EXCEPTION TO STANDING CRITERION 9, and this comment is the naming of it. That
+        # criterion rules out a test whose only evidence is that implementation source contains
+        # particular text, because matching text proves nothing about behaviour. This test and the
+        # one below are the case it cannot cover: the rule they enforce is a prohibition - what no
+        # script may DO - and a prohibition has no behavioural surface by construction. There is no
+        # call to drive and no output to observe, because the whole assertion is that the call does
+        # not exist anywhere. Only the scripts themselves can answer it.
         #
         # The rule is not "never touch the file" - the session-start digest prints it in full, and
         # that is the whole mechanism the off switch depends on. The rule is that nothing MATCHES
@@ -4460,9 +4465,12 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             }
         }
 
-        # The other half of it: the one script that does read the file hands it to the printer that
-        # emits a file whole, so the Hand receives the King's own words rather than a script's
-        # reading of them.
+        # The other half of it, and the second half of the same criterion 9 exception named above.
+        # The one script that does read the file hands it to the printer that emits a file whole, so
+        # the Hand receives the King's own words rather than a script's reading of them. What is
+        # being pinned is again the absence of a reading: SessionStart.Tests.ps1 can watch the
+        # digest print the file, but no observable output can show that the route it took was the
+        # whole-file printer and not a matcher that happened to agree today.
         It 'the digest prints it in full rather than reading anything out of it' {
             (Get-Content -Path (Join-Path $script:Root 'bin\Get-SessionStart.ps1') -Raw) |
                 Should -Match "Add-ContextFile -Name 'instructions\.md'"
@@ -4497,18 +4505,16 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Vigil | Should -Match 'must never make kingshand undispatchable'
         }
 
-        # The threshold is a number in one place and prose in two others, which is exactly how a
-        # contract drifts. Read out of the owner rather than typed here, so changing the default
-        # without changing what the King is told fails loudly instead of quietly.
-        It 'says the same threshold the dispatcher actually carries' {
-            $src = Get-Content -Path (Join-Path $script:Root 'bin\Dispatch-Worker.ps1') -Raw
-            $m = [regex]::Match($src, '\[int\]\$UsageThresholdPercent\s*=\s*(?<n>\d+)')
-            $m.Success | Should -BeTrue -Because 'the dispatcher owns the threshold'
-            $n = $m.Groups['n'].Value
-
-            $script:Vigil | Should -Match "usage window is $n percent spent"
+        # The threshold is a number the dispatcher carries and prose in two documents, which is
+        # exactly how a contract drifts. Held from both ends, and neither end reads the other's
+        # source: the number itself is pinned by behaviour in Dispatch-Worker.Tests.ps1, which
+        # dispatches at 89 and refuses at 90 without passing a threshold at all, so changing the
+        # default fails there. This half is the documents, so changing what the King is told fails
+        # here. Move either alone and one of the two goes red.
+        It 'tells the King the same 90 percent the dispatcher is pinned to' {
+            $script:Vigil | Should -Match 'usage window is 90 percent spent'
             (Get-Content -Path (Join-Path $script:Root 'docs\2026-09-05-usage-window-watch.md') -Raw) |
-                Should -Match "window is $n percent spent"
+                Should -Match 'window is 90 percent spent'
         }
 
         It 'keeps accounts and auto-resume out of it' {

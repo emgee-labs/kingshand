@@ -949,6 +949,26 @@ Describe 'The pulse on a timer' {
             Should -Throw '*cannot be negative*'
     }
 
+    # A GUARD THAT ONLY REFUSED NEGATIVES LET THE WORST CASE THROUGH. No interval and no end is a
+    # busy loop that starts quota-axi, reads the fleet and rewrites the record as fast as the
+    # machine allows, for the life of the session - and it does it in silence, because after the
+    # first tick nothing has changed and silence is what a working pulse looks like. A session that
+    # asked for a constant pulse would have got exactly this. It has to refuse instead of spinning,
+    # and the refusal has to say what to pass instead.
+    It 'refuses an interval of nothing on a run with no end' {
+        $err = { Watch-UsagePulse -IntervalMinutes 0 -StatePath (New-StatePath) } |
+            Should -Throw -PassThru
+        "$($err.Exception.Message)" | Should -BeLike '*needs an interval to wait out*'
+        "$($err.Exception.Message)" | Should -BeLike '*-Count*'
+    }
+
+    # Bounded is the case zero was written for: a caller that wants two ticks back to back should
+    # not sit through a wait, and there is no loop to run away with.
+    It 'still runs a bounded set of ticks with no wait between them' {
+        $out = @(Watch-UsagePulse -Count 2 -IntervalMinutes 0 -StatePath (New-StatePath))
+        $out.Count | Should -Be 1 -Because 'the second tick has nothing new to say'
+    }
+
     # A DEAD PULSE LOOKS EXACTLY LIKE A HEALTHY ONE, because saying nothing is the documented
     # normal case. So a tick that fails must cost that tick and nothing more - crew.json is
     # written without a temp-and-rename, and a tick that reads it mid-write is the ordinary way

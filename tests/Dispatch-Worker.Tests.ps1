@@ -1195,6 +1195,11 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             "$($err.Exception.Message)" | Should -BeLike '*Nothing was created*'
         }
 
+        # THESE TWO PIN THE DEFAULT THRESHOLD, and they are where the number 90 is held. Neither
+        # passes -UsageThresholdPercent, so both run on whatever the dispatcher's own default is:
+        # move it and one of the pair goes red. Docs.Tests.ps1 holds the other end - that the vigil
+        # skill and the design note tell the King the same 90 - so the two halves cannot drift apart
+        # without a test saying so, and neither half proves its point by reading the other's source.
         It 'refuses exactly at the threshold, not only past it' {
             Set-AgentStartState
             Set-UsageReply -Percent 90
