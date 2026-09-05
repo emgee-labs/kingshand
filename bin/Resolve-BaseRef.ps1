@@ -40,9 +40,9 @@
   branch, which is refused on its name alone whether or not it resolves, so telling that reader to
   fetch it points at the wrong thing entirely - fetching cannot help a branch that would be
   refused after it arrived - while the real fault, a declaration pointing into another worker's
-  branch namespace, goes unsaid. That the name is what decides it is why this warning says nothing about
-  whether the ref exists: it fires identically for another worker's live branch and for a
-  `worktree-*` name nobody ever created.
+  branch namespace, goes unsaid. That the name is what decides it is why this warning says
+  nothing about whether the ref exists: it fires identically for another worker's live branch and
+  for a `worktree-*` name nobody ever created.
 
   Honouring the declaration in its LOCAL form is warned about too. `origin/dev` comes first
   precisely because a local `dev` is often behind it, so falling through to the local copy on a
