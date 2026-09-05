@@ -39,12 +39,17 @@ BeforeAll {
             # put through the same reader. A fixture that could only hold a number could not
             # exercise the case where the number is not one.
             [object]$FiveHourPercent = 4,
-            [string]$FiveHourResets  = '2026-09-05T22:20:00.227705+00:00',
+            # RELATIVE, NEVER A FIXED DATE. A window only counts while its reset is still ahead, so
+            # a fixture pinned to a literal timestamp passes until that moment arrives and then
+            # fails for everyone afterwards, describing a window that has already rolled.
+            [string]$FiveHourResets  = ([datetimeoffset]::UtcNow.AddHours(3).ToString('o')),
             [object]$EffectiveRemaining = 96,
             [string[]]$LimitingWindowIds = @('five_hour'),
             [switch]$WithSevenDay,
-            [string]$SevenDayResets = '2026-09-12T10:00:00+00:00',
+            [string]$SevenDayResets = ([datetimeoffset]::UtcNow.AddDays(4).ToString('o')),
             [bool]$Stale = $false,
+            # What the tool says its own last attempt failed on. Absent unless a case is about it.
+            [string]$StateError = '',
             [switch]$NoWindows,
             # $null omits the field, which is the answer of a tool that stamps no version at all.
             [object]$SchemaVersion = 3,
@@ -88,12 +93,15 @@ BeforeAll {
             }
         }
 
+        $state = @{ status = if ($Stale) { 'stale' } else { 'fresh' }; stale = $Stale }
+        if ($StateError) { $state['error'] = $StateError }
+
         $report = @{
             generatedAt = '2026-09-05T17:40:31.826Z'
             providers   = @(@{
                 provider = $Provider; label = 'Claude'; source = 'oauth'; plan = 'team'
                 windows  = $windows
-                state    = @{ status = if ($Stale) { 'stale' } else { 'fresh' }; stale = $Stale }
+                state    = $state
                 quotaSemantics = $semantics
             })
         }
@@ -140,26 +148,31 @@ AfterAll {
 Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
 
     Context 'when quota-axi reports the account' {
-        It 'reads the percentage from what the tool says bounds every model' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -EffectiveRemaining 96) }
+        It 'reads the percentage from the account window nearest its limit' {
+            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 4) }
 
             $r = Get-UsageWindow
             $r.status  | Should -Be 'has-usage'
-            $r.signal  | Should -Be 'effective-availability'
+            $r.signal  | Should -Be 'driving-window'
             $r.percent | Should -Be 4
             $r.window  | Should -Be 'five_hour'
         }
 
-        # The spend cap in the fixture sits at 100 percent. Taking the worst window in the list
-        # would report the window as full and refuse every dispatch on a machine whose session
-        # window is barely touched, so the tool's own judgement about what bounds a model decides.
-        It 'does not let a window that bounds nothing decide the answer' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -EffectiveRemaining 96) }
-            (Get-UsageWindow).percent | Should -Be 4
+        # THE MEASURED TRAP, AND THE ONE CASE THE KING ASKED FOR BY NAME. `extra_usage` on this
+        # machine reports 100 percent used with no reset time at all. Take the worst percentage
+        # across the whole list and the answer is 100 for ever, which blocks every dispatch
+        # permanently - the hard block this guard is written never to perform.
+        It 'never lets a hundred-percent window with no reset time decide the answer' {
+            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 4) }
+
+            $r = Get-UsageWindow
+            $r.percent | Should -Be 4 -Because 'the spend cap in the fixture sits at 100 with no reset'
+            $r.window  | Should -Not -Be 'extra_usage'
+            $r.percent | Should -BeLessThan 90 -Because 'this reading must not refuse a dispatch'
         }
 
         It 'carries the reset time and says it in words a person can read' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -EffectiveRemaining 96) }
+            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 4) }
 
             $r = Get-UsageWindow
             $r.resetsAt | Should -Not -BeNullOrEmpty
@@ -167,64 +180,66 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
             $r.detail   | Should -BeLike '*session window*' -Because 'the detail is read out to a person'
         }
 
-        # Narrower than the answer above and still a real reading. A tool that reports windows but
-        # will not say what they add up to has still answered the question this asks.
-        It 'falls back to the five-hour window when the tool will not total them' {
+        # THE SESSION WINDOW AND THE WEEK ARE CONSIDERED TOGETHER. An overnight run sits comfortably
+        # inside a five-hour window while burning the week, and the weekly window resets in days
+        # rather than hours, so tripping that one costs far more.
+        It 'is driven by the week when the week is nearer its limit than the session' {
             Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 37 -EffectiveRemaining $null)
+                New-AxiOk (New-AxiReport -FiveHourPercent 12 -WithSevenDay)
             }
 
             $r = Get-UsageWindow
             $r.status  | Should -Be 'has-usage'
-            $r.signal  | Should -Be 'five-hour-window'
-            $r.percent | Should -Be 37
-        }
-
-        # A reset time that cannot be read is not evidence against a percentage that was read
-        # perfectly well, so the answer survives and only the footnote is dropped.
-        It 'keeps the percentage when the reset time will not parse' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -EffectiveRemaining 96 -FiveHourResets 'whenever')
-            }
-
-            $r = Get-UsageWindow
-            $r.status   | Should -Be 'has-usage'
-            $r.percent  | Should -Be 4
-            $r.resetsAt | Should -Be ''
-            $r.detail   | Should -Not -BeLike '*resets at*'
-        }
-
-        # Two ids is the case a single id hid. The list used to be handed to the window lookup
-        # whole, which coerces to "seven_day five_hour" and matches no window at all - so the
-        # reader lost the reset time and named a window that does not exist, silently, because
-        # every fixture until now reported exactly one limiting window.
-        It 'names the first limiting window when the tool reports more than one' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -EffectiveRemaining 12 -WithSevenDay `
-                                         -LimitingWindowIds @('seven_day', 'five_hour') `
-                                         -SevenDayResets '2026-09-12T10:00:00+00:00')
-            }
-
-            $r = Get-UsageWindow
-            $r.status  | Should -Be 'has-usage'
-            $r.percent | Should -Be 88
+            $r.percent | Should -Be 61 -Because 'the weekly window in the fixture sits at 61'
             $r.window  | Should -Be 'seven_day'
-            ([datetimeoffset]$r.resetsAt).UtcDateTime |
-                Should -Be ([datetimeoffset]'2026-09-12T10:00:00+00:00').UtcDateTime `
-                -Because 'the reset time comes from the window that was named'
+            $r.detail  | Should -BeLike '*weekly window*'
+            $r.detail  | Should -BeLike '*nearest its limit*'
         }
 
-        # By id and never by position. A window the tool has renamed or dropped is not known, and
-        # reading whichever window happened to be first would report a spend cap as the session.
-        It 'leaves the reset time unread when the limiting window is not in the list' {
+        It 'is driven by the session when the session is nearer its limit than the week' {
             Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -EffectiveRemaining 12 -LimitingWindowIds @('renamed_window'))
+                New-AxiOk (New-AxiReport -FiveHourPercent 77 -WithSevenDay)
             }
 
             $r = Get-UsageWindow
-            $r.percent  | Should -Be 88
-            $r.window   | Should -Be 'renamed_window'
-            $r.resetsAt | Should -Be ''
+            $r.percent | Should -Be 77
+            $r.window  | Should -Be 'five_hour'
+        }
+
+        # A window whose reset has already passed describes a pool that has rolled, so its
+        # percentage is about a window that is over rather than the one running now.
+        It 'ignores a window whose reset time has already passed' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 95 -WithSevenDay `
+                                         -FiveHourResets ([datetimeoffset]::UtcNow.AddHours(-1).ToString('o')))
+            }
+
+            $r = Get-UsageWindow
+            $r.percent | Should -Be 61 -Because 'the spent session window has rolled and does not count'
+            $r.window  | Should -Be 'seven_day'
+        }
+
+        # A reset time that cannot be read makes the window inapplicable rather than making the
+        # whole answer wrong - and with no applicable window left, not knowing is the answer.
+        It 'reports unknown when the only account window has an unreadable reset time' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 4 -FiveHourResets 'whenever')
+            }
+
+            $r = Get-UsageWindow
+            $r.status  | Should -Be 'unknown'
+            $r.signal  | Should -Be 'no-applicable-window'
+            $r.percent | Should -BeNullOrEmpty
+        }
+
+        It 'records the schema version the tool stamped, and never refuses on it' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 4 -SchemaVersion 99)
+            }
+
+            $r = Get-UsageWindow
+            $r.status        | Should -Be 'has-usage' -Because 'an unfamiliar version must not take the reader out'
+            $r.schemaVersion | Should -Be '99'
         }
     }
 
@@ -270,6 +285,65 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
             $r.percent | Should -BeNullOrEmpty
         }
 
+        # THE MEASURED FAILURE THIS WHOLE BRANCH EXISTS FOR. The tool answered 10 percent from a
+        # cache taken before four workers ran for ninety minutes; the true figure was 42. Its live
+        # fetch had been rate limited, and the reading looked exactly like a current one.
+        It 'keeps the cached number as a floor rather than as the answer' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 10 -Stale $true)
+            }
+
+            $r = Get-UsageWindow
+            $r.status       | Should -Be 'unknown' -Because 'a stale reading is never a number'
+            $r.percent      | Should -BeNullOrEmpty
+            $r.floorPercent | Should -Be 10
+            $r.stale        | Should -BeTrue
+            $r.detail       | Should -BeLike '*At least 10 percent*'
+            $r.detail       | Should -BeLike '*floor rather than a reading*'
+        }
+
+        # Consumption never falls inside a window, so the floor is a lower bound - and a lower bound
+        # rounded down is the understatement that lets a guard wave work past its own threshold.
+        It 'rounds a floor up, never down' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 89.2 -Stale $true)
+            }
+
+            (Get-UsageWindow).detail | Should -BeLike '*At least 90 percent*'
+        }
+
+        It 'surfaces when the tool generated the answer, so a cached one is visibly cached' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 10 -Stale $true)
+            }
+
+            $r = Get-UsageWindow
+            $r.generatedAt | Should -Not -BeNullOrEmpty
+            $r.detail      | Should -BeLike '*generated at*'
+        }
+
+        # A failed refresh is a normal condition here - the quota endpoint rate limits by design -
+        # so the reason travels with the reading rather than being escalated as an error.
+        It 'carries the reason the tool could not refresh' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 10 -Stale $true `
+                                         -StateError 'Claude quota endpoint rate limited')
+            }
+
+            (Get-UsageWindow).detail | Should -BeLike '*rate limited*'
+        }
+
+        # A stale reading with no usable window gives no floor either, and must not invent one.
+        It 'gives no floor when the stale answer has no applicable window' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 10 -Stale $true -FiveHourResets 'whenever')
+            }
+
+            $r = Get-UsageWindow
+            $r.status       | Should -Be 'unknown'
+            $r.floorPercent | Should -BeNullOrEmpty
+        }
+
         It 'reports unknown when windows are there and no percentage can be read from any of them' {
             Mock -ModuleName Usage Invoke-QuotaAxi {
                 @{ providers = @(@{ provider = 'claude'
@@ -280,7 +354,7 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
 
             $r = Get-UsageWindow
             $r.status  | Should -Be 'unknown'
-            $r.signal  | Should -Be 'no-percentage'
+            $r.signal  | Should -Be 'no-applicable-window'
             $r.percent | Should -BeNullOrEmpty
         }
 
@@ -423,8 +497,8 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
             { Get-UsageWindow } | Should -Not -Throw
 
             $r = Get-UsageWindow
-            $r.status  | Should -Be 'has-usage' -Because 'the five-hour window still answered'
-            $r.signal  | Should -Be 'five-hour-window'
+            $r.status  | Should -Be 'has-usage' -Because 'the session window still answered'
+            $r.signal  | Should -Be 'driving-window'
             $r.percent | Should -Be 37
         }
 
@@ -561,6 +635,61 @@ Describe 'A timestamp carries its offset, and is never read as local' {
     }
 }
 
+Describe 'Which account the reading belongs to' {
+    # The reading follows whichever account is active, and on this machine that is swapped by a
+    # script of the King's own - so a percentage with no name on it is one the reader cannot place.
+    # Everything here reads ONE FILE HOLDING ONE WORD. No credential file is opened, and the
+    # fixtures below deliberately put one beside it to prove nothing goes near it.
+    # Defined in BeforeAll, not in the Describe body. A Describe body runs at discovery, so a
+    # function declared there does not exist when the cases actually run.
+    BeforeAll {
+        $script:SavedProfile = $env:USERPROFILE
+
+        function New-AccountsHome {
+            param([string]$Active, [switch]$NoActiveFile, [string]$ActiveText)
+            $root = New-TempFixtureDir -Prefix 'usage-home-'
+            $dir  = Join-Path $root '.claude\accounts'
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+            # A credential file, present exactly so the tests can show it is never read.
+            '{ "accessToken": "SECRET-TOKEN-MARKER", "refreshToken": "SECRET-REFRESH-MARKER" }' |
+                Set-Content -LiteralPath (Join-Path $dir 'personal.json') -Encoding utf8
+            if (-not $NoActiveFile) {
+                $text = if ($PSBoundParameters.ContainsKey('ActiveText')) { $ActiveText } else { $Active }
+                Set-Content -LiteralPath (Join-Path $dir '.active') -Value $text -Encoding utf8
+            }
+            $env:USERPROFILE = $root
+            $root
+        }
+    }
+    AfterAll { $env:USERPROFILE = $script:SavedProfile }
+
+    It 'reads the active account name' {
+        New-AccountsHome -Active 'personal' | Out-Null
+        Get-ActiveAccountName | Should -Be 'personal'
+    }
+
+    It 'reads no account rather than failing when there is no such file' {
+        New-AccountsHome -NoActiveFile | Out-Null
+        Get-ActiveAccountName | Should -Be ''
+    }
+
+    # Whatever is in that file goes into a line the King reads, so it is vouched for or dropped.
+    It 'reports no account rather than passing through text that is not a name' {
+        New-AccountsHome -ActiveText "not a name`nwith a newline" | Out-Null
+        Get-ActiveAccountName | Should -Be ''
+    }
+
+    It 'never reads anything out of a credential file' {
+        New-AccountsHome -Active 'personal' | Out-Null
+        Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 4) }
+
+        $r = Get-UsageWindow
+        $r.account | Should -Be 'personal'
+        ($r | ConvertTo-Json -Depth 6) | Should -Not -BeLike '*SECRET-TOKEN-MARKER*'
+        ($r | ConvertTo-Json -Depth 6) | Should -Not -BeLike '*SECRET-REFRESH-MARKER*'
+    }
+}
+
 Describe 'The launchable quota-axi, and why a .ps1 is never it' {
     BeforeAll { $script:SavedPath = $env:PATH }
     AfterAll  { $env:PATH = $script:SavedPath }
@@ -636,6 +765,88 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
         InModuleScope Usage { $script:LastSpoken = $null }
     }
 
+    # The account is named beside the percentage because the reading silently follows whichever one
+    # is active, and a number with no pool attached is one the reader cannot place.
+    It 'names the account beside the percentage' {
+        Mock -ModuleName Usage Get-UsageWindow {
+            [pscustomobject]@{ status = 'has-usage'; signal = 'driving-window'; percent = 62
+                               floorPercent = $null; stale = $false; detail = 'x'; resetsAt = ''
+                               window = 'seven_day'; account = 'personal'; generatedAt = ''
+                               schemaVersion = '3'; takenAt = 'now' }
+        }
+        Get-UsagePulse | Should -Be '62% used (week, personal) - nothing running'
+    }
+
+    # TWO READINGS EITHER SIDE OF A SWITCH ARE PERCENTAGES OF TWO DIFFERENT POOLS. Silence would
+    # say they were one quota sitting still, so a change of account is always worth a line.
+    It 'speaks again when the account changed, even with the same number and fleet' {
+        $reading = {
+            param($account)
+            [pscustomobject]@{ status = 'has-usage'; signal = 'driving-window'; percent = 62
+                               floorPercent = $null; stale = $false; detail = 'x'; resetsAt = ''
+                               window = 'five_hour'; account = $account; generatedAt = ''
+                               schemaVersion = '3'; takenAt = 'now' }
+        }
+        Mock -ModuleName Usage Get-UsageWindow { & $reading 'personal' }
+        Get-UsagePulse | Should -Be '62% used (session, personal) - nothing running'
+        Get-UsagePulse | Should -BeNullOrEmpty -Because 'nothing moved within that account'
+
+        Mock -ModuleName Usage Get-UsageWindow { & $reading 'office' }
+        Get-UsagePulse | Should -Be '62% used (session, office) - nothing running'
+    }
+
+    # A floor is never printed as a bare percentage, because a bare percentage reads as a
+    # measurement - which is exactly how a cached 10 was taken for a current one.
+    It 'says a floor as a floor, rounded up, and marks it stale' {
+        Mock -ModuleName Usage Get-UsageWindow {
+            [pscustomobject]@{ status = 'unknown'; signal = 'stale-reading'; percent = $null
+                               floorPercent = 41.2; stale = $true; detail = 'x'; resetsAt = ''
+                               window = 'five_hour'; account = 'personal'; generatedAt = ''
+                               schemaVersion = '3'; takenAt = 'now' }
+        }
+        Get-UsagePulse | Should -Be 'at least 42% used (stale, session, personal) - nothing running'
+    }
+
+    # The same number decaying from a measurement into a floor is a change worth saying, because
+    # what the reader can rely on has changed even though the digits have not.
+    It 'speaks when a reading decays into a floor at the same number' {
+        Mock -ModuleName Usage Get-UsageWindow {
+            [pscustomobject]@{ status = 'has-usage'; signal = 'driving-window'; percent = 40
+                               floorPercent = $null; stale = $false; detail = 'x'; resetsAt = ''
+                               window = 'five_hour'; account = 'a'; generatedAt = ''
+                               schemaVersion = '3'; takenAt = 'now' }
+        }
+        Get-UsagePulse | Should -Be '40% used (session, a) - nothing running'
+
+        Mock -ModuleName Usage Get-UsageWindow {
+            [pscustomobject]@{ status = 'unknown'; signal = 'stale-reading'; percent = $null
+                               floorPercent = 40; stale = $true; detail = 'x'; resetsAt = ''
+                               window = 'five_hour'; account = 'a'; generatedAt = ''
+                               schemaVersion = '3'; takenAt = 'now' }
+        }
+        Get-UsagePulse | Should -Be 'at least 40% used (stale, session, a) - nothing running'
+    }
+
+    # The same 62 percent, session one tick and week the next, is a different fact about what is
+    # about to run out.
+    It 'speaks when the driving window changes at the same percentage' {
+        Mock -ModuleName Usage Get-UsageWindow {
+            [pscustomobject]@{ status = 'has-usage'; signal = 'driving-window'; percent = 62
+                               floorPercent = $null; stale = $false; detail = 'x'; resetsAt = ''
+                               window = 'five_hour'; account = 'a'; generatedAt = ''
+                               schemaVersion = '3'; takenAt = 'now' }
+        }
+        Get-UsagePulse | Should -BeLike '*(session, a)*'
+
+        Mock -ModuleName Usage Get-UsageWindow {
+            [pscustomobject]@{ status = 'has-usage'; signal = 'driving-window'; percent = 62
+                               floorPercent = $null; stale = $false; detail = 'x'; resetsAt = ''
+                               window = 'seven_day'; account = 'a'; generatedAt = ''
+                               schemaVersion = '3'; takenAt = 'now' }
+        }
+        Get-UsagePulse | Should -BeLike '*(week, a)*'
+    }
+
     It 'names the percentage, the count and what each worker is doing' {
         Mock -ModuleName Usage Get-UsageFleet {
             @((New-FleetRow -Ticket 'kh-usage-watch' -Stage 'gating'),
@@ -643,7 +854,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
         }
 
         Get-UsagePulse |
-            Should -Be '62% used - 2 running: kh-usage-watch running checks, emgee-seo waiting on you'
+            Should -Be '62% used (session) - 2 running: kh-usage-watch running checks, emgee-seo waiting on you'
     }
 
     # ONE LINE, hard cap, however many workers are live. A second line is the thing the King ruled
@@ -677,7 +888,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
     }
 
     It 'says so when there is nothing running' {
-        Get-UsagePulse | Should -Be '62% used - nothing running'
+        Get-UsagePulse | Should -Be '62% used (session) - nothing running'
     }
 
     # A line every interval regardless is the progress narration hard rule 6 forbids, and the King
@@ -708,7 +919,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 71; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '71% used - nothing running'
+        Get-UsagePulse | Should -Be '71% used (session) - nothing running'
     }
 
     # THE SAME SENTENCE TWICE IS NOT A CHANGE. The band that decides whether the pulse speaks and
@@ -720,7 +931,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 69.6; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '70% used - nothing running'
+        Get-UsagePulse | Should -Be '70% used (session) - nothing running'
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 70.2; detail = 'x'
@@ -734,13 +945,13 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 69.2; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '69% used - nothing running'
+        Get-UsagePulse | Should -Be '69% used (session) - nothing running'
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 70.2; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '70% used - nothing running'
+        Get-UsagePulse | Should -Be '70% used (session) - nothing running'
     }
 
     # Losing the number is itself a change worth one line. Reported as the same silence as
@@ -816,7 +1027,7 @@ Describe 'The pulse takes the fleet from the reader that already joins intent to
         '{ "workers": {} }' | Set-Content -LiteralPath $crew -Encoding utf8
 
         Get-UsagePulse -CrewStatePath $crew |
-            Should -Be '5% used - nothing running'
+            Should -Be '5% used (session) - nothing running'
     }
 
     # A RECORD WITH A FIELD MISSING USED TO END THE PULSE FOR THE SESSION. This module runs under
@@ -858,7 +1069,7 @@ Describe 'The pulse takes the fleet from the reader that already joins intent to
             $env:KINGSHAND_TEST_USAGE_HERDR = $reply
 
             { Get-UsageFleet -CrewStatePath $crew } | Should -Not -Throw
-            Get-UsagePulse -CrewStatePath $crew | Should -Be '5% used - nothing running'
+            Get-UsagePulse -CrewStatePath $crew | Should -Be '5% used (session) - nothing running'
         } finally {
             $env:PATH = $savedPath
             $env:KINGSHAND_TEST_USAGE_HERDR = $savedVar
@@ -953,7 +1164,7 @@ Describe 'The pulse on a timer' {
                                   -WarningAction SilentlyContinue)
         $global:UsageTickCount | Should -Be 2 -Because 'the second tick has to happen at all'
         $out.Count | Should -Be 1
-        $out[0]    | Should -Be '5% used - nothing running'
+        $out[0]    | Should -Be '5% used (session) - nothing running'
         Remove-Variable -Name UsageTickCount -Scope Global -ErrorAction SilentlyContinue
     }
 

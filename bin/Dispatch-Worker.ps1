@@ -244,25 +244,45 @@ if (-not (Get-HerdrCommandPath)) { throw (Get-HerdrCommandHint) }
 # IT FAILS OPEN, DELIBERATELY. A reading that could not be taken is a warning and a dispatch, never
 # a block. The prompt-box guards already made this call for an unreadable screen and the reasoning
 # transfers unchanged: a blind guard that blocks everything costs more than one that lets work
-# through and says it could not see. So only a percentage that was actually read refuses; a missing
-# quota-axi, a lookup that failed and a reading the tool itself called stale all dispatch.
+# through and says it could not see. So a missing quota-axi, a lookup that failed and an answer that
+# would not parse all dispatch.
+#
+# A FLOOR STILL REFUSES, AND ON THIS MACHINE IT IS USUALLY THE ONLY THING THAT CAN. The tool's live
+# fetch is rate limited most of the time, so most readings are stale - `unknown`, with a cached
+# number carried alongside as a lower bound. Consumption never falls inside a window, so a floor at
+# or past the threshold means the real figure is too, and refusing on it is sound where refusing on
+# the stale number as though it were current would not be. Nothing here treats the floor as the
+# answer: the message says plainly that it is a floor.
 #
 # A settled "nothing here reports this" says nothing at all. That is a stable fact about the
 # machine rather than something wrong with it, and a warning on every dispatch for a state nobody
 # can act on teaches the reader to skip the next one.
 $usage = Get-UsageWindow
-if ($usage.status -eq 'has-usage' -and $null -ne $usage.percent -and
-    [double]$usage.percent -ge $UsageThresholdPercent) {
-    throw ("The usage window is $([int][Math]::Round([double]$usage.percent)) percent spent and " +
-           "new work is refused from $UsageThresholdPercent percent, so worker $Name was not " +
-           "dispatched. $($usage.detail) Wait for the window to reset, or dispatch with a higher " +
+$measured = if ($usage.status -eq 'has-usage') { ConvertTo-UsageNumber $usage.percent } else { $null }
+$floor    = ConvertTo-UsageNumber $usage.floorPercent
+
+if ($null -ne $measured -and $measured -ge $UsageThresholdPercent) {
+    throw ("The usage window is $([int][Math]::Round($measured)) percent spent and new work is " +
+           "refused from $UsageThresholdPercent percent, so worker $Name was not dispatched. " +
+           "$($usage.detail) Wait for the window to reset, or dispatch with a higher " +
            "-UsageThresholdPercent if this one has to go out now. Nothing was created.")
 }
+# Rounded UP, because it is a lower bound: rounding a floor down is the understatement that would
+# let a dispatch through the very threshold this is enforcing.
+if ($null -eq $measured -and $null -ne $floor -and $floor -ge $UsageThresholdPercent) {
+    throw ("At least $([int][Math]::Ceiling($floor)) percent of the usage window is spent - that is " +
+           "a floor from a cached reading rather than a current measurement, and it is already at " +
+           "or past the $UsageThresholdPercent percent refusal, so the real figure is too and " +
+           "worker $Name was not dispatched. $($usage.detail) Nothing was created.")
+}
 if ($usage.status -eq 'unknown') {
-    Write-Warning ("This dispatch went ahead without the usage check. $($usage.detail) That is " +
-                   "deliberate - a reading nobody can take must not make kingshand undispatchable - " +
-                   "but nothing here will now stop a worker being started into a window that is " +
-                   "nearly spent.")
+    $what = if ($null -ne $floor) {
+        "the floor it could give is below the $UsageThresholdPercent percent refusal"
+    } else { 'it could give no figure at all' }
+    Write-Warning ("This dispatch went ahead without a current usage reading, because $what. " +
+                   "$($usage.detail) Failing open is deliberate - a reading nobody can take must " +
+                   "not make kingshand undispatchable - but nothing here will now stop a worker " +
+                   "being started into a window that is nearly spent.")
 }
 
 $RepoPath  = (Resolve-Path $RepoPath).Path

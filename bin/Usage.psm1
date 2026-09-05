@@ -45,6 +45,10 @@ $script:DefaultTimeoutSeconds = 20
 # however many workers are live - so the tail is summarised rather than wrapped.
 $script:PulseNameLimit = 3
 
+# The windows that bound every dispatch, and the only ones the threshold is taken across. A single
+# model's window and a spend cap are excluded deliberately - Get-ApplicableUsageWindows owns why.
+$script:AccountWindowIds = @('five_hour', 'seven_day')
+
 # WHAT THE PULSE LAST SAID, HELD FOR THE LIFE OF THE PROCESS AND WRITTEN NOWHERE.
 #
 # This is the whole of the pulse's memory: the band and the fleet shape of the last line it spoke.
@@ -288,14 +292,113 @@ function Format-UsageWindowName {
     $Id
 }
 
+# The same two windows in the one or two words the pulse has room for.
+function Format-UsageWindowShortName {
+    [CmdletBinding()]
+    param([string]$Id)
+
+    switch ($Id) {
+        'five_hour' { return 'session' }
+        'seven_day' { return 'week' }
+    }
+    $Id
+}
+
+# WHICH ACCOUNT THIS PERCENTAGE BELONGS TO, AND WHY IT HAS TO BE SAID OUT LOUD.
+#
+# `quota-axi` reads the live credential file, and on this machine that file is swapped between two
+# accounts by a script of the King's own. So the percentage is always about whichever account is
+# active at that moment, and a switch changes which pool it describes with nothing visible to show
+# it. Two readings either side of a switch are about different quotas and must never be compared.
+#
+# THE NAME ONLY. This opens one file that holds one word. It never reads, logs or stores anything
+# from a credential file, and nothing here may start: the deliverable stops at knowing which account
+# is active, and the account-switch machinery is none of this module's business.
+#
+# An absent file is the ordinary state on a machine with no such script, and reads as no account
+# rather than as an error.
+function Get-ActiveAccountName {
+    [CmdletBinding()]
+    param()
+
+    $profileRoot = $env:USERPROFILE
+    if (-not $profileRoot) { return '' }
+    $path = Join-Path $profileRoot '.claude\accounts\.active'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return '' }
+    try {
+        $name = (Get-Content -LiteralPath $path -Raw -ErrorAction Stop).Trim()
+    } catch { return '' }
+    # One word, and only a plausible one. A file holding anything else is not a name this can vouch
+    # for, and reporting whatever it happened to contain would put unchecked text into the pulse.
+    if ($name -match '\A[A-Za-z0-9._-]{1,64}\z') { return $name }
+    ''
+}
+
+# The account's own windows, which are the only ones that bound a dispatch, paired with the
+# percentage each reports. Everything else in the list is excluded, by two rules that are separate
+# on purpose because each catches a case the other does not.
+#
+# FIRST, ONLY THE ACCOUNT-LEVEL WINDOWS. A single model's window bounds that model and a spend cap
+# bounds spending; neither says whether the next worker can run. Both windows named here do.
+#
+# SECOND, A WINDOW WITH NO RESET TIME IS NOT A SPENT QUOTA - IT IS A WINDOW THAT DOES NOT APPLY.
+# This is the trap, measured on this machine: `extra_usage` reports 100 percent used with no reset
+# time at all. Take the worst percentage across the whole list and the answer is 100 forever, which
+# blocks every dispatch for good - the hard block this guard is written to never perform. A reset
+# already in the past is excluded by the same rule for the opposite reason: that pool has rolled, so
+# its percentage describes a window that is over.
+function Get-ApplicableUsageWindows {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][array]$Windows, [datetimeoffset]$Now)
+
+    if (-not $PSBoundParameters.ContainsKey('Now')) { $Now = [datetimeoffset]::UtcNow }
+
+    $out = [System.Collections.Generic.List[object]]::new()
+    foreach ($id in $script:AccountWindowIds) {
+        $w = @($Windows | Where-Object { (Get-JsonField $_ 'id') -eq $id }) | Select-Object -First 1
+        if (-not $w) { continue }
+
+        $iso = ConvertTo-UsageResetTime (Get-JsonField $w 'resetsAt')
+        if (-not $iso) { continue }
+        $reset = [datetimeoffset]::MinValue
+        if (-not [datetimeoffset]::TryParse($iso, [ref]$reset)) { continue }
+        if ($reset -le $Now) { continue }
+
+        $out.Add([pscustomobject]@{
+            id       = $id
+            percent  = ConvertTo-UsageNumber (Get-JsonField $w 'percentUsed')
+            resetsAt = $iso
+        })
+    }
+    , $out.ToArray()
+}
+
+# The applicable window NEAREST ITS THRESHOLD, which is the one a dispatch is really bounded by.
+#
+# Not the session window alone. An overnight run sits comfortably inside a five-hour window and
+# still burns the week, and the weekly window resets in days rather than hours, so tripping that one
+# costs far more. Both are considered and the worse of them decides.
+function Select-DrivingUsageWindow {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][array]$Applicable)
+
+    @($Applicable | Where-Object { $null -ne $_.percent } |
+        Sort-Object -Property percent -Descending) | Select-Object -First 1
+}
+
 # How much of the current usage window is spent.
 #
 # .status        has-usage | no-usage | unknown
 # .signal        what settled it
-# .percent       the percentage used, or $null - NEVER 0 as a stand-in for "not known"
+# .percent       the percentage used, or $null - NEVER 0 as a stand-in for "not known", and set
+#                ONLY on a current reading. A stale one leaves it unset and fills floorPercent.
+# .floorPercent  a lower bound from a cached reading, or $null. Never an answer; see below.
+# .stale         whether the tool called its own reading stale
 # .detail        one line naming the evidence, written to be read to a person
-# .resetsAt      when the limiting window resets, ISO, or '' where that could not be read
+# .resetsAt      when the driving window resets, ISO, or '' where that could not be read
 # .window        which window the percentage came from, or ''
+# .account       which account the reading belongs to, or '' where that could not be read
+# .generatedAt   when the tool generated the answer, ISO, or ''
 # .schemaVersion the schema the tool stamped its answer with, as it wrote it, or ''
 # .takenAt       when this reading was taken, ISO
 #
@@ -305,12 +408,17 @@ function Format-UsageWindowName {
 # version would be the opposite mistake: a compatible bump would take the reader out on a machine
 # where it was working the day before, and this guard fails open by design.
 #
-# WHICH WINDOW, AND WHY IT IS NOT THE WORST OF THEM. An account has several windows and they do not
-# all bound the same thing: a spend-limit window sitting at 100 percent says nothing about whether
-# the next dispatch can run, and taking the worst of the list would refuse every dispatch on this
-# machine today. So the tool's own judgement is used - it publishes which windows bound every model
-# and what is effectively left across them - and only where it declines to answer that does this
-# fall back to the five-hour session window, which is the one the King means by "the window".
+# WHICH WINDOW, AND WHY IT IS THE WORST OF ONLY SOME OF THEM. An account reports several windows and
+# they do not all bound the same thing. The session and weekly windows both bound every dispatch, so
+# the threshold is taken across BOTH and the one nearest its limit decides - an overnight run sits
+# comfortably inside a five-hour window while burning the week, and the weekly one resets in days
+# rather than hours, so tripping it costs far more. A single model's window and a spend cap bound
+# something else and are excluded, along with any window carrying no usable reset time.
+# Get-ApplicableUsageWindows owns those exclusions and the measured trap behind them.
+#
+# A STALE READING NEVER BECOMES A PERCENTAGE. It becomes a floor, and the floor is the only thing
+# guarding a dispatch while the tool's live fetch is rate limited - which, measured on this machine,
+# is most of the time. The comment at the stale branch below owns that in full.
 function Get-UsageWindow {
     [CmdletBinding()]
     param([int]$TimeoutSeconds = $script:DefaultTimeoutSeconds)
@@ -319,9 +427,13 @@ function Get-UsageWindow {
         status        = 'unknown'
         signal        = ''
         percent       = $null
+        floorPercent  = $null
+        stale         = $false
         detail        = ''
         resetsAt      = ''
         window        = ''
+        account       = (Get-ActiveAccountName)
+        generatedAt   = ''
         schemaVersion = ''
         takenAt       = (Get-Date).ToUniversalTime().ToString('o')
     }
@@ -356,6 +468,9 @@ function Get-UsageWindow {
         # rides along on every answer below that is not a percentage, which are exactly the ones a
         # later reader would want to know the schema for.
         $result.schemaVersion = "$(Get-JsonField $json 'schemaVersion')".Trim()
+        # When the tool generated this answer, carried on every reading so a cached one is visibly
+        # cached rather than presented as a measurement taken now.
+        $result.generatedAt = ConvertTo-UsageResetTime (Get-JsonField $json 'generatedAt')
         $schema = if ($result.schemaVersion) {
             " The answer was stamped schema version $($result.schemaVersion)."
         } else {
@@ -371,16 +486,10 @@ function Get-UsageWindow {
                  'usage window is spent was not established.' + $schema)
         }
 
-        # A reading the tool itself calls stale is not this window's answer. Presenting it as
-        # current is the "stale value presented as current" R-003 rules out, and it is worse than
-        # saying nothing: an old low percentage is exactly what would wave through a dispatch near
-        # the limit.
+        # Read here and acted on further down, once the windows have been parsed - because a stale
+        # reading still yields a floor, and the floor comes out of those same windows.
         $state = Get-JsonField $claude 'state'
-        if ($true -eq (Get-JsonField $state 'stale')) {
-            return & $finish 'unknown' 'stale-reading' `
-                ('quota-axi reports its own Claude reading as stale, so it describes an earlier ' +
-                 'moment rather than this one and no current percentage can be given.' + $schema)
-        }
+        $result.stale = ($true -eq (Get-JsonField $state 'stale'))
 
         # THREE FACTS, NOT ONE, AND ONLY ONE OF THEM SWITCHES THE GUARD OFF QUIETLY. An empty list
         # is the tool saying there are no windows here, which is a settled fact about this machine
@@ -409,67 +518,75 @@ function Get-UsageWindow {
                  'no window percentage to watch on this machine.' + $schema)
         }
 
-        # BY ID, NEVER BY POSITION. The order windows arrive in is the tool's business and it has
-        # already changed once; a window looked up by where it sat in the list would read a spend
-        # cap as the session window and never say a word about it. A window that is missing or has
-        # been renamed comes back as $null here and is treated as not known, which is the whole
-        # point of looking it up by name.
-        $byId = {
-            param($id)
-            @($windows | Where-Object { (Get-JsonField $_ 'id') -eq $id }) | Select-Object -First 1
+        # The account's own windows, looked up BY ID and never by position, with anything that does
+        # not bound a dispatch already excluded. Get-ApplicableUsageWindows owns both rules.
+        $applicable = Get-ApplicableUsageWindows -Windows $windows
+
+        # An account-level window that IS there and is not applicable is a different fact from there
+        # being none at all, and the two get different answers. None at all is settled: this account
+        # has no session or weekly window and there is nothing here to watch. One that exists and
+        # carries no usable reset time is something wrong rather than an absence, so it warns.
+        $present = @($windows | Where-Object {
+            $script:AccountWindowIds -contains "$(Get-JsonField $_ 'id')" })
+        if ($present.Count -eq 0) {
+            return & $finish 'no-usage' 'no-account-windows' `
+                ('quota-axi reports the Claude account with no session or weekly window, so there ' +
+                 'is no window percentage to watch on this machine.' + $schema)
+        }
+        if ($applicable.Count -eq 0) {
+            return & $finish 'unknown' 'no-applicable-window' `
+                ('quota-axi reported the Claude account''s windows without a usable reset time on ' +
+                 'any of them, so none of them describes a window that is currently running and ' +
+                 'how much is spent is not known.' + $schema)
         }
 
-        # The tool's own answer for what bounds every model, which is the question a dispatch is
-        # really asking. `boundedBy` names the windows it took into account, so the reader can see
-        # for themselves that a spend cap or a single model's window did not decide it.
-        $semantics = Get-JsonField $claude 'quotaSemantics'
-        # Assigned before it is piped. ConvertTo-JsonList hands its array back through the
-        # leading-comma idiom, so piping the call directly would give Where-Object the whole array
-        # as one item and match nothing at all.
-        $availability = ConvertTo-JsonList (Get-JsonField $semantics 'effectiveAvailability')
-        $effective = @($availability | Where-Object { (Get-JsonField $_ 'scope') -eq 'all_models' -and
-                                                      (Get-JsonField $_ 'status') -eq 'known' }) |
-                     Select-Object -First 1
-
-        $remaining = if ($effective) {
-            ConvertTo-UsageNumber (Get-JsonField $effective 'effectivePercentRemaining')
-        } else { $null }
-        if ($null -ne $remaining) {
-            $percent = 100 - $remaining
-            # Assigned, then indexed. The same leading-comma idiom means `@(ConvertTo-JsonList ...)`
-            # collects ONE item - the inner list - so `[0]` on it hands back the whole list rather
-            # than its first id. With a single id the coercion back to a string hides it; with two,
-            # the window is looked up under "id1 id2" and never found.
-            $ids      = ConvertTo-JsonList (Get-JsonField $effective 'limitingWindowIds')
-            $limiting = if ($ids.Count -gt 0) { "$($ids[0])".Trim() } else { '' }
-            $bounded  = ConvertTo-JsonList (Get-JsonField $effective 'boundedBy')
-            $w        = if ($limiting) { & $byId $limiting } else { $null }
-            $result.percent  = $percent
-            $result.window   = $limiting
-            $result.resetsAt = ConvertTo-UsageResetTime (Get-JsonField $w 'resetsAt')
-            $when   = Format-UsageResetTime -IsoTime $result.resetsAt
-            $names  = @($bounded | ForEach-Object { Format-UsageWindowName -Id "$_" })
-            $across = if ($names.Count -gt 0) { " across $($names -join ' and ')" } else { '' }
-            return & $finish 'has-usage' 'effective-availability' `
-                ("$([Math]::Round($percent, 1)) percent of the usage window is spent$across." + $when)
+        $driving = Select-DrivingUsageWindow -Applicable $applicable
+        if (-not $driving) {
+            return & $finish 'unknown' 'no-percentage' `
+                ('quota-axi reported the Claude account''s windows and a used percentage could not ' +
+                 'be read from any of them, so the usage window is not known.' + $schema)
         }
 
-        # The five-hour session window on its own, for a tool that reported windows but would not
-        # say what they add up to. Narrower than the answer above and still a real reading.
-        $five = & $byId 'five_hour'
-        $used = if ($five) { ConvertTo-UsageNumber (Get-JsonField $five 'percentUsed') } else { $null }
-        if ($null -ne $used) {
-            $result.percent  = $used
-            $result.window   = 'five_hour'
-            $result.resetsAt = ConvertTo-UsageResetTime (Get-JsonField $five 'resetsAt')
-            $when = Format-UsageResetTime -IsoTime $result.resetsAt
-            return & $finish 'has-usage' 'five-hour-window' `
-                ("$([Math]::Round($used, 1)) percent of the five-hour session window is spent." + $when)
+        $result.window   = $driving.id
+        $result.resetsAt = $driving.resetsAt
+        $named = Format-UsageWindowName -Id $driving.id
+        $when  = Format-UsageResetTime -IsoTime $driving.resetsAt
+
+        # A STALE READING IS AN UNKNOWN, NEVER A NUMBER - and this is the failure that put a figure
+        # of 10 percent in front of the King when the true one was 42. The tool's live fetch had
+        # been rate limited and it answered from a cache taken before four workers ran for ninety
+        # minutes. Reporting that as current is precisely the "stale value presented as current"
+        # this module refuses, so `percent` stays unset and the status is `unknown`.
+        #
+        # THE NUMBER IS STILL A FLOOR, AND THE FLOOR IS WORTH KEEPING. Consumption never falls
+        # inside a window, so a cached 10 percent means at least 10 percent is spent. It is carried
+        # as `floorPercent` - a lower bound the dispatch refusal may still act on - and nothing ever
+        # presents it as the answer. Understatement is the dangerous direction here, so a floor is
+        # rounded UP wherever it is shown and never down.
+        if ($result.stale) {
+            $result.floorPercent = $driving.percent
+            $why = "$(Get-JsonField $state 'error')".Trim()
+            $because = if ($why) { " Its own last attempt failed: $why." } else { '' }
+            $age = if ($result.generatedAt) { " The cached answer was generated at $($result.generatedAt)." }
+                   else { '' }
+            return & $finish 'unknown' 'stale-reading' `
+                ('quota-axi reports its own Claude reading as stale, so it describes an earlier ' +
+                 'moment rather than this one and no current percentage can be given. At least ' +
+                 "$([Math]::Ceiling($driving.percent)) percent of $named is spent, which is a floor " +
+                 "rather than a reading." + $because + $age + $schema)
         }
 
-        & $finish 'unknown' 'no-percentage' `
-            ('quota-axi reported ' + $windows.Count + ' Claude window(s) and a used percentage ' +
-             'could not be read from any of them, so the usage window is not known.' + $schema)
+        $others = @($applicable | Where-Object { $_.id -ne $driving.id -and $null -ne $_.percent })
+        $beside = if ($others.Count -gt 0) {
+            ' It is the nearest its limit of ' +
+            (@(@($driving) + $others | ForEach-Object {
+                "$(Format-UsageWindowName -Id $_.id) at $([Math]::Round($_.percent, 1)) percent"
+            }) -join ' and ') + '.'
+        } else { '' }
+
+        $result.percent = $driving.percent
+        & $finish 'has-usage' 'driving-window' `
+            ("$([Math]::Round($driving.percent, 1)) percent of $named is spent." + $when + $beside)
     } catch {
         # Reset rather than reported as read. A field set on the way to a throw is a half-finished
         # answer, and a percentage carried out of a reading that failed is the fabrication this
@@ -562,10 +679,33 @@ function Format-UsagePulse {
         [Parameter(Mandatory)][AllowEmptyCollection()][array]$Live
     )
 
-    $shown = Get-UsagePercentShown $Reading.percent
-    $head = if ($Reading.status -eq 'has-usage' -and $null -ne $shown) {
-        "$shown% used"
-    } elseif ($Reading.status -eq 'no-usage') {
+    # What the number is about, in the few words a one-line pulse has room for: which window is
+    # driving it, and which account it belongs to. The account is there because the reading silently
+    # follows whichever account is active, so a percentage with no name on it is a percentage the
+    # reader cannot place.
+    # Every field of the reading is taken through Get-JsonField rather than as a property. This
+    # module runs under StrictMode Latest, the reading arrives from a caller, and a reading built
+    # before a field existed would otherwise throw here instead of simply not having it.
+    $window  = "$(Get-JsonField $Reading 'window')"
+    $account = "$(Get-JsonField $Reading 'account')"
+    $status  = "$(Get-JsonField $Reading 'status')"
+
+    $notes = @()
+    if ($window)  { $notes += (Format-UsageWindowShortName -Id $window) }
+    if ($account) { $notes += $account }
+    $suffix = if ($notes.Count -gt 0) { ' (' + ($notes -join ', ') + ')' } else { '' }
+
+    $shown = Get-UsagePercentShown (Get-JsonField $Reading 'percent')
+    # A floor is rounded UP and said as "at least". Rounding a floor down, or printing it as a bare
+    # percentage, is the understatement that lets a guard wave work past the limit it exists to hold.
+    $floor = ConvertTo-UsageNumber (Get-JsonField $Reading 'floorPercent')
+
+    $head = if ($status -eq 'has-usage' -and $null -ne $shown) {
+        "$shown% used$suffix"
+    } elseif ($null -ne $floor) {
+        "at least $([int][Math]::Ceiling($floor))% used" +
+        $(if ($notes.Count -gt 0) { ' (stale, ' + ($notes -join ', ') + ')' } else { ' (stale)' })
+    } elseif ($status -eq 'no-usage') {
         'usage not reported here'
     } else {
         'usage unknown'
@@ -606,23 +746,41 @@ function Get-UsagePulse {
     #
     # Banded on the number the line will print, not on the raw percentage, so the two can never
     # part company and speak for a change the reader cannot see.
-    $shown = Get-UsagePercentShown $reading.percent
-    $band = if ($reading.status -eq 'has-usage' -and $null -ne $shown) {
+    # Read the same tolerant way Format-UsagePulse does, and for the same reason.
+    $status   = "$(Get-JsonField $reading 'status')"
+    $window   = "$(Get-JsonField $reading 'window')"
+    $account  = "$(Get-JsonField $reading 'account')"
+    $shown = Get-UsagePercentShown (Get-JsonField $reading 'percent')
+    $floor = ConvertTo-UsageNumber (Get-JsonField $reading 'floorPercent')
+    $band = if ($status -eq 'has-usage' -and $null -ne $shown) {
         "b$([int][Math]::Floor($shown / 10))"
+    } elseif ($null -ne $floor) {
+        # Banded separately from a real reading, so the line changes when a measurement decays into
+        # a floor even though the number itself has not moved.
+        "f$([int][Math]::Floor([Math]::Ceiling($floor) / 10))"
     } else {
-        $reading.status
+        $status
     }
+    # Which window is driving it counts as a change too: the same 62 percent, session one tick and
+    # week the next, is a different fact about what is about to run out.
+    $band  = "$band/$window"
     $shape = (@($live | ForEach-Object { "$(Get-WorkerLabel $_)=$(Get-WorkerPhrase $_)" }) -join '|')
 
+    # A CHANGE OF ACCOUNT VOIDS THE COMPARISON RATHER THAN PASSING IT. The reading follows whichever
+    # account is active, so two ticks either side of a switch are percentages of two different pools
+    # - and a silence, which is what a matching band and shape produce, would say they were the same
+    # quota sitting still. Comparing only within one account is what stops that.
     $spoken = $script:LastSpoken
-    if ($spoken -and $spoken.band -eq $band -and $spoken.shape -eq $shape) { return }
+    if ($spoken -and $spoken.account -eq $account -and
+        $spoken.band -eq $band -and $spoken.shape -eq $shape) { return }
 
     $line = Format-UsagePulse -Reading $reading -Live $live
     $script:LastSpoken = @{
-        band  = $band
-        shape = $shape
-        line  = $line
-        at    = (Get-Date).ToUniversalTime().ToString('o')
+        band    = $band
+        shape   = $shape
+        account = $account
+        line    = $line
+        at      = (Get-Date).ToUniversalTime().ToString('o')
     }
     $line
 }
@@ -680,6 +838,8 @@ function Watch-UsagePulse {
 Export-ModuleMember -Function Get-QuotaAxiCommandPath, Get-QuotaAxiHint, Invoke-QuotaAxi,
                               ConvertTo-JsonList, Test-JsonField, ConvertTo-UsageNumber,
                               ConvertTo-UsageResetTime, Format-UsageResetTime,
-                              Format-UsageWindowName, Get-UsageWindow, Get-UsageFleet,
+                              Format-UsageWindowName, Format-UsageWindowShortName,
+                              Get-ActiveAccountName, Get-ApplicableUsageWindows,
+                              Select-DrivingUsageWindow, Get-UsageWindow, Get-UsageFleet,
                               Get-WorkerPhrase, Get-WorkerLabel, Format-UsagePulse,
                               Get-UsagePulse, Watch-UsagePulse

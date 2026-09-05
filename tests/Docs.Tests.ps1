@@ -4493,6 +4493,23 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Vigil | Should -Match 'the tail becomes a count'
         }
 
+        # The two facts a percentage is meaningless without: which window it is about, and which
+        # account's pool it measures. Both were learned the hard way and both belong in the line.
+        It 'names the driving window and the account, and says why each is there' {
+            $script:Vigil | Should -Match '\*\*Two windows are watched, not one'
+            $script:Vigil | Should -Match '\*\*The account is named because the reading silently follows it\.\*\*'
+            $script:Vigil | Should -Match 'Two readings either side of a switch are never\s+compared'
+        }
+
+        # THE FAILURE THAT PUT A FOUR-TIMES-UNDERSTATED NUMBER IN FRONT OF THE KING. A cached
+        # reading looked exactly like a current one, so the skill has to say what a floor is and
+        # that it is never a measurement.
+        It 'says a cached reading is a floor, rounded up, and never a measurement' {
+            $script:Vigil | Should -Match '\*\*A cached reading is said as a floor, never as a measurement'
+            $script:Vigil | Should -Match 'rounded up and said as "at least"'
+            $script:Vigil | Should -Match 'rounding a floor down is the understatement'
+        }
+
         It 'never invents a percentage or a phase, and never narrates' {
             $script:Vigil | Should -Match 'It never invents a percentage'
             $script:Vigil | Should -Match 'It never invents a phase'
@@ -4518,7 +4535,9 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         }
 
         It 'keeps accounts and auto-resume out of it' {
-            $script:Vigil | Should -Match '\*\*It never touches accounts\.\*\*'
+            $script:Vigil | Should -Match ('\*\*It never switches accounts and never reads a ' +
+                                           'credential\.\*\*')
+            $script:Vigil | Should -Match 'reads the active account''s \*name\*'
             $script:Vigil | Should -Match '\*\*It never resumes work when the window resets\.\*\*'
             $script:Vigil | Should -Match 'It relaxes no hard rule'
         }
@@ -4579,19 +4598,47 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     }
 
     # The blanket ban on touching the profile at all was the right proxy while nothing needed to.
-    # Folder trust changed that: herdr launches a worker in a worktree Claude Code has never seen,
-    # and the trust registry is a single file in the profile with no per-project alternative. So
-    # the exception is named here, and it is exactly one file in exactly one module - anything
-    # else reaching into the profile is still the failure this guards.
-    It 'the only script that touches the profile is the trust one, and only for .claude.json' {
+    # TWO things do now, and each is named with its own file, because an unnamed exception is how a
+    # guard like this stops meaning anything.
+    #
+    # Folder trust was the first: herdr launches a worker in a worktree Claude Code has never seen,
+    # and the trust registry is a single file in the profile with no per-project alternative.
+    #
+    # The active account name is the second, and it is READ-ONLY. The usage reading follows whichever
+    # account is currently active, so a percentage carries no meaning without the name of the pool it
+    # measures - and that name lives in one file in the profile. The test below pins the scope hard,
+    # because the directory it sits in also holds the credential blobs: one file, read, never
+    # written, and nothing whatever from a credential file.
+    It 'only the trust module and the usage reader touch the profile, each for one named file' {
         $reaching = @($script:AllSource | Where-Object {
             (Get-Content -Path $_.FullName -Raw).Contains('USERPROFILE')
         })
-        (@($reaching | ForEach-Object { $_.Name }) -join ', ') |
-            Should -Be 'ClaudeWorkspace.psm1' -Because 'folder trust is the one thing that has nowhere else to live'
-        $text = Get-Content -Path $reaching[0].FullName -Raw
-        $text.Contains('.claude.json') |
+        (@($reaching | ForEach-Object { $_.Name } | Sort-Object) -join ', ') |
+            Should -Be 'ClaudeWorkspace.psm1, Usage.psm1' `
+            -Because 'folder trust and the active account name are the two with nowhere else to live'
+
+        $trust = Get-Content -Path (Join-Path $script:Root 'bin\ClaudeWorkspace.psm1') -Raw
+        $trust.Contains('.claude.json') |
             Should -BeTrue -Because 'the trust registry is one file, not a directory to write into'
+
+        $usage = Get-Content -Path (Join-Path $script:Root 'bin\Usage.psm1') -Raw
+        $usage.Contains('.claude\accounts\.active') |
+            Should -BeTrue -Because 'the account name is one file, named exactly'
+    }
+
+    # The hard half of that exception. The accounts directory holds the credential blobs the King's
+    # own switch script moves between, and this change may know which account is active and nothing
+    # else about it. Named files rather than a general pattern, because the risk is specific.
+    It 'the usage reader never goes near a credential file' {
+        $usage = Get-Content -Path (Join-Path $script:Root 'bin\Usage.psm1') -Raw
+        foreach ($forbidden in @('.credentials.json', 'accessToken', 'refreshToken',
+                                 'claude-account.ps1')) {
+            $usage.Contains($forbidden) |
+                Should -BeFalse -Because "the usage reader reads a name, never $forbidden"
+        }
+        # One file, and it is only ever read. A write anywhere near that directory is the failure.
+        ($usage -match '(?m)(Set-Content|Out-File|Remove-Item)[^\r\n]*accounts') |
+            Should -BeFalse -Because 'the account name is read and never written'
     }
 
     It 'install.ps1 has no Skills step and no -SkipSkills switch' {

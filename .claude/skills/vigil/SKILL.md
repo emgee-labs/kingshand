@@ -21,14 +21,34 @@ that fires near the limit, and why an unreadable reading never blocks work.
 One line, hard cap, however many workers are live:
 
 ```
-62% used - 2 running: kh-usage-watch running checks, emgee-seo waiting on you
+62% used (session, personal) - 2 running: kh-usage-watch running checks, emgee-seo waiting on you
 ```
 
-The percentage of the current usage window that is spent, how many workers are running, and a few
-words on each. Where more workers are live than fit, the tail becomes a count - `+3 more` - rather
-than a second line.
+The percentage of the current usage window that is spent, which window that is and which account it
+belongs to, how many workers are running, and a few words on each. Where more workers are live than
+fit, the tail becomes a count - `+3 more` - rather than a second line.
 
-Three things it never does. It never invents a percentage: where the reading could not be taken the
+**Two windows are watched, not one, and the line names whichever is nearer its limit.** An overnight
+run sits comfortably inside the five-hour session window while burning the week, and the weekly
+window resets in days rather than hours, so tripping that one costs far more.
+
+**The account is named because the reading silently follows it.** The percentage always describes
+whichever account is active at the time, so a switch changes which pool it is about with nothing
+otherwise visible. Two readings either side of a switch are never compared - the pulse speaks again
+instead, because silence would say they were one quota sitting still.
+
+**A cached reading is said as a floor, never as a measurement:**
+
+```
+at least 42% used (stale, session, personal) - 1 running: kh-usage-watch writing tests
+```
+
+That is the shape when the tool's own live fetch failed and it answered from cache. Consumption
+never falls inside a window, so the cached figure is a lower bound - true, but not current. It is
+rounded up and said as "at least", because rounding a floor down is the understatement that lets
+work past the limit.
+
+Three things it never does. It never invents a percentage: where nothing could be read at all the
 line opens `usage unknown` and says nothing more confident than that. It never invents a phase: a
 worker whose phase cannot be worked out is reported as `phase not known` rather than guessed at or
 quietly dropped. And it never speaks when nothing has changed - a silent interval is the pulse
@@ -99,8 +119,10 @@ settled "nothing here reports this", and a lookup that did not settle. Only the 
 ## What it never does
 
 - **It never blocks a dispatch on an unreadable reading.** See above; this is the whole design.
-- **It never touches accounts.** It reads how much is spent and stops there. Nothing in this
-  watches credentials, switches accounts, or calls the account-switch script.
+- **It never switches accounts and never reads a credential.** It reads the active account's *name*,
+  from one file holding one word, because a percentage with no pool attached cannot be placed.
+  Nothing here opens a credential file or calls the account-switch script, and no code path may be
+  added that does.
 - **It never resumes work when the window resets.** That belongs to other work and is not wired in
   here.
 - **It never narrates progress.** A pulse that spoke every interval regardless would be exactly the

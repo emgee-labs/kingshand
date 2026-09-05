@@ -2,14 +2,16 @@
 
 Kingshand could spend the whole of a five-hour usage window without noticing, and the King found out
 when work died mid-run. This records where the number comes from, what was tried and rejected on the
-way to it, and the four decisions that shape what was built.
+way to it, and the six decisions that shape what was built.
 
 ## Where the number comes from
 
 `quota-axi`, a separate tool installed with npm. It reports the account's own windows as JSON - a
 used percentage and a reset time per window - and `bin\Usage.psm1` runs it and parses that JSON.
 
-**Nothing in kingshand reads a credential file, a transcript or a terminal to get this.** That
+**Nothing in kingshand reads a credential file, a transcript or a terminal to get this.** One file
+in the profile is read and it holds one word - the name of the active account, which the last
+decision below explains. That
 boundary is the same one `bin\Ci.psm1` keeps to `gh`, and it is what keeps the reader clear of the
 account-switch machinery, which does read credentials and is none of this module's business. It is
 also what honours the open-ended-input rule: the only format read is JSON with a declared schema
@@ -60,14 +62,15 @@ Two files that look like they should answer and do not: the policy-limits file h
 restrictions rather than usage, and the top-level configuration holds a rate-limit tier name with no
 figure attached to it.
 
-## Four decisions
+## Six decisions
 
 **The refusal fails open.** Dispatch refuses a new worker once the window is 90 percent spent, and a
 reading nobody could take never refuses anything - it warns and dispatches. A missing tool, a lookup
-that failed, an answer that will not parse and a reading the tool itself calls stale all pass
-through. This is the same call the prompt-box guards already made for an unreadable screen: a blind
-guard that blocks everything costs more than one that lets work through and says it could not see. A
-reader that breaks must never make kingshand undispatchable.
+that failed and an answer that will not parse all pass through. This is the same call the prompt-box
+guards already made for an unreadable screen: a blind guard that blocks everything costs more than
+one that lets work through and says it could not see. A reader that breaks must never make kingshand
+undispatchable. The one thing that still refuses without a current reading is a stale floor already
+past the threshold, and the decision below owns why that is sound rather than an exception.
 
 **A settled "nothing here reports this" is quiet; a failed lookup warns.** The two are different
 answers and the reader keeps them apart, which is the three-valued shape `Ci.psm1` already uses. An
@@ -81,12 +84,35 @@ transcript tokens, the first decision would have been which of the four componen
 cache reads, two orders of magnitude larger than everything else and not billed like fresh input,
 would have swamped the answer. Not computing it is what makes that question not arise.
 
-**The worst window never decides.** An account has several windows and they do not all bound the
-same thing. On the machine this was built on, the spend-limit window sits at 100 percent while the
-session window is barely touched - so taking the worst of the list would have refused every dispatch
-from the day it shipped. The tool publishes which windows bound every model and what is effectively
-left across them, and that judgement is used rather than one made here. Only where it declines to
-answer does the reader fall back to the five-hour session window on its own.
+**The worst of SOME windows decides, and which ones is the whole of it.** An account reports four
+and they do not bound the same thing. The session and weekly windows both bound every dispatch, so
+the threshold is taken across both and whichever is nearer its limit decides - an overnight run sits
+comfortably inside a five-hour window while burning the week, and the week resets in days rather
+than hours, so tripping it costs far more.
+
+The other two are excluded, by a rule that reads oddly until you see the measurement behind it: **a
+window with no reset time is not a spent quota, it is a window that does not apply.** On this
+machine `extra_usage` reports **100 percent used with no reset time at all**. Take the worst across
+the whole list and the answer is 100 for ever, and every dispatch is blocked permanently - the exact
+hard block this guard was written never to perform. A single model's window is excluded by the same
+rule and for the same reason. A reset already in the past is excluded too, from the other end: that pool has
+rolled, so its percentage describes a window that is over.
+
+**A stale reading is an unknown, and its number survives as a floor.** This is the one that cost
+something. The tool answered 10 percent when the truth was 42: its live fetch had been rate limited
+and it fell back to a cache from before four workers ran for ninety minutes. So a reading the tool
+calls stale never becomes a percentage. But consumption never falls inside a window, so the cached
+figure is a true lower bound and it is kept as one - the dispatch refusal fires when the floor alone
+is already past the threshold, and nothing presents the floor as the answer. Floors round
+**up**. Understatement is the dangerous direction: it is what lets a guard wave work past the very
+limit it is enforcing.
+
+**The percentage is account-scoped, and the account is named out loud.** The tool reads the live
+credential file, which on this machine is swapped between two accounts by a script of the King's
+own, so the reading silently follows whichever is active. The active name is read - **the name only, from
+one file holding one word, never anything from a credential file** - and reported beside the
+percentage. Two readings either side of a switch are never compared: they are percentages of
+different pools, and a silence would say they were one quota sitting still.
 
 ## The pulse, and why silence is the common case
 

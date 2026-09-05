@@ -690,29 +690,29 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         # reading; -Broken makes the tool exit non-zero, which is the unknown the refusal must fail
         # open on; -NoWindows is the settled "nothing here reports this".
         function Set-UsageReply {
-            param([double]$Percent = 5, [switch]$Broken, [switch]$NoWindows)
+            param([double]$Percent = 5, [switch]$Broken, [switch]$NoWindows, [switch]$Stale)
 
             $fail = Join-Path $script:ShimDir 'quota-axi.fail'
             if ($Broken) { Set-Content -Path $fail -Value 'x' -Encoding ascii }
             elseif (Test-Path -LiteralPath $fail) { Remove-Item -LiteralPath $fail -Force }
 
             $windows = @()
-            $semantics = @{ status = 'unknown' }
             if (-not $NoWindows) {
-                $windows = @(@{ id = 'five_hour'; percentUsed = $Percent
-                                resetsAt = '2026-09-05T22:20:00+00:00' })
-                $semantics = @{
-                    status = 'known'
-                    effectiveAvailability = @(@{ scope = 'all_models'; status = 'known'
-                                                 effectivePercentRemaining = (100 - $Percent)
-                                                 boundedBy = @('five_hour')
-                                                 limitingWindowIds = @('five_hour') })
-                }
+                # A reset relative to now, never a fixed timestamp: a window only counts while its
+                # reset is still ahead, so a literal one turns every case here into a time bomb.
+                # The spend cap rides along at 100 percent with no reset at all, because that is
+                # what this machine really reports and it must never refuse a dispatch.
+                $windows = @(
+                    @{ id = 'five_hour'; kind = 'session'; percentUsed = $Percent
+                       resetsAt = ([datetimeoffset]::UtcNow.AddHours(3).ToString('o')) },
+                    @{ id = 'extra_usage'; kind = 'credits'; percentUsed = 100 }
+                )
             }
             @{ schemaVersion = 3
+               generatedAt = ([datetimeoffset]::UtcNow.ToString('o'))
                providers = @(@{ provider = 'claude'; windows = $windows
-                                state = @{ status = 'fresh'; stale = $false }
-                                quotaSemantics = $semantics }) } |
+                                state = @{ status = if ($Stale) { 'stale' } else { 'fresh' }
+                                           stale = [bool]$Stale } }) } |
                 ConvertTo-Json -Depth 12 |
                 Set-Content -Path (Join-Path $script:ShimDir 'quota-axi.json') -Encoding utf8
         }
@@ -1237,6 +1237,44 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $r.id | Should -Be 'T-4106'
             @($warnings | Where-Object { "$_" -like '*usage window*could not be established*' }).Count |
                 Should -BeGreaterThan 0 -Because 'a guard that has gone blind must say so'
+        }
+
+        # THE MEASURED TRAP, AT THE PLACE IT WOULD HAVE COST SOMETHING. The reply above always
+        # carries a spend cap at 100 percent with no reset time, exactly as this machine reports it.
+        # A threshold taken across every window would read 100 and refuse this dispatch, and every
+        # dispatch after it, for good.
+        It 'is not refused by a hundred-percent window that has no reset time' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 5
+            $f = New-DispatchFixture 'usage-spend-cap'
+            (Invoke-Dispatch -Fixture $f -Name 'T-4108').id | Should -Be 'T-4108'
+        }
+
+        # A stale reading is never a number, so it cannot refuse as a measurement - but the cached
+        # figure is a floor, consumption never falls inside a window, and a floor already past the
+        # threshold means the real figure is too.
+        It 'refuses on a stale floor that is already past the threshold' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 95 -Stale
+            $f = New-DispatchFixture 'usage-floor-over'
+
+            $err = { Invoke-Dispatch -Fixture $f -Name 'T-4109' } | Should -Throw -PassThru
+            "$($err.Exception.Message)" | Should -BeLike '*At least 95 percent*'
+            "$($err.Exception.Message)" | Should -BeLike '*floor from a cached reading*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-4109') | Should -BeFalse
+        }
+
+        It 'dispatches on a stale floor below the threshold, and says the reading was not current' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 20 -Stale
+            $f = New-DispatchFixture 'usage-floor-under'
+
+            $warnings = @()
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4110' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -WarningVariable warnings
+            $r.id | Should -Be 'T-4110'
+            @($warnings | Where-Object { "$_" -like '*without a current usage reading*' }).Count |
+                Should -BeGreaterThan 0
         }
 
         # A settled "nothing here reports this" is a stable fact about the machine rather than
