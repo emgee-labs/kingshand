@@ -480,6 +480,26 @@ Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
         $text | Should -Not -BeLike '*Fetch worktree-other*'
     }
 
+    # `$declaredIsWorker` is decided on the NAME, so this warning fires whether or not the declared
+    # branch exists - both forms are dropped before anything is resolved. It must therefore not
+    # claim the ref resolves: on a declaration naming a `worktree-*` branch nobody ever created,
+    # "it resolves fine" is simply false, and the reader is being told about the wrong thing.
+    It 'does not claim a declared worker branch resolves when no such branch exists' {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: worktree-ghost"
+        Test-RefResolves -RepoPath $repo -Ref 'worktree-ghost'        | Should -BeFalse
+        Test-RefResolves -RepoPath $repo -Ref 'origin/worktree-ghost' | Should -BeFalse
+
+        $warnings = @()
+        $base = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        $base | Should -Be 'origin/main'
+        $text = $warnings -join ' '
+        $text | Should -BeLike '*worktree-ghost*'
+        $text | Should -BeLike '*refused on its name alone*'
+        $text | Should -Not -BeLike '*It resolves fine*'
+    }
+
     It 'says the same thing in the refusal when a declared worker branch is all there is' {
         $repo = New-TempRepo -Branch 'worktree-only'
         Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: worktree-only"

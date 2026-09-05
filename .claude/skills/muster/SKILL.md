@@ -1642,9 +1642,10 @@ git -C $w.worktree --no-pager log --oneline "$base..HEAD"
 dispatched, which is usually a remote-tracking one and is not always the default branch. When a
 local branch is behind - which is normal - diffing against it folds every upstream commit in that
 gap into what looks like the worker's work. In the first real run this made a 1-file change appear
-as 6 files across 3 commits. On a re-dispatched ticket the recorded base can itself predate a
-repository change, as Step 4 says - so a diff that carries commits this worker never made is a bad
-base, not a finding about the worker.
+as 6 files across 3 commits. On a re-dispatched ticket it is the other way round, as Step 4 says:
+the base is resolved fresh and the branch point is the older of the two, so re-resolving the base
+finds it current and tells you nothing. A diff that carries commits this worker never made is a
+bad base, not a finding about the worker.
 
 Check the commits for attribution before showing anything:
 
