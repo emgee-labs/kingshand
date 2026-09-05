@@ -118,9 +118,8 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
 - `state\crew.json` - worker id to ticket, repo, stage, and which decision it parked on. Maintained
   via `bin\Crew.psm1`.
 - The usage pulse owns no file at all. What it last said lives in the background job that is
-  pulsing, for as long as that job runs, and `bin\Usage.psm1` writes nothing to disk - so `state\`
-  keeps crew.json as its only file, and the cost is one line a restarted session might have held
-  back.
+  pulsing, for as long as that job runs, and `bin\Usage.psm1` writes nothing to disk - so nothing
+  new lands in `state\`, and the cost is one line a restarted session might have held back.
 - `data\projects.md` - the project registry: standing delivery posture per project. Maintained
   via `/annex` or by hand.
 - `data\done-<project>.md` - one project's standing definition of done, one `-` bullet per
