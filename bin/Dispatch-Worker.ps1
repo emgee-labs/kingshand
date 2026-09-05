@@ -267,10 +267,14 @@ if ($null -ne $measured -and $measured -ge $UsageThresholdPercent) {
            "$($usage.detail) Wait for the window to reset, or dispatch with a higher " +
            "-UsageThresholdPercent if this one has to go out now. Nothing was created.")
 }
-# Rounded UP, because it is a lower bound: rounding a floor down is the understatement that would
-# let a dispatch through the very threshold this is enforcing.
+# COMPARED RAW AND EXACT, which is where every bit of this guard's safety lives - the double the
+# reader took, against the threshold, with no rounding in between. The figure in the message is
+# rounded DOWN instead, because it is a lower bound and "at least" has to stay true: at a real 90.4
+# the sentence "at least 90 percent" is what the evidence supports and "at least 91" is not. The
+# digits shown move nothing, and the two can never contradict each other because flooring a number
+# already at or past the threshold leaves it at or past the threshold.
 if ($null -eq $measured -and $null -ne $floor -and $floor -ge $UsageThresholdPercent) {
-    throw ("At least $([int][Math]::Ceiling($floor)) percent of the usage window is spent - that is " +
+    throw ("At least $([int][Math]::Floor($floor)) percent of the usage window is spent - that is " +
            "a floor from a cached reading rather than a current measurement, and it is already at " +
            "or past the $UsageThresholdPercent percent refusal, so the real figure is too and " +
            "worker $Name was not dispatched. $($usage.detail) Nothing was created.")

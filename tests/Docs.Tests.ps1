@@ -4504,10 +4504,10 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         # THE FAILURE THAT PUT A FOUR-TIMES-UNDERSTATED NUMBER IN FRONT OF THE KING. A cached
         # reading looked exactly like a current one, so the skill has to say what a floor is and
         # that it is never a measurement.
-        It 'says a cached reading is a floor, rounded up, and never a measurement' {
+        It 'says a cached reading is a floor, rounded down, and never a measurement' {
             $script:Vigil | Should -Match '\*\*A cached reading is said as a floor, never as a measurement'
-            $script:Vigil | Should -Match 'rounded up and said as "at least"'
-            $script:Vigil | Should -Match 'rounding a floor down is the understatement'
+            $script:Vigil | Should -Match 'said as "at least" and rounded down'
+            $script:Vigil | Should -Match 'the refusal compares the exact figure, never the rounded one'
         }
 
         It 'never invents a percentage or a phase, and never narrates' {
@@ -4520,6 +4520,22 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Vigil | Should -Match 'Dispatch refuses a new worker once the usage window is 90 percent spent'
             $script:Vigil | Should -Match '\*\*It fails open on a reading nobody could take, deliberately\.\*\*'
             $script:Vigil | Should -Match 'must never make kingshand undispatchable'
+        }
+
+        # THE SKILL IS THE HAND'S ONLY LOADED REFERENCE FOR EXPLAINING A REFUSAL. It said a stale
+        # reading always warns and dispatches, and that a dispatch is never blocked on an unreadable
+        # reading - so a refusal on a stale floor, which is the one that fires most on this machine,
+        # would have been relayed to the King with the opposite reason. The cases that genuinely
+        # fail open are still named as failing open; the stale floor is named apart from them.
+        It 'names the stale floor as the one unknown that still refuses' {
+            $script:Vigil | Should -Match ('\*\*A stale reading is the one unknown that can still ' +
+                                           'refuse, and it refuses on its floor rather than\s+on ' +
+                                           'its number\.\*\*')
+            $script:Vigil | Should -Match 'Where that floor alone is\s+already at or past the threshold'
+            $script:Vigil | Should -Match 'Only the first ever refuses\s+\*\*as a measurement\*\*'
+            $script:Vigil | Should -Match ('A missing `quota-axi`, a lookup that\s+failed and an ' +
+                                           'answer that would not parse all warn and dispatch anyway')
+            $script:Vigil | Should -Not -Match 'It never blocks a dispatch on an unreadable reading'
         }
 
         # The threshold is a number the dispatcher carries and prose in two documents, which is

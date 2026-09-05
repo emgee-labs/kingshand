@@ -103,9 +103,11 @@ something. The tool answered 10 percent when the truth was 42: its live fetch ha
 and it fell back to a cache from before four workers ran for ninety minutes. So a reading the tool
 calls stale never becomes a percentage. But consumption never falls inside a window, so the cached
 figure is a true lower bound and it is kept as one - the dispatch refusal fires when the floor alone
-is already past the threshold, and nothing presents the floor as the answer. Floors round
-**up**. Understatement is the dangerous direction: it is what lets a guard wave work past the very
-limit it is enforcing.
+is already past the threshold, and nothing presents the floor as the answer. **The floor is compared
+raw and shown rounded down.** All of the guard's safety sits in the comparison, which is made
+against the exact figure the reader took. The digits shown do a different job: "at least" is a claim
+about the evidence, and at a true 89.2 the sentence "at least 90 percent is spent" asserts more than
+the reading supports, so rounding a lower bound down is what keeps that phrase honest.
 
 **The percentage is account-scoped, and the account is named out loud.** The tool reads the live
 credential file, which on this machine is swapped between two accounts by a script of the King's

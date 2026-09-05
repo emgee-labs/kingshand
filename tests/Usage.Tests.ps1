@@ -302,14 +302,32 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
             $r.detail       | Should -BeLike '*floor rather than a reading*'
         }
 
-        # Consumption never falls inside a window, so the floor is a lower bound - and a lower bound
-        # rounded down is the understatement that lets a guard wave work past its own threshold.
-        It 'rounds a floor up, never down' {
+        # A FLOOR IS SHOWN ROUNDED DOWN, WHICH IS WHAT KEEPS "AT LEAST" TRUE. At a real 89.2 the
+        # sentence "at least 90 percent is spent" asserts a percentage point the reading never
+        # measured. Nothing is guarded by these digits: the dispatch refusal compares the raw
+        # floorPercent against the threshold, so understating the shown figure cannot let work
+        # through - Dispatch-Worker.Tests.ps1 pins that comparison from the other end.
+        It 'rounds a floor down, never up, so "at least" claims only what was measured' {
             Mock -ModuleName Usage Invoke-QuotaAxi {
                 New-AxiOk (New-AxiReport -FiveHourPercent 89.2 -Stale $true)
             }
 
-            (Get-UsageWindow).detail | Should -BeLike '*At least 90 percent*'
+            $r = Get-UsageWindow
+            $r.detail       | Should -BeLike '*At least 89 percent*'
+            $r.detail       | Should -Not -BeLike '*At least 90 percent*'
+            $r.floorPercent | Should -Be 89.2 -Because 'the exact figure is what the refusal compares'
+        }
+
+        # The refusal this detail is pasted into ends by telling the user to wait for the window,
+        # and on this machine the floor refusal is the one that fires most - the tool's live fetch
+        # is rate limited most of the time. A refusal that does not say when the window clears
+        # leaves out the one thing wanted next.
+        It 'says when the window resets on a stale floor, not just on a measured reading' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 95 -Stale $true)
+            }
+
+            (Get-UsageWindow).detail | Should -BeLike '*It resets at *'
         }
 
         It 'surfaces when the tool generated the answer, so a cached one is visibly cached' {
@@ -796,15 +814,17 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
     }
 
     # A floor is never printed as a bare percentage, because a bare percentage reads as a
-    # measurement - which is exactly how a cached 10 was taken for a current one.
-    It 'says a floor as a floor, rounded up, and marks it stale' {
+    # measurement - which is exactly how a cached 10 was taken for a current one. It is rounded
+    # DOWN, so "at least" claims only what the cached reading actually measured: at a true 41.2,
+    # "at least 42%" would assert a point nobody measured. No guard rests on the printed digits.
+    It 'says a floor as a floor, rounded down, and marks it stale' {
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'unknown'; signal = 'stale-reading'; percent = $null
                                floorPercent = 41.2; stale = $true; detail = 'x'; resetsAt = ''
                                window = 'five_hour'; account = 'personal'; generatedAt = ''
                                schemaVersion = '3'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be 'at least 42% used (stale, session, personal) - nothing running'
+        Get-UsagePulse | Should -Be 'at least 41% used (stale, session, personal) - nothing running'
     }
 
     # The same number decaying from a measurement into a floor is a change worth saying, because

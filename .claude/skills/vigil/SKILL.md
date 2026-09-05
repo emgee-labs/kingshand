@@ -40,13 +40,14 @@ instead, because silence would say they were one quota sitting still.
 **A cached reading is said as a floor, never as a measurement:**
 
 ```
-at least 42% used (stale, session, personal) - 1 running: kh-usage-watch writing tests
+at least 41% used (stale, session, personal) - 1 running: kh-usage-watch writing tests
 ```
 
 That is the shape when the tool's own live fetch failed and it answered from cache. Consumption
 never falls inside a window, so the cached figure is a lower bound - true, but not current. It is
-rounded up and said as "at least", because rounding a floor down is the understatement that lets
-work past the limit.
+said as "at least" and rounded down, because rounding a lower bound up claims more than the reading
+supports: at a true 41.2, "at least 42%" is a sentence the evidence does not carry. Nothing is
+guarded by these digits - the refusal compares the exact figure, never the rounded one.
 
 Three things it never does. It never invents a percentage: where nothing could be read at all the
 line opens `usage unknown` and says nothing more confident than that. It never invents a phase: a
@@ -108,17 +109,30 @@ and that refusing before anything is created costs a message where refusing late
 a branch and a session.
 
 **It fails open on a reading nobody could take, deliberately.** A missing `quota-axi`, a lookup that
-failed, an answer that would not parse and a reading the tool itself calls stale all warn and
-dispatch anyway. This is the same call the prompt-box guards already made for an unreadable screen:
-a blind guard that blocks everything costs more than one that lets work through and says it could
-not see. A reader that breaks must never make kingshand undispatchable.
+failed and an answer that would not parse all warn and dispatch anyway. This is the same call the
+prompt-box guards already made for an unreadable screen: a blind guard that blocks everything costs
+more than one that lets work through and says it could not see. A reader that breaks
+must never make kingshand undispatchable.
 
 So there are three answers and not two, and the third is the point: a percentage that was read, a
-settled "nothing here reports this", and a lookup that did not settle. Only the first ever refuses.
+settled "nothing here reports this", and a lookup that did not settle. Only the first ever refuses
+**as a measurement**.
+
+**A stale reading is the one unknown that can still refuse, and it refuses on its floor rather than
+on its number.** The cached figure is never passed off as current - that is the failure that put 10
+percent in front of the King when the truth was 42 - so it never becomes a percentage. But
+consumption never falls inside a window, so it is a true lower bound. Where that floor alone is
+already at or past the threshold, the real figure is too, and the dispatch is refused with a message
+that says plainly it refused on a floor and when the window clears. Below the threshold it warns and
+goes ahead like every other unknown. On this machine the tool's live fetch is rate limited most of
+the time, so most readings are stale and this is usually the only guard there is.
 
 ## What it never does
 
-- **It never blocks a dispatch on an unreadable reading.** See above; this is the whole design.
+- **It never blocks a dispatch because the reader broke.** A missing tool, a lookup that failed and
+  an answer that would not parse all warn and go ahead. The one refusal without a current reading is
+  a stale floor already at or past the threshold, which is a lower bound on the real figure rather
+  than a guess at it. See above.
 - **It never switches accounts and never reads a credential.** It reads the active account's *name*,
   from one file holding one word, because a percentage with no pool attached cannot be placed.
   Nothing here opens a credential file or calls the account-switch script, and no code path may be

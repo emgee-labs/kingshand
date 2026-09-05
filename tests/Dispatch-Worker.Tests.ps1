@@ -1264,6 +1264,46 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-4109') | Should -BeFalse
         }
 
+        # THE COMPARISON IS RAW AND THE FIGURE SHOWN IS ROUNDED DOWN, and this case is where the
+        # two would part company if either moved. A floor of 90.4 is past the threshold as an exact
+        # number, so it refuses; the message says "at least 90 percent" because that is all the
+        # cached reading measured, and claiming 91 would assert a point nobody read. Round the
+        # comparison instead and this dispatch would go out; round the message up and it would
+        # overstate the evidence.
+        It 'refuses on the exact floor while saying only the percentage that was measured' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 90.4 -Stale
+            $f = New-DispatchFixture 'usage-floor-exact'
+
+            $err = { Invoke-Dispatch -Fixture $f -Name 'T-4111' } | Should -Throw -PassThru
+            "$($err.Exception.Message)" | Should -BeLike '*At least 90 percent*'
+            "$($err.Exception.Message)" | Should -Not -BeLike '*At least 91 percent*'
+        }
+
+        # The other side of that boundary. 89.6 shows as 89 and must still dispatch, because the
+        # exact figure is under the threshold - a comparison that rounded the floor up first would
+        # refuse this one.
+        It 'dispatches on a floor under the threshold that would refuse if it were rounded up' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 89.6 -Stale
+            $f = New-DispatchFixture 'usage-floor-near'
+
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4112' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -WarningAction SilentlyContinue
+            $r.id | Should -Be 'T-4112'
+        }
+
+        # A refusal that does not say when the window clears leaves out the one thing wanted next,
+        # and on this machine the floor refusal is the one that fires most.
+        It 'tells the user when the window resets on a floor refusal' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 95 -Stale
+            $f = New-DispatchFixture 'usage-floor-reset'
+
+            $err = { Invoke-Dispatch -Fixture $f -Name 'T-4113' } | Should -Throw -PassThru
+            "$($err.Exception.Message)" | Should -BeLike '*It resets at *'
+        }
+
         It 'dispatches on a stale floor below the threshold, and says the reading was not current' {
             Set-AgentStartState
             Set-UsageReply -Percent 20 -Stale

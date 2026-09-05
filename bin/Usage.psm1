@@ -561,8 +561,19 @@ function Get-UsageWindow {
         # THE NUMBER IS STILL A FLOOR, AND THE FLOOR IS WORTH KEEPING. Consumption never falls
         # inside a window, so a cached 10 percent means at least 10 percent is spent. It is carried
         # as `floorPercent` - a lower bound the dispatch refusal may still act on - and nothing ever
-        # presents it as the answer. Understatement is the dangerous direction here, so a floor is
-        # rounded UP wherever it is shown and never down.
+        # presents it as the answer.
+        #
+        # COMPARED RAW, SHOWN ROUNDED DOWN, and the two are not in tension. The guard's safety is
+        # carried entirely by the comparison, which the dispatch refusal makes against the exact
+        # double and never against the digits. What is shown is a different job: "at least" is a
+        # claim about the evidence, and at a true 89.2 the sentence "at least 90 percent is spent"
+        # asserts more than the reading supports. Rounding a lower bound DOWN is what keeps "at
+        # least" true, so every rendering of a floor - here, the dispatch refusal and the pulse -
+        # floors it, and no rendering ever overstates what was actually measured.
+        #
+        # The reset time rides along on this one as well as on a measured reading. This sentence is
+        # pasted straight into the refusal the user acts on, and "when does it clear" is the one
+        # thing wanted next after being told the dispatch was refused.
         if ($result.stale) {
             $result.floorPercent = $driving.percent
             $why = "$(Get-JsonField $state 'error')".Trim()
@@ -572,8 +583,8 @@ function Get-UsageWindow {
             return & $finish 'unknown' 'stale-reading' `
                 ('quota-axi reports its own Claude reading as stale, so it describes an earlier ' +
                  'moment rather than this one and no current percentage can be given. At least ' +
-                 "$([Math]::Ceiling($driving.percent)) percent of $named is spent, which is a floor " +
-                 "rather than a reading." + $because + $age + $schema)
+                 "$([Math]::Floor($driving.percent)) percent of $named is spent, which is a floor " +
+                 "rather than a reading." + $when + $because + $age + $schema)
         }
 
         $others = @($applicable | Where-Object { $_.id -ne $driving.id -and $null -ne $_.percent })
@@ -696,14 +707,16 @@ function Format-UsagePulse {
     $suffix = if ($notes.Count -gt 0) { ' (' + ($notes -join ', ') + ')' } else { '' }
 
     $shown = Get-UsagePercentShown (Get-JsonField $Reading 'percent')
-    # A floor is rounded UP and said as "at least". Rounding a floor down, or printing it as a bare
-    # percentage, is the understatement that lets a guard wave work past the limit it exists to hold.
+    # A floor is said as "at least" and rounded DOWN, which is what keeps that phrase true - at a
+    # true 41.2 the line "at least 42% used" claims more than the reading supports. Printing it as a
+    # bare percentage is the thing forbidden here: a bare percentage reads as a measurement, which is
+    # exactly how a cached 10 was taken for a current one. No guard rests on these digits.
     $floor = ConvertTo-UsageNumber (Get-JsonField $Reading 'floorPercent')
 
     $head = if ($status -eq 'has-usage' -and $null -ne $shown) {
         "$shown% used$suffix"
     } elseif ($null -ne $floor) {
-        "at least $([int][Math]::Ceiling($floor))% used" +
+        "at least $([int][Math]::Floor($floor))% used" +
         $(if ($notes.Count -gt 0) { ' (stale, ' + ($notes -join ', ') + ')' } else { ' (stale)' })
     } elseif ($status -eq 'no-usage') {
         'usage not reported here'
@@ -756,8 +769,9 @@ function Get-UsagePulse {
         "b$([int][Math]::Floor($shown / 10))"
     } elseif ($null -ne $floor) {
         # Banded separately from a real reading, so the line changes when a measurement decays into
-        # a floor even though the number itself has not moved.
-        "f$([int][Math]::Floor([Math]::Ceiling($floor) / 10))"
+        # a floor even though the number itself has not moved. Banded on the number the line will
+        # print, floored the same way, so the band and the line can never part company.
+        "f$([int][Math]::Floor([Math]::Floor($floor) / 10))"
     } else {
         $status
     }
