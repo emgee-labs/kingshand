@@ -42,10 +42,12 @@ BeforeAll {
             # RELATIVE, NEVER A FIXED DATE. A window only counts while its reset is still ahead, so
             # a fixture pinned to a literal timestamp passes until that moment arrives and then
             # fails for everyone afterwards, describing a window that has already rolled.
+            #
+            # AN EMPTY STRING OMITS THE FIELD ENTIRELY, which is the shape the tool really produces
+            # for a window it has no reset time for - not a key written as empty text.
             [string]$FiveHourResets  = ([datetimeoffset]::UtcNow.AddHours(3).ToString('o')),
-            [object]$EffectiveRemaining = 96,
-            [string[]]$LimitingWindowIds = @('five_hour'),
             [switch]$WithSevenDay,
+            [object]$SevenDayPercent = 61,
             [string]$SevenDayResets = ([datetimeoffset]::UtcNow.AddDays(4).ToString('o')),
             [bool]$Stale = $false,
             # What the tool says its own last attempt failed on. Absent unless a case is about it.
@@ -63,33 +65,22 @@ BeforeAll {
         # wrote `"windows": null` would exercise a case no tool produces.
         $windows = @()
         if (-not $NoWindows) {
+            $five = @{ id = 'five_hour'; label = 'session'; kind = 'session'
+                       percentUsed = $FiveHourPercent
+                       windowSeconds = 18000; percentRemaining = $fiveRemaining }
+            if ($FiveHourResets) { $five['resetsAt'] = $FiveHourResets }
             $windows = @(
-                @{ id = 'five_hour'; label = 'session'; kind = 'session'
-                   percentUsed = $FiveHourPercent; resetsAt = $FiveHourResets
-                   windowSeconds = 18000; percentRemaining = $fiveRemaining },
+                $five,
                 # The spend cap sitting at 100 is real on this machine and it must NOT decide the
                 # answer: taking the worst window would refuse every dispatch.
                 @{ id = 'extra_usage'; label = 'extra usage'; kind = 'credits'
                    percentUsed = 100; spentUsd = 50.04; limitUsd = 50; percentRemaining = 0 }
             )
             if ($WithSevenDay) {
-                $windows += @{ id = 'seven_day'; label = 'weekly'; kind = 'rolling'
-                               percentUsed = 61; resetsAt = $SevenDayResets
-                               windowSeconds = 604800; percentRemaining = 39 }
-            }
-        }
-
-        $semantics = if ($null -eq $EffectiveRemaining) {
-            @{ status = 'unknown'; description = 'not established' }
-        } else {
-            @{
-                status = 'known'
-                effectiveAvailability = @(@{
-                    scope = 'all_models'; status = 'known'
-                    effectivePercentRemaining = $EffectiveRemaining
-                    boundedBy = @('five_hour', 'seven_day')
-                    limitingWindowIds = $LimitingWindowIds
-                })
+                $seven = @{ id = 'seven_day'; label = 'weekly'; kind = 'rolling'
+                            percentUsed = $SevenDayPercent; windowSeconds = 604800 }
+                if ($SevenDayResets) { $seven['resetsAt'] = $SevenDayResets }
+                $windows += $seven
             }
         }
 
@@ -102,7 +93,6 @@ BeforeAll {
                 provider = $Provider; label = 'Claude'; source = 'oauth'; plan = 'team'
                 windows  = $windows
                 state    = $state
-                quotaSemantics = $semantics
             })
         }
         if ($null -ne $SchemaVersion) { $report['schemaVersion'] = $SchemaVersion }
@@ -207,8 +197,9 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
         }
 
         # A window whose reset has already passed describes a pool that has rolled, so its
-        # percentage is about a window that is over rather than the one running now.
-        It 'ignores a window whose reset time has already passed' {
+        # percentage is about a window that is over rather than the one running now. It is the one
+        # thing still discarded, and even this one is discarded out loud.
+        It 'ignores a window whose reset time has already passed, and says it did' {
             Mock -ModuleName Usage Invoke-QuotaAxi {
                 New-AxiOk (New-AxiReport -FiveHourPercent 95 -WithSevenDay `
                                          -FiveHourResets ([datetimeoffset]::UtcNow.AddHours(-1).ToString('o')))
@@ -217,19 +208,82 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
             $r = Get-UsageWindow
             $r.percent | Should -Be 61 -Because 'the spent session window has rolled and does not count'
             $r.window  | Should -Be 'seven_day'
+            $r.detail  | Should -BeLike '*session window was left out*'
+            $r.detail  | Should -BeLike '*already passed*'
         }
 
-        # A reset time that cannot be read makes the window inapplicable rather than making the
-        # whole answer wrong - and with no applicable window left, not knowing is the answer.
-        It 'reports unknown when the only account window has an unreadable reset time' {
+        # THE FAILURE THIS CLOSES, IN THE SHAPE IT WAS FOUND IN. An account window with a readable
+        # percentage and no reset time used to be dropped whole, so a session window at 95 percent
+        # vanished and the reader answered a confident 30 from the week - and a worker was
+        # dispatched into a window that was nearly spent. The percentage is what bounds the
+        # dispatch and it was read perfectly well; only the claim about when it clears was lost.
+        It 'keeps an account window that reports a percentage with no reset time' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 95 -FiveHourResets '' `
+                                         -WithSevenDay -SevenDayPercent 30)
+            }
+
+            $r = Get-UsageWindow
+            $r.status   | Should -Be 'has-usage'
+            $r.percent  | Should -Be 95 -Because 'the window nearest its limit still decides'
+            $r.window   | Should -Be 'five_hour'
+            $r.resetsAt | Should -Be '' -Because 'only when it clears was unreadable'
+            $r.detail   | Should -BeLike '*no reset time this could read*'
+        }
+
+        # The same rule from the other side, and the direction that actually costs something: the
+        # weekly window at 95 percent with no reset must not disappear behind a comfortable 10
+        # percent from the session.
+        It 'is still driven by the week when the week has no reset time and is nearer its limit' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 10 -WithSevenDay `
+                                         -SevenDayPercent 95 -SevenDayResets '')
+            }
+
+            $r = Get-UsageWindow
+            $r.percent | Should -Be 95
+            $r.window  | Should -Be 'seven_day'
+            $r.detail  | Should -BeLike '*weekly window carries no reset time this could read*'
+        }
+
+        # An unreadable reset time is the same fact as an absent one: the number stands and only
+        # the time is lost.
+        It 'keeps the percentage when the reset time is there and cannot be parsed' {
             Mock -ModuleName Usage Invoke-QuotaAxi {
                 New-AxiOk (New-AxiReport -FiveHourPercent 4 -FiveHourResets 'whenever')
+            }
+
+            $r = Get-UsageWindow
+            $r.status   | Should -Be 'has-usage'
+            $r.percent  | Should -Be 4
+            $r.resetsAt | Should -Be ''
+            $r.detail   | Should -BeLike '*no reset time this could read*'
+            $r.detail   | Should -Not -BeLike '*resets at*'
+        }
+
+        # A spend cap at 100 percent with no reset is STILL excluded, and by the id filter rather
+        # than by the reset rule - which is what keeps the rule above from reintroducing the
+        # permanent block. The session or weekly window is the one that really bounds a worker, so
+        # that one at 100 with no reset does count.
+        It 'still ignores the spend cap once a missing reset no longer disqualifies a window' {
+            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 4) }
+
+            $r = Get-UsageWindow
+            $r.percent | Should -Be 4
+            $r.window  | Should -Be 'five_hour'
+        }
+
+        It 'reports unknown when every account window has already reset' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 4 `
+                                         -FiveHourResets ([datetimeoffset]::UtcNow.AddHours(-1).ToString('o')))
             }
 
             $r = Get-UsageWindow
             $r.status  | Should -Be 'unknown'
             $r.signal  | Should -Be 'no-applicable-window'
             $r.percent | Should -BeNullOrEmpty
+            $r.detail  | Should -BeLike '*session window was left out*'
         }
 
         It 'records the schema version the tool stamped, and never refuses on it' {
@@ -351,15 +405,32 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
             (Get-UsageWindow).detail | Should -BeLike '*rate limited*'
         }
 
-        # A stale reading with no usable window gives no floor either, and must not invent one.
+        # A stale reading with no applicable window gives no floor either, and must not invent one.
+        # The window here has genuinely rolled, which is the one thing still discarded.
         It 'gives no floor when the stale answer has no applicable window' {
             Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 10 -Stale $true -FiveHourResets 'whenever')
+                New-AxiOk (New-AxiReport -FiveHourPercent 10 -Stale $true `
+                                         -FiveHourResets ([datetimeoffset]::UtcNow.AddHours(-1).ToString('o')))
             }
 
             $r = Get-UsageWindow
             $r.status       | Should -Be 'unknown'
             $r.floorPercent | Should -BeNullOrEmpty
+        }
+
+        # The floor is the only guard there is while the tool's live fetch is rate limited, so a
+        # missing reset time must not take it away as well - that would leave the dispatch with
+        # nothing at all, from a reading that carried a perfectly good number.
+        It 'still gives a floor when a stale window reports a percentage with no reset time' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 95 -Stale $true -FiveHourResets '')
+            }
+
+            $r = Get-UsageWindow
+            $r.status       | Should -Be 'unknown'
+            $r.floorPercent | Should -Be 95
+            $r.detail       | Should -BeLike '*At least 95 percent*'
+            $r.detail       | Should -BeLike '*no reset time this could read*'
         }
 
         It 'reports unknown when windows are there and no percentage can be read from any of them' {
@@ -372,8 +443,9 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
 
             $r = Get-UsageWindow
             $r.status  | Should -Be 'unknown'
-            $r.signal  | Should -Be 'no-applicable-window'
+            $r.signal  | Should -Be 'no-percentage' -Because 'the window applies; it is the number that is missing'
             $r.percent | Should -BeNullOrEmpty
+            $r.detail  | Should -BeLike '*session window reported a used percentage this could not read*'
         }
 
         # The third answer, and the one that must not be collapsed into either of the others. An
@@ -469,7 +541,7 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
 
         It 'reads an answer stamped with a version it has never seen rather than refusing it' {
             Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -SchemaVersion 99 -EffectiveRemaining 96)
+                New-AxiOk (New-AxiReport -SchemaVersion 99)
             }
 
             $r = Get-UsageWindow
@@ -507,22 +579,28 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
         # written to fail OPEN into the hard block the design rules out. A reading nobody could
         # take must come back as `unknown`, whatever it was that could not be read.
 
+        # The word goes on the field the reader actually consumes - the window's own percentUsed -
+        # so this reproduces the failure its name claims. The other account window still answers,
+        # which is the tolerance being demonstrated, and the one that could not be read is named
+        # rather than quietly skipped.
         It 'reads a percentage the tool wrote as a word as no percentage, not as an error' {
             Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -EffectiveRemaining 'plenty' -FiveHourPercent 37)
+                New-AxiOk (New-AxiReport -FiveHourPercent 'plenty' -WithSevenDay)
             }
 
             { Get-UsageWindow } | Should -Not -Throw
 
             $r = Get-UsageWindow
-            $r.status  | Should -Be 'has-usage' -Because 'the session window still answered'
+            $r.status  | Should -Be 'has-usage' -Because 'the weekly window still answered'
             $r.signal  | Should -Be 'driving-window'
-            $r.percent | Should -Be 37
+            $r.percent | Should -Be 61
+            $r.window  | Should -Be 'seven_day'
+            $r.detail  | Should -BeLike '*session window reported a used percentage this could not read*'
         }
 
         It 'settles on unknown when no window carries a percentage that is a number' {
             Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -EffectiveRemaining 'plenty' -FiveHourPercent 'lots')
+                New-AxiOk (New-AxiReport -FiveHourPercent 'lots')
             }
 
             $r = Get-UsageWindow
@@ -533,7 +611,7 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
 
         It 'never reads a true as one percent spent' {
             Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -EffectiveRemaining $true -FiveHourPercent $true)
+                New-AxiOk (New-AxiReport -FiveHourPercent $true)
             }
 
             $r = Get-UsageWindow
@@ -643,8 +721,7 @@ Describe 'A timestamp carries its offset, and is never read as local' {
     It 'carries the day into the detail a refusal quotes' {
         $days = (Get-Date).Date.AddDays(6).AddHours(10)
         Mock -ModuleName Usage Invoke-QuotaAxi {
-            New-AxiOk (New-AxiReport -EffectiveRemaining 5 `
-                                     -FiveHourResets (([datetimeoffset]$days).ToString('o')))
+            New-AxiOk (New-AxiReport -FiveHourResets (([datetimeoffset]$days).ToString('o')))
         }
 
         $r = Get-UsageWindow

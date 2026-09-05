@@ -90,13 +90,29 @@ the threshold is taken across both and whichever is nearer its limit decides - a
 comfortably inside a five-hour window while burning the week, and the week resets in days rather
 than hours, so tripping it costs far more.
 
-The other two are excluded, by a rule that reads oddly until you see the measurement behind it: **a
-window with no reset time is not a spent quota, it is a window that does not apply.** On this
-machine `extra_usage` reports **100 percent used with no reset time at all**. Take the worst across
-the whole list and the answer is 100 for ever, and every dispatch is blocked permanently - the exact
-hard block this guard was written never to perform. A single model's window is excluded by the same
-rule and for the same reason. A reset already in the past is excluded too, from the other end: that pool has
-rolled, so its percentage describes a window that is over.
+The other two are excluded **by that id filter alone**, and it matters that it is the filter doing
+the work. On this machine `extra_usage` reports **100 percent used with no reset time at all**. Take
+the worst across the whole list and the answer is 100 for ever, and every dispatch is blocked
+permanently - the exact hard block this guard was written never to perform. A spend cap and a single
+model's window bound something other than the next worker, so neither is read at all.
+
+**A missing reset time costs an account window its reset claim, never its percentage.** The first
+draft threw the whole window away over an unreadable time, and that closed the guard from the
+inside: a session window reported at 95 percent with no reset vanished, the reader answered a
+confident 30 from the week, and a worker went out into a window that was nearly spent. The
+percentage is what bounds a dispatch and it had been read perfectly well. So the number stands and
+only "when does it clear" is lost - which means a session or weekly window at 100 percent with no
+reset does refuse, and rightly, because unlike the spend cap that one really does bound the next
+worker.
+
+A reset already in the past is the one thing still discarded, and from the other end: that pool has
+genuinely rolled, so its percentage describes a window that is over.
+
+**Nothing is dropped in silence, either way.** A window left out for a rolled reset, one kept with
+an unreadable reset time, and one whose percentage is not a number all get named beside the answer.
+The reader already splits an absent `windows` field from an empty one so a renamed field cannot read
+as a settled fact; the same rule has to hold one level down, or evidence the reader threw away
+leaves the answer looking whole.
 
 **A stale reading is an unknown, and its number survives as a floor.** This is the one that cost
 something. The tool answered 10 percent when the truth was 42: its live fetch had been rate limited

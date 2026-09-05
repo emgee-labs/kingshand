@@ -40,7 +40,7 @@ instead, because silence would say they were one quota sitting still.
 **A cached reading is said as a floor, never as a measurement:**
 
 ```
-at least 41% used (stale, session, personal) - 1 running: kh-usage-watch writing tests
+at least 41% used (stale, session, personal) - 1 running: kh-usage-watch working
 ```
 
 That is the shape when the tool's own live fetch failed and it answered from cache. Consumption

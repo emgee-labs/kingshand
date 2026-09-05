@@ -46,7 +46,7 @@ $script:DefaultTimeoutSeconds = 20
 $script:PulseNameLimit = 3
 
 # The windows that bound every dispatch, and the only ones the threshold is taken across. A single
-# model's window and a spend cap are excluded deliberately - Get-ApplicableUsageWindows owns why.
+# model's window and a spend cap are excluded deliberately - Get-AccountUsageWindows owns why.
 $script:AccountWindowIds = @('five_hour', 'seven_day')
 
 # WHAT THE PULSE LAST SAID, HELD FOR THE LIFE OF THE PROCESS AND WRITTEN NOWHERE.
@@ -334,20 +334,36 @@ function Get-ActiveAccountName {
     ''
 }
 
-# The account's own windows, which are the only ones that bound a dispatch, paired with the
-# percentage each reports. Everything else in the list is excluded, by two rules that are separate
-# on purpose because each catches a case the other does not.
+# The account's own windows - the only ones that bound a dispatch - each carrying what could be
+# read off it and what could not.
 #
-# FIRST, ONLY THE ACCOUNT-LEVEL WINDOWS. A single model's window bounds that model and a spend cap
-# bounds spending; neither says whether the next worker can run. Both windows named here do.
+# .id           five_hour or seven_day
+# .percent      the used percentage, or $null where the tool wrote something that is not a number
+# .resetsAt     when it resets, ISO, or '' where the tool gave no time this could read
+# .resetStatus  known | unreadable | rolled
+# .applies      whether this window bounds the dispatch running now
 #
-# SECOND, A WINDOW WITH NO RESET TIME IS NOT A SPENT QUOTA - IT IS A WINDOW THAT DOES NOT APPLY.
-# This is the trap, measured on this machine: `extra_usage` reports 100 percent used with no reset
-# time at all. Take the worst percentage across the whole list and the answer is 100 forever, which
-# blocks every dispatch for good - the hard block this guard is written to never perform. A reset
-# already in the past is excluded by the same rule for the opposite reason: that pool has rolled, so
-# its percentage describes a window that is over.
-function Get-ApplicableUsageWindows {
+# ONLY THE ACCOUNT-LEVEL WINDOWS, AND THAT FILTER ALONE CARRIES THE MEASURED TRAP. A single model's
+# window bounds that model and a spend cap bounds spending; neither says whether the next worker can
+# run. `extra_usage` on this machine reports 100 percent used with no reset time at all, and taking
+# the worst percentage across the whole list would answer 100 for ever - blocking every dispatch
+# permanently, which is the hard block this guard is written never to perform. It is excluded
+# because it is neither `five_hour` nor `seven_day`, so it never reaches the reset rule below.
+#
+# A MISSING RESET TIME DOES NOT DISQUALIFY AN ACCOUNT WINDOW - IT ONLY COSTS THE CLAIM ABOUT WHEN IT
+# CLEARS. The percentage is what bounds the dispatch and it was read perfectly well; throwing it
+# away over the footnote is how a session window reported at 95 percent disappeared while the reader
+# answered a confident 30 from the week, and a worker went out into it. So the number survives and
+# only `resetsAt` is lost. A session or weekly window at 100 percent with no reset therefore refuses,
+# which is right - unlike the spend cap, that one really does bound the next worker.
+#
+# A RESET ALREADY IN THE PAST IS DIFFERENT AND IS STILL DISCARDED. That pool has genuinely rolled, so
+# its percentage describes a window that is over rather than the one running now.
+#
+# NOTHING IS DROPPED IN SILENCE EITHER WAY. Every window present comes back annotated, and
+# Format-UsageWindowNotes turns what could not be read into a sentence beside the percentage - an
+# unreadable input has to read as unreadable rather than simply vanishing.
+function Get-AccountUsageWindows {
     [CmdletBinding()]
     param([Parameter(Mandatory)][AllowEmptyCollection()][array]$Windows, [datetimeoffset]$Now)
 
@@ -358,19 +374,59 @@ function Get-ApplicableUsageWindows {
         $w = @($Windows | Where-Object { (Get-JsonField $_ 'id') -eq $id }) | Select-Object -First 1
         if (-not $w) { continue }
 
-        $iso = ConvertTo-UsageResetTime (Get-JsonField $w 'resetsAt')
-        if (-not $iso) { continue }
-        $reset = [datetimeoffset]::MinValue
-        if (-not [datetimeoffset]::TryParse($iso, [ref]$reset)) { continue }
-        if ($reset -le $Now) { continue }
+        $iso    = ConvertTo-UsageResetTime (Get-JsonField $w 'resetsAt')
+        $status = 'known'
+        $reset  = [datetimeoffset]::MinValue
+        if (-not $iso -or -not [datetimeoffset]::TryParse($iso, [ref]$reset)) {
+            $iso    = ''
+            $status = 'unreadable'
+        } elseif ($reset -le $Now) {
+            $status = 'rolled'
+        }
 
         $out.Add([pscustomobject]@{
-            id       = $id
-            percent  = ConvertTo-UsageNumber (Get-JsonField $w 'percentUsed')
-            resetsAt = $iso
+            id          = $id
+            percent     = ConvertTo-UsageNumber (Get-JsonField $w 'percentUsed')
+            resetsAt    = $iso
+            resetStatus = $status
+            applies     = ($status -ne 'rolled')
         })
     }
     , $out.ToArray()
+}
+
+# What could not be read off the account's windows, as a sentence to sit beside the percentage.
+#
+# THE POINT IS THAT DISCARDED EVIDENCE IS NEVER SILENT. This module already splits an absent
+# `windows` field from an empty one so a renamed field cannot read as a settled fact; the same rule
+# has to hold one level down, or a window the reader threw away leaves the answer looking whole. A
+# reading that names what it could not use is one a person can judge; one that quietly drops it is
+# not, and that is the defect this whole feature exists to prevent.
+function Format-UsageWindowNotes {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][array]$Windows)
+
+    $notes = @()
+    foreach ($w in $Windows) {
+        $named = Format-UsageWindowName -Id $w.id
+        if (-not $w.applies) {
+            $notes += "$named was left out because its own reset time has already passed, so that " +
+                      'window is over'
+            continue
+        }
+        if ($w.resetStatus -eq 'unreadable') {
+            $notes += "$named carries no reset time this could read, so its percentage still counts " +
+                      'and only when it clears is unknown'
+        }
+        if ($null -eq $w.percent) {
+            $notes += "$named reported a used percentage this could not read as a number"
+        }
+    }
+    if ($notes.Count -eq 0) { return '' }
+    # Each note is its own sentence following a full stop, so it opens in upper case. The window
+    # names are written for the middle of a sentence - "the session window" - and reading one back
+    # as the start of one is the only place that shows.
+    ' ' + (@($notes | ForEach-Object { $_.Substring(0, 1).ToUpper() + $_.Substring(1) }) -join '. ') + '.'
 }
 
 # The applicable window NEAREST ITS THRESHOLD, which is the one a dispatch is really bounded by.
@@ -413,8 +469,10 @@ function Select-DrivingUsageWindow {
 # the threshold is taken across BOTH and the one nearest its limit decides - an overnight run sits
 # comfortably inside a five-hour window while burning the week, and the weekly one resets in days
 # rather than hours, so tripping it costs far more. A single model's window and a spend cap bound
-# something else and are excluded, along with any window carrying no usable reset time.
-# Get-ApplicableUsageWindows owns those exclusions and the measured trap behind them.
+# something else and are excluded, as is an account window whose reset has already passed - that
+# pool has rolled. A missing or unreadable reset time costs only the claim about when the window
+# clears, never the percentage. Get-AccountUsageWindows owns those rules and the measured trap
+# behind them, and nothing it drops is dropped in silence.
 #
 # A STALE READING NEVER BECOMES A PERCENTAGE. It becomes a floor, and the floor is the only thing
 # guarding a dispatch while the tool's live fetch is rate limited - which, measured on this machine,
@@ -518,33 +576,38 @@ function Get-UsageWindow {
                  'no window percentage to watch on this machine.' + $schema)
         }
 
-        # The account's own windows, looked up BY ID and never by position, with anything that does
-        # not bound a dispatch already excluded. Get-ApplicableUsageWindows owns both rules.
-        $applicable = Get-ApplicableUsageWindows -Windows $windows
+        # The account's own windows, looked up BY ID and never by position, each annotated with what
+        # could be read off it. Get-AccountUsageWindows owns which windows those are and what makes
+        # one of them stop applying.
+        $present = Get-AccountUsageWindows -Windows $windows
 
-        # An account-level window that IS there and is not applicable is a different fact from there
-        # being none at all, and the two get different answers. None at all is settled: this account
-        # has no session or weekly window and there is nothing here to watch. One that exists and
-        # carries no usable reset time is something wrong rather than an absence, so it warns.
-        $present = @($windows | Where-Object {
-            $script:AccountWindowIds -contains "$(Get-JsonField $_ 'id')" })
+        # An account-level window that IS there and has rolled is a different fact from there being
+        # none at all, and the two get different answers. None at all is settled: this account has
+        # no session or weekly window and there is nothing here to watch. One that exists and
+        # describes a window already over is something the reader has to say out loud.
         if ($present.Count -eq 0) {
             return & $finish 'no-usage' 'no-account-windows' `
                 ('quota-axi reports the Claude account with no session or weekly window, so there ' +
                  'is no window percentage to watch on this machine.' + $schema)
         }
+
+        # Every note this reading could carry, computed once from every window present rather than
+        # only from the ones that survived - a window that was dropped is exactly the one whose
+        # absence has to be said out loud.
+        $notes      = Format-UsageWindowNotes -Windows $present
+        $applicable = @($present | Where-Object { $_.applies })
         if ($applicable.Count -eq 0) {
             return & $finish 'unknown' 'no-applicable-window' `
-                ('quota-axi reported the Claude account''s windows without a usable reset time on ' +
-                 'any of them, so none of them describes a window that is currently running and ' +
-                 'how much is spent is not known.' + $schema)
+                ('quota-axi reported the Claude account''s windows and every one of them has ' +
+                 'already reset, so none of them describes a window that is currently running and ' +
+                 'how much is spent is not known.' + $notes + $schema)
         }
 
         $driving = Select-DrivingUsageWindow -Applicable $applicable
         if (-not $driving) {
             return & $finish 'unknown' 'no-percentage' `
                 ('quota-axi reported the Claude account''s windows and a used percentage could not ' +
-                 'be read from any of them, so the usage window is not known.' + $schema)
+                 'be read from any of them, so the usage window is not known.' + $notes + $schema)
         }
 
         $result.window   = $driving.id
@@ -584,7 +647,7 @@ function Get-UsageWindow {
                 ('quota-axi reports its own Claude reading as stale, so it describes an earlier ' +
                  'moment rather than this one and no current percentage can be given. At least ' +
                  "$([Math]::Floor($driving.percent)) percent of $named is spent, which is a floor " +
-                 "rather than a reading." + $when + $because + $age + $schema)
+                 "rather than a reading." + $when + $notes + $because + $age + $schema)
         }
 
         $others = @($applicable | Where-Object { $_.id -ne $driving.id -and $null -ne $_.percent })
@@ -597,7 +660,8 @@ function Get-UsageWindow {
 
         $result.percent = $driving.percent
         & $finish 'has-usage' 'driving-window' `
-            ("$([Math]::Round($driving.percent, 1)) percent of $named is spent." + $when + $beside)
+            ("$([Math]::Round($driving.percent, 1)) percent of $named is spent." + $when + $beside +
+             $notes)
     } catch {
         # Reset rather than reported as read. A field set on the way to a throw is a half-finished
         # answer, and a percentage carried out of a reading that failed is the fabrication this
@@ -853,7 +917,8 @@ Export-ModuleMember -Function Get-QuotaAxiCommandPath, Get-QuotaAxiHint, Invoke-
                               ConvertTo-JsonList, Test-JsonField, ConvertTo-UsageNumber,
                               ConvertTo-UsageResetTime, Format-UsageResetTime,
                               Format-UsageWindowName, Format-UsageWindowShortName,
-                              Get-ActiveAccountName, Get-ApplicableUsageWindows,
+                              Get-ActiveAccountName, Get-AccountUsageWindows,
+                              Format-UsageWindowNotes,
                               Select-DrivingUsageWindow, Get-UsageWindow, Get-UsageFleet,
                               Get-WorkerPhrase, Get-WorkerLabel, Format-UsagePulse,
                               Get-UsagePulse, Watch-UsagePulse
