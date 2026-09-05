@@ -3437,10 +3437,11 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     # The refusals are what a caller plans around, so their count and their subjects are pinned.
     # Each one knows its path exactly because the caller handed it over - that is what separates
     # this list from the parsed cross-check it replaced.
-    It 'muster states the nine refusals dispatch still makes' {
+    It 'muster states the ten refusals dispatch still makes' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase ('There are nine, and each is refused by name: a brief with no ' +
+            -Phrase ('There are ten, and each is refused by name: a usage window already past the ' +
+                     'threshold, a brief with no ' +
                      '`## Read first` section at all, a brief that passes no `-ReadPath` and does ' +
                      'not say the index was checked when anything at all is indexed - and neither ' +
                      "the project's own standing files nor the browser procedure counts towards " +
@@ -3452,6 +3453,14 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
                      'exists and cannot be opened, a directory sitting where a standing file ' +
                      'belongs, and a brief that cannot be opened for writing to be told what was ' +
                      'attached to it.')
+    }
+
+    # The tenth is the odd one out and the skill has to say so, because relaying a warning is a
+    # different action from relaying a refusal and the Hand would otherwise treat them alike.
+    It 'muster separates the usage refusal from the nine that know their path' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 4 - Dispatch') -Where 'muster Step 4' `
+            -Phrase ('**The usage one is the only refusal here that can be absent rather than ' +
+                     'raised.**')
     }
 
     # The whole requirement, in the artefact the Hand reads at the moment it dispatches: the two
@@ -3602,6 +3611,8 @@ Describe 'no long dash' {
         @{ file = 'docs\2026-09-04-parked-decision-route.md' }
         @{ file = '.claude\skills\regency\SKILL.md' }
         @{ file = 'docs\2026-09-04-outward-gating.md' }
+        @{ file = '.claude\skills\vigil\SKILL.md' }
+        @{ file = 'docs\2026-09-05-usage-window-watch.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
@@ -3938,7 +3949,7 @@ Describe 'survey puts an open decision in King''s Call and only there' {
 }
 
 Describe 'the setup skill ships inside the repo so a fresh clone can bootstrap itself' {
-    # Every skill is project-local, under .claude\skills\, so all sixteen are readable the moment
+    # Every skill is project-local, under .claude\skills\, so all seventeen are readable the moment
     # someone opens Claude Code in this directory and none of them is reachable from anywhere
     # else on the machine. That is what lets "set it up" be the first thing anyone types.
     BeforeAll { $script:SetupText = Get-DocText $script:SetupMd }
@@ -4395,9 +4406,143 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         }
     }
 
+    # vigil follows herald exactly, and for the same reason: the pulse is on in every session, so
+    # the rule that says so has to live where it applies with no skill loaded. A skill cannot invoke
+    # itself at session start and nothing here pretends otherwise.
+    Context 'vigil owns the usage pulse and it is on by default' {
+        BeforeAll {
+            $script:Vigil = Get-Content -Path (Join-Path $script:Root '.claude\skills\vigil\SKILL.md') -Raw
+            $script:VigilHand = Get-Content -Path (Join-Path $script:Root 'CLAUDE.md') -Raw
+        }
+
+        It 'says the pulse is already on without the skill being loaded' {
+            $script:Vigil | Should -Match '\*\*The pulse is the default\. It is already on'
+            $script:Vigil | Should -Match 'a rule that only exists in an unloaded skill is not in force'
+        }
+
+        It 'the rule that must apply unloaded is actually in CLAUDE.md' {
+            Assert-Phrase -Text (Get-HandSection 'Escalation and etiquette') -Where 'CLAUDE.md' `
+                -Phrase '**The usage pulse is on by default, so arm it once a session and relay its line as it comes.**'
+            Assert-Phrase -Text (Get-HandSection 'Escalation and etiquette') -Where 'CLAUDE.md' `
+                -Phrase 'it speaks only when something has changed, so a silent interval is it working'
+        }
+
+        # THE ONE THAT MATTERS MOST. instructions.md is free prose written by a person, so a script
+        # matching a phrase in it is the open-ended scanner the standing criteria forbid - and the
+        # test below proves no script does.
+        It 'puts the off switch in the King''s own instructions and keeps every script out of it' {
+            Assert-Phrase -Text (Get-HandSection 'Escalation and etiquette') -Where 'CLAUDE.md' `
+                -Phrase ('**The King turns it off with a line in `instructions.md`, which you read at ' +
+                         'session start and obey. The digest prints that file whole; nothing in ' +
+                         '`bin\` matches a phrase out of it and nothing may start.**')
+            $script:Vigil | Should -Match ('\*\*Nothing in `bin\\` matches a phrase out of ' +
+                                           '`instructions\.md`, and nothing may start\.\*\*')
+            # Normalised, so re-wrapping the paragraph does not lose the rule the way a raw match
+            # does - the sentence has already moved across a line break once.
+            Assert-Phrase -Text (Get-DocText (Join-Path $script:Root '.claude\skills\vigil\SKILL.md')) `
+                -Where 'the vigil skill' -Phrase 'The switch is a person''s word, read by the Hand.'
+        }
+
+        # Asserted on the source deliberately, which is what this file is for: the rule above is
+        # about what no script may do, and only the scripts themselves can answer that.
+        #
+        # The rule is not "never touch the file" - the session-start digest prints it in full, and
+        # that is the whole mechanism the off switch depends on. The rule is that nothing MATCHES
+        # anything in it, so every line naming that file is checked for a matching operator instead.
+        It 'no script under bin\ matches anything out of instructions.md' {
+            $matching = '(?<![\w-])(-match|-notmatch|-like|-notlike|-split|-replace|Select-String)(?![\w-])'
+            foreach ($f in @(Get-ChildItem (Join-Path $script:Root 'bin') -File -Recurse -Include '*.ps1', '*.psm1')) {
+                foreach ($line in @(Get-Content -Path $f.FullName)) {
+                    if ($line -notmatch 'instructions\.md|\$InstructionsPath') { continue }
+                    $line | Should -Not -Match $matching `
+                        -Because "$($f.Name) must never match a phrase out of the King's own instructions"
+                }
+            }
+        }
+
+        # The other half of it: the one script that does read the file hands it to the printer that
+        # emits a file whole, so the Hand receives the King's own words rather than a script's
+        # reading of them.
+        It 'the digest prints it in full rather than reading anything out of it' {
+            (Get-Content -Path (Join-Path $script:Root 'bin\Get-SessionStart.ps1') -Raw) |
+                Should -Match "Add-ContextFile -Name 'instructions\.md'"
+        }
+
+        # The arming pattern is the whole of R-008: a runnable block in the shape muster Step 4
+        # already uses, and the same prohibition on an untracked process, which reaches nobody.
+        It 'arms the pulse as a harness-tracked background job, with a runnable command' {
+            $fences = @(Get-CodeFence (Join-Path $script:Root '.claude\skills\vigil\SKILL.md'))
+            @($fences | Where-Object { $_.Contains('Watch-UsagePulse') -and
+                                       $_.Contains('Import-Module $env:KINGSHAND_HOME\bin\Usage.psm1') }).Count |
+                Should -BeGreaterThan 0 -Because 'the Hand copies the block, so it has to be runnable'
+            $script:Vigil | Should -Match ('\*\*A harness-tracked background job, never with `&` and ' +
+                                           'never as a detached process\.\*\*')
+            $script:Vigil | Should -Match 'Ten minutes between pulses by default'
+        }
+
+        It 'pins the line to one line, with the tail as a count' {
+            $script:Vigil | Should -Match 'One line, hard cap, however many workers are live'
+            $script:Vigil | Should -Match 'the tail becomes a count'
+        }
+
+        It 'never invents a percentage or a phase, and never narrates' {
+            $script:Vigil | Should -Match 'It never invents a percentage'
+            $script:Vigil | Should -Match 'It never invents a phase'
+            $script:Vigil | Should -Match 'a silent interval is the pulse\s+working'
+        }
+
+        It 'states the refusal near the limit and that it fails open' {
+            $script:Vigil | Should -Match 'Dispatch refuses a new worker once the usage window is 90 percent spent'
+            $script:Vigil | Should -Match '\*\*It fails open on a reading nobody could take, deliberately\.\*\*'
+            $script:Vigil | Should -Match 'must never make kingshand undispatchable'
+        }
+
+        # The threshold is a number in one place and prose in two others, which is exactly how a
+        # contract drifts. Read out of the owner rather than typed here, so changing the default
+        # without changing what the King is told fails loudly instead of quietly.
+        It 'says the same threshold the dispatcher actually carries' {
+            $src = Get-Content -Path (Join-Path $script:Root 'bin\Dispatch-Worker.ps1') -Raw
+            $m = [regex]::Match($src, '\[int\]\$UsageThresholdPercent\s*=\s*(?<n>\d+)')
+            $m.Success | Should -BeTrue -Because 'the dispatcher owns the threshold'
+            $n = $m.Groups['n'].Value
+
+            $script:Vigil | Should -Match "usage window is $n percent spent"
+            (Get-Content -Path (Join-Path $script:Root 'docs\2026-09-05-usage-window-watch.md') -Raw) |
+                Should -Match "window is $n percent spent"
+        }
+
+        It 'keeps accounts and auto-resume out of it' {
+            $script:Vigil | Should -Match '\*\*It never touches accounts\.\*\*'
+            $script:Vigil | Should -Match '\*\*It never resumes work when the window resets\.\*\*'
+            $script:Vigil | Should -Match 'It relaxes no hard rule'
+        }
+
+        It 'is reachable from CLAUDE.md by a stated condition, the way herald is' {
+            $skills = Get-HandSection 'Skills'
+            Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
+                -Phrase ('`vigil` owns the usage pulse, and that pulse is **on by default in every ' +
+                         'session**')
+            Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
+                -Phrase 'Load it only to change that'
+        }
+
+        It 'gives the usage reader its own owner in the tooling table' {
+            Assert-Phrase -Text (Get-HandSection 'Tooling') -Where 'the CLAUDE.md tooling table' `
+                -Phrase ('| `bin\Usage.psm1` | how much of the current usage window is spent, and the ' +
+                         'one-line pulse: three answers where a percentage that could not be read is ' +
+                         'never a number, the record under `state\usage.json`, and the pulse on its timer |')
+        }
+
+        It 'names the new state file among what the Hand owns' {
+            Assert-Phrase -Text (Get-HandSection 'What you own') -Where 'CLAUDE.md' `
+                -Phrase ('`state\usage.json` - the last usage reading, what the pulse last said, and ' +
+                         'the cadence it is armed at.')
+        }
+    }
+
     It 'every skill directory lives under .claude\skills\' {
         $skills = @(Get-ChildItem (Join-Path $script:Root '.claude\skills') -Directory)
-        $skills.Count | Should -Be 16 -Because 'fifteen skills plus setup, all project-local'
+        $skills.Count | Should -Be 17 -Because 'sixteen skills plus setup, all project-local'
         @($skills.Name) | Should -Contain 'herald' -Because 'output shape has an owner the user can turn on'
         foreach ($s in $skills) {
             Test-Path -LiteralPath (Join-Path $s.FullName 'SKILL.md') |
@@ -5841,7 +5986,7 @@ Describe 'the installation has a version, and one command moves it to a release'
 
     It 'counts every skill that now loads' {
         Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'CLAUDE.md Skills' `
-            -Phrase 'so all sixteen load when Claude Code runs here'
+            -Phrase 'so all seventeen load when Claude Code runs here'
     }
 
     It 'gives the version and the update their own owners in the tooling table' {

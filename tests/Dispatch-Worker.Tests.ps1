@@ -675,6 +675,48 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             'exit /b 0'
         )
 
+        # quota-axi is shimmed on PATH beside herdr, for the same reason and with the same effect:
+        # the usage refusal is the first thing dispatch checks now, so every case below has to have
+        # an answer waiting for it. It types one canned report and never logs a call, because the
+        # call log is what the herdr assertions count.
+        Set-Content -Path (Join-Path $script:ShimDir 'quota-axi.cmd') -Encoding ascii -Value @(
+            '@echo off',
+            'if exist "%KINGSHAND_TEST_HERDR_DIR%\quota-axi.fail" exit /b 1',
+            'type "%KINGSHAND_TEST_HERDR_DIR%\quota-axi.json"',
+            'exit /b 0'
+        )
+
+        # How much of the window this dispatch will believe is spent. A percentage produces a real
+        # reading; -Broken makes the tool exit non-zero, which is the unknown the refusal must fail
+        # open on; -NoWindows is the settled "nothing here reports this".
+        function Set-UsageReply {
+            param([double]$Percent = 5, [switch]$Broken, [switch]$NoWindows)
+
+            $fail = Join-Path $script:ShimDir 'quota-axi.fail'
+            if ($Broken) { Set-Content -Path $fail -Value 'x' -Encoding ascii }
+            elseif (Test-Path -LiteralPath $fail) { Remove-Item -LiteralPath $fail -Force }
+
+            $windows = @()
+            $semantics = @{ status = 'unknown' }
+            if (-not $NoWindows) {
+                $windows = @(@{ id = 'five_hour'; percentUsed = $Percent
+                                resetsAt = '2026-09-05T22:20:00+00:00' })
+                $semantics = @{
+                    status = 'known'
+                    effectiveAvailability = @(@{ scope = 'all_models'; status = 'known'
+                                                 effectivePercentRemaining = (100 - $Percent)
+                                                 boundedBy = @('five_hour')
+                                                 limitingWindowIds = @('five_hour') })
+                }
+            }
+            @{ schemaVersion = 3
+               providers = @(@{ provider = 'claude'; windows = $windows
+                                state = @{ status = 'fresh'; stale = $false }
+                                quotaSemantics = $semantics }) } |
+                ConvertTo-Json -Depth 12 |
+                Set-Content -Path (Join-Path $script:ShimDir 'quota-axi.json') -Encoding utf8
+        }
+
         # Test-HerdrServer matches on this shape, so a running server needs no real one.
         Set-Content -Encoding ascii -Path (Join-Path $script:ShimDir 'status.txt') -Value @(
             'client:', '  version: 0.8.2', '', 'server:', '  status: running', '  socket: none'
@@ -729,6 +771,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         Set-HerdrReply -Verb 'pane-list'        -Result @{ panes = @(@{ pane_id = 'p1' }) }
         Set-HerdrReply -Verb 'pane-split'       -Result @{ pane = @{ pane_id = 'p2' } }
         Set-AgentStartState
+        Set-UsageReply
 
         $env:KINGSHAND_TEST_HERDR_DIR = $script:ShimDir
         $env:PATH = $script:ShimDir + [IO.Path]::PathSeparator + $env:PATH
@@ -1117,6 +1160,93 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 Should -Throw '*under Read first and it does not exist*'
             Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-4003') |
                 Should -BeFalse -Because 'nothing is created before every named file is known to be there'
+        }
+    }
+
+    # A worker started into the last few percent of a usage window dies mid-run and leaves the work
+    # half done. The check is first of all of them because it is the one that costs nothing to fail:
+    # nothing exists yet, so the refusal is free.
+    #
+    # THE HALF THAT MATTERS MOST IS THE FAIL-OPEN HALF. A reading nobody could take must never make
+    # kingshand undispatchable, so only a percentage that was actually read refuses.
+    Context 'the usage window near its limit' {
+        AfterEach { Set-UsageReply }
+
+        It 'refuses at the threshold nobody passes, and creates nothing' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 95
+            $f = New-DispatchFixture 'usage-refused'
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-4101' } |
+                Should -Throw '*new work is refused from 90 percent*'
+            (Get-CallLines $f).Count | Should -Be 0 -Because 'nothing is spawned to be refused later'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-4101') | Should -BeFalse
+            @(& git -C $f.Repo branch --list 'worktree-T-4101') |
+                Should -BeNullOrEmpty -Because 'the refusal says nothing was created'
+        }
+
+        It 'names the number so the Hand can relay it' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 95
+            $f = New-DispatchFixture 'usage-message'
+
+            $err = { Invoke-Dispatch -Fixture $f -Name 'T-4102' } | Should -Throw -PassThru
+            "$($err.Exception.Message)" | Should -BeLike '*95 percent spent*'
+            "$($err.Exception.Message)" | Should -BeLike '*Nothing was created*'
+        }
+
+        It 'refuses exactly at the threshold, not only past it' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 90
+            $f = New-DispatchFixture 'usage-boundary'
+            { Invoke-Dispatch -Fixture $f -Name 'T-4103' } | Should -Throw '*refused from 90 percent*'
+        }
+
+        It 'dispatches below the threshold' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 89
+            $f = New-DispatchFixture 'usage-under'
+            (Invoke-Dispatch -Fixture $f -Name 'T-4104').id | Should -Be 'T-4104'
+        }
+
+        It 'takes a higher threshold from a caller that has to send this one out now' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 95
+            $f = New-DispatchFixture 'usage-override'
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4105' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -UsageThresholdPercent 99
+            $r.id | Should -Be 'T-4105'
+        }
+
+        # The prompt-box guards already made this call for an unreadable screen and the reasoning
+        # transfers: a blind guard that blocks everything costs more than one that lets work through
+        # and says it could not see.
+        It 'dispatches anyway when the reading could not be taken, and warns' {
+            Set-AgentStartState
+            Set-UsageReply -Broken
+            $f = New-DispatchFixture 'usage-unknown'
+
+            $warnings = @()
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4106' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -WarningVariable warnings
+            $r.id | Should -Be 'T-4106'
+            @($warnings | Where-Object { "$_" -like '*usage window*could not be established*' }).Count |
+                Should -BeGreaterThan 0 -Because 'a guard that has gone blind must say so'
+        }
+
+        # A settled "nothing here reports this" is a stable fact about the machine rather than
+        # something wrong with it, and a warning on every dispatch for a state nobody can act on
+        # teaches the reader to skip the next one.
+        It 'dispatches without a word when the account reports no windows at all' {
+            Set-AgentStartState
+            Set-UsageReply -NoWindows
+            $f = New-DispatchFixture 'usage-none'
+
+            $warnings = @()
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4107' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -WarningVariable warnings
+            $r.id | Should -Be 'T-4107'
+            @($warnings | Where-Object { "$_" -like '*usage*' }) | Should -BeNullOrEmpty
         }
     }
 
