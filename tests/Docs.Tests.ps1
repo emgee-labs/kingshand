@@ -1426,6 +1426,55 @@ Describe 'the ported reference skills are loadable and keep their load-bearing r
             -Phrase ('**an exemption clause does not scope**: "this limit does not apply to ' +
                      'code blocks" still suppresses code blocks')
     }
+
+    # statute's description enumerates what the file covers, and that enumeration went stale: it
+    # named seven subjects while the file had eight sections, so `Match the form to the failure`
+    # was a subject nothing would ever load the skill for. The table below is the closed form that
+    # keeps the two together. Each row is one `## ` section and the exact words the description
+    # must carry for it, both written out here as literals - nothing derives one from the other,
+    # and nothing reads the description as a list. Add a ninth section and the heading comparison
+    # fails, which forces a row, which forces its phrase into the description.
+    #
+    # The only text this reads is one file's `## ` lines against a fixed expected list. That is
+    # bounded rather than Markdown in general because a `## ` line can mean something other than a
+    # heading only inside a fence, and statute carries none - the first assertion holds it that
+    # way, so the day someone adds a fence this check says so instead of quietly mis-reading it.
+    It 'statute''s description enumerates every section the file actually has' {
+        $coverage = @(
+            @{ Heading = 'Knowledge-placement decision tree'
+               Phrase  = 'the knowledge-placement decision tree' }
+            @{ Heading = 'One-owner rule'
+               Phrase  = 'the one-owner rule for contracts' }
+            @{ Heading = 'Inline-stub pattern'
+               Phrase  = 'the inline-stub pattern for content moved into a skill' }
+            @{ Heading = 'Size discipline'
+               Phrase  = 'size discipline for the always-loaded file' }
+            @{ Heading = 'Trigger hygiene'
+               Phrase  = 'trigger hygiene for new skills' }
+            @{ Heading = 'Prose rules need tests'
+               Phrase  = 'the rule that a prose rule needs a test' }
+            @{ Heading = 'Match the form to the failure'
+               Phrase  = 'matching a new rule''s form to the failure it is for' }
+            @{ Heading = 'Style rules'
+               Phrase  = 'kingshand''s style rules' }
+        )
+
+        @(Get-CodeFence $script:GuidelinesMd).Count |
+            Should -Be 0 -Because 'this check reads statute''s `## ` lines as headings, which holds only while the file carries no fence'
+
+        $headings = @(Get-Content -Path $script:GuidelinesMd |
+            Where-Object { $_.StartsWith('## ') } |
+            ForEach-Object { $_.Substring(3).Trim() })
+        ($headings -join ' | ') |
+            Should -Be (@($coverage.Heading) -join ' | ') `
+            -Because 'a section added, renamed, removed or reordered must move the table in this test with it'
+
+        $description = (Get-Frontmatter $script:GuidelinesMd)['description']
+        foreach ($row in $coverage) {
+            $description.Contains($row.Phrase) |
+                Should -BeTrue -Because "the description must name the '$($row.Heading)' section as '$($row.Phrase)'"
+        }
+    }
 }
 
 Describe 'audience recaps the session and touches nothing else' {
