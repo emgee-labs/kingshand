@@ -3602,6 +3602,7 @@ Describe 'no long dash' {
         @{ file = 'docs\2026-09-04-parked-decision-route.md' }
         @{ file = '.claude\skills\regency\SKILL.md' }
         @{ file = 'docs\2026-09-04-outward-gating.md' }
+        @{ file = 'docs\2026-09-05-worker-and-gate-model-selection.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
