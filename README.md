@@ -102,9 +102,9 @@ which is the ordinary path and works exactly as well.
 
 **`quota-axi`, only for the usage pulse.** It is what reports how much of the current usage window
 is spent, and kingshand asks it rather than reading a credential file or a transcript of its own.
-`npm install -g quota-axi`. Without it everything still dispatches - the pulse says the usage is not
-known and the refusal near the limit fails open on purpose, because a reader that breaks must not
-make the tool undispatchable.
+Nothing here installs it: `npm install -g quota-axi`. Without it everything still dispatches - the
+pulse says the usage is not known and the refusal near the limit fails open on purpose, because a
+reader that breaks must not make the tool undispatchable.
 
 **Pester 6+, only to run this repository's own tests.** Nothing in `bin\` and no skill imports it,
 so an installation without Pester dispatches, gates and lands identically. `Install-Module Pester

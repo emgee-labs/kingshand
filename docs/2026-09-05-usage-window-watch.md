@@ -11,11 +11,10 @@ used percentage and a reset time per window - and `bin\Usage.psm1` runs it and p
 
 **Nothing in kingshand reads a credential file, a transcript or a terminal to get this.** One file
 in the profile is read and it holds one word - the name of the active account, which the last
-decision below explains. That
-boundary is the same one `bin\Ci.psm1` keeps to `gh`, and it is what keeps the reader clear of the
-account-switch machinery, which does read credentials and is none of this module's business. It is
-also what honours the open-ended-input rule: the only format read is JSON with a declared schema
-version, from a tool that owns the question.
+decision below explains. That boundary is the same one `bin\Ci.psm1` keeps to `gh`, and it is what
+keeps the reader clear of the account-switch machinery, which does read credentials and is none of
+this module's business. It is also what honours the open-ended-input rule: the only format read is
+JSON with a declared schema version, from a tool that owns the question.
 
 ## What was tried first, and what each one gave back
 
@@ -70,7 +69,7 @@ that failed and an answer that will not parse all pass through. This is the same
 guards already made for an unreadable screen: a blind guard that blocks everything costs more than
 one that lets work through and says it could not see. A reader that breaks must never make kingshand
 undispatchable. The one thing that still refuses without a current reading is a stale floor already
-past the threshold, and the decision below owns why that is sound rather than an exception.
+at or past the threshold, and the decision below owns why that is sound rather than an exception.
 
 **A settled "nothing here reports this" is quiet; a failed lookup warns.** The two are different
 answers and the reader keeps them apart, which is the three-valued shape `Ci.psm1` already uses. An
@@ -127,18 +126,19 @@ leaves the answer looking whole.
 something. The tool answered 10 percent when the truth was 42: its live fetch had been rate limited
 and it fell back to a cache from before four workers ran for ninety minutes. So a reading the tool
 calls stale never becomes a percentage. But consumption never falls inside a window, so the cached
-figure is a true lower bound and it is kept as one - the dispatch refusal fires when the floor alone
-is already past the threshold, and nothing presents the floor as the answer. **The floor is compared
-raw and shown rounded down.** All of the guard's safety sits in the comparison, which is made
-against the exact figure the reader took. The digits shown do a different job: "at least" is a claim
-about the evidence, and at a true 89.2 the sentence "at least 90 percent is spent" asserts more than
-the reading supports, so rounding a lower bound down is what keeps that phrase honest.
+figure is a true lower bound and it is kept as one - the dispatch refusal fires when the floor
+alone is already at or past the threshold, and nothing presents the floor as the answer. **The
+floor is compared raw and shown rounded down.** All of the guard's safety sits in the comparison,
+which is made against the exact figure the reader took. The digits shown do a different job: "at
+least" is a claim about the evidence, and at a true 89.2 the sentence "at least 90 percent is
+spent" asserts more than the reading supports, so rounding a lower bound down is what keeps that
+phrase honest.
 
 **The percentage is account-scoped, and the account is named out loud.** The tool reads the live
 credential file, which on this machine is swapped between two accounts by a script of the King's
-own, so the reading silently follows whichever is active. The active name is read - **the name only, from
-one file holding one word, never anything from a credential file** - and reported beside the
-percentage. Two readings either side of a switch are never compared: they are percentages of
+own, so the reading silently follows whichever is active. The active name is read - **the name
+only, from one file holding one word, never anything from a credential file** - and reported beside
+the percentage. Two readings either side of a switch are never compared: they are percentages of
 different pools, and a silence would say they were one quota sitting still.
 
 ## The pulse, and why silence is the common case

@@ -840,15 +840,14 @@ read. Drop the parameter only when the section states there is nothing to read.
 
 Every refusal comes before anything at all is created, so a mistake here costs nothing to fix.
 There are ten, and each is refused by name: a usage window already past the threshold, a brief with
-no `## Read first` section at all, a
-brief that passes no `-ReadPath` and does not say the index was checked when anything at all is
-indexed - and neither the project's own standing files nor the browser procedure counts towards
-that one, per Step 2, which owns the rule - a brief carrying a `## Browser checks` section that
-passes no `-ReadPath` for the browser procedure or for the module it imports, a path that does not
-exist, a directory where a file was meant, two different files whose names would land on top of
-each other in the staging directory, a standing file that exists and cannot be opened, a directory
-sitting where a standing file belongs, and a brief that cannot be opened for writing to be told
-what was attached to it.
+no `## Read first` section at all, a brief that passes no `-ReadPath` and does not say the index
+was checked when anything at all is indexed - and neither the project's own standing files nor the
+browser procedure counts towards that one, per Step 2, which owns the rule - a brief carrying a
+`## Browser checks` section that passes no `-ReadPath` for the browser procedure or for the module
+it imports, a path that does not exist, a directory where a file was meant, two different files
+whose names would land on top of each other in the staging directory, a standing file that exists
+and cannot be opened, a directory sitting where a standing file belongs, and a brief that cannot be
+opened for writing to be told what was attached to it.
 
 **The usage one is the only refusal here that can be absent rather than raised.** Nine of the ten
 are about a path this dispatch knows exactly; that one is about a number a separate tool reports,
