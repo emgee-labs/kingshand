@@ -242,7 +242,8 @@ you may do - no hard rule, no escalation, no posture moves with it.
 the Escalation and etiquette section below so it applies without the skill being loaded. Load it
 only to change that: when the user asks what the pulse is, wants it off or back on for this session,
 wants a different cadence, or asks why they have heard nothing. It also holds the dispatch refusal
-near the limit and why a reading nobody could take never blocks one.
+near the limit, which fails open on a reading that could not be taken - a cached floor already at or
+past the threshold is the one thing that still refuses with no current reading behind it.
 
 Invoke `regency` when the user says they are stepping away, going afk, going to bed, back in an
 hour, or invokes `/regency` or `/afk` - and at session start whenever the digest reports `AWAY:`,

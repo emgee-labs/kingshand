@@ -4558,6 +4558,10 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Vigil | Should -Match 'It relaxes no hard rule'
         }
 
+        # The last two clauses are the two lines the Hand is holding at the moment a refusal fires,
+        # and both used to state only the fail-open half. A refusal on a stale floor would then have
+        # been relayed with the opposite reason - the same failure already fixed inside the skill
+        # body, one level up. The body owns the reasoning; these two only have to name both halves.
         It 'is reachable from CLAUDE.md by a stated condition, the way herald is' {
             $skills = Get-HandSection 'Skills'
             Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
@@ -4565,6 +4569,14 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                          'session**')
             Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
                 -Phrase 'Load it only to change that'
+            Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
+                -Phrase ('the dispatch refusal near the limit, which fails open on a reading that ' +
+                         'could not be taken - a cached floor already at or past the threshold is ' +
+                         'the one thing that still refuses with no current reading behind it')
+            $description = (Get-Frontmatter (Join-Path $script:Root '.claude\skills\vigil\SKILL.md'))['description']
+            Assert-Phrase -Text $description -Where "vigil's frontmatter" `
+                -Phrase ('why a usage reading that could not be taken never blocks one, and why a ' +
+                         'cached floor already at or past the threshold still does')
         }
 
         It 'gives the usage reader its own owner in the tooling table' {

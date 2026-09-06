@@ -851,8 +851,10 @@ opened for writing to be told what was attached to it.
 
 **The usage one is the only refusal here that can be absent rather than raised.** Nine of the ten
 are about a path this dispatch knows exactly; that one is about a number a separate tool reports,
-and a reading nobody could take warns and dispatches rather than blocking - `vigil` owns why, and
-relaying that warning is the whole of what it asks of you.
+and a reading that could not be taken warns and dispatches rather than blocking. The one
+exception is a cached floor already at or past the threshold, which refuses with no current
+reading behind it - `vigil` owns why, and relaying whichever of the two you get is the whole of
+what it asks of you.
 
 **Dispatch attaches the project's own standing files itself and writes their `Read first` lines.**
 `data\done-<project>.md` and `data\rules-<project>.md` are staged whenever they exist, keyed off

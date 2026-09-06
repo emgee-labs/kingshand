@@ -1,6 +1,6 @@
 ---
 name: vigil
-description: Owns the usage pulse, and it is on by default - one line saying how much of the usage window is spent and what each live worker is doing, printed only when something has changed. Load this only to change that: when the user asks what the pulse is, asks to turn it off or back on for this session, asks for a different cadence, asks why they have heard nothing, or invokes /vigil. Also holds why a dispatch is refused near the limit and why an unreadable usage reading never blocks one.
+description: Owns the usage pulse, and it is on by default - one line saying how much of the usage window is spent and what each live worker is doing, printed only when something has changed. Load this only to change that: when the user asks what the pulse is, asks to turn it off or back on for this session, asks for a different cadence, asks why they have heard nothing, or invokes /vigil. Also holds why a dispatch is refused near the limit, why a usage reading that could not be taken never blocks one, and why a cached floor already at or past the threshold still does.
 ---
 
 # Vigil

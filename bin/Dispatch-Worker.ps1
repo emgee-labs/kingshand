@@ -183,7 +183,8 @@
 
   The usage refusal is the one exception to that shape, and it is about a number rather than a path.
   bin\Usage.psm1 owns where the number comes from and what its three answers mean; the only thing
-  decided here is the threshold, and that a reading nobody could take never blocks a dispatch.
+  decided here is the threshold, that a reading which could not be taken never blocks a dispatch,
+  and that a cached floor already at or past the threshold is the one exception to that.
 .EXAMPLE
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md
   $r.id, $r.worktree, $r.branch
