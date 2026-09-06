@@ -16,18 +16,22 @@
 
   ORDER IS LOAD-BEARING, and each step exists because of a concrete failure:
 
-    1. Resolve-BaseRef, BEFORE anything is spawned. It refuses rather than inventing a ref, and a
+    1. Get-UsageWindow, before every other check, because it is the one that costs nothing to fail.
+       A worker started into the last few percent of a usage window dies mid-run and leaves the
+       work half done. It fails OPEN: only a percentage actually read refuses, and a reading that
+       could not be taken warns and dispatches.
+    2. Resolve-BaseRef, BEFORE anything is spawned. It refuses rather than inventing a ref, and a
        refusal after a worker exists would leave one running with nothing recorded about it.
-    2. git worktree add - the isolated checkout the worker will never leave.
-    3. Set-WorkerWorkspaceSettings - the two grants that used to be command-line flags. herdr
+    3. git worktree add - the isolated checkout the worker will never leave.
+    4. Set-WorkerWorkspaceSettings - the two grants that used to be command-line flags. herdr
        cannot pass arguments to claude on Windows at all (it launches through Start-Process against
        a .ps1 and dies with "%1 is not a valid Win32 application"), so --permission-mode and
        --add-dir have to be on disk in the worktree before the agent starts.
-    4. Grant-ClaudeFolderTrust - a fresh worktree is a directory Claude Code has never seen, so it
+    5. Grant-ClaudeFolderTrust - a fresh worktree is a directory Claude Code has never seen, so it
        stops on the folder-trust dialog with nobody there to answer. `claude --bg --worktree` never
        met this: it inherited the trust of the session that spawned it.
-    5. Start-HerdrServer, New-HerdrPane, Start-HerdrAgent - the spawn.
-    6. Send-HerdrPrompt with NO -Wait. Arming the wait is the caller's job: a dispatch that blocked
+    6. Start-HerdrServer, New-HerdrPane, Start-HerdrAgent - the spawn.
+    7. Send-HerdrPrompt with NO -Wait. Arming the wait is the caller's job: a dispatch that blocked
        here would hold the Hand for the length of the worker's first turn.
 
   The brief is passed BY PATH, never by value. That began as a defence against Start-Process
@@ -176,6 +180,11 @@
   anything: a -ReadPath that is not on disk, a directory where a file was meant, two entries whose
   file names would collide in the staging directory, a project file that is there and cannot be
   opened, and a brief that cannot be written to once there is something to auto-attach to it.
+
+  The usage refusal is the one exception to that shape, and it is about a number rather than a path.
+  bin\Usage.psm1 owns where the number comes from and what its three answers mean; the only thing
+  decided here is the threshold, that a reading which could not be taken never blocks a dispatch,
+  and that a cached floor already at or past the threshold is the one exception to that.
 .EXAMPLE
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md
   $r.id, $r.worktree, $r.branch
@@ -193,6 +202,10 @@ param(
     [Parameter(Mandatory)][string]$BriefPath,
     [string[]]$ReadPath = @(),
     [int]$TimeoutSeconds = 90,
+    # How much of the usage window may be spent before a new dispatch is refused. Every caller
+    # takes this default - muster passes it never - so the branch it guards is the ordinary path
+    # rather than one only an override reaches.
+    [int]$UsageThresholdPercent = 90,
     # The data root the index gate reads: this installation's data\ unless a caller points it
     # elsewhere. Index.psm1 and Projects.psm1 both take the same seam for the same reason - a check
     # that can only ever be exercised against the real installation is a check no test can drive.
@@ -218,10 +231,64 @@ Import-Module (Join-Path $PSScriptRoot 'ClaudeWorkspace.psm1') -Force
 # already holding - the failure Test-CrewPrereqs hit, recorded in `statute`'s style rules.
 Import-Module (Join-Path $PSScriptRoot 'Index.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Projects.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'Usage.psm1') -Force
 
 # Checked here rather than at the first herdr call: without it nothing below can work, and finding
 # that out after a worktree and a branch exist leaves debris to clean up.
 if (-not (Get-HerdrCommandPath)) { throw (Get-HerdrCommandHint) }
+
+# THE USAGE WINDOW, FIRST OF EVERY CHECK, because it is the one that costs nothing to fail. Nothing
+# has been created at this point - no worktree, no branch, no staged copy, no agent - so a refusal
+# here is genuinely free, and a worker started into the last few percent of a window dies mid-run
+# and leaves work half done.
+#
+# IT FAILS OPEN, DELIBERATELY. A reading that could not be taken is a warning and a dispatch, never
+# a block. The prompt-box guards already made this call for an unreadable screen and the reasoning
+# transfers unchanged: a blind guard that blocks everything costs more than one that lets work
+# through and says it could not see. So a missing quota-axi, a lookup that failed and an answer that
+# would not parse all dispatch.
+#
+# A FLOOR STILL REFUSES, AND ON THIS MACHINE IT IS USUALLY THE ONLY THING THAT CAN. The tool's live
+# fetch is rate limited most of the time, so most readings are stale - `unknown`, with a cached
+# number carried alongside as a lower bound. Consumption never falls inside a window, so a floor at
+# or past the threshold means the real figure is too, and refusing on it is sound where refusing on
+# the stale number as though it were current would not be. Nothing here treats the floor as the
+# answer: the message says plainly that it is a floor.
+#
+# A settled "nothing here reports this" says nothing at all. That is a stable fact about the
+# machine rather than something wrong with it, and a warning on every dispatch for a state nobody
+# can act on teaches the reader to skip the next one.
+$usage = Get-UsageWindow
+$measured = if ($usage.status -eq 'has-usage') { ConvertTo-UsageNumber $usage.percent } else { $null }
+$floor    = ConvertTo-UsageNumber $usage.floorPercent
+
+if ($null -ne $measured -and $measured -ge $UsageThresholdPercent) {
+    throw ("The usage window is $([int][Math]::Round($measured)) percent spent and new work is " +
+           "refused from $UsageThresholdPercent percent, so worker $Name was not dispatched. " +
+           "$($usage.detail) Wait for the window to reset, or dispatch with a higher " +
+           "-UsageThresholdPercent if this one has to go out now. Nothing was created.")
+}
+# COMPARED RAW AND EXACT, which is where every bit of this guard's safety lives - the double the
+# reader took, against the threshold, with no rounding in between. The figure in the message is
+# rounded DOWN instead, because it is a lower bound and "at least" has to stay true: at a real 90.4
+# the sentence "at least 90 percent" is what the evidence supports and "at least 91" is not. The
+# digits shown move nothing, and the two can never contradict each other because flooring a number
+# already at or past the threshold leaves it at or past the threshold.
+if ($null -eq $measured -and $null -ne $floor -and $floor -ge $UsageThresholdPercent) {
+    throw ("At least $([int][Math]::Floor($floor)) percent of the usage window is spent - that is " +
+           "a floor from a cached reading rather than a current measurement, and it is already at " +
+           "or past the $UsageThresholdPercent percent refusal, so the real figure is too and " +
+           "worker $Name was not dispatched. $($usage.detail) Nothing was created.")
+}
+if ($usage.status -eq 'unknown') {
+    $what = if ($null -ne $floor) {
+        "the floor it could give is below the $UsageThresholdPercent percent refusal"
+    } else { 'it could give no figure at all' }
+    Write-Warning ("This dispatch went ahead without a current usage reading, because $what. " +
+                   "$($usage.detail) Failing open is deliberate - a reading nobody can take must " +
+                   "not make kingshand undispatchable - but nothing here will now stop a worker " +
+                   "being started into a window that is nearly spent.")
+}
 
 $RepoPath  = (Resolve-Path $RepoPath).Path
 $BriefPath = (Resolve-Path $BriefPath).Path

@@ -117,6 +117,9 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
 
 - `state\crew.json` - worker id to ticket, repo, stage, and which decision it parked on. Maintained
   via `bin\Crew.psm1`.
+- The usage pulse owns no file at all. What it last said lives in the background job that is
+  pulsing, for as long as that job runs, and `bin\Usage.psm1` writes nothing to disk - so nothing
+  new lands in `state\`, and the cost is one line a restarted session might have held back.
 - `data\projects.md` - the project registry: standing delivery posture per project. Maintained
   via `/annex` or by hand.
 - `data\done-<project>.md` - one project's standing definition of done, one `-` bullet per
@@ -195,10 +198,11 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Memory.psm1` | the startup-memory budget: what the two memory files cost, against what is allowed |
 | `bin\Index.psm1` | the data index: write a file and index it in one call, add an entry for a file another tool wrote, read a project's index, count the drift, drop an entry whose file is gone |
 | `bin\BrowserVerify.psm1` | the three answers a browser check must not give from memory: whether the browser tools all loaded, where a login is set without ever writing it down, and what a run of checks verified, failed or could not check |
+| `bin\Usage.psm1` | how much of the current usage window is spent, and the one-line pulse: three answers where a percentage that could not be read is never a number, a baseline held in memory and written nowhere, and the pulse on its timer |
 
 ## Skills
 
-Every skill lives in `.claude\skills\` inside this repository, so all sixteen load when Claude Code
+Every skill lives in `.claude\skills\` inside this repository, so all seventeen load when Claude Code
 runs here and none of them exists in a session started anywhere else. Nothing links or copies them
 into `~\.claude\skills\`, and nothing may start doing so.
 
@@ -233,6 +237,13 @@ change that: when the user asks for fuller prose, more detail, "normal mode" or 
 and again when they want the shaping back. It also holds the exceptions, where following a rule
 would make the message worse. Turning the shape off changes how you write and nothing about what
 you may do - no hard rule, no escalation, no posture moves with it.
+
+`vigil` owns the usage pulse, and that pulse is **on by default in every session** - the rule is in
+the Escalation and etiquette section below so it applies without the skill being loaded. Load it
+only to change that: when the user asks what the pulse is, wants it off or back on for this session,
+wants a different cadence, or asks why they have heard nothing. It also holds the dispatch refusal
+near the limit, which fails open on a reading that could not be taken - a cached floor already at or
+past the threshold is the one thing that still refuses with no current reading behind it.
 
 Invoke `regency` when the user says they are stepping away, going afk, going to bed, back in an
 hour, or invokes `/regency` or `/afk` - and at session start whenever the digest reports `AWAY:`,
@@ -517,6 +528,15 @@ Reach the user immediately for:
 
 Automatic fixes, retries, routine progress and internal mechanics do not reach them. Batch
 non-urgent updates into the next natural reply.
+
+**The usage pulse is on by default, so arm it once a session and relay its line as it comes.** It is
+one line - how much of the usage window is spent, how many workers are running, a few words on each -
+and it speaks only when something has changed, so a silent interval is it working. `vigil` owns the
+shape, the switch and the cadence, and `bin\Usage.psm1` owns the command. Two things it is not: it is
+not yours to paraphrase into a paragraph, and it is not a licence to narrate - a line you compose
+yourself between pulses is the progress narration hard rule 6 forbids. **The King turns it off with a
+line in `instructions.md`, which you read at session start and obey. The digest prints that file
+whole; nothing in `bin\` matches a phrase out of it and nothing may start.**
 
 ## Instruction precedence
 
