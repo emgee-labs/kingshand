@@ -1,6 +1,6 @@
 ---
 name: statute
-description: Reference for changing kingshand's own tracked material - `CLAUDE.md`, `bin\`, `.claude\skills\`, `tests\`, `docs\`. Load it before editing any of that material, whether working as the Hand directly or as a worker briefed on a kingshand-repo task. Covers the knowledge-placement decision tree, the one-owner rule for contracts, the inline-stub pattern for content moved into a skill, size discipline for the always-loaded file, trigger hygiene for new skills, the rule that a prose rule needs a test, and kingshand's style rules.
+description: Reference for changing kingshand's own tracked material - `CLAUDE.md`, `bin\`, `.claude\skills\`, `tests\`, `docs\`. Load it before editing any of that material, whether working as the Hand directly or as a worker briefed on a kingshand-repo task. Covers the knowledge-placement decision tree, the one-owner rule for contracts, the inline-stub pattern for content moved into a skill, size discipline for the always-loaded file, trigger hygiene for new skills, the rule that a prose rule needs a test, matching a new rule's form to the failure it is for, and kingshand's style rules.
 version: 1.0.0
 ---
 

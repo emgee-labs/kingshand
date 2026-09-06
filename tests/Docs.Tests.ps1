@@ -1426,6 +1426,55 @@ Describe 'the ported reference skills are loadable and keep their load-bearing r
             -Phrase ('**an exemption clause does not scope**: "this limit does not apply to ' +
                      'code blocks" still suppresses code blocks')
     }
+
+    # statute's description enumerates what the file covers, and that enumeration went stale: it
+    # named seven subjects while the file had eight sections, so `Match the form to the failure`
+    # was a subject nothing would ever load the skill for. The table below is the closed form that
+    # keeps the two together. Each row is one `## ` section and the exact words the description
+    # must carry for it, both written out here as literals - nothing derives one from the other,
+    # and nothing reads the description as a list. Add a ninth section and the heading comparison
+    # fails, which forces a row, which forces its phrase into the description.
+    #
+    # The only text this reads is one file's `## ` lines against a fixed expected list. That is
+    # bounded rather than Markdown in general because a `## ` line can mean something other than a
+    # heading only inside a fence, and statute carries none - the first assertion holds it that
+    # way, so the day someone adds a fence this check says so instead of quietly mis-reading it.
+    It 'statute''s description enumerates every section the file actually has' {
+        $coverage = @(
+            @{ Heading = 'Knowledge-placement decision tree'
+               Phrase  = 'the knowledge-placement decision tree' }
+            @{ Heading = 'One-owner rule'
+               Phrase  = 'the one-owner rule for contracts' }
+            @{ Heading = 'Inline-stub pattern'
+               Phrase  = 'the inline-stub pattern for content moved into a skill' }
+            @{ Heading = 'Size discipline'
+               Phrase  = 'size discipline for the always-loaded file' }
+            @{ Heading = 'Trigger hygiene'
+               Phrase  = 'trigger hygiene for new skills' }
+            @{ Heading = 'Prose rules need tests'
+               Phrase  = 'the rule that a prose rule needs a test' }
+            @{ Heading = 'Match the form to the failure'
+               Phrase  = 'matching a new rule''s form to the failure it is for' }
+            @{ Heading = 'Style rules'
+               Phrase  = 'kingshand''s style rules' }
+        )
+
+        @(Get-CodeFence $script:GuidelinesMd).Count |
+            Should -Be 0 -Because 'this check reads statute''s `## ` lines as headings, which holds only while the file carries no fence'
+
+        $headings = @(Get-Content -Path $script:GuidelinesMd |
+            Where-Object { $_.StartsWith('## ') } |
+            ForEach-Object { $_.Substring(3).Trim() })
+        ($headings -join ' | ') |
+            Should -Be (@($coverage.Heading) -join ' | ') `
+            -Because 'a section added, renamed, removed or reordered must move the table in this test with it'
+
+        $description = (Get-Frontmatter $script:GuidelinesMd)['description']
+        foreach ($row in $coverage) {
+            $description.Contains($row.Phrase) |
+                Should -BeTrue -Because "the description must name the '$($row.Heading)' section as '$($row.Phrase)'"
+        }
+    }
 }
 
 Describe 'audience recaps the session and touches nothing else' {
@@ -3613,6 +3662,7 @@ Describe 'no long dash' {
         @{ file = 'docs\2026-09-04-outward-gating.md' }
         @{ file = '.claude\skills\vigil\SKILL.md' }
         @{ file = 'docs\2026-09-05-usage-window-watch.md' }
+        @{ file = 'docs\2026-09-05-worker-and-gate-model-selection.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
@@ -5987,6 +6037,21 @@ Describe 'the default branch and the integration branch are two things' {
                      'that.**')
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase 'A widened diff on a re-dispatched ticket is that, not the worker''s doing.'
+    }
+
+    # Step 7 is where that widened diff is actually read, and it used to say the opposite of
+    # Step 4 while citing it - that the recorded base is what predates the repository change.
+    # It is the other way round: the base is re-resolved on every dispatch and the branch point
+    # is the one left behind, so a reader who trusts the old line goes looking for a stale base,
+    # finds it current, and concludes the extra commits are the worker's.
+    It 'muster Step 7 says which of the two a re-dispatch leaves behind' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'muster Step 7' `
+            -Phrase ('On a re-dispatched ticket it is the other way round, as Step 4 says: the ' +
+                     'base is resolved fresh and the branch point is the older of the two, so ' +
+                     're-resolving the base finds it current and tells you nothing.')
+        $step.Contains('the recorded base can itself predate a repository change') |
+            Should -BeFalse -Because 'Step 4 says the base is the fresh one, so this contradicted it'
     }
 
     # The claim in that row that a reviewer cannot check by reading: that the two consumers of the
