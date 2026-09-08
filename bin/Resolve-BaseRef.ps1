@@ -100,6 +100,14 @@
   name is only ever used when that remote-tracking ref actually exists. When nothing resolves
   this throws rather than returning a name that will silently empty the evidence later.
 
+  A CALLER MAY SUPPLY ITS OWN BASE rather than ask for one, and where it does, this function is
+  not called at all. Dispatch-Worker.ps1's `-Base` is that caller and its header owns the
+  parameter, the reason it exists and what it refuses; nothing here restates any of it. What the
+  two share is the rule immediately below: `Test-WorkerBranch` sits at FILE scope rather than
+  inside this function so that going around the resolver cannot go around its guard. A second copy
+  of that pattern over there would be a second thing to keep in step, and the copy that fell behind
+  would be the one deciding whether another worker's branch is allowed to be a base.
+
   A resolvable base can still be the wrong base. Kingshand's own worker branches are named
   `worktree-<name>` by Dispatch-Worker.ps1, and `origin/HEAD` transiently pointed at one
   while several workers were dispatched: two of them were recorded with
@@ -110,6 +118,26 @@
   non-worker default can be resolved this throws for the same reason it throws when nothing
   resolves at all - a contaminated base is not better than no base.
 #>
+
+# A kingshand worker branch, in every spelling git resolves to the same ref: local (`worktree-x`,
+# `heads/worktree-x`, `refs/heads/worktree-x`) or remote-tracking (`origin/worktree-x`,
+# `remotes/origin/worktree-x`, `refs/remotes/origin/worktree-x`).
+# Anchored at the start so a legitimate branch like `feature/worktree-cleanup` is untouched.
+#
+# THE LONGER FORMS ARE COVERED BECAUSE THE INPUT CHANGED. This used to be asked only of the
+# resolver's own candidate list, which can hold nothing but the two short forms, so the two were the
+# whole question. It is now asked of an arbitrary caller-supplied string as well, and
+# `refs/remotes/origin/worktree-x` is what `git branch -a` prints - which is where somebody naming a
+# base copies the name from. Matching only the short forms would let the identical ref through under
+# the name it is most likely to be typed with.
+#
+# At FILE scope, so that dot-sourcing this file gets the guard as well as the resolver. That is what
+# lets a caller supplying its own base ask the same question of it without owning a second copy of
+# the pattern - the header above says why the copy is the thing to avoid.
+function Test-WorkerBranch {
+    param([string]$Ref)
+    [bool]($Ref -and $Ref -match '^(refs/)?(heads/|(remotes/)?origin/)?worktree-')
+}
 
 function Resolve-BaseRef {
     [CmdletBinding()]
@@ -134,12 +162,8 @@ function Resolve-BaseRef {
         $LASTEXITCODE -eq 0
     }
 
-    # A kingshand worker branch, local (`worktree-x`) or remote-tracking (`origin/worktree-x`).
-    # Anchored at the start so a legitimate branch like `feature/worktree-cleanup` is untouched.
-    function Test-WorkerBranch {
-        param([string]$Ref)
-        [bool]($Ref -and $Ref -match '^(origin/)?worktree-')
-    }
+    # Test-WorkerBranch is at file scope above rather than here, so the same rule answers for a
+    # caller-supplied base too.
 
     # Whether this repository has an `origin` at all. It decides whether a local ref can be behind
     # a remote one, which is the difference between a stale base and the only base there is.

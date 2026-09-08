@@ -20,8 +20,9 @@
        A worker started into the last few percent of a usage window dies mid-run and leaves the
        work half done. It fails OPEN: only a percentage actually read refuses, and a reading that
        could not be taken warns and dispatches.
-    2. Resolve-BaseRef, BEFORE anything is spawned. It refuses rather than inventing a ref, and a
-       refusal after a worker exists would leave one running with nothing recorded about it.
+    2. Resolve-BaseRef, BEFORE anything is spawned - or, where this dispatch was handed a -Base,
+       that value instead, checked earlier still. Either way it refuses rather than inventing a
+       ref, and a refusal after a worker exists would leave one running with nothing recorded.
     3. git worktree add - the isolated checkout the worker will never leave.
     4. Set-WorkerWorkspaceSettings - the two grants that used to be command-line flags. herdr
        cannot pass arguments to claude on Windows at all (it launches through Start-Process against
@@ -33,6 +34,38 @@
     6. Start-HerdrServer, New-HerdrPane, Start-HerdrAgent - the spawn.
     7. Send-HerdrPrompt with NO -Wait. Arming the wait is the caller's job: a dispatch that blocked
        here would hold the Hand for the length of the worker's first turn.
+
+  -Base NAMES THE REF FOR ONE TASK, and it exists for a repository whose work integrates on a
+  feature branch. Resolve-BaseRef reads a declaration out of `.no-mistakes.yaml`, which is tracked -
+  and a tracked file is the wrong place to name a branch that disappears the moment it merges. So a
+  repository parallel-integrating on one cannot be dispatched into at all today: every worker is cut
+  from the default branch while its work is proposed against the feature branch, and the landing
+  gate then measures against a tree the branch was never based on. Passing the ref here keeps that
+  declaration out of the repository and inside the one dispatch that needs it.
+
+  It REPLACES the resolver rather than steering it. Passed, Resolve-BaseRef is not called; left off -
+  which is the ordinary path and what every caller that names no base gets - Resolve-BaseRef is
+  called exactly as it always was, and nothing about that resolution changes. The value is then used
+  TWICE, exactly as a resolved one is: as the branch point `git worktree add -b` cuts from, and as
+  the base returned for the crew record. Those two being one string is the whole point of accepting
+  the parameter at all, because a base naming one tree while the worktree was cut from another is
+  the landing gate measuring work nobody in the ticket wrote - which once read an empty diff as
+  clean and let a commit carrying an agent co-author trailer through the attribution scan.
+
+  It is VERIFIED BEFORE ANYTHING IS CREATED, on the resolver's own two grounds, and refuses on
+  either. A `worktree-*` name is refused on its name alone, whether or not it resolves - the
+  question is asked through Resolve-BaseRef.ps1's own Test-WorkerBranch, because going around the
+  resolver must not go around its guard. A ref `git rev-parse --verify` cannot confirm is refused
+  for the reason the resolver throws rather than returning one: `git log` and `git diff` against a
+  ref that does not exist write nothing to stdout, so the evidence comes back empty and empty reads
+  as clean.
+
+  A dispatch that survives both of those still WARNS, every time and unconditionally. Skipping the
+  resolver skips the one thing that says out loud when the branch point and the pull request target
+  have come apart, so the dispatch most likely to have them apart would otherwise be the quietest.
+  The warning claims nothing about what the repository declares and reads no `.no-mistakes.yaml` to
+  find out - the target is decided from `pr.base_branch` on the default branch, or that default
+  branch itself, neither of which is the named ref unless somebody has already pointed it there.
 
   The brief is passed BY PATH, never by value. That began as a defence against Start-Process
   flattening -ArgumentList (a 1,733-character brief arrived as its 57-character first line), and it
@@ -185,6 +218,10 @@
   bin\Usage.psm1 owns where the number comes from and what its three answers mean; the only thing
   decided here is the threshold, that a reading which could not be taken never blocks a dispatch,
   and that a cached floor already at or past the threshold is the one exception to that.
+
+  The two -Base refusals belong to no part of this gate and are not counted among the paths above.
+  They are about the ref this dispatch was handed rather than a file it was told to stage, and the
+  -Base section near the top of this header owns both of them.
 .EXAMPLE
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md
   $r.id, $r.worktree, $r.branch
@@ -194,6 +231,11 @@
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 `
          -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md `
          -ReadPath $env:KINGSHAND_HOME\data\emgee-brand.md
+.EXAMPLE
+  # A repository integrating on a feature branch for the length of one epic. Nothing is declared in
+  # a tracked file, because that declaration would be wrong the moment the branch merges.
+  $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1003 `
+         -BriefPath $env:KINGSHAND_HOME\data\T-1003\brief.md -Base origin/epic-checkout
 #>
 [CmdletBinding()]
 param(
@@ -201,6 +243,11 @@ param(
     [Parameter(Mandatory)][string]$Name,
     [Parameter(Mandatory)][string]$BriefPath,
     [string[]]$ReadPath = @(),
+    # The ref this worker branches from and the landing gate diffs against, for this task alone.
+    # EMPTY IS THE ORDINARY CASE and the default every caller takes unless it has a reason not to:
+    # the base is resolved from the repository instead, exactly as it was before this parameter
+    # existed. The header owns why it is here, and what it refuses before anything is created.
+    [string]$Base = '',
     [int]$TimeoutSeconds = 90,
     # How much of the usage window may be spent before a new dispatch is refused. Every caller
     # takes this default - muster passes it never - so the branch it guards is the ordinary path
@@ -232,6 +279,13 @@ Import-Module (Join-Path $PSScriptRoot 'ClaudeWorkspace.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Index.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Projects.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Usage.psm1') -Force
+
+# Dot-sourced up here rather than at the call site far below, because the two functions it defines
+# are wanted at different moments: Test-WorkerBranch by the -Base check a few lines down, which has
+# to refuse before anything at all is created, and Resolve-BaseRef only much later, where the base
+# is actually settled. Dot-sourcing defines those two names and does nothing else - no git call, no
+# state - so moving it up costs nothing and the resolution itself has not moved.
+. (Join-Path $PSScriptRoot 'Resolve-BaseRef.ps1')
 
 # Checked here rather than at the first herdr call: without it nothing below can work, and finding
 # that out after a worktree and a branch exist leaves debris to clean up.
@@ -294,6 +348,43 @@ $RepoPath  = (Resolve-Path $RepoPath).Path
 $BriefPath = (Resolve-Path $BriefPath).Path
 $briefDir  = Split-Path $BriefPath -Parent
 if (-not $DataPath.Trim()) { $DataPath = Get-DefaultIndexDataPath }
+
+# THE BASE THIS DISPATCH WAS HANDED, checked here and used far below. Checked HERE because a bad
+# value has to cost the caller the message and nothing else: no worktree, no branch, no staged
+# read-first copy, no pane. That is the discipline every other refusal in this script keeps, and it
+# is the reason the resolver is called before the spawn too.
+#
+# Both grounds are the resolver's, not a second opinion. The worker-branch question goes through
+# Resolve-BaseRef.ps1's own Test-WorkerBranch rather than a pattern repeated here, so a base that
+# skips the resolver does not skip the resolver's guard with it.
+#
+# With no -Base this whole block does nothing and the base is resolved below exactly as it always
+# was, which is what every dispatch that names no base gets.
+$baseOverride = $Base.Trim()
+if ($baseOverride) {
+    if (Test-WorkerBranch $baseOverride) {
+        throw ("-Base names $baseOverride, which sits in kingshand's worker branch namespace, and " +
+               "a worktree-* ref is never a base - a branch there would belong to another worker, " +
+               "so basing on it would measure this worker's diff and attribution scan against " +
+               "unlanded work instead of against the branch this task integrates into. It is " +
+               "refused on its name alone, whether or not it resolves here, so neither fetching " +
+               "nor creating it changes anything: name a base outside that namespace, or leave " +
+               "-Base off and let the repository decide. Nothing was created.")
+    }
+    # A probe, like every other git call in this script: the exit code is the answer rather than a
+    # failure, and it is cleared afterwards so a later check cannot read this one's leftover.
+    $null = & git -C $RepoPath rev-parse --verify --quiet "$baseOverride^{commit}" 2>$null
+    $baseConfirmed = $LASTEXITCODE -eq 0
+    $global:LASTEXITCODE = 0
+    if (-not $baseConfirmed) {
+        throw ("-Base names $baseOverride and git cannot resolve it in $RepoPath, so the worktree " +
+               "would be cut from nothing and the landing gate would diff against a ref that does " +
+               "not exist. That failure is silent rather than loud - git log and git diff against " +
+               "a missing ref write their error to stderr and nothing at all to stdout, so an " +
+               "empty diff and an empty attribution scan read as clean. Fetch the branch, or name " +
+               "a ref this repository already has. Nothing was created.")
+    }
+}
 
 # The data root, rooted ONCE by Index.psm1's own rule, so this script and the indexes it reads below
 # agree about where data\ is. [IO.Path]::GetFullPath would not be that rule: it resolves against the
@@ -1024,10 +1115,42 @@ foreach ($copy in $staleCopies) { Remove-Item -LiteralPath $copy -Force }
 # dispatch recorded under this same worker id. Either would give the real branch point; both are
 # a behaviour change to make deliberately rather than a line to slip in beside a comment.
 #
+# Handing a DIFFERENT -Base to the second dispatch opens that same gap with no repository change at
+# all, so the parameter is one more way in rather than a new failure. It is left open for the reason
+# above: the fix is on the re-dispatch paths, and it is the deliberate behaviour change, not a
+# clause added beside the parameter that made the trigger easier to reach.
+#
 # Resolved BEFORE the spawn on purpose: Resolve-BaseRef refuses rather than inventing a ref, and
 # a refusal after the worker exists would leave an orphaned agent running in the repo.
-. (Join-Path $PSScriptRoot 'Resolve-BaseRef.ps1')
-$base = Resolve-BaseRef -RepoPath $RepoPath
+#
+# WHERE this one string came from was decided at the top of the script, not here. A -Base handed to
+# this dispatch was verified there, on the resolver's own two grounds and before anything existed,
+# and it replaces the resolver rather than steering it; with none, Resolve-BaseRef is called exactly
+# as it always was. Either way what comes out is a single ref, used for both jobs below.
+$base = if ($baseOverride) { $baseOverride } else { Resolve-BaseRef -RepoPath $RepoPath }
+
+# SAID OUT LOUD ON EVERY DISPATCH THAT NAMED ITS OWN BASE, and unconditionally: the resolver is the
+# thing that warns when the branch point and the pull request target come apart, and naming a base
+# skips the resolver, so without this the one dispatch most likely to have them come apart is the
+# one dispatch that says nothing. It is here rather than beside the -Base check at the top of the
+# script because a dispatch refused after that check would otherwise print a warning asserting a
+# worker is based on something while the refusal says nothing was created.
+#
+# It asserts NOTHING about what the repository declares, and reads no `.no-mistakes.yaml` to find
+# out. The target is taken from `pr.base_branch` on the DEFAULT branch, falling back to that
+# default branch where nothing is declared - neither of which is this ref unless somebody has
+# already pointed it here - so a warning conditioned on a declaration existing would cover half
+# the cases while reading as though it covered all of them.
+if ($baseOverride) {
+    Write-Warning ("Worker $Name is based on $baseOverride because this dispatch named it, and " +
+                   "the landing diff is measured against that ref. Where its pull request is " +
+                   "proposed is decided somewhere this dispatch does not read - pr.base_branch " +
+                   "on the default branch of $RepoPath, or that default branch itself where " +
+                   "nothing is declared - so the target is not $baseOverride unless somebody " +
+                   "has already made it so. Where the two differ the pull request carries every " +
+                   "commit $baseOverride has and its target does not, on top of this worker's " +
+                   "own work. Check what the pull request targets before landing.")
+}
 
 $branch   = "worktree-$Name"
 $worktree = Join-Path (Join-Path (Join-Path $RepoPath '.claude') 'worktrees') $Name
