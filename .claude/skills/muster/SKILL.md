@@ -938,6 +938,14 @@ confirmed is current - and either one means the landing diff in step 7 is measur
 wrong tree. On a `+yolo` project nothing else stops to show it, so an unrelayed warning is work
 landed against a stale base. One line to the user naming the branch and what was used instead.
 
+**A dispatch that names its own base warns every time, and that one is not about resolution at
+all.** Naming a base skips the resolver, and with it the only thing that says out loud when the
+branch point and the pull request target have come apart - so the dispatch most likely to have them
+apart would otherwise be the quietest one. The warning fires whatever the repository declares,
+because the target is decided from `pr.base_branch` on the default branch, or from that default
+branch itself, and neither is the ref you named unless somebody has already pointed it there. Relay
+it the same way, and say which branch the pull request has to target before step 7 lands anything.
+
 The dispatcher passes the brief by path, not by value. Keep it that way. Long text does now
 survive the trip intact - a 3,374-character prompt arrived whole - but a path is one line, it does
 not have to survive anything, and the brief on disk stays readable after the worker is gone.

@@ -293,6 +293,22 @@ Describe 'Resolve-BaseRef - the declared integration branch' {
                                        (New-Object System.Text.UTF8Encoding $true))
         Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/dev'
     }
+
+    # THE WORKER-BRANCH GUARD IS SHARED WITH THE DISPATCHER'S -Base, so widening what it refuses
+    # widens what this function refuses too. These are the values real repositories actually
+    # declare, and every one of them has to resolve to what it always did: the guard's extra
+    # spellings are about a caller-supplied string, and the candidate list built here holds none of
+    # them.
+    It 'resolves the ordinary declared values exactly as before' -ForEach @(
+        @{ Declared = 'dev';        Expected = 'origin/dev' },
+        @{ Declared = 'main';       Expected = 'origin/main' },
+        @{ Declared = 'origin/dev'; Expected = 'origin/dev' }
+    ) {
+        $repo = New-SplitBranchRepo
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: $Declared"
+        Test-WorkerBranch $Declared | Should -BeFalse
+        Resolve-BaseRef -RepoPath $repo -WarningAction SilentlyContinue | Should -Be $Expected
+    }
 }
 
 Describe 'Resolve-BaseRef - a repository that declares nothing' {
@@ -1156,6 +1172,43 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 Should -Be (& git -C $script:Named.Repo rev-parse 'origin/dev').Trim()
         }
 
+        # NAMING A BASE SKIPS THE RESOLVER, and the resolver is the only thing that says out loud
+        # when the branch point and the pull request target have come apart - so without this the
+        # dispatch most likely to have them apart is the quietest one in the fleet. It fires
+        # unconditionally: the target is taken from `pr.base_branch` on the default branch, falling
+        # back to that default branch, and this dispatch reads neither, so a warning conditioned on
+        # a declaration would cover half the cases while reading as though it covered all of them.
+        It 'warns that the pull request target is decided somewhere this dispatch did not look' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'named-base-warns'
+            git -C $f.Repo branch 'epic-checkout'
+
+            $warnings = @()
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-3107' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -Base 'epic-checkout' `
+                -WarningVariable warnings
+            $r.base | Should -Be 'epic-checkout'
+            $text = $warnings -join ' '
+            $text | Should -BeLike '*based on epic-checkout because this dispatch named it*'
+            $text | Should -BeLike '*pr.base_branch on the default branch*'
+            $text | Should -BeLike '*carries every commit epic-checkout has and its target does*'
+        }
+
+        # The other half of unconditional: it belongs to the parameter and to nothing else, so an
+        # ordinary dispatch - which is nearly all of them - must not start carrying a warning about
+        # a pull request target it never touched.
+        It 'says nothing of the kind when the base is resolved rather than named' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'named-base-quiet'
+
+            $warnings = @()
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-3108' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -WarningVariable warnings
+            $r.id | Should -Be 'T-3108'
+            @($warnings | Where-Object { "$_" -like '*because this dispatch named it*' }) |
+                Should -BeNullOrEmpty
+        }
+
         # Refused where it costs nothing: before the worktree, the branch, the staged copies and the
         # pane. A base that resolves to nothing is worse than a wrong one - `git log` and `git diff`
         # against a missing ref write nothing to stdout, so the gate reads empty evidence as clean.
@@ -1186,6 +1239,38 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 Should -Throw '*worker branch namespace*'
             (Get-CallLines $f).Count | Should -Be 0
             Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-3104') |
+                Should -BeFalse -Because 'nothing is created before the base is known to be allowed'
+        }
+
+        # THE SAME BRANCH UNDER EVERY NAME GIT RESOLVES IT BY. The guard used to be asked only about
+        # the resolver's own candidates, which can hold nothing but `worktree-x` and
+        # `origin/worktree-x`; asked about a string somebody typed, those two are not the whole
+        # question. `refs/remotes/origin/worktree-x` is what `git branch -a` prints, which is where
+        # a name gets copied from, and it points at the identical commit.
+        It 'refuses <Ref>, which git resolves to another worker''s branch' -ForEach @(
+            @{ Ref = 'refs/heads/worktree-other';          Name = 'T-3109' },
+            @{ Ref = 'heads/worktree-other';               Name = 'T-3110' },
+            @{ Ref = 'remotes/origin/worktree-other';      Name = 'T-3111' },
+            @{ Ref = 'refs/remotes/origin/worktree-other'; Name = 'T-3112' }
+        ) {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'named-base-spelling'
+            $f.Repo = New-TempRepo -WithOrigin
+            git -C $f.Repo checkout -q -b 'worktree-other'
+            Set-Content -Path (Join-Path $f.Repo 'other.txt') -Value 'other' -Encoding utf8
+            git -C $f.Repo add -A
+            git -C $f.Repo commit -q -m 'Another worker commit'
+            git -C $f.Repo push -q origin 'worktree-other' 2>&1 | Out-Null
+            git -C $f.Repo checkout -q 'main'
+            Test-RefResolves -RepoPath $f.Repo -Ref $Ref | Should -BeTrue `
+                -Because 'the refusal has to fire on a name that really does resolve'
+            (& git -C $f.Repo rev-parse "$Ref^{commit}").Trim() |
+                Should -Be (& git -C $f.Repo rev-parse 'worktree-other^{commit}').Trim()
+
+            { Invoke-Dispatch -Fixture $f -Name $Name -Base $Ref } |
+                Should -Throw '*worker branch namespace*'
+            (Get-CallLines $f).Count | Should -Be 0
+            Test-Path -LiteralPath (Join-Path $f.Repo ".claude\worktrees\$Name") |
                 Should -BeFalse -Because 'nothing is created before the base is known to be allowed'
         }
 

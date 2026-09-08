@@ -6065,6 +6065,23 @@ Describe 'the default branch and the integration branch are two things' {
                      'warning is work landed against a stale base.')
     }
 
+    # The paragraph above attributes every warning to base resolution, which stopped being the whole
+    # story the moment naming a base began warning on its own. A Hand reading only that one would
+    # take the base-named warning for a resolution failure and go looking for a declaration that
+    # explains it. Both halves are pinned: that it fires every time, and that the pull request
+    # target is decided somewhere else - without the second the Hand has nothing to tell the user
+    # to check.
+    It 'muster Step 4 makes the Hand relay the warning a hand-named base always prints' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('**A dispatch that names its own base warns every time, and that one is not ' +
+                     'about resolution at')
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('The warning fires whatever the repository declares, ' +
+                     'because the target is decided from `pr.base_branch` on the default branch, ' +
+                     'or from that default')
+    }
+
     # The recorded base and the branch point are one ref only where the dispatch actually branched.
     # Re-dispatching a ticket whose branch survived does not branch again, so a repository that has
     # declared an integration branch since - which is what this change makes likely - leaves the

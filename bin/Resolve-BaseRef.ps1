@@ -119,15 +119,24 @@
   resolves at all - a contaminated base is not better than no base.
 #>
 
-# A kingshand worker branch, local (`worktree-x`) or remote-tracking (`origin/worktree-x`).
+# A kingshand worker branch, in every spelling git resolves to the same ref: local (`worktree-x`,
+# `heads/worktree-x`, `refs/heads/worktree-x`) or remote-tracking (`origin/worktree-x`,
+# `remotes/origin/worktree-x`, `refs/remotes/origin/worktree-x`).
 # Anchored at the start so a legitimate branch like `feature/worktree-cleanup` is untouched.
+#
+# THE LONGER FORMS ARE COVERED BECAUSE THE INPUT CHANGED. This used to be asked only of the
+# resolver's own candidate list, which can hold nothing but the two short forms, so the two were the
+# whole question. It is now asked of an arbitrary caller-supplied string as well, and
+# `refs/remotes/origin/worktree-x` is what `git branch -a` prints - which is where somebody naming a
+# base copies the name from. Matching only the short forms would let the identical ref through under
+# the name it is most likely to be typed with.
 #
 # At FILE scope, so that dot-sourcing this file gets the guard as well as the resolver. That is what
 # lets a caller supplying its own base ask the same question of it without owning a second copy of
 # the pattern - the header above says why the copy is the thing to avoid.
 function Test-WorkerBranch {
     param([string]$Ref)
-    [bool]($Ref -and $Ref -match '^(origin/)?worktree-')
+    [bool]($Ref -and $Ref -match '^(refs/)?(heads/|(remotes/)?origin/)?worktree-')
 }
 
 function Resolve-BaseRef {

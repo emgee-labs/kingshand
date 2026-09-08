@@ -60,6 +60,13 @@
   ref that does not exist write nothing to stdout, so the evidence comes back empty and empty reads
   as clean.
 
+  A dispatch that survives both of those still WARNS, every time and unconditionally. Skipping the
+  resolver skips the one thing that says out loud when the branch point and the pull request target
+  have come apart, so the dispatch most likely to have them apart would otherwise be the quietest.
+  The warning claims nothing about what the repository declares and reads no `.no-mistakes.yaml` to
+  find out - the target is decided from `pr.base_branch` on the default branch, or that default
+  branch itself, neither of which is the named ref unless somebody has already pointed it there.
+
   The brief is passed BY PATH, never by value. That began as a defence against Start-Process
   flattening -ArgumentList (a 1,733-character brief arrived as its 57-character first line), and it
   outlives the defect: a brief on disk is what the worker can re-read mid-task and what survives a
@@ -1117,6 +1124,29 @@ foreach ($copy in $staleCopies) { Remove-Item -LiteralPath $copy -Force }
 # and it replaces the resolver rather than steering it; with none, Resolve-BaseRef is called exactly
 # as it always was. Either way what comes out is a single ref, used for both jobs below.
 $base = if ($baseOverride) { $baseOverride } else { Resolve-BaseRef -RepoPath $RepoPath }
+
+# SAID OUT LOUD ON EVERY DISPATCH THAT NAMED ITS OWN BASE, and unconditionally: the resolver is the
+# thing that warns when the branch point and the pull request target come apart, and naming a base
+# skips the resolver, so without this the one dispatch most likely to have them come apart is the
+# one dispatch that says nothing. It is here rather than beside the -Base check at the top of the
+# script because a dispatch refused after that check would otherwise print a warning asserting a
+# worker is based on something while the refusal says nothing was created.
+#
+# It asserts NOTHING about what the repository declares, and reads no `.no-mistakes.yaml` to find
+# out. The target is taken from `pr.base_branch` on the DEFAULT branch, falling back to that
+# default branch where nothing is declared - neither of which is this ref unless somebody has
+# already pointed it here - so a warning conditioned on a declaration existing would cover half
+# the cases while reading as though it covered all of them.
+if ($baseOverride) {
+    Write-Warning ("Worker $Name is based on $baseOverride because this dispatch named it, and " +
+                   "the landing diff is measured against that ref. Where its pull request is " +
+                   "proposed is decided somewhere this dispatch does not read - pr.base_branch " +
+                   "on the default branch of $RepoPath, or that default branch itself where " +
+                   "nothing is declared - so the target is not $baseOverride unless somebody " +
+                   "has already made it so. Where the two differ the pull request carries every " +
+                   "commit $baseOverride has and its target does not, on top of this worker's " +
+                   "own work. Check what the pull request targets before landing.")
+}
 
 $branch   = "worktree-$Name"
 $worktree = Join-Path (Join-Path (Join-Path $RepoPath '.claude') 'worktrees') $Name
