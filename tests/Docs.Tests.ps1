@@ -3486,11 +3486,12 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     # The refusals are what a caller plans around, so their count and their subjects are pinned.
     # Each one knows its path exactly because the caller handed it over - that is what separates
     # this list from the parsed cross-check it replaced.
-    It 'muster states the ten refusals dispatch still makes' {
+    It 'muster states the twelve refusals dispatch still makes' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase ('There are ten, and each is refused by name: a usage window already past the ' +
-                     'threshold, a brief with no ' +
+            -Phrase ('There are twelve, and each is refused by name: a usage window already past ' +
+                     'the threshold, a `-Base` naming a `worktree-*` branch, a `-Base` git cannot ' +
+                     'resolve in the repository, a brief with no ' +
                      '`## Read first` section at all, a brief that passes no `-ReadPath` and does ' +
                      'not say the index was checked when anything at all is indexed - and neither ' +
                      "the project's own standing files nor the browser procedure counts towards " +
@@ -3504,12 +3505,48 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
                      'attached to it.')
     }
 
-    # The tenth is the odd one out and the skill has to say so, because relaying a warning is a
-    # different action from relaying a refusal and the Hand would otherwise treat them alike.
-    It 'muster separates the usage refusal from the nine that know their path' {
-        Assert-Phrase -Text (Get-MusterStep 'Step 4 - Dispatch') -Where 'muster Step 4' `
+    # The usage one is the odd one out and the skill has to say so, because relaying a warning is a
+    # different action from relaying a refusal and the Hand would otherwise treat them alike. The
+    # second half is counted rather than named, so it is pinned as a count: the others are all about
+    # something the dispatch was handed and knows exactly, a path or the base ref itself.
+    It 'muster separates the usage refusal from the eleven that know what they were handed' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase ('**The usage one is the only refusal here that can be absent rather than ' +
                      'raised.**')
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('Every one of the other eleven is about something this dispatch knows ' +
+                     'exactly - a path it was handed, or the base ref it was told to use')
+    }
+
+    # Naming the base for one task is the only way into a repository that integrates on a feature
+    # branch, and the skill is where the Hand meets it. Both halves are pinned: that leaving it off
+    # changes nothing, which is what keeps it off every ordinary dispatch, and that the ref passed is
+    # the branch point AND the recorded base - one string, which is the whole reason it is accepted.
+    It 'muster says how a dispatch names its own base and what leaving it off means' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('**Where a repository integrates on a feature branch, name the base for that ' +
+                     'task with `-Base` on')
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('Pass it and the resolver is not consulted at ' +
+                     'all; leave it off, which is the ordinary case')
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('The value you pass is the branch ' +
+                     'point and the base recorded for step 7, one string doing both jobs.')
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('refuses two ways - a `worktree-*` name, on its name alone, because going ' +
+                     'around the resolver must not go around its guard')
+    }
+
+    # The Hand reads a widened diff at the landing gate and has to know what can produce one. A base
+    # named by hand is a second trigger for the disagreement the paragraph already describes, and one
+    # that needs no repository change at all - so a Hand who ruled out a moved default branch would
+    # otherwise conclude the extra commits are the worker's.
+    It 'muster names a hand-passed base as another way the two can disagree' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 4 - Dispatch') -Where 'muster Step 4' `
+            -Phrase ('Passing a different `-Base` the second time does the same with no repository ' +
+                     'change at all.')
     }
 
     # The whole requirement, in the artefact the Hand reads at the moment it dispatches: the two
@@ -6003,11 +6040,14 @@ Describe 'the default branch and the integration branch are two things' {
     # A repository can land a fresh clone on `main` while every pull request targets `dev` and
     # every worker branches from `dev`. `origin/HEAD` names only the first, so the tooling table
     # has to say which of the two the dispatcher follows - otherwise the next reader assumes the
-    # default branch, which is the assumption that cuts a worker from the wrong tree.
+    # default branch, which is the assumption that cuts a worker from the wrong tree. The row also
+    # has to say that a dispatch can name its own base, because where one does this file is not
+    # consulted at all and a row claiming otherwise sends the reader to the wrong owner.
     It 'the CLAUDE.md tooling table says the dispatcher follows the declared integration branch' {
         Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
             -Phrase ('| `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the one ref a ' +
-                     'worker branches from and the landing gate diffs against - the integration ' +
+                     'worker branches from and the landing gate diffs against, unless that ' +
+                     'dispatch names its own - the integration ' +
                      'branch the repo declares in `.no-mistakes.yaml`, and its default branch ' +
                      'where it declares none, always confirmed with `git rev-parse --verify` |')
     }

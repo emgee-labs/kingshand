@@ -839,7 +839,8 @@ brief already names, because that directory is the only place outside its worktr
 read. Drop the parameter only when the section states there is nothing to read.
 
 Every refusal comes before anything at all is created, so a mistake here costs nothing to fix.
-There are ten, and each is refused by name: a usage window already past the threshold, a brief with
+There are twelve, and each is refused by name: a usage window already past the threshold, a `-Base`
+naming a `worktree-*` branch, a `-Base` git cannot resolve in the repository, a brief with
 no `## Read first` section at all, a brief that passes no `-ReadPath` and does not say the index
 was checked when anything at all is indexed - and neither the project's own standing files nor the
 browser procedure counts towards that one, per Step 2, which owns the rule - a brief carrying a
@@ -849,8 +850,9 @@ whose names would land on top of each other in the staging directory, a standing
 and cannot be opened, a directory sitting where a standing file belongs, and a brief that cannot be
 opened for writing to be told what was attached to it.
 
-**The usage one is the only refusal here that can be absent rather than raised.** Nine of the ten
-are about a path this dispatch knows exactly; that one is about a number a separate tool reports,
+**The usage one is the only refusal here that can be absent rather than raised.** Every one of the
+other eleven is about something this dispatch knows exactly - a path it was handed, or the base ref
+it was told to use; that one is about a number a separate tool reports,
 and a reading that could not be taken warns and dispatches rather than blocking. The one
 exception is a cached floor already at or past the threshold, which refuses with no current
 reading behind it - `vigil` owns why, and relaying whichever of the two you get is the whole of
@@ -911,12 +913,24 @@ branch, because a repository can declare a separate integration branch that ever
 targets. The dispatcher confirms whatever it returns with `git rev-parse --verify` and refuses
 rather than inventing a name that would resolve to nothing at the gate.
 
+**Where a repository integrates on a feature branch, name the base for that task with `-Base` on
+the dispatcher.** It is for the case the declaration cannot cover: an epic branch several tickets
+land on before it merges, which nothing may write into the repository's own tracked file because
+that line would be wrong the moment the branch merges. Pass it and the resolver is not consulted at
+all; leave it off, which is the ordinary case and what you do unless the King has said otherwise,
+and the base is resolved from the repository exactly as before. The value you pass is the branch
+point and the base recorded for step 7, one string doing both jobs. Dispatch checks it before
+anything is created and refuses two ways - a `worktree-*` name, on its name alone, because going
+around the resolver must not go around its guard, and a ref `git rev-parse --verify` cannot confirm.
+Neither creates anything, and both name the ref.
+
 **On a re-dispatch the two can disagree, so read step 7's diff knowing that.** Re-dispatching a
 ticket whose branch survived does not branch again - the branch point is whatever the earlier
 dispatch chose - while the base is resolved fresh. If the repository has moved since, by declaring
 an integration branch or changing its default, the recorded base names one tree and the branch was
 cut from another, and step 7's `git log "$base..HEAD"` then lists commits nobody in this ticket
-wrote. A widened diff on a re-dispatched ticket is that, not the worker's doing.
+wrote. Passing a different `-Base` the second time does the same with no repository change at all.
+A widened diff on a re-dispatched ticket is that, not the worker's doing.
 
 **Relay any warning that call prints.** Base resolution warns when it could not honour a
 repository's declared integration branch, or honoured it only as a local copy nothing has
