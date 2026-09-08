@@ -218,6 +218,10 @@
   bin\Usage.psm1 owns where the number comes from and what its three answers mean; the only thing
   decided here is the threshold, that a reading which could not be taken never blocks a dispatch,
   and that a cached floor already at or past the threshold is the one exception to that.
+
+  The two -Base refusals belong to no part of this gate and are not counted among the paths above.
+  They are about the ref this dispatch was handed rather than a file it was told to stage, and the
+  -Base section near the top of this header owns both of them.
 .EXAMPLE
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md
   $r.id, $r.worktree, $r.branch
