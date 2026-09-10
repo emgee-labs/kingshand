@@ -875,15 +875,25 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         # A registered project for the fixture's repo, and optionally an index holding one entry.
         # Registering without -WithIndex is the unindexed case: a project the gate resolves and then
         # has nothing to check for.
+        # -Family is passed only by a case that declares one, and the two calls below are
+        # deliberately separate rather than one call with a possibly-empty value: every other case
+        # in this file then exercises Add-ProjectEntry's OWN default, which is the path every
+        # ordinary import takes, instead of an empty string this helper invented for it.
         function Register-FixtureProject {
             param(
                 [Parameter(Mandatory)]$Fixture,
                 [string]$Project = 'acme-web',
+                [string]$Family  = '',
                 [switch]$WithIndex
             )
-            Add-ProjectEntry -Name $Project -Path $Fixture.Repo -Mode 'local-only' `
-                -Description 'the fixture repo' `
-                -RegistryPath (Join-Path $Fixture.DataPath 'projects.md')
+            $registry = Join-Path $Fixture.DataPath 'projects.md'
+            if ($Family) {
+                Add-ProjectEntry -Name $Project -Path $Fixture.Repo -Mode 'local-only' `
+                    -Description 'the fixture repo' -Family $Family -RegistryPath $registry
+            } else {
+                Add-ProjectEntry -Name $Project -Path $Fixture.Repo -Mode 'local-only' `
+                    -Description 'the fixture repo' -RegistryPath $registry
+            }
             if ($WithIndex) {
                 Add-IndexEntry -Project $Project -Path 'data\brand.md' `
                     -Summary 'settled brand: logo, favicon, tagline, palettes' `
@@ -3230,5 +3240,403 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             (Get-Content -LiteralPath (Join-Path $f.BriefDir "read-first\rules-$name.md") -Raw).Trim() |
                 Should -Be $body
         }
+    }
+
+    # A family is a set of repositories that share one set of conventions. Its shared rules live in
+    # one data\families\<name>.md, reached from every project whose registry entry carries a
+    # `+family:` token, and everything below is the same mechanism the project's own two files use -
+    # staged unasked, named in the brief, discounted from the index gate, retired when it goes away.
+    Context "the family's shared standing rules" {
+        BeforeAll {
+            function New-StandingFile {
+                param(
+                    [Parameter(Mandatory)]$Fixture,
+                    [Parameter(Mandatory)][string]$Leaf,
+                    [string]$Text = 'Tickets are tagged NG-, capital N capital G. Never touch legacy\.'
+                )
+                $p = Join-Path $Fixture.DataPath $Leaf
+                Set-Content -LiteralPath $p -Value $Text -Encoding utf8
+                $p
+            }
+
+            function Get-BriefText {
+                param([Parameter(Mandatory)]$Fixture)
+                Get-Content -LiteralPath $Fixture.BriefPath -Raw
+            }
+
+            # The family's shared file has its own directory - data\families\<name>.md - and is
+            # staged under the leaf family-<name>.md, so no family name can ever land on a
+            # project's own rules file.
+            function New-FamilyFile {
+                param(
+                    [Parameter(Mandatory)]$Fixture,
+                    [Parameter(Mandatory)][string]$Family,
+                    [string]$Text = 'Tickets are tagged NG-, capital N capital G. Never touch legacy\.'
+                )
+                $dir = Join-Path $Fixture.DataPath 'families'
+                if (-not (Test-Path -LiteralPath $dir)) {
+                    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+                }
+                $p = Join-Path $dir "$Family.md"
+                Set-Content -LiteralPath $p -Value $Text -Encoding utf8
+                $p
+            }
+
+            # Rewrites the fixture's registry so the same project is registered without its family.
+            # Add-ProjectEntry appends and refuses a duplicate, so the file goes first - which is
+            # exactly what taking the token off the entry by hand amounts to.
+            function Remove-FixtureFamily {
+                param([Parameter(Mandatory)]$Fixture, [Parameter(Mandatory)][string]$Project)
+                Remove-Item -LiteralPath (Join-Path $Fixture.DataPath 'projects.md') -Force
+                Register-FixtureProject -Fixture $Fixture -Project $Project | Out-Null
+            }
+
+            # Where each of the four lines sits in the brief, so an ordering assertion cannot pass on
+            # a partial reading: heading, then the lead-in that scopes the bullets, then the criteria
+            # file, the project's rules, and the family's last.
+            function Get-FamilyOrder {
+                param(
+                    [Parameter(Mandatory)]$Fixture,
+                    [Parameter(Mandatory)][string]$Project,
+                    [Parameter(Mandatory)][string]$Family
+                )
+                $lines = @(Get-Content -LiteralPath $Fixture.BriefPath)
+                $at    = {
+                    param($pattern)
+                    @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like $pattern })[0]
+                }
+                [pscustomobject]@{
+                    Heading  = @(0..($lines.Count - 1) |
+                                    Where-Object { $lines[$_] -match '^\s*##\s+Read first\s*$' })[0]
+                    LeadIn   = & $at '*attached by dispatch from this project*'
+                    Criteria = & $at "*read-first\done-$Project.md*"
+                    Rules    = & $at "*read-first\rules-$Project.md*"
+                    Family   = & $at "*read-first\family-$Family.md*"
+                }
+            }
+        }
+
+        It 'attaches the family file nobody passed, where the worker can reach it' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-attached'
+            $name = Register-FixtureProject -Fixture $f -Family 'acme'
+            New-FamilyFile -Fixture $f -Family 'acme' -Text 'Every acme ticket is tagged AC-.' | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-9101').id | Should -Be 'T-9101'
+            $copy = Join-Path $f.BriefDir 'read-first\family-acme.md'
+            Test-Path -LiteralPath $copy | Should -BeTrue
+            (Get-Content -LiteralPath $copy -Raw) | Should -BeLike '*tagged AC-*'
+            (Get-BriefText -Fixture $f).Contains('read-first\family-acme.md') | Should -BeTrue
+            $name | Should -Be 'acme-web'
+        }
+
+        # A worker holding two rules files that disagree, with no statement of precedence, picks
+        # wrong half the time. This is the one place it can be said where the worker will read it.
+        It 'says in the line itself that the project s own file wins' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-precedence'
+            $name = Register-FixtureProject -Fixture $f -Family 'acme'
+            New-FamilyFile -Fixture $f -Family 'acme' | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9102' | Out-Null
+            $line = @(@(Get-Content -LiteralPath $f.BriefPath) |
+                        Where-Object { $_ -like '*read-first\family-acme.md*' })[0]
+            ($null -ne $line) | Should -BeTrue
+            $line | Should -BeLike "*Where it and this project's own rules-$name.md disagree*"
+            $line | Should -BeLike "*rules-$name.md wins*"
+            $line | Should -BeLike '*the more specific of the two*'
+            $line | Should -BeLike '*shared by every project in the acme family*'
+        }
+
+        # A family may be declared before anybody writes its shared rules, so an absent file is an
+        # ordinary state and the project dispatches exactly as it would with no family at all.
+        It 'attaches nothing and writes no line for a family whose file is not there yet' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-declared-no-file'
+            Register-FixtureProject -Fixture $f -Family 'acme' | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+            $before = Get-BriefText -Fixture $f
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-9103').id | Should -Be 'T-9103'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+            (Get-BriefText -Fixture $f) | Should -Be $before
+        }
+
+        # The file is reached from the registry entry and from nowhere else. A rules file sitting in
+        # data\ under some other name is not this project's business.
+        It 'attaches no family file for a project whose entry declares no family' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-undeclared'
+            Register-FixtureProject -Fixture $f | Out-Null
+            New-FamilyFile -Fixture $f -Family 'acme' | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+            $before = Get-BriefText -Fixture $f
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-9104').id | Should -Be 'T-9104'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+            (Get-BriefText -Fixture $f) | Should -Be $before
+        }
+
+        It 'adds no second line when the same ticket is dispatched again' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-redispatch'
+            Register-FixtureProject -Fixture $f -Family 'acme' | Out-Null
+            New-FamilyFile -Fixture $f -Family 'acme' | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9105' | Out-Null
+            $after = Get-BriefText -Fixture $f
+            Invoke-Dispatch -Fixture $f -Name 'T-9105' | Out-Null
+            (Get-BriefText -Fixture $f) | Should -Be $after
+        }
+
+        # The project's own files are named above the family's, so the order in the brief matches
+        # which one wins - and the lead-in still scopes the whole block.
+        It 'names the criteria file, then the project rules, then the family rules' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-order'
+            $name = Register-FixtureProject -Fixture $f -Family 'acme'
+            New-StandingFile -Fixture $f -Leaf "done-$name.md"  -Text '- Pester is green.' | Out-Null
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            New-FamilyFile -Fixture $f -Family 'acme'    | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Nothing beyond this brief - the index was checked and nothing in it applies.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9106' | Out-Null
+
+            $o = Get-FamilyOrder -Fixture $f -Project $name -Family 'acme'
+            ($o.LeadIn   -gt $o.Heading)  | Should -BeTrue
+            ($o.Criteria -gt $o.LeadIn)   | Should -BeTrue
+            ($o.Rules    -gt $o.Criteria) | Should -BeTrue
+            ($o.Family   -gt $o.Rules)    | Should -BeTrue
+        }
+
+        # The growth case for the family file: declared and written after the ticket was first
+        # dispatched. It must land below the bullets already there rather than above them.
+        It 'keeps the family rules last when its file appears after the first dispatch' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-grew'
+            $name = Register-FixtureProject -Fixture $f -Family 'acme'
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Nothing beyond this brief - the index was checked and nothing in it applies.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9107' | Out-Null
+            New-FamilyFile -Fixture $f -Family 'acme' | Out-Null
+            Invoke-Dispatch -Fixture $f -Name 'T-9107' | Out-Null
+
+            $o = Get-FamilyOrder -Fixture $f -Project $name -Family 'acme'
+            ($null -ne $o.Family)      | Should -BeTrue
+            ($o.Rules  -gt $o.LeadIn)  | Should -BeTrue
+            ($o.Family -gt $o.Rules)   | Should -BeTrue
+            @(@(Get-Content -LiteralPath $f.BriefPath) |
+                Where-Object { $_ -like '*attached by dispatch from this project*' }).Count |
+                Should -Be 1
+        }
+
+        # A gate every project in a family satisfies by rote is a gate that has stopped working for
+        # the whole family at once, which is worse than the per-project case it already discounts.
+        It 'does not let the attached family file satisfy the index gate' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-not-engagement'
+            Register-FixtureProject -Fixture $f -Family 'acme' -WithIndex | Out-Null
+            New-FamilyFile -Fixture $f -Family 'acme' | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-9108' } |
+                Should -Throw '*neither names a file from them to read*'
+        }
+
+        It 'says in that refusal which family file it is attaching by itself' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-refusal-names'
+            Register-FixtureProject -Fixture $f -Family 'acme' -WithIndex | Out-Null
+            New-FamilyFile -Fixture $f -Family 'acme' | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            $msg = ''
+            try { Invoke-Dispatch -Fixture $f -Name 'T-9109' } catch { $msg = $_.Exception.Message }
+            $msg | Should -BeLike '*family-acme.md*'
+            $msg | Should -BeLike '*say nothing about this task either*'
+        }
+
+        # An unreadable file is not an absent one. Reading it as absent ships a worker without rules
+        # seven repositories share, leaving no trace that anything went missing.
+        It 'refuses a family file that is there and cannot be opened' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-unreadable'
+            Register-FixtureProject -Fixture $f -Family 'acme' | Out-Null
+            $shared = New-FamilyFile -Fixture $f -Family 'acme'
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            $held = [System.IO.File]::Open($shared, 'Open', 'Read', 'None')
+            try {
+                { Invoke-Dispatch -Fixture $f -Name 'T-9111' } |
+                    Should -Throw '*exists and could not be opened*'
+                Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+            } finally { $held.Dispose() }
+        }
+
+        It 'refuses a -ReadPath whose name collides with the family file' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-collision'
+            Register-FixtureProject -Fixture $f -Family 'acme' | Out-Null
+            New-FamilyFile -Fixture $f -Family 'acme' | Out-Null
+            $elsewhere = Join-Path $f.Home 'family-acme.md'
+            Set-Content -LiteralPath $elsewhere -Value 'a different file with the same name' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf 'family-acme.md' -From $elsewhere
+
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9112' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $elsewhere } |
+                Should -Throw '*would land on*'
+        }
+
+        # Retirement the first way: the King deletes the family's file. Identical to retiring either
+        # per-project file, because the token still names the family this dispatch can compose from.
+        It 'clears the copy and the line when the family file is deleted' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-file-removed'
+            $name = Register-FixtureProject -Fixture $f -Family 'acme'
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            $shared = New-FamilyFile -Fixture $f -Family 'acme'
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Nothing beyond this brief - the index was checked and nothing in it applies.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9113' | Out-Null
+            $copy = Join-Path $f.BriefDir 'read-first\family-acme.md'
+            Test-Path -LiteralPath $copy | Should -BeTrue
+
+            Remove-Item -LiteralPath $shared -Force
+            Invoke-Dispatch -Fixture $f -Name 'T-9113' | Out-Null
+
+            Test-Path -LiteralPath $copy | Should -BeFalse
+            $text = Get-BriefText -Fixture $f
+            $text.Contains('read-first\family-acme.md') | Should -BeFalse
+            # The project's own file is untouched, and so is the lead-in that introduces it.
+            $text.Contains("read-first\rules-$name.md") | Should -BeTrue
+            $text | Should -BeLike '*attached by dispatch from this project*'
+        }
+
+        # Retirement the second way, and the one the per-project loop cannot reach: the token comes
+        # off the entry, so there is no family name left in the registry to compose the old line
+        # from. The candidate comes from the staged copy's own file name instead.
+        It 'clears the copy and the line when the family token is taken off the entry' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-token-removed'
+            $name = Register-FixtureProject -Fixture $f -Family 'acme'
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            New-FamilyFile -Fixture $f -Family 'acme' | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Nothing beyond this brief - the index was checked and nothing in it applies.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9114' | Out-Null
+            $copy = Join-Path $f.BriefDir 'read-first\family-acme.md'
+            Test-Path -LiteralPath $copy | Should -BeTrue
+
+            Remove-FixtureFamily -Fixture $f -Project $name
+            Invoke-Dispatch -Fixture $f -Name 'T-9114' | Out-Null
+
+            Test-Path -LiteralPath $copy | Should -BeFalse
+            $text = Get-BriefText -Fixture $f
+            $text.Contains('read-first\family-acme.md') | Should -BeFalse
+            $text.Contains("read-first\rules-$name.md") | Should -BeTrue
+            # The shared file itself is not this dispatch's to delete - other projects still use it.
+            Test-Path -LiteralPath (Join-Path $f.DataPath 'families\acme.md') | Should -BeTrue
+        }
+
+        # The whole thing is reversible, which is what makes pruning safe to do at all.
+        It 'brings both back when the family token is put back on the entry' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-token-restored'
+            $name = Register-FixtureProject -Fixture $f -Family 'acme'
+            New-FamilyFile -Fixture $f -Family 'acme' | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                '- Nothing beyond this brief - the index was checked and nothing in it applies.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9115' | Out-Null
+            Remove-FixtureFamily -Fixture $f -Project $name
+            Invoke-Dispatch -Fixture $f -Name 'T-9115' | Out-Null
+
+            $gone = Get-BriefText -Fixture $f
+            $gone | Should -Not -BeLike '*attached by dispatch from this project*'
+            $gone | Should -BeLike '*Nothing beyond this brief - the index was checked*'
+
+            Remove-Item -LiteralPath (Join-Path $f.DataPath 'projects.md') -Force
+            Register-FixtureProject -Fixture $f -Project $name -Family 'acme' | Out-Null
+            Invoke-Dispatch -Fixture $f -Name 'T-9115' | Out-Null
+
+            $back = Get-BriefText -Fixture $f
+            $back.Contains('read-first\family-acme.md') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\family-acme.md') | Should -BeTrue
+        }
+
+        # The prune reads a directory listing, never the brief's prose, so it must leave alone every
+        # copy that is not its own - including one the Hand passed under a family-<x>.md name, whose
+        # line the Hand wrote and which no composed line of this script's matches.
+        It 'leaves a hand-passed rules file alone when no family is declared' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-prune-leaves-hand-file'
+            Register-FixtureProject -Fixture $f | Out-Null
+            $elsewhere = Join-Path $f.Home 'family-shared.md'
+            Set-Content -LiteralPath $elsewhere -Value 'the Hand''s own file' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf 'family-shared.md' -From $elsewhere
+
+            & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9116' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $elsewhere | Out-Null
+            $copy = Join-Path $f.BriefDir 'read-first\family-shared.md'
+            Test-Path -LiteralPath $copy | Should -BeTrue
+
+            # Dispatched again with nothing passed, which is when the prune looks at the directory.
+            Invoke-Dispatch -Fixture $f -Name 'T-9116' | Out-Null
+            Test-Path -LiteralPath $copy | Should -BeTrue
+            (Get-Content -LiteralPath $copy -Raw) | Should -BeLike "*the Hand's own file*"
+            (Get-BriefText -Fixture $f).Contains('read-first\family-shared.md') | Should -BeTrue
+        }
+
+
+
+        # The staged leaf is not the source's own, so a hand-passed copy is not the same copy this
+        # dispatch stages: both are made, the next dispatch refreshes only its own and prunes only
+        # its own, and the worker is left reading a current copy beside a frozen one described in
+        # the same words. Refused where the path arrives rather than deduplicated after the fact.
+        It 'refuses a -ReadPath naming the family s own shared file' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-passed-source'
+            Register-FixtureProject -Fixture $f -Family 'acme' | Out-Null
+            $shared = New-FamilyFile -Fixture $f -Family 'acme'
+            Set-ReadFirstBrief -Fixture $f -Leaf 'acme.md' -From $shared
+            $before = Get-BriefText -Fixture $f
+
+            $msg = ''
+            try {
+                & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9110' `
+                    -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $shared
+            } catch { $msg = $_.Exception.Message }
+            $msg | Should -BeLike '*the shared rules of the acme family*'
+            $msg | Should -BeLike '*names the copy family-acme.md*'
+            $msg | Should -BeLike '*Nothing was created.*'
+
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+            (Get-BriefText -Fixture $f) | Should -Be $before
+            @(Get-CallLines -Fixture $f) | Should -BeNullOrEmpty
+        }
+        # Reference handed over whole. Nothing reads what is inside it, so content that would defeat
+        # a parser arrives byte for byte.
+        It 'copies the family file through without reading a thing inside it' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-opaque'
+            Register-FixtureProject -Fixture $f -Family 'acme' | Out-Null
+            $body = @('## Read first', '```', '- `C:\not\a\path.md`', '```',
+                      'index checked, nothing applies') -join "`r`n"
+            New-FamilyFile -Fixture $f -Family 'acme' -Text $body | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-9118').id | Should -Be 'T-9118'
+            (Get-Content -LiteralPath (Join-Path $f.BriefDir 'read-first\family-acme.md') -Raw).Trim() |
+                Should -Be $body
+        }
+
     }
 }

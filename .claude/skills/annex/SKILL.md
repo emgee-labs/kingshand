@@ -1,6 +1,6 @@
 ---
 name: annex
-description: Use when the user wants to register a repository so work can be dispatched into it - e.g. "import C:\repos\acme-api", "register acme-web", "annex C:\repos\acme-api", "add this repo as direct-PR", "what projects are registered". Records the project's standing delivery posture, offers to initialise the review gate when the chosen posture needs one, and offers to record the project's standing rules. It never clones and never removes.
+description: Use when the user wants to register a repository so work can be dispatched into it - e.g. "import C:\repos\acme-api", "register acme-web", "annex C:\repos\acme-api", "add this repo as direct-PR", "what projects are registered". Records the project's standing delivery posture, offers to initialise the review gate when the chosen posture needs one, offers to record the project's standing rules, and records which family of repositories it shares conventions with. It never clones and never removes.
 tools: Bash, PowerShell, Read, Write, Glob, Grep, AskUserQuestion
 version: 1.0.0
 ---
@@ -184,7 +184,7 @@ A worker never runs `init` itself. It is environment setup, outside any task's s
 worker that tried would be writing configuration its brief never authorised.
 
 ```powershell
-Add-ProjectEntry -Name "<name>" -Path $path -Mode "<mode>" -Description "<desc>" [-Yolo] [-Merge]
+Add-ProjectEntry -Name "<name>" -Path $path -Mode "<mode>" -Description "<desc>" [-Yolo] [-Merge] [-Family "<family>"]
 ```
 
 `-Merge` is available on the push-capable modes only. Passing it with `-Mode local-only` throws
@@ -193,6 +193,11 @@ rather than registering anything, so it is not the freely optional flag the brac
 Leave `-Merge` off unless the user asked for it in this conversation. Without it the entry is
 written exactly as it always was and the permission is absent, which is the off state - there is
 no "+merge off" spelling to write instead.
+
+`-Family` names the family this project belongs to and writes a `+family:<name>` token. Leave it
+off unless the user named a family: most projects belong to none, that is the ordinary state, and
+without the flag the entry is written exactly as it always was. Step 4c owns what a family is and
+when to ask.
 
 The registry is a durable file under `data\`, so index it in the same step that writes it. It has
 a fixed name and the entry is rewritten in place, so this is safe to run on every import and the
@@ -263,12 +268,62 @@ Every dispatch into this project attaches the file automatically - `bin\Dispatch
 it beside the brief and names the copy under `Read first` - so nobody has to remember to pass it,
 and editing the file is the whole of changing what workers are told.
 
+## Step 4c - Offer the family, where this repository shares its conventions
+
+**A family is a set of repositories that work the same way**: one ticket tagging scheme, one work
+item workflow, one branch convention, one pair of accounts. Its shared rules live in a single
+`data\families\<name>.md`, written exactly like the file above and holding exactly the same kinds of
+statement, and every project in the family gets it attached beside its own.
+
+**Ask whether this repository shares its conventions with others already registered**, in one line,
+and only where the answer looks likely - a lone repository is the common case and asking every time
+turns an import into an interview. Where the user names a family, pass it at Step 4:
+
+```powershell
+Add-ProjectEntry -Name "<name>" -Path $path -Mode "<mode>" -Description "<desc>" -Family "<family>"
+```
+
+The family name becomes the file name `data\families\<name>.md`, so it takes the same shape a
+project name does - letters, digits, `.`, `_` and `-`. `Add-ProjectEntry` refuses any other rather
+than writing a token that could never be honoured, and the registry parser drops a token it cannot
+read instead of guessing. Its own directory is why nothing has to be checked against the registered
+project names: a family's file and a project's own rules file can never be one file.
+
+**Do not write the family's file here.** Adding a project to a family says which shared rules it
+should get; it does not settle what they are. Write it the day there is something to put in it,
+through the same call as the file above with the family's path in place of the project's, creating
+`data\families\` if it is not there yet - and index it in that same call, the way every durable file
+under `data\` is indexed as it is written. The drift scan recurses into `data\`, subdirectories
+included, so a family's file counts as drift from the day it is written until an index lists it.
+
+**Registering a project into a family indexes nothing**, because the file usually does not exist
+yet and an entry pointing at nothing is `missing` drift that the documented remedy,
+`Remove-IndexEntry -Missing -All`, then deletes - so the line would be gone before the file arrived.
+Every member project still lists it, per the reasoning below; that happens in the turn it is
+written, once per member, rather than at import.
+
+**List it per member project, not once in the root index.** A reader working on a project opens
+`data\index\<project>.md`, and the root `data\index.md` is for kingshand's own operational files -
+a family's file listed there would both stretch that contract and land where the project reader
+never looks. `Add-IndexEntry` is what lists it for the second and every later member, because it
+lists a file another writer owns and tolerates the entry already being there: it matches on the
+resolved relative path, rewrites that line in place and keeps the original `(added ...)` date. So a
+second member listing the same file is a no-op rather than a duplicate line.
+
+**A declared family with no file yet is an ordinary state**, exactly as an absent project rules
+file is, and dispatch treats it as one: nothing is attached and nothing is said.
+
+**Where the family's file and the project's own disagree, the project's own wins** - it is the more
+specific of the two, and the line dispatch writes into the brief says so, so a worker holding both
+never has to work it out. Put a rule in the family's file only when it is true of every project in
+the family; put the exception in the one project's file.
+
 ## Step 5 - Show what is registered
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Projects.psm1 -Force
 Get-AllProjects | ForEach-Object { [pscustomobject]$_ } |
-    Select-Object name, rawMode, yolo, merge, path | Format-Table -AutoSize
+    Select-Object name, rawMode, yolo, merge, family, path | Format-Table -AutoSize
 ```
 
 **The `[pscustomobject]` cast is required.** `Get-AllProjects` returns hashtables, and
@@ -281,7 +336,10 @@ Answer in at most six lines. If there is more to say than that, render it and us
 
 There is no command for this. Edit the entry's annotation in `data\projects.md` by hand, and
 record why in the description alongside the added date. The same edit adds or removes `+merge`,
-which is a permission rather than a posture but lives in the same brackets.
+which is a permission rather than a posture but lives in the same brackets, and `+family:<name>`,
+which is neither but lives there too. Removing a `+family:` token is supported and reversible:
+the next dispatch of any ticket in that project takes the family's copy and its `Read first` line
+back out, and putting the token back restores both.
 
 **Raising a mode: look at the brackets for a `+merge` before you do.** A `+merge` beside
 `local-only` grants nothing, because that project never pushes and never reaches a pull request -
@@ -306,7 +364,8 @@ correct, one line further down. Never wrap; let the line run long.
 
 Keep the description useful for identifying the project. Do not turn the registry into project
 documentation - architecture belongs in the repository, and ADO tagging and shorthand belong in
-`data\rules-<name>.md`, per Step 4b.
+`data\rules-<name>.md`, per Step 4b, or in the family's own file where several repositories share
+them, per Step 4c.
 
 ## Not in scope
 

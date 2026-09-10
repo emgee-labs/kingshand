@@ -359,6 +359,32 @@ Describe 'the registry is named project by project, with its posture' {
         (Get-Digest $f).Contains('+merge') | Should -BeFalse
     }
 
+    # The Hand writes ticket text itself and CLAUDE.md sends it to the family's shared rules before
+    # it does. The digest is the one registry read a session is meant to take at startup, so a
+    # family it never printed is one the Hand cannot know to read.
+    It 'says which family a project belongs to, and stays silent for one in none' {
+        $f = New-Fixture 'registry-family'
+        foreach ($n in @('alpha', 'beta')) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $f.Root "repos\$n") | Out-Null
+        }
+        Add-RegistryEntry $f '- alpha [direct-PR +yolo +family:acme] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        Add-RegistryEntry $f '- beta [direct-PR +yolo] - beta repo (added 2026-01-02)' (Join-Path $f.Root 'repos\beta')
+        $text = Get-Digest $f
+        $text.Contains('- alpha [direct-PR] yolo on +family:acme') | Should -BeTrue
+        $text.Contains('- beta [direct-PR] yolo on -') |
+            Should -BeTrue -Because 'a project in no family prints exactly as it always has'
+        $text.Contains('- beta [direct-PR] yolo on +family') | Should -BeFalse
+    }
+
+    # An annotation the parser could not read in full yields no family, so the digest must not name
+    # one - and a family the Hand read here and acted on would be one nothing else agrees with.
+    It 'names no family on an entry whose annotation could not be read in full' {
+        $f = New-Fixture 'registry-family-unreadable'
+        New-Item -ItemType Directory -Force -Path (Join-Path $f.Root 'repos\alpha') | Out-Null
+        Add-RegistryEntry $f '- alpha [no-mistakes garbage +family:acme] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        (Get-Digest $f).Contains('+family') | Should -BeFalse
+    }
+
     It 'records each project''s path rather than the detail that belongs to the project' {
         $script:RegText.Contains((Join-Path $script:Reg.Root 'repos\alpha')) | Should -BeTrue
         $script:RegText.Contains('PATH MISSING') |

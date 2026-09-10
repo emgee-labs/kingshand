@@ -2,7 +2,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
-[![Tests](https://img.shields.io/badge/tests-1701%20passing-3fb950)](tests)
+[![Tests](https://img.shields.io/badge/tests-1756%20passing-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 # You rule. It executes.
@@ -162,7 +162,9 @@ anything - `hello` will do - and the first reply opens by telling you where thin
 2. **Register a repository.** `/annex D:\code\your-repo` - any path on any drive. It records the
    posture, offers to note that project's standing rules - how its tickets are tagged, folders
    never to touch, where its login is kept - and never clones. Every worker sent into that project
-   gets those rules attached to its instructions without anyone passing them.
+   gets those rules attached to its instructions without anyone passing them. Where several
+   repositories work the same way, it records them as a family, and one shared rules file reaches
+   every worker sent into any of them.
 3. **Give it work.** *"fix the flaky login test in your-repo"*. You get a brief to approve before
    anything is dispatched.
 4. **Check in.** `/survey` for where everything stands, `/audience` for what you missed.
@@ -288,9 +290,10 @@ the startup-memory estimate all come from there. Where a rule here reads well, i
 it was proven there first.
 
 What differs is the layer underneath. Firstmate supervises workers itself, across six terminal
-backends and roughly 56,000 lines of shell. Kingshand keeps about 1,200 lines of PowerShell over a
-single terminal runtime, which is why it runs on Windows at all - and why it cannot do some of what
-firstmate does. `docs\` records that trade and what would reverse it.
+backends and roughly 56,000 lines of shell. Kingshand keeps about 9,000 lines of PowerShell -
+everything in `bin\` plus the installer - over a single terminal runtime, which is why it runs on
+Windows at all, and why it cannot do some of what firstmate does. `docs\` records that trade and
+what would reverse it.
 
 ## Licence
 

@@ -230,7 +230,10 @@ true of an absent `crew.json`: nothing has been dispatched yet.
 the two differ only for `no-mistakes-prod-only`. `yolo` is the string `'on'` or `'off'` - report
 it by comparing with `-eq 'on'`, never by testing it for truthiness. `merge` reads the same way
 and is reported alongside the posture where it is `'on'`, because standing authority to merge that
-project's own pull requests is part of what the King is owed when a posture is quoted.
+project's own pull requests is part of what the King is owed when a posture is quoted. `family` is
+the family of projects this one belongs to, or the empty string where it belongs to none - report
+it beside the posture where it is set, because it decides which shared rules file every worker
+dispatched there carries.
 
 ## Operationally read-only
 
