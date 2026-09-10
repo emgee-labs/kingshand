@@ -79,11 +79,13 @@ login into its pane and its transcript - a foot-gun no prose warning removes. Th
 therefore safe to print by construction, and `Get-BrowserCredentialValue` is the only way to the
 login, called where it is typed into the page and nowhere else.
 
-**Do not replace that second read with a bare `$env:` lookup.** It will appear to work in the
-ordinary case, because a pane's freshly composed environment carries a variable that was set before
-the pane existed - which makes the second read easy to drop rather than safe to drop. What it
-covers is the narrower case that still exists: a process whose parent block was already stale when
-it was spawned, where the variable is in the user environment and in no process block at all.
+**Do not replace that second read with a bare `$env:` lookup.** It will appear to work wherever the
+caller's own block already carries the variable, which is the ordinary case for a worker in a
+freshly composed pane - so it makes the second read easy to drop rather than safe to drop. The
+function has to be right for every caller on every machine, not only for a worker: a process block
+is fixed at creation, so any process that started before the variable was set reads empty for a
+variable that is correctly set. The user-environment read is a live registry read, which is what
+keeps that case answerable at all.
 
 ## The implementing worker drives the browser
 

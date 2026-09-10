@@ -62,9 +62,9 @@ premise holds and the design is viable. One caveat, stated because it is the onl
 screen is readable while the worker lives, and that read is wider than what the worker chose to
 print. `bin\Herdr.psm1` reads the rendered terminal with the `recent-unwrapped` source, which
 includes scrollback, so a rendered tool-result block is on that screen whether the worker printed
-anything or not. The bound is the rendered line count - 40 by default - and the truncation the
-terminal already applied to the result. The full tool result never reaches the pane, so the payload
-still lands in the worker.
+anything or not. The bound is the number of rendered lines the call site asks for - the widest read
+written down anywhere is 60 lines - and the truncation the terminal already applied to the result.
+The full tool result never reaches the pane, so the payload still lands in the worker.
 
 ## What could not be established, and why it was not tested
 
@@ -99,8 +99,26 @@ gate.
   follows it leaves its tab open in the browser the King is using. The tab group only empties, and
   the safety argument above only holds, if the tab the worker opened is closed when the checks are
   done.
-- **Nothing in `bin\BrowserVerify.psm1` needs to change.** Its required set is exactly what a
-  worker needs and its availability check answered correctly on the first call.
+- **`witness` should drop the claim that a worker cannot see a variable set after the server
+  started.** It states that as measured fact and acts on it, telling the worker's report to advise
+  restarting the worker server. That is the same overreach now corrected in
+  `docs\2026-09-03-browser-verification.md`, and `witness` is the file a worker actually reads, so
+  the remedy it hands out is advice nobody needs.
+- **`bin\BrowserVerify.psm1`'s required set covers reaching and reading a page and nothing else.**
+  Its availability check answered correctly on the first call, and every tool in the set earns its
+  place. What the set has no tool for is closing a tab, so a run can pass the availability check and
+  still have no way to clean up after itself. If the tab-close recommendation above is taken, this
+  is where it has to be enforced, because a check that is needed by every run that creates a tab is
+  not one of the per-check tools the set deliberately leaves out.
+
+## Which worker-environment claim this run supports
+
+The worker also compared its own process environment against the live user-scope registry: 25 of
+the 26 user-scope variables matched exactly, the only difference being the merged `Path`, which
+cannot match. The server had been up half an hour, so this supports the fresh-per-pane claim
+without settling it on its own. `docs\2026-09-04-worker-environment-propagation.md` owns the
+decisive measurement, and the correction it forces is now in
+`docs\2026-09-03-browser-verification.md`.
 
 ## What this does not settle
 
