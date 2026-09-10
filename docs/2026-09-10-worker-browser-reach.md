@@ -26,13 +26,17 @@ costs a worker nothing here - the tool inventory is the session's, not the direc
 documentation-example page, its rendered text read back, its console and network traces read, and
 the tab closed again. The page text that came back was the page's, so a browser genuinely answered.
 
-**Tab isolation is structural, and it is the reason this is safe.** A worker's session gets its own
-tab group. Asked for its context without permission to create one, a fresh worker was told no group
-exists for this session; creating one produced a group holding exactly one new tab; closing that
-tab emptied the group and the browser removed it. A worker therefore starts with no handle on any
-tab it did not create, and the close tool refuses anything outside its own group. Nothing the King
-has open is reachable by accident. That is worth preserving: it is what makes driving a browser the
-King is sitting in front of an acceptable thing for a background worker to do at all.
+**Tab isolation is structural, and it is most of the reason this is safe.** A worker's session gets
+its own tab group. Asked for its context without permission to create one, a fresh worker was told
+no group exists for this session; creating one produced a group holding exactly one new tab;
+closing that tab emptied the group and the browser removed it. So the group held only the tab the
+worker itself created, and a worker starts with no handle on any tab it did not create - nothing
+the King has open is reachable by accident. The tool's documented contract goes further and says
+only tabs in the session's own group can be closed at all, but that is contract rather than
+evidence: testing it means aiming the close tool at a tab the worker did not create, which this run
+was forbidden to touch. What was measured is enough to make driving a browser the King is sitting
+in front of an acceptable thing for a background worker to do; the stronger claim is untested and
+is listed below.
 
 **Which browser gets driven is not a worker's decision, and it cannot be made into one.** Two
 browsers were connected to the account during this run. The listing result instructs the caller to
@@ -77,8 +81,13 @@ per session, which strongly suggests they coexist, but the browser *selection* i
 shared. Confirming the interaction needs two sessions driving at once, which this run could not
 arrange without commandeering another worker.
 
-Both are recorded as not established rather than inferred. The tab-group evidence above is what is
-known; the rest is not.
+**Whether the close tool refuses a tab outside the worker's own group.** Its documented contract
+says it does, and nothing seen here contradicts that, but confirming it means handing the close
+tool a tab the worker did not create. Not tested, and not a thing to test against a browser
+somebody is using.
+
+All three are recorded as not established rather than inferred. The tab-group evidence above is
+what is known; the rest is not.
 
 ## What a follow-up would change
 
@@ -99,11 +108,19 @@ gate.
   follows it leaves its tab open in the browser the King is using. The tab group only empties, and
   the safety argument above only holds, if the tab the worker opened is closed when the checks are
   done.
-- **`witness` should drop the claim that a worker cannot see a variable set after the server
-  started.** It states that as measured fact and acts on it, telling the worker's report to advise
-  restarting the worker server. That is the same overreach now corrected in
-  `docs\2026-09-03-browser-verification.md`, and `witness` is the file a worker actually reads, so
-  the remedy it hands out is advice nobody needs.
+- **The claim that a worker cannot see a variable set after the server started should come out of
+  `bin\BrowserVerify.psm1` first.** That is where it originates: the module states it as measured
+  fact and builds its reason strings on it, one of which tells the report the worker was started
+  from an older environment. Those strings are what a worker copies into `report.md`, so the
+  retracted claim reaches a durable record through the module rather than through the skill that
+  relays it. The not-found message is not the problem and its restart line can stay - a variable
+  set in neither place does need a person - and it is the routine presentation of a stale worker
+  environment, for a variable that is set, that is wrong.
+- **`witness` carries the same claim twice, and both are relays.** Once in the credential section,
+  and once as the reason not to write an import path against the home variable. The rule in the
+  second place stays right for the other reason already given on those lines - the installation's
+  own directory is outside what a worker can reach - so only the rationale needs correcting there,
+  never the rule.
 - **`bin\BrowserVerify.psm1`'s required set covers reaching and reading a page and nothing else.**
   Its availability check answered correctly on the first call, and every tool in the set earns its
   place. What the set has no tool for is closing a tab, so a run can pass the availability check and
