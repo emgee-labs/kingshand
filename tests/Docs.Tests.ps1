@@ -2694,8 +2694,12 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
                      '`done-archive.md`, `projects.md` and `index.md`')
         Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
             -Phrase ('and neither is `done-<project>.md` or `rules-<project>.md` for any registered ' +
-                     'project, nor `rules-<family>.md` for any family a registry entry declares, ' +
-                     'nor any other name already in use for something else under `data\`')
+                     'project, nor any other name already in use for something else under ' +
+                     '`data\`')
+        Assert-Phrase -Text $script:ChronicleText -Where 'the chronicle offload destinations' `
+            -Phrase ('A family''s shared rules are not in the topic-name space at all: they live ' +
+                     'at `data\families\<name>.md`, in their own directory rather than as a ' +
+                     '`data\<topic>.md`, so no topic name can ever land on one.')
     }
 
     # The two per-project standing files are the King's word for that project, delivered to every
@@ -2704,7 +2708,7 @@ Describe 'a correction is written the moment it happens, into an inbox chronicle
     # would do it in a pass nobody was watching.
     It 'the per-project standing files are outside the budget and outside the sweep' {
         Assert-Phrase -Text $script:ChronicleText -Where 'chronicle' `
-            -Phrase ('**`data\rules-<project>.md`, `data\rules-<family>.md` and ' +
+            -Phrase ('**`data\rules-<project>.md`, `data\families\<name>.md` and ' +
                      '`data\done-<project>.md` are outside this budget and outside this sweep, and ' +
                      'this pass never edits, decays, archives, consolidates or offloads a line of ' +
                      'any of them.**')
@@ -3488,17 +3492,16 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     # The refusals are what a caller plans around, so their count and their subjects are pinned.
     # Each one knows its path exactly because the caller handed it over - that is what separates
     # this list from the parsed cross-check it replaced.
-    It 'muster states the thirteen refusals dispatch still makes' {
+    It 'muster states the twelve refusals dispatch still makes' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase ('There are thirteen, and each is refused by name: a usage window already past ' +
+            -Phrase ('There are twelve, and each is refused by name: a usage window already past ' +
                      'the threshold, a `-Base` naming a `worktree-*` branch, a `-Base` git cannot ' +
                      'resolve in the repository, a brief with no ' +
                      '`## Read first` section at all, a brief that passes no `-ReadPath` and does ' +
                      'not say the index was checked when anything at all is indexed - and neither ' +
                      'the standing files this project carries nor the browser procedure counts ' +
-                     'towards that one, per Step 2, which owns the rule - a family name that is ' +
-                     'another registered project''s name, a brief carrying a ' +
+                     'towards that one, per Step 2, which owns the rule - a brief carrying a ' +
                      '`## Browser checks` section that passes no `-ReadPath` for the browser ' +
                      'procedure or for the module it imports, a path that does not exist, a ' +
                      'directory where a file was meant, two different files whose names would ' +
@@ -3512,13 +3515,13 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     # different action from relaying a refusal and the Hand would otherwise treat them alike. The
     # second half is counted rather than named, so it is pinned as a count: the others are all about
     # something the dispatch was handed and knows exactly, a path or the base ref itself.
-    It 'muster separates the usage refusal from the twelve that know what they were handed' {
+    It 'muster separates the usage refusal from the eleven that know what they were handed' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase ('**The usage one is the only refusal here that can be absent rather than ' +
                      'raised.**')
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase ('Every one of the other twelve is about something this dispatch knows ' +
+            -Phrase ('Every one of the other eleven is about something this dispatch knows ' +
                      'exactly - a path it was handed, or the base ref it was told to use')
     }
 
@@ -6992,7 +6995,7 @@ Describe 'a project carries standing rules that reach every worker without being
     # settled-spec failure the whole read-first mechanism exists to close.
     It 'CLAUDE.md names the family file and says which one wins' {
         Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
-            -Phrase ('`data\rules-<family>.md` - the same file for a whole family of projects, ' +
+            -Phrase ('`data\families\<name>.md` - the same file for a whole family of projects, ' +
                      'reaching every project whose registry entry carries a `+family:<name>` token.')
         Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
             -Phrase ('**The project''s own file wins where the two disagree**, and it is the more ' +
@@ -7007,7 +7010,7 @@ Describe 'a project carries standing rules that reach every worker without being
         $intake = Get-HandSection 'Intake judgement'
         Assert-Phrase -Text $intake -Where 'CLAUDE.md intake' `
             -Phrase ('**Where that project registry entry carries a `+family:` token, read ' +
-                     '`data\rules-<family>.md` too**')
+                     '`data\families\<name>.md` too**')
         Assert-Phrase -Text $intake -Where 'CLAUDE.md intake' `
             -Phrase 'where the two disagree the project''s own file wins'
     }
@@ -7023,7 +7026,7 @@ Describe 'a project carries standing rules that reach every worker without being
     It 'CLAUDE.md routes a rule shared by several projects to the family file' {
         Assert-Phrase -Text $script:RulesRoute -Where 'CLAUDE.md knowledge routing' `
             -Phrase ('Where the rule holds for a whole family of projects rather than one, it goes ' +
-                     'in that family''s `data\rules-<family>.md` instead, and only their registry ' +
+                     'in that family''s `data\families\<name>.md` instead, and only their registry ' +
                      'entries decide who is in the family.')
     }
 
@@ -7043,7 +7046,13 @@ Describe 'a project carries standing rules that reach every worker without being
             -Phrase ('**Where the family''s file and the project''s own disagree, the project''s ' +
                      'own wins**')
         Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
-            -Phrase 'Add-IndexEntry -Project "<name>" -Path "data\rules-<family>.md"'
+            -Phrase 'Add-IndexEntry -Project "<name>" -Path "data\families\<family>.md"'
+        # A file in a data\ subdirectory is drift until an index lists it, because the scan
+        # recurses - so the index line cannot wait for a later sweep.
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase ('the drift scan recurses into `data\`, subdirectories included, so a file ' +
+                     'sitting in `data\families\` counts as drift from the day it is written ' +
+                     'until some index lists it')
     }
 
     # Removing the token is one of the two ways the attachment is meant to be undone, and it is the
@@ -7057,7 +7066,7 @@ Describe 'a project carries standing rules that reach every worker without being
 
     It 'muster keeps the family file out of the paste and out of -ReadPath too' {
         Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
-            -Phrase ('`data\rules-<family>.md` goes the same way, for a project whose registry entry ' +
+            -Phrase ('`data\families\<name>.md` goes the same way, for a project whose registry entry ' +
                      'carries a `+family:` token: attached by dispatch, never passed, never pasted, ' +
                      'never reported against')
     }
@@ -7102,8 +7111,9 @@ Describe 'a project carries standing rules that reach every worker without being
             'The dispatcher never reads a file name out of the brief''s prose.',
             'The family''s file does not discharge the index gate.',
             'A project in no family dispatches byte-identically to a build without this change.',
-            'A project declaring a family of its own name has one file, not two.',
-            'The refusal is load-bearing for that wording')) {
+            'A family''s file and a project''s own file cannot be the same file.',
+            'a separate directory makes the collision **impossible rather than checked**',
+            'reinstates a collision this design removed, and owes both guards back')) {
             $text.Contains($required) | Should -BeTrue -Because "the note must record '$required'"
         }
     }

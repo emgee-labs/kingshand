@@ -35,7 +35,7 @@
   indexable. `family` is the family of projects this one belongs to, or the empty string where it
   belongs to none, which is the ordinary state - never a word, because a word could be composed
   into a file name and gone looking for. `bin\Dispatch-Worker.ps1` attaches that family's shared
-  `data\rules-<family>.md` to every brief for every project in it.
+  `data\families\<name>.md` to every brief for every project in it.
   `yolo` and `merge` are both the string 'on' or 'off' and never booleans - compare with -eq 'on',
   because 'off' is a non-empty string that reads as true. `merge` is the per-repository permission
   to merge that project's own green pull requests on the forge; it is reported here so a reader can

@@ -129,7 +129,7 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
   and casing, folders never to touch, branch naming, environment facts, and where a login is kept.
   Not criteria and never self-reported against - reference a worker consults. Nothing expires it.
   `annex` owns its format and offers to create it at import.
-- `data\rules-<family>.md` - the same file for a whole family of projects, reaching every project
+- `data\families\<name>.md` - the same file for a whole family of projects, reaching every project
   whose registry entry carries a `+family:<name>` token. It is where a convention several
   repositories share is written once instead of once each. **The project's own file wins where the
   two disagree**, and it is the more specific of the two. `annex` owns this format as well.
@@ -354,7 +354,7 @@ an older backlog line, ticket text or report - a worker left to choose picks wro
   `data\rules-<project>.md`, which you also write, in the turn the King states it. Test the two
   apart by asking whether a worker could report pass or fixed against it; where it could not, it is
   a rule and not a criterion. Where the rule holds for a whole family of projects rather than one,
-  it goes in that family's `data\rules-<family>.md` instead, and only their registry entries decide
+  it goes in that family's `data\families\<name>.md` instead, and only their registry entries decide
   who is in the family. All three are outside `chronicle`'s budget and its sweep, and nothing
   expires them.
 - Knowledge useful to every contributor to one project belongs in that project's own memory file,
@@ -382,7 +382,7 @@ Per-project conventions - a project's shorthand, its tagging, the vocabulary its
 live in `data\rules-<project>.md`, not here and not in the registry. That file does not load into
 this session on its own, so **read it before writing a brief or creating a work item**, and copy
 tag casing rather than reconstructing it. **Where that project registry entry carries a `+family:`
-token, read `data\rules-<family>.md` too** - a convention several repositories share is written
+token, read `data\families\<name>.md` too** - a convention several repositories share is written
 there once rather than repeated in each - and where the two disagree the project's own file wins.
 Read the token off the entry rather than off the digest, which prints once at session open and so
 never shows a project annexed into a family since. A worker gets its own copy of both without you

@@ -25,14 +25,15 @@ Set-StrictMode -Version Latest
 #
 # `+family:<name>` names the family of projects this one belongs to, reported on the entry's
 # `family` key. A family is a set of repositories that share conventions, and its shared rules live
-# in one file, data\rules-<family>.md, which bin\Dispatch-Worker.ps1 attaches to every brief for
-# every project in the family beside that project's own. `annex` owns what goes in the file; this
-# module only reports which family was declared.
+# in one file, data\families\<name>.md, which bin\Dispatch-Worker.ps1 attaches to every brief for
+# every project in the family beside that project's own. Its own directory, so a family name and a
+# project name can never be the same file. `annex` owns what goes in the file; this module only
+# reports which family was declared.
 #
 # NO FAMILY IS THE ORDINARY STATE and it is reported as the EMPTY STRING, never as a word. The key
 # is always present, so a caller reads it without testing for it, and the empty string is the one
 # value that cannot be composed into a file name to go looking for - where a state word like 'none'
-# would name data\rules-none.md, which somebody could perfectly well have written.
+# would name data\families\none.md, which somebody could perfectly well have written.
 #
 # The name after the colon becomes that file name, so it is held to the same shape a project name
 # is, asked of Index.psm1 for the reason the import below gives. A token of any other shape - no
@@ -56,7 +57,7 @@ $script:ValidModes = @('no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-pr
 # module asks rather than keeping a second copy of the pattern: two copies of one validation drift
 # the moment either is edited, and a registry that accepted more than the index could resolve let a
 # project register and then fail every index write it was ever named in. A family name is the same
-# question one step along - it becomes data\rules-<family>.md - so it is asked of the same owner.
+# question one step along - it becomes data\families\<name>.md - so it is asked of the same owner.
 #
 # NOT -Force - a module never forces a nested import. The rule and the failure it prevents are in
 # the `statute` skill's style rules; tests\Projects.Tests.ps1 pins this edge.
@@ -318,37 +319,9 @@ function Add-ProjectEntry {
     $familyName = $Family.Trim()
     if ($familyName -and -not (Test-IndexProjectName -Project $familyName)) {
         throw ("Family name '$familyName' cannot be registered: it becomes the file name of the " +
-               "family's shared rules at data\rules-$familyName.md. Use a name of " +
+               "family's shared rules at data\families\$familyName.md. Use a name of " +
                "$(Get-IndexProjectNameRule) - for example " +
                "'$(ConvertTo-IndexProjectName -Project $familyName)'.")
-    }
-
-    # The registry is read once here and reused by the duplicate-name check below, because the
-    # family name is the second thing that has to be true of it. A second Read-Registry would warn
-    # twice over the same unreadable line.
-    #
-    # Read-Registry returns via the leading-comma idiom - the whole array as one pipeline object. A
-    # plain loop is used over it instead of a pipeline filter, matching Get-ProjectEntry.
-    $existing = @()
-    if (Test-Path $RegistryPath) { $existing = Read-Registry -RegistryPath $RegistryPath }
-
-    # A family name that is ANOTHER project's registered name aims data\rules-<family>.md at that
-    # project's own standing rules, and every worker dispatched into this one would then be handed
-    # that repository's private conventions - its tagging, its folders never to touch - under a line
-    # calling them the family's shared rules. Shape is not the only question a name has to answer.
-    #
-    # A family named after the project BEING registered is not this case and passes: the append
-    # below has not happened yet, so it is not in $existing, and the dispatcher collapses the two to
-    # one attached file under the project's own wording.
-    if ($familyName) {
-        foreach ($candidate in $existing) {
-            if ($candidate.name -eq $familyName) {
-                throw ("Family name '$familyName' cannot be registered: '$($candidate.name)' is " +
-                       "already a registered project, so data\rules-$familyName.md is that " +
-                       "project's own standing rules and not a family's shared file. Choose a " +
-                       'different family name.')
-            }
-        }
     }
 
     # Refused where the name is chosen, not later where it is used. Every durable file written for a
@@ -362,6 +335,9 @@ function Add-ProjectEntry {
     }
 
     if (Test-Path $RegistryPath) {
+        # Read-Registry returns via the leading-comma idiom - the whole array as one pipeline
+        # object. A plain loop is used instead of a pipeline filter, matching Get-ProjectEntry.
+        $existing = Read-Registry -RegistryPath $RegistryPath
         $norm = Get-NormalisedPath $Path
         foreach ($candidate in $existing) {
             if ($candidate.name -eq $Name) {

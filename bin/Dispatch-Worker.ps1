@@ -98,15 +98,15 @@
 
   THE THIRD IS THE FAMILY'S, and it is there because a set of repositories that share conventions
   should not have to repeat them once per repository. Where the project's registry entry carries a
-  `+family:<name>` token, data\rules-<name>.md is staged on exactly the same terms as the two above
-  and named by a line of the same shape. A family declared with no file yet is an ordinary state
-  like any other absent one, because a family is named before its shared rules are written.
+  `+family:<name>` token, data\families\<name>.md is staged on exactly the same terms as the two
+  above and named by a line of the same shape, under the leaf family-<name>.md. A family declared
+  with no file yet is an ordinary state like any other absent one, because a family is named before
+  its shared rules are written.
 
   THE PROJECT'S OWN FILE WINS where the two rules files disagree, and the family's composed line
   says so, because that line is the one place a worker holding both will read it and a worker left
   to work out which source wins picks wrong half the time. The family's line is written last, so
-  the order in the brief matches the precedence. A project declaring a family of its own name has
-  one file, not two, and it is attached once under the project's own wording.
+  the order in the brief matches the precedence.
 
   Automatic because delivery by memory has already failed: a settled brand spec sat in data\ naming
   itself the input to the website brief while the site shipped without its logo, favicon, tagline or
@@ -177,7 +177,7 @@
 
   UP TO FIVE PATHS do not count towards it, and all for one reason: each arrives by rote rather than
   because this task touches it. THE STANDING FILES THIS PROJECT CARRIES are data\done-<project>.md
-  and data\rules-<project>.md for the project this dispatch resolved to, plus data\rules-<family>.md
+  and data\rules-<project>.md for the project this dispatch resolved to, plus data\families\<name>.md
   where its entry declares a family. All arrive on every brief for a project that has them - the
   criteria file because muster hands it over, and any of them because this script stages it whether
   or not anyone did. The other two are .claude\skills\witness\SKILL.md and
@@ -468,26 +468,6 @@ foreach ($entry in $registered) {
     }
 }
 
-# Refused HERE, before anything is created, because registration cannot close this on its own: a
-# family name is checked against the registry as it is written, and a project registered LATER can
-# take the name a family already had. Either way round, data\rules-<family>.md is then one
-# project's own file being handed to a sibling as though it were shared.
-#
-# The project's own name is exempt: that is the supported collapse, one file attached once under the
-# project's own wording, and there is no other project's material in it.
-if ($family) {
-    foreach ($entry in $registered) {
-        if ($entry.name -eq $project) { continue }
-        if (-not $entry.name -or $entry.name -ne $family) { continue }
-        throw ("$project declares the family '$family', and '$($entry.name)' is a registered " +
-               "project of that same name - so data\rules-$family.md is that project's own " +
-               'per-project rules file rather than a shared one. Staging it here would hand this ' +
-               "worker another project's private conventions described as the family's shared " +
-               "rules. Rename the family, or take the '+family:' token off this entry. Nothing " +
-               'was created.')
-    }
-}
-
 # The FAMILY's file, composed in ONE place because the same text has to be produced twice and the
 # two must never drift: once for the family this project declares now, and once for a family it has
 # since been taken OUT of, where the only way to find the line an earlier dispatch wrote is to
@@ -500,14 +480,15 @@ if ($family) {
 # there would be composed differently on the dispatch that retires it, so the bullet an earlier
 # dispatch wrote could never be found again and would sit in the brief naming a copy that had gone.
 #
-# The wording ASSERTS a shared origin - "shared by every project in the <family> family" - and the
-# collision refusal above is what makes that true, by ruling out the one case where the file is
-# another project's own. A change that removes or weakens that refusal must reword this line rather
-# than leave it claiming something nothing checks.
+# The wording ASSERTS a shared origin - "shared by every project in the <family> family" - and that
+# is true BY CONSTRUCTION, not by anything checking it: a family's file lives in data\families\ and
+# a project's own rules file lives in data\, so no family name can ever aim this at some project's
+# private conventions. A change that moves family files back beside project files makes the claim
+# checkable again rather than structural, and has to reword this line or guard the collision itself.
 function New-FamilyEntry {
     param([Parameter(Mandatory)][string]$Family)
     @{
-        path = Join-Path $dataRoot "rules-$Family.md"
+        path = Join-Path $dataRoot "families\$Family.md"
         what = ("the standing rules shared by every project in the $Family family - conventions, " +
                 "vocabulary, exclusions, branch naming, environment facts")
         how  = ('Read it in full before you start. It is reference to consult, not a list to ' +
@@ -521,9 +502,15 @@ function New-FamilyEntry {
 # The files this dispatch attaches by itself, composed by name from the project the registry just
 # resolved and from the family that project declares. Only a name the index can turn into a file
 # name ever reaches this - the loop above skips an entry whose name is not indexable, and
-# Projects.psm1 drops a `+family:` token whose name is not either - so every leaf is letters,
+# Projects.psm1 drops a `+family:` token whose name is not either - so every name is letters,
 # digits, '.', '_' and '-' and can hold no separator and no traversal. That is the whole constraint
-# keeping these names inside the data root and off any other file.
+# keeping these paths inside the data root and off any other file.
+#
+# The KEY is the leaf the copy is staged under, which is not the leaf of the source for a family:
+# data\families\<name>.md is staged as family-<name>.md. The prefix says what the copy is once it is
+# sitting beside the project's own files in one flat directory, and it cannot collide with
+# done-<project>.md or rules-<project>.md by shape - which is why no name here has to be checked
+# against any other.
 #
 # `kind` says which of the two things a file is, and it is read only by the refusal message below,
 # which has to describe a family's shared file differently from a project's own. Everything else
@@ -550,14 +537,9 @@ if ($project) {
         kind = 'project'
     }
     # Added LAST, so the project's own files are named above the family's in every brief and the
-    # order matches which one wins. Skipped where the leaf is already here, which is a project that
-    # declares a family of its own name: one file, attached once, under the wording that describes
-    # it as the project's - and there is nothing for a precedence sentence to be about.
+    # order matches which one wins.
     if ($family) {
-        $familyLeaf = "rules-$family.md"
-        if (-not $standing.Contains($familyLeaf)) {
-            $standing[$familyLeaf] = New-FamilyEntry -Family $family
-        }
+        $standing["family-$family.md"] = New-FamilyEntry -Family $family
     }
 }
 
@@ -625,6 +607,14 @@ foreach ($leaf in $standing.Keys) {
                "an absent file is attached as nothing, an unreadable one is refused. Nothing was " +
                "created.")
     }
+
+    # The same FILE passed by hand under a different leaf, which only the family's file can be:
+    # its source is data\families\<name>.md and this script stages it as family-<name>.md, so a
+    # Hand that passed the source put it there as <name>.md. Skipped for the reason the leaf-keyed
+    # case below is skipped - the Hand's own line already names it - and skipping it here is what
+    # stops one file arriving as two copies under two names.
+    if (@($staged.Values | Where-Object {
+            $_.Equals($p, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0) { continue }
 
     if ($staged.ContainsKey($leaf)) {
         # The same file, passed by hand as well. The Hand's own `Read first` line already names it,
@@ -1105,19 +1095,23 @@ foreach ($leaf in $standing.Keys) {
 # created itself, not anything read out of the brief's prose. Each one is turned back into the line
 # this script WOULD have composed for a family of that name, and the decision is the same whole-line
 # comparison the loop above makes, against wording nothing else writes. A leaf that was never a
-# family's - a copy the Hand passed, some project's rules file, a file called rules-something by
-# coincidence - composes a line that is not in the brief and is left exactly where it is.
+# family's - a copy the Hand passed, a file called family-something by coincidence - composes a line
+# that is not in the brief and is left exactly where it is.
+#
+# The 'family-' prefix makes this scan strictly safer than the 'rules-*.md' glob it replaced: that
+# one had to consider every project's own rules file as a candidate and rule it out, where this one
+# cannot match a project's file at all.
 #
 # Three guards, each ruling out a copy that is not this script's to touch: a leaf $standing still
 # holds is live and the loop above owns its retirement; a leaf the Hand passed this dispatch is the
 # Hand's; and a name the index could not turn into a file name was never a family, because
 # Projects.psm1 drops such a token rather than reporting it.
 if ($project -and (Test-Path -LiteralPath $readFirstDir -PathType Container)) {
-    foreach ($file in @(Get-ChildItem -LiteralPath $readFirstDir -Filter 'rules-*.md' -File)) {
+    foreach ($file in @(Get-ChildItem -LiteralPath $readFirstDir -Filter 'family-*.md' -File)) {
         $leaf = $file.Name
         if ($standing.Contains($leaf) -or $staged.ContainsKey($leaf)) { continue }
-        if ($leaf.Length -le 'rules-.md'.Length) { continue }
-        $wasFamily = $leaf.Substring('rules-'.Length, $leaf.Length - 'rules-.md'.Length)
+        if ($leaf.Length -le 'family-.md'.Length) { continue }
+        $wasFamily = $leaf.Substring('family-'.Length, $leaf.Length - 'family-.md'.Length)
         if (-not (Test-IndexProjectName -Project $wasFamily)) { continue }
         $bullet = (New-AutoLine -Leaf $leaf -Entry (New-FamilyEntry -Family $wasFamily)).Trim()
         if (-not $seen.ContainsKey($bullet)) { continue }

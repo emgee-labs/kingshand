@@ -272,7 +272,7 @@ and editing the file is the whole of changing what workers are told.
 
 **A family is a set of repositories that work the same way**: one ticket tagging scheme, one work
 item workflow, one branch convention, one pair of accounts. Its shared rules live in a single
-`data\rules-<family>.md`, written exactly like the file above and holding exactly the same kinds of
+`data\families\<name>.md`, written exactly like the file above and holding exactly the same kinds of
 statement, and every project in the family gets it attached beside its own.
 
 **Ask whether this repository shares its conventions with others already registered**, in one line,
@@ -283,19 +283,21 @@ turns an import into an interview. Where the user names a family, pass it at Ste
 Add-ProjectEntry -Name "<name>" -Path $path -Mode "<mode>" -Description "<desc>" -Family "<family>"
 ```
 
-The family name becomes the file name `data\rules-<family>.md`, so it takes the same shape a
+The family name becomes the file name `data\families\<name>.md`, so it takes the same shape a
 project name does - letters, digits, `.`, `_` and `-`. `Add-ProjectEntry` refuses any other rather
 than writing a token that could never be honoured, and the registry parser drops a token it cannot
-read instead of guessing.
+read instead of guessing. Its own directory is why nothing has to be checked against the registered
+project names: a family's file and a project's own rules file can never be one file.
 
 **Do not write the family's file here.** Adding a project to a family says which shared rules it
 should get; it does not settle what they are. Write it the day there is something to put in it,
-through the same call as the file above with the family in place of the project name. What this
-step does instead is list that file in the index of the project just registered:
+through the same call as the file above with the family's path in place of the project's, creating
+`data\families\` if it is not there yet. What this step does instead is list that file in the index
+of the project just registered:
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
-Add-IndexEntry -Project "<name>" -Path "data\rules-<family>.md" `
+Add-IndexEntry -Project "<name>" -Path "data\families\<family>.md" `
     -Summary "standing rules shared by the <family> family: conventions, vocabulary and exclusions"
 ```
 
@@ -305,6 +307,10 @@ a family's file listed there would both stretch that contract and land where the
 never looks. Per-member listing costs nothing, because the registry entry is written the moment a
 project joins the family, so the index line goes in beside it and no sweep is ever needed; a later
 project joining the same family lists the file again for itself.
+
+**The index line goes in at the same moment for a second reason**: the drift scan recurses into
+`data\`, subdirectories included, so a file sitting in `data\families\` counts as drift from the
+day it is written until some index lists it.
 
 **`Add-IndexEntry` rather than `Write-DataFile`**, because the family's file may already exist and
 is not this step's to write. `Add-IndexEntry` lists a file another writer owns, and it tolerates

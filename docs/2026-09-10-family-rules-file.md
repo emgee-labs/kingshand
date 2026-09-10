@@ -3,7 +3,7 @@
 ## What was decided
 
 A registry entry may carry a `+family:<name>` token. Every project whose entry carries it gets
-`data\rules-<name>.md` attached to every brief dispatched into it, beside that project's own
+`data\families\<name>.md` attached to every brief dispatched into it, beside that project's own
 `data\rules-<project>.md`, with no one passing either.
 
 The problem it removes is duplication with no owner. A set of repositories that work the same way -
@@ -22,7 +22,7 @@ Reading prose for a file name is what standing criterion 12 forbids, and it has 
 space.
 
 The token's own grammar is deliberately as narrow as the tokens beside it. The name after the
-colon becomes `data\rules-<name>.md`, so it is held to the shape `bin\Index.psm1` already owns for
+colon becomes `data\families\<name>.md`, so it is held to the shape `bin\Index.psm1` already owns for
 a name that becomes a file name - letters, digits, `.`, `_` and `-`. That is asked of Index.psm1
 rather than copied into the registry parser, for the reason the parser's own comment gives: two
 copies of one validation drift the moment either is edited.
@@ -34,7 +34,7 @@ declared. That is the ordinary state for most projects, so the key is always pre
 reads it without testing for it.
 
 **It is not a word**, and this is the load-bearing half. A state word - `none`, `off`, `default` -
-composes into `data\rules-none.md`, which somebody could perfectly well have written, and the
+composes into `data\families\none.md`, which somebody could perfectly well have written, and the
 dispatcher would go looking for it and attach it. The empty string is the one value that cannot be
 mistaken for a family whose file should be fetched.
 
@@ -47,9 +47,10 @@ The parser is lenient about the mode and about `yolo`, and strict about `+merge`
 - An unknown mode drops both with everything else the annotation granted.
 - A `+family:` token whose name could not be a file name declares no family, and forces merge off
   with it, exactly as any other unrecognised token does.
-- A second `+family:` on one entry is the same: a project belongs to one family, so a line naming
-  two has not said which, and guessing would hand a worker another set of repositories' conventions
-  with nothing to show it had happened.
+- A second `+family:` naming a different family is the same: a project belongs to one family, so a
+  line naming two has not said which, and guessing would hand a worker another set of repositories'
+  conventions with nothing to show it had happened. The same family declared twice says one thing
+  twice and is read as the one family it names.
 
 The failure direction that strictness chooses is "no family", which is an ordinary state a project
 dispatches perfectly well in. The direction it refuses is a family taken from a line the parser
@@ -82,7 +83,7 @@ the line it once wrote even after the file is gone.
 Removing a `+family:` token is different. With the token gone, the family name is gone with it, and
 there is nothing left in the registry to compose the retired line from.
 
-The candidates come from **the staging directory** instead - `data\<id>\read-first\rules-*.md`, the
+The candidates come from **the staging directory** instead - `data\<id>\read-first\family-*.md`, the
 copies an earlier dispatch made itself. That is a listing of real file names, not anything read out
 of the brief's prose, so it introduces no parser. Each candidate leaf is turned back into the line
 this dispatch *would* have composed for a family of that name, and the decision is the same
@@ -96,6 +97,33 @@ Three guards keep it off files that are not the dispatcher's to touch:
   drops such a token rather than reporting it.
 
 A leaf that was never a family's composes a line that is not in the brief, and is left where it is.
+The `family-` prefix makes the scan strictly safer than the `rules-*.md` glob it started as: that
+one had to consider every project's own rules file and rule it out, where this one cannot match a
+project's file at all.
+
+## Its own directory, not a longer prefix
+
+The family's file is `data\families\<name>.md`, staged as `family-<name>.md`. The first shape tried
+was `data\rules-<family>.md`, beside the per-project files, and it put a family name and a project
+name in one namespace: register `platform`, write its own `data\rules-platform.md`, then declare
+family `platform` on a sibling, and that sibling's workers are handed platform's private
+conventions under a line calling them the family's shared rules. Registering the project *after* the
+family opened the same hole from the other end.
+
+Two refusals were written to police that - one in `Add-ProjectEntry`, one at dispatch - and both are
+gone, because a separate directory makes the collision **impossible rather than checked**. A family
+name and a project name no longer share a directory or a name shape, so there is nothing left to
+compare and no order of operations that can produce the clash. A guard against something that cannot
+happen is dead code, and the next reader pays for it.
+
+A longer prefix in the same directory - `data\rules-family-<name>.md` - was rejected: it makes the
+collision unlikely rather than impossible, since a project may legitimately be called
+`family-anything`, and it leaves the retirement scan globbing a pattern that still matches
+per-project files.
+
+The staged leaf keeps a prefix even though the source no longer needs one, because the staging
+directory is flat: `family-<name>.md` sits beside `done-<project>.md` and `rules-<project>.md` and
+says which of the three it is. A bare `<name>.md` there could collide with anything the Hand passes.
 
 ## What a future change must not undo
 
@@ -110,14 +138,10 @@ A leaf that was never a family's composes a line that is not in the brief, and i
   lead-in the dispatcher writes above its bullets is unchanged, deliberately: changing it would give
   a brief written before this change a second lead-in on its next dispatch, and the wording is not
   made false by a family file, which is attached because of this project's own registry entry.
-- **A project declaring a family of its own name has one file, not two.** The leaf collides, and it
-  is attached once under the project's own wording, because a copy is not staged twice and there is
-  nothing for a precedence sentence to be about.
-- **A family name that is a DIFFERENT project's name is refused, at registration and again at
-  dispatch.** `data\rules-<family>.md` would otherwise be that project's own standing rules, staged
-  for a sibling under a line calling them shared. The refusal is load-bearing for that wording: the
-  composed line asserts the file holds what every project in the family shares, and this is what
-  makes the assertion true, so a change that drops or weakens it has to reword the line as well.
-  Registration alone cannot close it, because a project can be registered after the family was
-  named - hence both ends. A family named after the project declaring it is exempt: there is no
-  other project's material in that file, and it collapses to the one attachment above.
+- **A family's file and a project's own file cannot be the same file.** That is what the separate
+  directory buys, and it is load-bearing for the composed line's wording: the line asserts the file
+  holds what every project in the family shares, and nothing checks that - it is true because no
+  family name can reach a project's own rules file. A change that moves family files back beside
+  per-project files reinstates a collision this design removed, and owes both guards back: a refusal
+  in `Add-ProjectEntry` over a family named after a registered project, and the symmetric one over a
+  project registered into an existing family's name.

@@ -31,7 +31,7 @@ line of it. The distinction is the whole safeguard - a pass that treated a state
 decaying entry would eventually delete something the King said out loud, and would do it quietly.
 Where this session produced something that belongs there, name it to the King and let them write it.
 
-**`data\rules-<project>.md`, `data\rules-<family>.md` and `data\done-<project>.md` are outside this
+**`data\rules-<project>.md`, `data\families\<name>.md` and `data\done-<project>.md` are outside this
 budget and outside this sweep, and this pass never edits, decays, archives, consolidates or offloads
 a line of any of them.**
 They are a project's standing rules, the rules a whole family of projects shares, and that project's
@@ -290,8 +290,9 @@ exactly three cases, and the precedence between them is fixed:
   **Kingshand's own operational files are never a topic name** - `backlog.md`, `king.md`,
   `learnings.md`, `corrections.md`, `memory-archive.md`, `done-archive.md`, `projects.md` and
   `index.md` - and neither is `done-<project>.md` or `rules-<project>.md` for any registered
-  project, nor `rules-<family>.md` for any family a registry entry declares, nor any other name
-  already in use for something else under `data\`.
+  project, nor any other name already in use for something else under `data\`. A family's shared
+  rules are not in the topic-name space at all: they live at `data\families\<name>.md`, in their own
+  directory rather than as a `data\<topic>.md`, so no topic name can ever land on one.
 
 **Existence alone does not tell the second case from the third**, so read what is already at the path
 and decide which of the two it is before writing or indexing anything.

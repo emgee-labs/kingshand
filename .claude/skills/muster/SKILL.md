@@ -246,7 +246,7 @@ that reason; the refusal is what stops a busy session skipping it.
 
 **The standing files this project carries do not discharge this.** The criteria file goes to
 `-ReadPath` on every brief for a project that has one, and dispatch attaches it,
-`data\rules-<project>.md` and the family's `data\rules-<family>.md` whether or not anyone passes
+`data\rules-<project>.md` and the family's `data\families\<name>.md` whether or not anyone passes
 them, so a gate that counted any of them would be one no dispatch could ever fail again - worst of
 all the family's file, which would switch the gate off for every project in the family at once. So
 dispatch knows it, discounting all three from the paths that satisfy this refusal. Where one is the
@@ -322,7 +322,7 @@ paste it into the brief and never ask the worker to report against it: it is ref
 tested. **Read it yourself before you write the brief** - the copy goes to the worker, and the
 ticket text is yours.
 
-`data\rules-<family>.md` goes the same way, for a project whose registry entry carries a
+`data\families\<name>.md` goes the same way, for a project whose registry entry carries a
 `+family:` token: attached by dispatch, never passed, never pasted, never reported against - and
 read by you first for the same reason. The project's own file wins where the two disagree, and the
 line dispatch writes says so, so nothing about that belongs in the brief either.
@@ -846,12 +846,11 @@ brief already names, because that directory is the only place outside its worktr
 read. Drop the parameter only when the section states there is nothing to read.
 
 Every refusal comes before anything at all is created, so a mistake here costs nothing to fix.
-There are thirteen, and each is refused by name: a usage window already past the threshold, a `-Base`
+There are twelve, and each is refused by name: a usage window already past the threshold, a `-Base`
 naming a `worktree-*` branch, a `-Base` git cannot resolve in the repository, a brief with
 no `## Read first` section at all, a brief that passes no `-ReadPath` and does not say the index
 was checked when anything at all is indexed - and neither the standing files this project carries
-nor the browser procedure counts towards that one, per Step 2, which owns the rule - a family name
-that is another registered project's name, a brief carrying a
+nor the browser procedure counts towards that one, per Step 2, which owns the rule - a brief carrying a
 `## Browser checks` section that passes no `-ReadPath` for the browser procedure or for the module
 it imports, a path that does not exist, a directory where a file was meant, two different files
 whose names would land on top of each other in the staging directory, a standing file that exists
@@ -859,7 +858,7 @@ and cannot be opened, a directory sitting where a standing file belongs, and a b
 opened for writing to be told what was attached to it.
 
 **The usage one is the only refusal here that can be absent rather than raised.** Every one of the
-other twelve is about something this dispatch knows exactly - a path it was handed, or the base ref
+other eleven is about something this dispatch knows exactly - a path it was handed, or the base ref
 it was told to use; that one is about a number a separate tool reports, and a reading that could
 not be taken warns and dispatches rather than blocking. The one exception is a cached floor already
 at or past the threshold, which refuses with no current reading behind it - `vigil` owns why, and
@@ -867,7 +866,7 @@ relaying whichever of the two you get is the whole of what it asks of you.
 
 **Dispatch attaches the standing files itself and writes their `Read first` lines.**
 `data\done-<project>.md` and `data\rules-<project>.md` are staged whenever they exist, keyed off
-the project the registry resolves from the repo path, and `data\rules-<family>.md` with them where
+the project the registry resolves from the repo path, and `data\families\<name>.md` with them where
 that project's entry carries a `+family:` token. A line naming each copy goes in at the
 end of that section, below anything you wrote there, the family's last of the three and saying in
 so many words that the project's own file wins where the two disagree. It writes no line for a file
