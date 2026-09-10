@@ -31,18 +31,17 @@ line of it. The distinction is the whole safeguard - a pass that treated a state
 decaying entry would eventually delete something the King said out loud, and would do it quietly.
 Where this session produced something that belongs there, name it to the King and let them write it.
 
-**`data\rules-<project>.md`, `data\families\<name>.md` and `data\done-<project>.md` are outside this
-budget and outside this sweep, and this pass never edits, decays, archives, consolidates or offloads
-a line of any of them.**
-They are a project's standing rules, the rules a whole family of projects shares, and that project's
-standing criteria - what the King set, delivered to every worker dispatched into that project by
-`bin\Dispatch-Worker.ps1` - and they stand until he changes or removes them. None is measured
-against the startup budget, because none is loaded at session start: a worker gets its own copy at
-dispatch. Treating one as a decaying entry would
-eventually delete a standing instruction he set once and expected to hold for a year, and would do
-it quietly, in a pass nobody was watching. Where this session produced something that belongs in
-one, write it there through the owner - `annex` owns the rules file's format - rather than folding
-it into a memory file.
+**`data\rules-<project>.md`, `data\families\<name>.md` and `data\done-<project>.md` are outside
+this budget and outside this sweep, and this pass never edits, decays, archives, consolidates or
+offloads a line of any of them.** They are a project's standing rules, the rules a whole family of
+projects shares, and that project's standing criteria - what the King set, delivered to every
+worker dispatched into that project by `bin\Dispatch-Worker.ps1` - and they stand until he changes
+or removes them. None is measured against the startup budget, because none is loaded at session
+start: a worker gets its own copy at dispatch. Treating one as a decaying entry would eventually
+delete a standing instruction he set once and expected to hold for a year, and would do it
+quietly, in a pass nobody was watching. Where this session produced something that belongs in one,
+write it there through the owner - `annex` owns the rules file's format - rather than folding it
+into a memory file.
 
 This skill writes only inside the Hand's own write boundary - `$env:KINGSHAND_HOME\data\` and
 `$env:KINGSHAND_HOME\state\`. It never touches a project, and hard rule 1 is not suspended for a

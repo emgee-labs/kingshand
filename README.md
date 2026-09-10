@@ -162,7 +162,9 @@ anything - `hello` will do - and the first reply opens by telling you where thin
 2. **Register a repository.** `/annex D:\code\your-repo` - any path on any drive. It records the
    posture, offers to note that project's standing rules - how its tickets are tagged, folders
    never to touch, where its login is kept - and never clones. Every worker sent into that project
-   gets those rules attached to its instructions without anyone passing them.
+   gets those rules attached to its instructions without anyone passing them. Where several
+   repositories work the same way, it records them as a family, and one shared rules file reaches
+   every worker sent into any of them.
 3. **Give it work.** *"fix the flaky login test in your-repo"*. You get a brief to approve before
    anything is dispatched.
 4. **Check in.** `/survey` for where everything stands, `/audience` for what you missed.

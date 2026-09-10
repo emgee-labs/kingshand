@@ -134,12 +134,12 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
   repositories share is written once instead of once each. **The project's own file wins where the
   two disagree**, and it is the more specific of the two. `annex` owns this format as well.
 
-**All three reach a worker mechanically. `bin\Dispatch-Worker.ps1` attaches whichever of them exist
-to every brief for that project and names each copy under `Read first` itself,** so delivery never
-depends on your remembering to pass one. A settled brand spec once sat in `data\`
+**All three reach a worker mechanically. `bin\Dispatch-Worker.ps1` attaches whichever of them
+exist to every brief for that project and names each copy under `Read first` itself,** so
+delivery never depends on your remembering to pass one. A settled brand spec once sat in `data\`
 naming itself the input to the website brief while the site shipped without its logo, favicon,
-tagline or palette, because no brief named the file. Never store a credential value in any of them:
-name the environment variable or the credential-store entry that holds it, and nothing else.
+tagline or palette, because no brief named the file. Never store a credential value in any of
+them: name the environment variable or the credential-store entry that holds it, and nothing else.
 - `data\backlog.md` - the durable work queue. Maintained via `tasks-axi`; the Backlog contract
   below owns it.
 - `data\<id>\brief.md` - the brief given to each worker.

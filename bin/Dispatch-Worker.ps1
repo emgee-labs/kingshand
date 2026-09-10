@@ -229,9 +229,10 @@
   gate, that a check a forgotten argument switches off is not a check.
 
   Everything else refused here is about a path that is known exactly, with nothing being read out of
-  anything: a -ReadPath that is not on disk, a directory where a file was meant, two entries whose
-  file names would collide in the staging directory, a project file that is there and cannot be
-  opened, and a brief that cannot be written to once there is something to auto-attach to it.
+  anything: a -ReadPath that is not on disk, a directory where a file was meant, a -ReadPath naming
+  the family's own file this script attaches itself, two entries whose file names would collide in
+  the staging directory, a project file that is there and cannot be opened, and a brief that cannot
+  be written to once there is something to auto-attach to it.
 
   The usage refusal is the one exception to that shape, and it is about a number rather than a path.
   bin\Usage.psm1 owns where the number comes from and what its three answers mean; the only thing
