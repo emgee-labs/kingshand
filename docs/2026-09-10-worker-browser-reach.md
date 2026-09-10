@@ -133,9 +133,9 @@ gate.
 - **The claim that a worker cannot see a variable set after the server started should come out of
   `bin\BrowserVerify.psm1` first.** That is where it originates: the module states it as measured
   fact and builds its reason strings on it, one of which tells the report the worker was started
-  from an older environment. Those strings are what a worker copies into `report.md`, so the
-  retracted claim reaches a durable record through the module rather than through the skill that
-  relays it. The not-found message is not the problem and its restart line can stay - a variable
+  from an older environment. Those strings are what a worker copies into `report.md`, so the claim
+  this run's evidence disproves reaches a durable record through the module rather than through the
+  skill that relays it. The not-found message is not the problem and its restart line can stay - a variable
   set in neither place does need a person - and it is the routine presentation of a stale worker
   environment, for a variable that is set, that is wrong.
 - **`witness` carries the same claim twice, and both are relays.** Once in the credential section,
@@ -156,8 +156,9 @@ The worker also compared its own process environment against the live user-scope
 the 26 user-scope variables matched exactly, the only difference being the merged `Path`, which
 cannot match. The server had been up half an hour, so this supports the fresh-per-pane claim
 without settling it on its own. `docs\2026-09-04-worker-environment-propagation.md` owns the
-decisive measurement, and the correction it forces is now in
-`docs\2026-09-03-browser-verification.md`.
+decisive measurement. `docs\2026-09-03-browser-verification.md` states the opposite, and correcting
+it is the first thing a follow-up should do; that correction is deliberately not part of this
+change, which is scoped to this note alone.
 
 ## What this does not settle
 
