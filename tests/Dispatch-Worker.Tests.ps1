@@ -3634,5 +3634,52 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             (Get-Content -LiteralPath (Join-Path $f.BriefDir 'read-first\rules-acme.md') -Raw).Trim() |
                 Should -Be $body
         }
+
+        # Registration checks the family name against the registry as it is written, so the case it
+        # cannot reach is a project registered LATER under the name a family already had. Then
+        # data\rules-platform.md is platform's OWN rules file, and staging it here would hand this
+        # worker that repository's private conventions under a line calling them the family's
+        # shared ones - which is what the composed wording asserts and this refusal is what earns.
+        It 'refuses when the family names a different registered project, and creates nothing' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-name-collision'
+            $name = Register-FixtureProject -Fixture $f -Family 'platform'
+            Add-ProjectEntry -Name 'platform' -Path (Join-Path $f.Home 'platform-repo') `
+                -Mode 'local-only' -Description 'registered after the family was named' `
+                -RegistryPath (Join-Path $f.DataPath 'projects.md')
+            New-StandingFile -Fixture $f -Leaf 'rules-platform.md' | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+            $before = Get-BriefText -Fixture $f
+
+            $msg = ''
+            try { Invoke-Dispatch -Fixture $f -Name 'T-9119' } catch { $msg = $_.Exception.Message }
+            $msg | Should -BeLike "*$name*"
+            $msg | Should -BeLike "*'platform' is a registered project of that same name*"
+            $msg | Should -BeLike '*Nothing was created.*'
+
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+            (Get-BriefText -Fixture $f) | Should -Be $before
+            @(Get-CallLines -Fixture $f) | Should -BeNullOrEmpty
+        }
+
+        # The exemption that refusal must keep: a project whose family shares ITS OWN name holds
+        # nobody else's material, so it still collapses to one file - and a registry carrying other
+        # projects beside it does not turn the supported case into the refused one.
+        It 'still collapses to one file when the family shares this project s own name' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'family-same-name-with-others'
+            $name = Register-FixtureProject -Fixture $f -Family 'acme-web'
+            Add-ProjectEntry -Name 'platform' -Path (Join-Path $f.Home 'platform-repo') `
+                -Mode 'local-only' -Description 'another project entirely' `
+                -RegistryPath (Join-Path $f.DataPath 'projects.md')
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            (Invoke-Dispatch -Fixture $f -Name 'T-9120').id | Should -Be 'T-9120'
+            $named = @(@(Get-Content -LiteralPath $f.BriefPath) |
+                        Where-Object { $_ -like "*read-first\rules-$name.md*" })
+            $named.Count | Should -Be 1
+            $named[0] | Should -BeLike "*the standing rules for $name*"
+        }
     }
 }

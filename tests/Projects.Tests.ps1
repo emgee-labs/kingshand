@@ -1071,5 +1071,28 @@ Describe 'a registry entry names the family a project belongs to' {
                 Should -Throw '*cannot be registered*'
             Test-Path -LiteralPath $script:famReg | Should -BeFalse
         }
+
+        # data\rules-platform.md is platform's OWN standing rules, so a sibling declaring family
+        # 'platform' would have that repository's private conventions handed to its workers under a
+        # line calling them shared. Shape is not the only question the name has to answer.
+        It 'refuses a family name that is an already-registered project name, and registers nothing' {
+            Add-ProjectEntry -Name 'platform' -Path $script:RealPath -Mode 'direct-PR' `
+                -Description 'the one that owns the name' -RegistryPath $script:famReg
+            { Add-ProjectEntry -Name 'web' -Path (Join-Path $script:RealPath 'web') `
+                -Mode 'direct-PR' -Description 'x' -Family 'platform' `
+                -RegistryPath $script:famReg } | Should -Throw "*'platform' is already a registered project*"
+            (Get-Content -LiteralPath $script:famReg -Raw).Contains('- web ') | Should -BeFalse
+            $left = Get-AllProjects -RegistryPath $script:famReg
+            $left.Count      | Should -Be 1
+            $left[0].name    | Should -Be 'platform'
+        }
+
+        # The supported collapse, and the case the check above must not catch: the project being
+        # registered is not in the registry yet, so its own name is free to be its family's.
+        It 'still accepts a family named after the project being registered' {
+            Add-ProjectEntry -Name 'acme' -Path $script:RealPath -Mode 'direct-PR' `
+                -Description 'lead of its own family' -Family 'acme' -RegistryPath $script:famReg
+            (Get-ProjectEntry -Name 'acme' -RegistryPath $script:famReg).family | Should -Be 'acme'
+        }
     }
 }

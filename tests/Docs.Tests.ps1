@@ -3488,16 +3488,17 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     # The refusals are what a caller plans around, so their count and their subjects are pinned.
     # Each one knows its path exactly because the caller handed it over - that is what separates
     # this list from the parsed cross-check it replaced.
-    It 'muster states the twelve refusals dispatch still makes' {
+    It 'muster states the thirteen refusals dispatch still makes' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase ('There are twelve, and each is refused by name: a usage window already past ' +
+            -Phrase ('There are thirteen, and each is refused by name: a usage window already past ' +
                      'the threshold, a `-Base` naming a `worktree-*` branch, a `-Base` git cannot ' +
                      'resolve in the repository, a brief with no ' +
                      '`## Read first` section at all, a brief that passes no `-ReadPath` and does ' +
                      'not say the index was checked when anything at all is indexed - and neither ' +
                      'the standing files this project carries nor the browser procedure counts ' +
-                     'towards that one, per Step 2, which owns the rule - a brief carrying a ' +
+                     'towards that one, per Step 2, which owns the rule - a family name that is ' +
+                     'another registered project''s name, a brief carrying a ' +
                      '`## Browser checks` section that passes no `-ReadPath` for the browser ' +
                      'procedure or for the module it imports, a path that does not exist, a ' +
                      'directory where a file was meant, two different files whose names would ' +
@@ -3511,13 +3512,13 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     # different action from relaying a refusal and the Hand would otherwise treat them alike. The
     # second half is counted rather than named, so it is pinned as a count: the others are all about
     # something the dispatch was handed and knows exactly, a path or the base ref itself.
-    It 'muster separates the usage refusal from the eleven that know what they were handed' {
+    It 'muster separates the usage refusal from the twelve that know what they were handed' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase ('**The usage one is the only refusal here that can be absent rather than ' +
                      'raised.**')
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase ('Every one of the other eleven is about something this dispatch knows ' +
+            -Phrase ('Every one of the other twelve is about something this dispatch knows ' +
                      'exactly - a path it was handed, or the base ref it was told to use')
     }
 
@@ -7101,7 +7102,8 @@ Describe 'a project carries standing rules that reach every worker without being
             'The dispatcher never reads a file name out of the brief''s prose.',
             'The family''s file does not discharge the index gate.',
             'A project in no family dispatches byte-identically to a build without this change.',
-            'A project declaring a family of its own name has one file, not two.')) {
+            'A project declaring a family of its own name has one file, not two.',
+            'The refusal is load-bearing for that wording')) {
             $text.Contains($required) | Should -BeTrue -Because "the note must record '$required'"
         }
     }

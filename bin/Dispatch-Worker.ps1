@@ -468,6 +468,26 @@ foreach ($entry in $registered) {
     }
 }
 
+# Refused HERE, before anything is created, because registration cannot close this on its own: a
+# family name is checked against the registry as it is written, and a project registered LATER can
+# take the name a family already had. Either way round, data\rules-<family>.md is then one
+# project's own file being handed to a sibling as though it were shared.
+#
+# The project's own name is exempt: that is the supported collapse, one file attached once under the
+# project's own wording, and there is no other project's material in it.
+if ($family) {
+    foreach ($entry in $registered) {
+        if ($entry.name -eq $project) { continue }
+        if (-not $entry.name -or $entry.name -ne $family) { continue }
+        throw ("$project declares the family '$family', and '$($entry.name)' is a registered " +
+               "project of that same name - so data\rules-$family.md is that project's own " +
+               'per-project rules file rather than a shared one. Staging it here would hand this ' +
+               "worker another project's private conventions described as the family's shared " +
+               "rules. Rename the family, or take the '+family:' token off this entry. Nothing " +
+               'was created.')
+    }
+}
+
 # The FAMILY's file, composed in ONE place because the same text has to be produced twice and the
 # two must never drift: once for the family this project declares now, and once for a family it has
 # since been taken OUT of, where the only way to find the line an earlier dispatch wrote is to
@@ -479,6 +499,11 @@ foreach ($entry in $registered) {
 # the project's own rules file happens to exist. A line whose wording depended on another file being
 # there would be composed differently on the dispatch that retires it, so the bullet an earlier
 # dispatch wrote could never be found again and would sit in the brief naming a copy that had gone.
+#
+# The wording ASSERTS a shared origin - "shared by every project in the <family> family" - and the
+# collision refusal above is what makes that true, by ruling out the one case where the file is
+# another project's own. A change that removes or weakens that refusal must reword this line rather
+# than leave it claiming something nothing checks.
 function New-FamilyEntry {
     param([Parameter(Mandatory)][string]$Family)
     @{

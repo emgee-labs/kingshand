@@ -113,3 +113,11 @@ A leaf that was never a family's composes a line that is not in the brief, and i
 - **A project declaring a family of its own name has one file, not two.** The leaf collides, and it
   is attached once under the project's own wording, because a copy is not staged twice and there is
   nothing for a precedence sentence to be about.
+- **A family name that is a DIFFERENT project's name is refused, at registration and again at
+  dispatch.** `data\rules-<family>.md` would otherwise be that project's own standing rules, staged
+  for a sibling under a line calling them shared. The refusal is load-bearing for that wording: the
+  composed line asserts the file holds what every project in the family shares, and this is what
+  makes the assertion true, so a change that drops or weakens it has to reword the line as well.
+  Registration alone cannot close it, because a project can be registered after the family was
+  named - hence both ends. A family named after the project declaring it is exempt: there is no
+  other project's material in that file, and it collapses to the one attachment above.

@@ -37,8 +37,9 @@ Set-StrictMode -Version Latest
 # The name after the colon becomes that file name, so it is held to the same shape a project name
 # is, asked of Index.psm1 for the reason the import below gives. A token of any other shape - no
 # colon, an empty name, a name with a separator or a traversal in it - is unrecognised, and so is a
-# second `+family:` on one entry, because one project belongs to one family and a line declaring two
-# is a line this parser could not read unambiguously.
+# second `+family:` naming a different family, because one project belongs to one family and a line
+# declaring two is a line this parser could not read unambiguously. The same family declared twice
+# is read as the one family it names.
 #
 # Merge and family are the strict ones, deliberately: mode and yolo keep their existing leniency,
 # because an unrecognised token has never changed either and this is not the change that makes it.
@@ -322,6 +323,34 @@ function Add-ProjectEntry {
                "'$(ConvertTo-IndexProjectName -Project $familyName)'.")
     }
 
+    # The registry is read once here and reused by the duplicate-name check below, because the
+    # family name is the second thing that has to be true of it. A second Read-Registry would warn
+    # twice over the same unreadable line.
+    #
+    # Read-Registry returns via the leading-comma idiom - the whole array as one pipeline object. A
+    # plain loop is used over it instead of a pipeline filter, matching Get-ProjectEntry.
+    $existing = @()
+    if (Test-Path $RegistryPath) { $existing = Read-Registry -RegistryPath $RegistryPath }
+
+    # A family name that is ANOTHER project's registered name aims data\rules-<family>.md at that
+    # project's own standing rules, and every worker dispatched into this one would then be handed
+    # that repository's private conventions - its tagging, its folders never to touch - under a line
+    # calling them the family's shared rules. Shape is not the only question a name has to answer.
+    #
+    # A family named after the project BEING registered is not this case and passes: the append
+    # below has not happened yet, so it is not in $existing, and the dispatcher collapses the two to
+    # one attached file under the project's own wording.
+    if ($familyName) {
+        foreach ($candidate in $existing) {
+            if ($candidate.name -eq $familyName) {
+                throw ("Family name '$familyName' cannot be registered: '$($candidate.name)' is " +
+                       "already a registered project, so data\rules-$familyName.md is that " +
+                       "project's own standing rules and not a family's shared file. Choose a " +
+                       'different family name.')
+            }
+        }
+    }
+
     # Refused where the name is chosen, not later where it is used. Every durable file written for a
     # project is indexed under data\index\<name>.md, so a name the index cannot turn into a file name
     # is a project nothing can ever index - and the failure would land one brief at a time, after
@@ -333,9 +362,6 @@ function Add-ProjectEntry {
     }
 
     if (Test-Path $RegistryPath) {
-        # Read-Registry returns via the leading-comma idiom - the whole array as one pipeline
-        # object. A plain loop is used instead of a pipeline filter, matching Get-ProjectEntry.
-        $existing = Read-Registry -RegistryPath $RegistryPath
         $norm = Get-NormalisedPath $Path
         foreach ($candidate in $existing) {
             if ($candidate.name -eq $Name) {
