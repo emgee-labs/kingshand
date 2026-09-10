@@ -290,13 +290,28 @@ read instead of guessing.
 
 **Do not write the family's file here.** Adding a project to a family says which shared rules it
 should get; it does not settle what they are. Write it the day there is something to put in it,
-through the same call as the file above with the family in place of the project name, and index it
-the same way:
+through the same call as the file above with the family in place of the project name. What this
+step does instead is list that file in the index of the project just registered:
 
 ```powershell
-Write-DataFile -Project "<name>" -Path "data\rules-<family>.md" -Content $text `
+Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
+Add-IndexEntry -Project "<name>" -Path "data\rules-<family>.md" `
     -Summary "standing rules shared by the <family> family: conventions, vocabulary and exclusions"
 ```
+
+**Index it per member project, not once in the root index.** A reader working on a project opens
+`data\index\<project>.md`, and the root `data\index.md` is for kingshand's own operational files -
+a family's file listed there would both stretch that contract and land where the project reader
+never looks. Per-member listing costs nothing, because the registry entry is written the moment a
+project joins the family, so the index line goes in beside it and no sweep is ever needed; a later
+project joining the same family lists the file again for itself.
+
+**`Add-IndexEntry` rather than `Write-DataFile`**, because the family's file may already exist and
+is not this step's to write. `Add-IndexEntry` lists a file another writer owns, and it tolerates
+the entry already being listed: it matches on the resolved relative path, rewrites that line in
+place and keeps the original `(added ...)` date - the same property this skill already relies on
+for `data\projects.md`. So a second member listing the same file is a no-op rather than a
+duplicate line.
 
 **A declared family with no file yet is an ordinary state**, exactly as an absent project rules
 file is, and dispatch treats it as one: nothing is attached and nothing is said.

@@ -381,11 +381,13 @@ concise question when several projects or none plausibly match.
 Per-project conventions - a project's shorthand, its tagging, the vocabulary its tickets use -
 live in `data\rules-<project>.md`, not here and not in the registry. That file does not load into
 this session on its own, so **read it before writing a brief or creating a work item**, and copy
-tag casing rather than reconstructing it. **Where the digest showed a `+family:` token against that
-project, read `data\rules-<family>.md` too** - a convention several repositories share is written
+tag casing rather than reconstructing it. **Where that project registry entry carries a `+family:`
+token, read `data\rules-<family>.md` too** - a convention several repositories share is written
 there once rather than repeated in each - and where the two disagree the project's own file wins.
-A worker gets its own copy of both without you passing either, but those copies reach the worker
-rather than you, and it is you who writes the ticket text.
+Read the token off the entry rather than off the digest, which prints once at session open and so
+never shows a project annexed into a family since. A worker gets its own copy of both without you
+passing either, but those copies reach the worker rather than you, and it is you who writes the
+ticket text.
 
 Consult the evidence that already exists before commissioning an investigation: an earlier
 `report.md`, the ticket, and its comments. **A diagnostic request, a report, a recommendation or

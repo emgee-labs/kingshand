@@ -97,7 +97,7 @@ Resolve the project through the registry. It supplies both the path and the post
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Projects.psm1 -Force
 $proj = Get-ProjectEntry -Name "<project name>"
-[pscustomobject]$proj | Format-List name, path, rawMode, yolo, merge
+[pscustomobject]$proj | Format-List name, path, rawMode, yolo, merge, family
 ```
 
 **The `[pscustomobject]` cast is required.** `Get-ProjectEntry` returns a hashtable, and

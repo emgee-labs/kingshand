@@ -7005,10 +7005,18 @@ Describe 'a project carries standing rules that reach every worker without being
     It 'CLAUDE.md sends the Hand to the family file before it writes a ticket' {
         $intake = Get-HandSection 'Intake judgement'
         Assert-Phrase -Text $intake -Where 'CLAUDE.md intake' `
-            -Phrase ('**Where the digest showed a `+family:` token against that project, read ' +
+            -Phrase ('**Where that project registry entry carries a `+family:` token, read ' +
                      '`data\rules-<family>.md` too**')
         Assert-Phrase -Text $intake -Where 'CLAUDE.md intake' `
             -Phrase 'where the two disagree the project''s own file wins'
+    }
+
+    # The digest prints once at session open, so a project annexed into a family mid-session would
+    # never satisfy a digest-gated rule. The dispatch-time entry read is the surface that sees it,
+    # so it has to show the field the entry now carries.
+    It 'muster shows the family on the dispatch-time registry read' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 1 - Intake') -Where 'muster Step 1' `
+            -Phrase 'Format-List name, path, rawMode, yolo, merge, family'
     }
 
     It 'CLAUDE.md routes a rule shared by several projects to the family file' {
@@ -7033,6 +7041,8 @@ Describe 'a project carries standing rules that reach every worker without being
         Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
             -Phrase ('**Where the family''s file and the project''s own disagree, the project''s ' +
                      'own wins**')
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase 'Add-IndexEntry -Project "<name>" -Path "data\rules-<family>.md"'
     }
 
     # Removing the token is one of the two ways the attachment is meant to be undone, and it is the
