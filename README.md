@@ -290,9 +290,10 @@ the startup-memory estimate all come from there. Where a rule here reads well, i
 it was proven there first.
 
 What differs is the layer underneath. Firstmate supervises workers itself, across six terminal
-backends and roughly 56,000 lines of shell. Kingshand keeps about 1,200 lines of PowerShell over a
-single terminal runtime, which is why it runs on Windows at all - and why it cannot do some of what
-firstmate does. `docs\` records that trade and what would reverse it.
+backends and roughly 56,000 lines of shell. Kingshand keeps about 9,000 lines of PowerShell -
+everything in `bin\` plus the installer - over a single terminal runtime, which is why it runs on
+Windows at all, and why it cannot do some of what firstmate does. `docs\` records that trade and
+what would reverse it.
 
 ## Licence
 
