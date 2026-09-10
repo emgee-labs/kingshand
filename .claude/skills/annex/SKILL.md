@@ -292,32 +292,23 @@ project names: a family's file and a project's own rules file can never be one f
 **Do not write the family's file here.** Adding a project to a family says which shared rules it
 should get; it does not settle what they are. Write it the day there is something to put in it,
 through the same call as the file above with the family's path in place of the project's, creating
-`data\families\` if it is not there yet. What this step does instead is list that file in the index
-of the project just registered:
+`data\families\` if it is not there yet - and index it in that same call, the way every durable file
+under `data\` is indexed as it is written. The drift scan recurses into `data\`, subdirectories
+included, so a family's file counts as drift from the day it is written until an index lists it.
 
-```powershell
-Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
-Add-IndexEntry -Project "<name>" -Path "data\families\<family>.md" `
-    -Summary "standing rules shared by the <family> family: conventions, vocabulary and exclusions"
-```
+**Registering a project into a family indexes nothing**, because the file usually does not exist
+yet and an entry pointing at nothing is `missing` drift that the documented remedy,
+`Remove-IndexEntry -Missing -All`, then deletes - so the line would be gone before the file arrived.
+Every member project still lists it, per the reasoning below; that happens in the turn it is
+written, once per member, rather than at import.
 
-**Index it per member project, not once in the root index.** A reader working on a project opens
+**List it per member project, not once in the root index.** A reader working on a project opens
 `data\index\<project>.md`, and the root `data\index.md` is for kingshand's own operational files -
 a family's file listed there would both stretch that contract and land where the project reader
-never looks. Per-member listing costs nothing, because the registry entry is written the moment a
-project joins the family, so the index line goes in beside it and no sweep is ever needed; a later
-project joining the same family lists the file again for itself.
-
-**The index line goes in at the same moment for a second reason**: the drift scan recurses into
-`data\`, subdirectories included, so a file sitting in `data\families\` counts as drift from the
-day it is written until some index lists it.
-
-**`Add-IndexEntry` rather than `Write-DataFile`**, because the family's file may already exist and
-is not this step's to write. `Add-IndexEntry` lists a file another writer owns, and it tolerates
-the entry already being listed: it matches on the resolved relative path, rewrites that line in
-place and keeps the original `(added ...)` date - the same property this skill already relies on
-for `data\projects.md`. So a second member listing the same file is a no-op rather than a
-duplicate line.
+never looks. `Add-IndexEntry` is what lists it for the second and every later member, because it
+lists a file another writer owns and tolerates the entry already being there: it matches on the
+resolved relative path, rewrites that line in place and keeps the original `(added ...)` date. So a
+second member listing the same file is a no-op rather than a duplicate line.
 
 **A declared family with no file yet is an ordinary state**, exactly as an absent project rules
 file is, and dispatch treats it as one: nothing is attached and nothing is said.

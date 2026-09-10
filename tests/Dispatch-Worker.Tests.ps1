@@ -3462,27 +3462,6 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $msg | Should -BeLike '*say nothing about this task either*'
         }
 
-        # A file the Hand passed by hand is discounted too, and the refusal has to describe it as
-        # the family's rather than as this project's own, or the reader goes looking under a name
-        # that is not there.
-        It 'discounts the family file the Hand passed, and calls it the family s' {
-            Set-AgentStartState
-            $f = New-DispatchFixture 'family-passed-by-hand'
-            Register-FixtureProject -Fixture $f -Family 'acme' -WithIndex | Out-Null
-            $shared = New-FamilyFile -Fixture $f -Family 'acme'
-            Set-ReadFirstBrief -Fixture $f -Body @(
-                "- ``$($f.BriefDir)\read-first\acme.md`` - the shared rules, copied from ``$shared``.")
-
-            $msg = ''
-            try {
-                & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9110' `
-                    -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $shared
-            } catch { $msg = $_.Exception.Message }
-            $msg | Should -BeLike '*the standing rules the acme family shares*'
-            $msg | Should -BeLike '*every brief for every project in that family passes*'
-            $msg | Should -BeLike "*beyond the acme family's standing rules above*"
-        }
-
         # An unreadable file is not an absent one. Reading it as absent ships a worker without rules
         # seven repositories share, leaving no trace that anything went missing.
         It 'refuses a family file that is there and cannot be opened' {
@@ -3617,25 +3596,31 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         }
 
 
-        # The Hand passing the family's own file passes data\families\<name>.md, which lands under
-        # its own leaf rather than the one this dispatch stages it under. One file must still
-        # arrive once: a second copy under a second name is two files to keep in step, and a line
-        # naming a copy the Hand did not ask for.
-        It 'stages the family file once when the Hand passed the source itself' {
+
+        # The staged leaf is not the source's own, so a hand-passed copy is not the same copy this
+        # dispatch stages: both are made, the next dispatch refreshes only its own and prunes only
+        # its own, and the worker is left reading a current copy beside a frozen one described in
+        # the same words. Refused where the path arrives rather than deduplicated after the fact.
+        It 'refuses a -ReadPath naming the family s own shared file' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-passed-source'
             Register-FixtureProject -Fixture $f -Family 'acme' | Out-Null
             $shared = New-FamilyFile -Fixture $f -Family 'acme'
             Set-ReadFirstBrief -Fixture $f -Leaf 'acme.md' -From $shared
+            $before = Get-BriefText -Fixture $f
 
-            & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9119' `
-                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $shared | Out-Null
+            $msg = ''
+            try {
+                & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9110' `
+                    -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $shared
+            } catch { $msg = $_.Exception.Message }
+            $msg | Should -BeLike '*the shared rules of the acme family*'
+            $msg | Should -BeLike '*names the copy family-acme.md*'
+            $msg | Should -BeLike '*Nothing was created.*'
 
-            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\acme.md') | Should -BeTrue
-            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\family-acme.md') |
-                Should -BeFalse
-            (Get-BriefText -Fixture $f) |
-                Should -Not -BeLike '*attached by dispatch from this project*'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+            (Get-BriefText -Fixture $f) | Should -Be $before
+            @(Get-CallLines -Fixture $f) | Should -BeNullOrEmpty
         }
         # Reference handed over whole. Nothing reads what is inside it, so content that would defeat
         # a parser arrives byte for byte.

@@ -101,7 +101,9 @@
   `+family:<name>` token, data\families\<name>.md is staged on exactly the same terms as the two
   above and named by a line of the same shape, under the leaf family-<name>.md. A family declared
   with no file yet is an ordinary state like any other absent one, because a family is named before
-  its shared rules are written.
+  its shared rules are written. Passing that file in -ReadPath as well is REFUSED, because the
+  staged leaf is not the source's own: the two copies would both be made, only one of them would be
+  refreshed on the next dispatch, and nothing prunes the other.
 
   THE PROJECT'S OWN FILE WINS where the two rules files disagree, and the family's composed line
   says so, because that line is the one place a worker holding both will read it and a worker left
@@ -560,6 +562,22 @@ foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
     if (Test-Path -LiteralPath $resolved -PathType Container) {
         throw ("Read first names the directory $resolved. Name the files the worker must read, " +
                "one path each - a directory would copy whatever happens to be in it. Nothing was created.")
+    }
+
+    # The family's shared file is attached from the registry entry, so a copy passed by hand is the
+    # same source arriving twice under two names - once as its own leaf, once as family-<name>.md.
+    # Refused rather than deduplicated, because the second copy outlives the dispatch that made it:
+    # the next dispatch of the same ticket passes nothing, stages family-<name>.md fresh, and prunes
+    # only the leaves this script composes - so the hand-passed copy stays behind, frozen at the
+    # content it had on the day it was passed, beside a current one and described identically.
+    foreach ($standingLeaf in $standing.Keys) {
+        if ($standing[$standingLeaf].kind -ne 'family') { continue }
+        if (-not $resolved.Equals($standing[$standingLeaf].path,
+                                  [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        throw ("Read first names $resolved, the shared rules of the $family family. This dispatch " +
+               "attaches that file itself for every project in the family and names the copy " +
+               "$standingLeaf, so passing it by hand stages one file twice under two names. Leave " +
+               "it out of -ReadPath and out of the section. Nothing was created.")
     }
 
     $leaf = Split-Path $resolved -Leaf

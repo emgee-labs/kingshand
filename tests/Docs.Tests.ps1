@@ -3492,10 +3492,10 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     # The refusals are what a caller plans around, so their count and their subjects are pinned.
     # Each one knows its path exactly because the caller handed it over - that is what separates
     # this list from the parsed cross-check it replaced.
-    It 'muster states the twelve refusals dispatch still makes' {
+    It 'muster states the thirteen refusals dispatch still makes' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase ('There are twelve, and each is refused by name: a usage window already past ' +
+            -Phrase ('There are thirteen, and each is refused by name: a usage window already past ' +
                      'the threshold, a `-Base` naming a `worktree-*` branch, a `-Base` git cannot ' +
                      'resolve in the repository, a brief with no ' +
                      '`## Read first` section at all, a brief that passes no `-ReadPath` and does ' +
@@ -3504,7 +3504,9 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
                      'towards that one, per Step 2, which owns the rule - a brief carrying a ' +
                      '`## Browser checks` section that passes no `-ReadPath` for the browser ' +
                      'procedure or for the module it imports, a path that does not exist, a ' +
-                     'directory where a file was meant, two different files whose names would ' +
+                     'directory where a file was meant, a `-ReadPath` naming the family''s own ' +
+                     'shared file, which dispatch attaches itself, two different files whose ' +
+                     'names would ' +
                      'land on top of each other in the staging directory, a standing file that ' +
                      'exists and cannot be opened, a directory sitting where a standing file ' +
                      'belongs, and a brief that cannot be opened for writing to be told what was ' +
@@ -3515,13 +3517,13 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     # different action from relaying a refusal and the Hand would otherwise treat them alike. The
     # second half is counted rather than named, so it is pinned as a count: the others are all about
     # something the dispatch was handed and knows exactly, a path or the base ref itself.
-    It 'muster separates the usage refusal from the eleven that know what they were handed' {
+    It 'muster separates the usage refusal from the twelve that know what they were handed' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase ('**The usage one is the only refusal here that can be absent rather than ' +
                      'raised.**')
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase ('Every one of the other eleven is about something this dispatch knows ' +
+            -Phrase ('Every one of the other twelve is about something this dispatch knows ' +
                      'exactly - a path it was handed, or the base ref it was told to use')
     }
 
@@ -7046,13 +7048,15 @@ Describe 'a project carries standing rules that reach every worker without being
             -Phrase ('**Where the family''s file and the project''s own disagree, the project''s ' +
                      'own wins**')
         Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
-            -Phrase 'Add-IndexEntry -Project "<name>" -Path "data\families\<family>.md"'
-        # A file in a data\ subdirectory is drift until an index lists it, because the scan
-        # recurses - so the index line cannot wait for a later sweep.
+            -Phrase ('**Registering a project into a family indexes nothing**')
+        # Indexing a file that is not there is `missing` drift, and the documented remedy for
+        # that count deletes the line - so the entry would be gone before the file arrived.
         Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
-            -Phrase ('the drift scan recurses into `data\`, subdirectories included, so a file ' +
-                     'sitting in `data\families\` counts as drift from the day it is written ' +
-                     'until some index lists it')
+            -Phrase ('an entry pointing at nothing is `missing` drift that the documented remedy, ' +
+                     '`Remove-IndexEntry -Missing -All`, then deletes')
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase ('index it in that same call, the way every durable file under `data\` is ' +
+                     'indexed as it is written')
     }
 
     # Removing the token is one of the two ways the attachment is meant to be undone, and it is the
@@ -7069,6 +7073,11 @@ Describe 'a project carries standing rules that reach every worker without being
             -Phrase ('`data\families\<name>.md` goes the same way, for a project whose registry entry ' +
                      'carries a `+family:` token: attached by dispatch, never passed, never pasted, ' +
                      'never reported against')
+        # Asked-for is not the same as enforced, and this one is enforced - so the skill has to say
+        # which, or the Hand reads a convention where there is a refusal.
+        Assert-Phrase -Text $script:MusterText -Where 'muster Step 2' `
+            -Phrase ('**Never passed is enforced rather than asked for**: dispatch refuses a ' +
+                     '`-ReadPath` naming that file')
     }
 
     It 'muster says the family line carries the precedence and the token retires it' {

@@ -324,8 +324,10 @@ ticket text is yours.
 
 `data\families\<name>.md` goes the same way, for a project whose registry entry carries a
 `+family:` token: attached by dispatch, never passed, never pasted, never reported against - and
-read by you first for the same reason. The project's own file wins where the two disagree, and the
-line dispatch writes says so, so nothing about that belongs in the brief either.
+read by you first for the same reason. **Never passed is enforced rather than asked for**: dispatch
+refuses a `-ReadPath` naming that file, because it stages the copy under a leaf of its own and a
+hand-passed second copy is the one nothing ever refreshes. The project's own file wins where the two
+disagree, and the line dispatch writes says so, so nothing about that belongs in the brief either.
 
 Dispatch attaches `done-<project>.md` on the same terms if you did not pass it, which is a backstop
 and not a reason to stop passing it: the paste above is what the worker is judged against, and it
@@ -846,19 +848,20 @@ brief already names, because that directory is the only place outside its worktr
 read. Drop the parameter only when the section states there is nothing to read.
 
 Every refusal comes before anything at all is created, so a mistake here costs nothing to fix.
-There are twelve, and each is refused by name: a usage window already past the threshold, a `-Base`
+There are thirteen, and each is refused by name: a usage window already past the threshold, a `-Base`
 naming a `worktree-*` branch, a `-Base` git cannot resolve in the repository, a brief with
 no `## Read first` section at all, a brief that passes no `-ReadPath` and does not say the index
 was checked when anything at all is indexed - and neither the standing files this project carries
 nor the browser procedure counts towards that one, per Step 2, which owns the rule - a brief carrying a
 `## Browser checks` section that passes no `-ReadPath` for the browser procedure or for the module
-it imports, a path that does not exist, a directory where a file was meant, two different files
+it imports, a path that does not exist, a directory where a file was meant, a `-ReadPath` naming the
+family's own shared file, which dispatch attaches itself, two different files
 whose names would land on top of each other in the staging directory, a standing file that exists
 and cannot be opened, a directory sitting where a standing file belongs, and a brief that cannot be
 opened for writing to be told what was attached to it.
 
 **The usage one is the only refusal here that can be absent rather than raised.** Every one of the
-other eleven is about something this dispatch knows exactly - a path it was handed, or the base ref
+other twelve is about something this dispatch knows exactly - a path it was handed, or the base ref
 it was told to use; that one is about a number a separate tool reports, and a reading that could
 not be taken warns and dispatches rather than blocking. The one exception is a cached floor already
 at or past the threshold, which refuses with no current reading behind it - `vigil` owns why, and
