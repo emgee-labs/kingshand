@@ -154,6 +154,31 @@ Describe 'every registry entry is named with its posture' {
         @((Get-Snapshot $f).registry.entries)[0].merge | Should -Be 'off'
     }
 
+    # family is the set of repositories this one shares conventions with, returned by Read-Registry
+    # on every entry. A projection that dropped it would leave /survey unable to see it at all -
+    # the failure the merge field was added for, one field along.
+    It 'carries the family as a string, empty where none is declared' {
+        $f = New-Fixture 'registry-family'
+        foreach ($n in @('alpha', 'beta')) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $f.Root "repos\$n") | Out-Null
+        }
+        Add-RegistryEntry $f '- alpha [direct-PR +family:cm] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        Add-RegistryEntry $f '- beta [direct-PR] - beta repo (added 2026-01-02)' (Join-Path $f.Root 'repos\beta')
+        $e = @((Get-Snapshot $f).registry.entries)
+        $e[0].family | Should -Be 'cm'
+        # The empty string, never a word: a word composes into data\rules-<word>.md, which somebody
+        # could have written, and would then be fetched for a project that is in no family at all.
+        $e[1].family | Should -Be ''
+        foreach ($entry in $e) { $entry.family | Should -BeOfType [string] }
+    }
+
+    It 'reports no family where the annotation could not be read in full' {
+        $f = New-Fixture 'registry-family-unreadable'
+        New-Item -ItemType Directory -Force -Path (Join-Path $f.Root 'repos\alpha') | Out-Null
+        Add-RegistryEntry $f '- alpha [no-mistakes garbage +family:cm] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        @((Get-Snapshot $f).registry.entries)[0].family | Should -Be ''
+    }
+
     It 'records each entry''s path as present on disk' {
         foreach ($entry in @($script:RegSnap.registry.entries)) {
             $entry.pathExists | Should -BeTrue -Because "$($entry.name) was created under the fixture"

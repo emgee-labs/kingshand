@@ -31,7 +31,11 @@
   Liveness cannot answer either half, since a parked worker and a finished one both read `idle`.
   It is intent, so it comes from crew.json and never from herdr.
 
-  `.registry.entries[]` carries name, rawMode, mode, yolo, merge, path, pathExists and indexable.
+  `.registry.entries[]` carries name, rawMode, mode, yolo, merge, family, path, pathExists and
+  indexable. `family` is the family of projects this one belongs to, or the empty string where it
+  belongs to none, which is the ordinary state - never a word, because a word could be composed
+  into a file name and gone looking for. `bin\Dispatch-Worker.ps1` attaches that family's shared
+  `data\rules-<family>.md` to every brief for every project in it.
   `yolo` and `merge` are both the string 'on' or 'off' and never booleans - compare with -eq 'on',
   because 'off' is a non-empty string that reads as true. `merge` is the per-repository permission
   to merge that project's own green pull requests on the forge; it is reported here so a reader can
@@ -177,6 +181,12 @@ if ($registryPresent) {
                 # requests, and it is read the same way and for the same reason: 'off' is a
                 # non-empty string, so a truthiness test would report every project as permitted.
                 merge   = $(if ((Get-Field $p 'merge') -eq 'on') { 'on' } else { 'off' })
+                # The family whose shared rules every worker dispatched into this project carries,
+                # or the empty string. Not a state word, for the reason Projects.psm1's header
+                # gives: a word could be composed into a file name and gone looking for.
+                # Get-Field already answers the empty string for a key that is absent or empty, and
+                # that is exactly the no-family state - so no default of our own is needed here.
+                family  = (Get-Field $p 'family')
                 path    = $path
                 # No path line recorded is as missing as a path that is gone.
                 pathExists = $(if ($path) { Test-PathQuiet $path } else { $false })

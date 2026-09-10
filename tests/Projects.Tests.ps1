@@ -840,3 +840,236 @@ Describe 'Test-ProjectImportable' {
         $r.reason | Should -BeLike 'Invalid mode*'
     }
 }
+
+# A family is the set of repositories that share one set of conventions, declared per entry with a
+# `+family:` token and reported on the entry's `family` key. Nothing else in the suite would notice a
+# parse bug here, and the two failures it would cause are opposite and both silent: a worker handed
+# another family's conventions, or a worker handed none when the King wrote them down once for
+# several repositories. So every way of not reading the token is forced, and each one has to leave
+# the entry with no family at all.
+Describe 'a registry entry names the family a project belongs to' {
+    It 'is the empty string on an entry with no annotation at all' {
+        $reg = New-TestRegistry @"
+- proj - a legacy entry (added 2026-08-24)
+      path: $script:RealPath
+"@
+        (Get-ProjectEntry -Name proj -RegistryPath $reg).family | Should -Be ''
+    }
+
+    It 'is the empty string for <mode> with no token' -ForEach @(
+        @{ mode = 'no-mistakes' }
+        @{ mode = 'direct-PR' }
+        @{ mode = 'local-only' }
+        @{ mode = 'no-mistakes-prod-only' }
+    ) {
+        $reg = New-TestRegistry @"
+- proj [$mode] - no family (added 2026-08-24)
+      path: $script:RealPath
+"@
+        (Get-ProjectEntry -Name proj -RegistryPath $reg).family | Should -Be ''
+    }
+
+    # The load-bearing half of "no family is the empty string". A state word would compose into
+    # data\rules-none.md, which somebody could perfectly well have written, and the dispatcher would
+    # go and attach it. The empty string is the one value that cannot be mistaken for a family.
+    It 'never reports a word for the absence, only the empty string' {
+        $reg = New-TestRegistry @"
+- proj [direct-PR +yolo] - no family (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $f = (Get-ProjectEntry -Name proj -RegistryPath $reg).family
+        $f | Should -Be ''
+        foreach ($word in @('none', 'off', 'default', 'null')) {
+            $f | Should -Not -Be $word
+        }
+    }
+
+    It 'reads the declared family, beside the mode and the other tokens' {
+        $reg = New-TestRegistry @"
+- proj [direct-PR +yolo +merge +family:cm] - declared (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg
+        $e.family | Should -Be 'cm'
+        $e.mode   | Should -Be 'direct-PR'
+        $e.yolo   | Should -Be 'on'
+        $e.merge  | Should -Be 'on'
+    }
+
+    It 'reads it wherever it sits among the tokens' {
+        $reg = New-TestRegistry @"
+- proj [no-mistakes +family:cm +yolo] - declared first (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg
+        $e.family | Should -Be 'cm'
+        $e.yolo   | Should -Be 'on'
+    }
+
+    # A family is not a posture, and folding it into the posture string would make it read as one.
+    It 'never appears in the posture string' {
+        $reg = New-TestRegistry @"
+- proj [no-mistakes +family:cm] - declared (added 2026-08-24)
+      path: $script:RealPath
+"@
+        Get-ProjectPosture -Name proj -RegistryPath $reg      | Should -Be 'no-mistakes off'
+        Get-ProjectPosture -Name proj -RegistryPath $reg -Raw | Should -Be 'no-mistakes off'
+    }
+
+    # The name becomes data\rules-<family>.md. A name that could not be a file name is a token
+    # nothing could ever honour, so it declares nothing rather than being half-taken - and it goes
+    # with merge, because a line this parser could not read in full is not one to take either from.
+    It 'declares no family and forces merge off for a name that could not be a file name' {
+        $reg = New-TestRegistry @"
+- proj [no-mistakes +merge +family:../../secrets] - hostile (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $w = @()
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg -WarningVariable w `
+                              -WarningAction SilentlyContinue
+        $e.family | Should -Be ''
+        $e.merge  | Should -Be 'off'
+        $e.mode   | Should -Be 'no-mistakes'
+        (@($w) -join ' ') | Should -BeLike '*Unusable family token*'
+    }
+
+    It 'declares no family for a token with nothing after the colon' {
+        $reg = New-TestRegistry @"
+- proj [no-mistakes +merge +family:] - empty name (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg -WarningAction SilentlyContinue
+        $e.family | Should -Be ''
+        $e.merge  | Should -Be 'off'
+    }
+
+    # `+family` with no colon is not this token at all, so it takes the ordinary unrecognised path.
+    It 'treats a token with no colon as an unrecognised token' {
+        $reg = New-TestRegistry @"
+- proj [no-mistakes +merge +family] - no colon (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $w = @()
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg -WarningVariable w `
+                              -WarningAction SilentlyContinue
+        $e.family | Should -Be ''
+        $e.merge  | Should -Be 'off'
+        (@($w) -join ' ') | Should -BeLike '*Unrecognised token*'
+    }
+
+    # A project belongs to one family. A line naming two has not said which, and guessing would hand
+    # a worker another set of repositories' conventions with nothing to show it had happened.
+    It 'takes neither family when an entry declares two' {
+        $reg = New-TestRegistry @"
+- proj [no-mistakes +merge +family:cm +family:acme] - two families (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $w = @()
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg -WarningVariable w `
+                              -WarningAction SilentlyContinue
+        $e.family | Should -Be ''
+        $e.merge  | Should -Be 'off'
+        (@($w) -join ' ') | Should -BeLike '*declares two families*'
+    }
+
+    # The same family twice is a duplicate rather than a contradiction: it says one thing, twice.
+    It 'accepts the same family declared twice' {
+        $reg = New-TestRegistry @"
+- proj [no-mistakes +family:cm +family:cm] - said twice (added 2026-08-24)
+      path: $script:RealPath
+"@
+        (Get-ProjectEntry -Name proj -RegistryPath $reg).family | Should -Be 'cm'
+    }
+
+    It 'an unknown mode drops the family with everything else the annotation granted' {
+        $reg = New-TestRegistry @"
+- proj [no-mstakes +yolo +merge +family:cm] - typo in the mode (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg -WarningAction SilentlyContinue
+        $e.mode   | Should -Be 'no-mistakes'
+        $e.yolo   | Should -Be 'off'
+        $e.merge  | Should -Be 'off'
+        $e.family | Should -Be ''
+    }
+
+    # An annotation this parser could not read in full yields neither the permission nor the family,
+    # however the unreadable part is spelled - a bare word after the mode, or an unknown `+` token.
+    It 'drops the family when any other token on the line could not be read' -ForEach @(
+        @{ junk = 'garbage' }
+        @{ junk = '+bogus' }
+    ) {
+        $reg = New-TestRegistry @"
+- proj [no-mistakes $junk +family:cm] - part unreadable (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg -WarningAction SilentlyContinue
+        $e.family | Should -Be ''
+        $e.merge  | Should -Be 'off'
+        $e.mode   | Should -Be 'no-mistakes'
+    }
+
+    It 'the lenient listing reports it per entry and defaults the rest to no family' {
+        $reg = New-TestRegistry @"
+# Projects
+
+- one [local-only] - first (added 2026-08-24)
+      path: $script:RealPath
+
+- two [local-only +family:cm] - second (added 2026-08-24)
+      path: $script:RealPath
+"@
+        $all = Get-AllProjects -RegistryPath $reg
+        $all[0].family | Should -Be ''
+        $all[1].family | Should -Be 'cm'
+    }
+
+    Context 'writing the token' {
+        # A fresh registry path per case, the same way the Add-ProjectEntry block above makes one -
+        # the file is deliberately NOT created, because two of these cases assert on whether it
+        # came into existence at all.
+        BeforeEach {
+            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ("famreg-" + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            $script:famReg = Join-Path $dir 'projects.md'
+        }
+
+        # The default every import takes, and the one that has to stay untouched: an entry written
+        # without -Family must be byte-identical to what this function has always written, or the
+        # no-family case stops being the case nothing changed for.
+        It 'defaults to no family, and writes the annotation it always wrote' {
+            Add-ProjectEntry -Name 'acme' -Path $script:RealPath -Mode 'direct-PR' `
+                -Description 'no family' -RegistryPath $script:famReg
+            $line = (Get-EntryBlock -Path $script:famReg -Name 'acme')[0]
+            # .StartsWith rather than -BeLike: '[' opens a character class in a wildcard pattern,
+            # so every annotation here would be an invalid pattern rather than a literal.
+            $line.StartsWith('- acme [direct-PR] - no family (added ') | Should -BeTrue
+            $line.Contains('family:') | Should -BeFalse
+            (Get-ProjectEntry -Name 'acme' -RegistryPath $script:famReg).family | Should -Be ''
+        }
+
+        It 'writes the +family token when a family is named' {
+            Add-ProjectEntry -Name 'acme' -Path $script:RealPath -Mode 'direct-PR' `
+                -Description 'in a family' -Family 'cm' -RegistryPath $script:famReg
+            (Get-EntryBlock -Path $script:famReg -Name 'acme')[0].StartsWith(
+                '- acme [direct-PR +family:cm] - in a family (added ') | Should -BeTrue
+            (Get-ProjectEntry -Name 'acme' -RegistryPath $script:famReg).family | Should -Be 'cm'
+        }
+
+        It 'writes it beside the other tokens rather than in place of them' {
+            Add-ProjectEntry -Name 'acme' -Path $script:RealPath -Mode 'no-mistakes' `
+                -Description 'everything' -Yolo -Merge -Family 'cm' -RegistryPath $script:famReg
+            (Get-EntryBlock -Path $script:famReg -Name 'acme')[0].StartsWith(
+                '- acme [no-mistakes +yolo +merge +family:cm] - everything (added ') | Should -BeTrue
+        }
+
+        # Refused where the name is chosen, not one dispatch at a time later, where the parser would
+        # drop the token with only a warning to show for it.
+        It 'refuses a family name that could never be a file name' {
+            { Add-ProjectEntry -Name 'acme' -Path $script:RealPath -Mode 'direct-PR' `
+                -Description 'x' -Family '../../secrets' -RegistryPath $script:famReg } |
+                Should -Throw '*cannot be registered*'
+            Test-Path -LiteralPath $script:famReg | Should -BeFalse
+        }
+    }
+}

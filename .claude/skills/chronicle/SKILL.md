@@ -31,12 +31,14 @@ line of it. The distinction is the whole safeguard - a pass that treated a state
 decaying entry would eventually delete something the King said out loud, and would do it quietly.
 Where this session produced something that belongs there, name it to the King and let them write it.
 
-**`data\rules-<project>.md` and `data\done-<project>.md` are outside this budget and outside this
-sweep, and this pass never edits, decays, archives, consolidates or offloads a line of either.**
-They are a project's standing rules and its standing criteria - what the King set for that project,
-delivered to every worker dispatched into it by `bin\Dispatch-Worker.ps1` - and they stand until he
-changes or removes them. Neither is measured against the startup budget, because neither is loaded
-at session start: a worker gets its own copy at dispatch. Treating one as a decaying entry would
+**`data\rules-<project>.md`, `data\rules-<family>.md` and `data\done-<project>.md` are outside this
+budget and outside this sweep, and this pass never edits, decays, archives, consolidates or offloads
+a line of any of them.**
+They are a project's standing rules, the rules a whole family of projects shares, and that project's
+standing criteria - what the King set, delivered to every worker dispatched into that project by
+`bin\Dispatch-Worker.ps1` - and they stand until he changes or removes them. None is measured
+against the startup budget, because none is loaded at session start: a worker gets its own copy at
+dispatch. Treating one as a decaying entry would
 eventually delete a standing instruction he set once and expected to hold for a year, and would do
 it quietly, in a pass nobody was watching. Where this session produced something that belongs in
 one, write it there through the owner - `annex` owns the rules file's format - rather than folding
@@ -288,7 +290,8 @@ exactly three cases, and the precedence between them is fixed:
   **Kingshand's own operational files are never a topic name** - `backlog.md`, `king.md`,
   `learnings.md`, `corrections.md`, `memory-archive.md`, `done-archive.md`, `projects.md` and
   `index.md` - and neither is `done-<project>.md` or `rules-<project>.md` for any registered
-  project, nor any other name already in use for something else under `data\`.
+  project, nor `rules-<family>.md` for any family a registry entry declares, nor any other name
+  already in use for something else under `data\`.
 
 **Existence alone does not tell the second case from the third**, so read what is already at the path
 and decide which of the two it is before writing or indexing anything.

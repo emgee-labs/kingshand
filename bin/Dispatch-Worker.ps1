@@ -91,10 +91,22 @@
   derived from a file the index already lists at its own path, so Get-IndexableFiles excludes
   read-first\ and the drift count does not grow by one per dispatch forever.
 
-  TWO FILES ARE STAGED WITHOUT ANYONE PASSING THEM, keyed off the project this dispatch already
-  resolves from the registry: data\done-<project>.md, the standing criteria, and
+  UP TO THREE FILES ARE STAGED WITHOUT ANYONE PASSING THEM, keyed off the project this dispatch
+  already resolves from the registry: data\done-<project>.md, the standing criteria, and
   data\rules-<project>.md, the standing rules - conventions, vocabulary, exclusions, branch naming,
   where a login is kept. Each is staged when it exists, and its absence is an ordinary state.
+
+  THE THIRD IS THE FAMILY'S, and it is there because a set of repositories that share conventions
+  should not have to repeat them once per repository. Where the project's registry entry carries a
+  `+family:<name>` token, data\rules-<name>.md is staged on exactly the same terms as the two above
+  and named by a line of the same shape. A family declared with no file yet is an ordinary state
+  like any other absent one, because a family is named before its shared rules are written.
+
+  THE PROJECT'S OWN FILE WINS where the two rules files disagree, and the family's composed line
+  says so, because that line is the one place a worker holding both will read it and a worker left
+  to work out which source wins picks wrong half the time. The family's line is written last, so
+  the order in the brief matches the precedence. A project declaring a family of its own name has
+  one file, not two, and it is attached once under the project's own wording.
 
   Automatic because delivery by memory has already failed: a settled brand spec sat in data\ naming
   itself the input to the website brief while the site shipped without its logo, favicon, tagline or
@@ -115,17 +127,21 @@
   The reverse also holds. A standing file the King has REMOVED must stop reaching the worker, so
   where this script's own composed line for that file is still in the section, that line is dropped
   and the copy in read-first\ is deleted. Never a copy the Hand passed, whose line the Hand wrote -
-  the comment at that code owns the two conditions that make the removal safe.
+  the comment at that code owns the two conditions that make the removal safe. A project taken out
+  of a family is the same retirement reached the other way, and it is handled at its own code,
+  because with the token gone there is no family name left to compose the old line from.
 
-  NEITHER counts towards the index gate below, for the reason the gate's own comment gives: a path
-  that arrives on every dispatch is no evidence that the index was consulted for THIS task.
+  NONE OF THEM counts towards the index gate below, for the reason the gate's own comment gives: a
+  path that arrives on every dispatch is no evidence that the index was consulted for THIS task.
+  That holds hardest for the family's file, which arrives on every brief for every project in the
+  family - a gate a whole family could never fail is a gate that has stopped working.
 
-  A per-project file that exists and cannot be opened is refused by name. Reading it as absent would
+  A standing file that exists and cannot be opened is refused by name. Reading it as absent would
   be the worst outcome available - the worker would ship without standing rules nobody could see had
   gone missing, which is the failure this whole mechanism exists to close.
 
-  Nothing here reads what is INSIDE either file. It is reference material handed to a worker whole,
-  so the only question this script asks is whether the file is there.
+  Nothing here reads what is INSIDE any of them. They are reference material handed to a worker
+  whole, so the only question this script asks is whether the file is there.
 
   The paths arrive STRUCTURALLY, in -ReadPath, and nothing here reads them back out of the brief's
   prose. An earlier version did: it parsed the `Read first` section for file paths and compared
@@ -159,11 +175,12 @@
   follow is the settled-spec failure at a larger scale and worse, because it looks solved. Neither
   way past is an absence: an empty section, or a heading with nothing under it, still refuses.
 
-  FOUR PATHS do not count towards it, and all for one reason: each arrives by rote rather than
-  because this task touches it. THE PROJECT'S OWN TWO FILES are data\done-<project>.md and
-  data\rules-<project>.md for the project this dispatch resolved to. Both arrive on every brief for
-  a project that has them - the criteria file because muster hands it over, and either because this
-  script stages it whether or not anyone did. The other two are .claude\skills\witness\SKILL.md and
+  UP TO FIVE PATHS do not count towards it, and all for one reason: each arrives by rote rather than
+  because this task touches it. THE STANDING FILES THIS PROJECT CARRIES are data\done-<project>.md
+  and data\rules-<project>.md for the project this dispatch resolved to, plus data\rules-<family>.md
+  where its entry declares a family. All arrive on every brief for a project that has them - the
+  criteria file because muster hands it over, and any of them because this script stages it whether
+  or not anyone did. The other two are .claude\skills\witness\SKILL.md and
   bin\BrowserVerify.psm1, the browser procedure and the module it imports, which muster hands over on
   every brief carrying a `## Browser checks` section - a worker reaches its own worktree and the
   brief's directory and nowhere else, and it cannot load a skill from this repository at all, so both
@@ -391,7 +408,7 @@ if ($baseOverride) {
 # process working directory, which Set-Location does not move, so a relative -DataPath could put the
 # project's own files somewhere the index never looked.
 #
-# Unguarded on purpose, and it decides where the per-project files are looked for as well as what
+# Unguarded on purpose, and it decides where the standing files are looked for as well as what
 # the index gate discounts. A root this cannot resolve has to stop the dispatch rather than fall
 # through to an empty answer that quietly attaches nothing and discounts nothing. Nothing is created
 # at this point, so throwing here costs the caller only the message.
@@ -400,8 +417,8 @@ $dataRoot = Resolve-IndexDataPath -DataPath $DataPath
 # The project is resolved from the registry by repo path. Nothing is inferred from the path itself
 # and no -Project parameter is taken: a parameter can be omitted, and a gate or an attachment that a
 # forgotten argument switches off is not one. An unregistered repo therefore resolves to no project,
-# has no project index and gets no per-project files - but the root index is not project-scoped and
-# gates it all the same.
+# has no project index, no declared family and gets no standing file at all - but the root index is
+# not project-scoped and gates it all the same.
 #
 # The try covers the REGISTRY READ and nothing else, which is the only thing the catch below can
 # honestly claim to be a state rather than a fault. It used to wrap the whole loop, so one
@@ -430,6 +447,7 @@ if (Test-Path -LiteralPath $registryPath -PathType Leaf) {
 }
 
 $target = [IO.Path]::GetFullPath($RepoPath).TrimEnd('\')
+$family = ''
 foreach ($entry in $registered) {
     if (-not $entry.path -or -not $entry.indexable) { continue }
     # Guarded per entry, so one unusable path costs that entry and not the whole resolution.
@@ -442,15 +460,50 @@ foreach ($entry in $registered) {
     }
     if ($entryPath.Equals($target, [System.StringComparison]::OrdinalIgnoreCase)) {
         $project = $entry.name
+        # Empty where this project declares no family, which is the ordinary state and is what
+        # Projects.psm1 reports rather than a word - so nothing below can compose it into a file
+        # name and go looking for it. That module's header owns the choice.
+        $family  = $entry.family
         break
     }
 }
 
-# The project's own two files, composed by name from the project the registry just resolved. Only a
-# name the index can turn into a file name ever reaches this - the loop above skips an entry whose
-# name is not indexable - so the leaf is letters, digits, '.', '_' and '-' and can hold no separator
-# and no traversal. That is the whole constraint keeping these two names inside the data root and
-# off any other file.
+# The FAMILY's file, composed in ONE place because the same text has to be produced twice and the
+# two must never drift: once for the family this project declares now, and once for a family it has
+# since been taken OUT of, where the only way to find the line an earlier dispatch wrote is to
+# compose exactly what was written. Everything it needs is the family name and the project name, so
+# the retired case can be driven from a staged copy's own file name with nothing read out of prose.
+#
+# The PRECEDENCE SENTENCE is here rather than anywhere else because this is the one place a worker
+# holding both files will actually read it, and it is UNCONDITIONAL - it does not vary with whether
+# the project's own rules file happens to exist. A line whose wording depended on another file being
+# there would be composed differently on the dispatch that retires it, so the bullet an earlier
+# dispatch wrote could never be found again and would sit in the brief naming a copy that had gone.
+function New-FamilyEntry {
+    param([Parameter(Mandatory)][string]$Family)
+    @{
+        path = Join-Path $dataRoot "rules-$Family.md"
+        what = ("the standing rules shared by every project in the $Family family - conventions, " +
+                "vocabulary, exclusions, branch naming, environment facts")
+        how  = ('Read it in full before you start. It is reference to consult, not a list to ' +
+                'answer, so never self-report against its lines. Where it and this project''s own ' +
+                "rules-$project.md disagree, rules-$project.md wins - the project's own file is " +
+                'the more specific of the two.')
+        kind = 'family'
+    }
+}
+
+# The files this dispatch attaches by itself, composed by name from the project the registry just
+# resolved and from the family that project declares. Only a name the index can turn into a file
+# name ever reaches this - the loop above skips an entry whose name is not indexable, and
+# Projects.psm1 drops a `+family:` token whose name is not either - so every leaf is letters,
+# digits, '.', '_' and '-' and can hold no separator and no traversal. That is the whole constraint
+# keeping these names inside the data root and off any other file.
+#
+# `kind` says which of the two things a file is, and it is read only by the refusal message below,
+# which has to describe a family's shared file differently from a project's own. Everything else
+# here treats all three identically, which is the point: staged the same way, named the same way,
+# discounted the same way, retired the same way.
 $standing = [ordered]@{}
 if ($project) {
     $standing["done-$project.md"]  = @{
@@ -461,6 +514,7 @@ if ($project) {
         # about what the body contains is one it cannot stand behind - and it would be wrong in
         # exactly the case this attachment is the backstop for, where nobody pasted anything.
         how  = 'Read it in full. It is this project''s standing definition of done, and you work its lines one by one.'
+        kind = 'project'
     }
     $standing["rules-$project.md"] = @{
         path = Join-Path $dataRoot "rules-$project.md"
@@ -468,6 +522,17 @@ if ($project) {
                 "naming, environment facts")
         how  = ('Read it in full before you start. It is reference to consult, not a list to ' +
                 'answer, so never self-report against its lines.')
+        kind = 'project'
+    }
+    # Added LAST, so the project's own files are named above the family's in every brief and the
+    # order matches which one wins. Skipped where the leaf is already here, which is a project that
+    # declares a family of its own name: one file, attached once, under the wording that describes
+    # it as the project's - and there is nothing for a precedence sentence to be about.
+    if ($family) {
+        $familyLeaf = "rules-$family.md"
+        if (-not $standing.Contains($familyLeaf)) {
+            $standing[$familyLeaf] = New-FamilyEntry -Family $family
+        }
     }
 }
 
@@ -505,42 +570,45 @@ foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
 }
 
 # What this dispatch attaches on its own, because nobody has to remember to. Order follows
-# $standing, so the criteria file is named before the rules file in every brief.
+# $standing, so the criteria file is named before the project's rules file, and the family's shared
+# rules last of the three, in every brief.
 #
-# ABSENT IS AN ORDINARY STATE and says so quietly: a project with neither file dispatches exactly as
-# it did before either existed. UNREADABLE IS NOT ABSENT, and the difference is the point - a rules
-# file skipped in silence ships a worker without the project's standing instructions and leaves no
-# trace that anything went missing, which is the failure this attachment exists to close. So a file
-# that is there and cannot be opened stops the dispatch and names itself.
+# ABSENT IS AN ORDINARY STATE and says so quietly: a project with none of them dispatches exactly as
+# it did before any existed, and a family declared before anybody wrote its file is that same state.
+# UNREADABLE IS NOT ABSENT, and the difference is the point - a rules file skipped in silence ships a
+# worker without the standing instructions it was meant to carry and leaves no trace that anything
+# went missing, which is the failure this attachment exists to close. So a file that is there and
+# cannot be opened stops the dispatch and names itself.
 $autoStaged = [System.Collections.Generic.List[hashtable]]::new()
 foreach ($leaf in $standing.Keys) {
     $p = $standing[$leaf].path
     if (-not (Test-Path -LiteralPath $p)) { continue }
 
     if (Test-Path -LiteralPath $p -PathType Container) {
-        throw ("$p is where project $project's file of that name belongs and it is a directory. " +
-               "A worker cannot be handed a directory to read. Move it aside, or put the file " +
-               "there. Nothing was created.")
+        throw ("$p is where a standing file attached to every brief for project $project belongs " +
+               "and it is a directory. A worker cannot be handed a directory to read. Move it " +
+               "aside, or put the file there. Nothing was created.")
     }
     # Test-Path answers whether the entry is there, never whether it can be read. Opened rather than
-    # read: this script never looks at what is inside either file, and a locked or unreadable file
+    # read: this script never looks at what is inside any of them, and a locked or unreadable file
     # has to fail here rather than at the copy, where a worktree would already exist.
     try { [System.IO.File]::OpenRead($p).Dispose() }
     catch {
-        throw ("Project $project's file $p exists and could not be opened " +
-               "($($_.Exception.Message)), so the worker would go out without it and nothing would " +
-               "show that it had. Fix the file or move it aside deliberately - an absent file is " +
-               "attached as nothing, an unreadable one is refused. Nothing was created.")
+        throw ("The standing file $p, attached to every brief for project $project, exists and " +
+               "could not be opened ($($_.Exception.Message)), so the worker would go out without " +
+               "it and nothing would show that it had. Fix the file or move it aside deliberately - " +
+               "an absent file is attached as nothing, an unreadable one is refused. Nothing was " +
+               "created.")
     }
 
     if ($staged.ContainsKey($leaf)) {
         # The same file, passed by hand as well. The Hand's own `Read first` line already names it,
         # so this adds nothing and writes no second line for it.
         if ($staged[$leaf].Equals($p, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
-        throw ("Read first names $($staged[$leaf]), and project $project's own $leaf at $p is " +
-               "attached to every brief for this project. Both would land on $leaf in the staging " +
+        throw ("Read first names $($staged[$leaf]), and $leaf at $p is attached to every brief for " +
+               "project $project. Both would land on $leaf in the staging " +
                "directory and one would overwrite the other. Pass the file under a distinct name, " +
-               "or leave it out and let the project's own copy be the one the worker reads. " +
+               "or leave it out and let the attached copy be the one the worker reads. " +
                "Nothing was created.")
     }
 
@@ -744,12 +812,15 @@ if ($gates.Count -gt 0) {
         }
     }
 
-    # The project's own two standing files do not count towards this. Both arrive on EVERY brief for
-    # a project that has them - the criteria file because muster passes it, and either because this
-    # script attaches it whether or not anyone passed it - so counting one would make this refusal
-    # unreachable from the moment the first is written. The gate's whole premise is that a -ReadPath
-    # is evidence the Hand went through the index for THIS task, and a path that arrives by rote is
-    # no evidence. Every other -ReadPath still counts, including another file sitting beside them in
+    # The standing files this project carries do not count towards this - its own two, and its
+    # family's shared rules where its registry entry declares a family. Every one of them arrives on
+    # EVERY brief for this project: the criteria file because muster passes it, and any of them
+    # because this script attaches it whether or not anyone passed it. Counting one would make this
+    # refusal unreachable from the moment the first is written, and the family file is the same in
+    # kind and worse in reach - a gate no project in a family could ever fail is a gate that has
+    # stopped working, for the whole family at once. The gate's whole premise is that a -ReadPath is
+    # evidence the Hand went through the index for THIS task, and a path that arrives by rote is no
+    # evidence. Every other -ReadPath still counts, including another file sitting beside them in
     # data\.
     #
     # $standing was composed from $dataRoot, which is Index.psm1's own Resolve-IndexDataPath answer,
@@ -810,9 +881,18 @@ if ($gates.Count -gt 0) {
                 $_.Equals($path, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
         }
         # Walked in $standing's order, so the criteria file is named before the rules file wherever
-        # both were passed by hand.
+        # both were passed by hand. The family's file is pulled out of that walk and described
+        # separately: it is not the project's own, and a message calling it that would send the Hand
+        # looking for a file under the wrong name.
         $discountedPaths = @(foreach ($leaf in $standing.Keys) {
-            if (& $wasPassed $standing[$leaf].path) { $standing[$leaf].path }
+            if ($standing[$leaf].kind -eq 'project' -and (& $wasPassed $standing[$leaf].path)) {
+                $standing[$leaf].path
+            }
+        })
+        $discountedFamily = @(foreach ($leaf in $standing.Keys) {
+            if ($standing[$leaf].kind -eq 'family' -and (& $wasPassed $standing[$leaf].path)) {
+                $standing[$leaf].path
+            }
         })
         $passedProcedure = [bool](& $wasPassed $procedure)
         $passedModule    = [bool](& $wasPassed $module)
@@ -827,6 +907,11 @@ if ($gates.Count -gt 0) {
                          'which every brief for this project passes')
         }
         if ($discountedPaths.Count -gt 0) { $beyond += 'the standing criteria' }
+        if ($discountedFamily.Count -gt 0) {
+            $clauses += ("$($discountedFamily[0]), the standing rules the $family family shares, " +
+                         'which every brief for every project in that family passes')
+            $beyond  += "the $family family's standing rules"
+        }
         if ($passedProcedure) {
             $clauses += ("the browser procedure $procedure, which every brief carrying browser " +
                          'checks passes')
@@ -847,10 +932,10 @@ if ($gates.Count -gt 0) {
             $discounted = ("$lead " + ($clauses -join '; and ') + " - each passed by rote, so " +
                            'none of them says anything about this task. ')
         } elseif ($autoStaged.Count -gt 0) {
-            $discounted = ("This dispatch attaches project $project's own " +
+            $discounted = ("This dispatch attaches " +
                            "$(($autoStaged | ForEach-Object { $_.leaf }) -join ' and ') by itself, " +
-                           "and every brief for this project gets them, so they say nothing about " +
-                           "this task either. ")
+                           "and every brief for project $project gets them, so they say nothing " +
+                           "about this task either. ")
         }
 
         # The recommended line names every copy the section already hands over, because a line
@@ -985,6 +1070,37 @@ foreach ($leaf in $standing.Keys) {
     $copy = Join-Path $readFirstDir $leaf
     if (Test-Path -LiteralPath $copy -PathType Leaf) { $staleCopies.Add($copy) }
 }
+
+# A project taken OUT of a family, which the loop above cannot reach. With the token gone the family
+# is not in $standing at all, so there is no key left to compose the retired bullet from - and
+# removing the token is one of the two ways this attachment is meant to be undone, the other being
+# deleting the file, which the loop above already covers.
+#
+# The candidates come from the STAGING DIRECTORY: a listing of file names an earlier dispatch
+# created itself, not anything read out of the brief's prose. Each one is turned back into the line
+# this script WOULD have composed for a family of that name, and the decision is the same whole-line
+# comparison the loop above makes, against wording nothing else writes. A leaf that was never a
+# family's - a copy the Hand passed, some project's rules file, a file called rules-something by
+# coincidence - composes a line that is not in the brief and is left exactly where it is.
+#
+# Three guards, each ruling out a copy that is not this script's to touch: a leaf $standing still
+# holds is live and the loop above owns its retirement; a leaf the Hand passed this dispatch is the
+# Hand's; and a name the index could not turn into a file name was never a family, because
+# Projects.psm1 drops such a token rather than reporting it.
+if ($project -and (Test-Path -LiteralPath $readFirstDir -PathType Container)) {
+    foreach ($file in @(Get-ChildItem -LiteralPath $readFirstDir -Filter 'rules-*.md' -File)) {
+        $leaf = $file.Name
+        if ($standing.Contains($leaf) -or $staged.ContainsKey($leaf)) { continue }
+        if ($leaf.Length -le 'rules-.md'.Length) { continue }
+        $wasFamily = $leaf.Substring('rules-'.Length, $leaf.Length - 'rules-.md'.Length)
+        if (-not (Test-IndexProjectName -Project $wasFamily)) { continue }
+        $bullet = (New-AutoLine -Leaf $leaf -Entry (New-FamilyEntry -Family $wasFamily)).Trim()
+        if (-not $seen.ContainsKey($bullet)) { continue }
+        $null = $staleBullets.Add($bullet)
+        $staleCopies.Add($file.FullName)
+    }
+}
+
 # With no attached bullet left, the lead-in introduces nothing and goes with them.
 if ($staleBullets.Count -gt 0 -and $autoLines.Count -eq 0) {
     $null = $staleBullets.Add($autoLeadIn.Trim())

@@ -318,7 +318,12 @@ try {
             # deploy-on-merge default branch is a live production release. Said only where it is
             # held, so the common case prints exactly as it always has.
             $mergeNote = if ($_.merge -eq 'on') { ' +merge' } else { '' }
-            "- $($_.name) [$($_.rawMode)] yolo $($_.yolo)$mergeNote - $pathNote$nameNote"
+            # Which family's shared rules a worker dispatched here will carry - and which file the
+            # Hand has to read before writing this project's ticket text, since the intake rule
+            # sends it to the family file as well as the project's own. Printed only where a family
+            # is declared, so a project in none prints exactly as it always has.
+            $familyNote = if ($_.family) { " +family:$($_.family)" } else { '' }
+            "- $($_.name) [$($_.rawMode)] yolo $($_.yolo)$mergeNote$familyNote - $pathNote$nameNote"
         })
     }
 

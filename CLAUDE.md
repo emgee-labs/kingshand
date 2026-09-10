@@ -129,12 +129,16 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
   and casing, folders never to touch, branch naming, environment facts, and where a login is kept.
   Not criteria and never self-reported against - reference a worker consults. Nothing expires it.
   `annex` owns its format and offers to create it at import.
+- `data\rules-<family>.md` - the same file for a whole family of projects, reaching every project
+  whose registry entry carries a `+family:<name>` token. It is where a convention several
+  repositories share is written once instead of once each. **The project's own file wins where the
+  two disagree**, and it is the more specific of the two. `annex` owns this format as well.
 
-**Both of those reach a worker mechanically. `bin\Dispatch-Worker.ps1` attaches whichever of the
-two exists to every brief for that project and names each copy under `Read first` itself,** so
-delivery never depends on your remembering to pass it. A settled brand spec once sat in `data\`
+**All three reach a worker mechanically. `bin\Dispatch-Worker.ps1` attaches whichever of them exist
+to every brief for that project and names each copy under `Read first` itself,** so delivery never
+depends on your remembering to pass one. A settled brand spec once sat in `data\`
 naming itself the input to the website brief while the site shipped without its logo, favicon,
-tagline or palette, because no brief named the file. Never store a credential value in either one:
+tagline or palette, because no brief named the file. Never store a credential value in any of them:
 name the environment variable or the credential-store entry that holds it, and nothing else.
 - `data\backlog.md` - the durable work queue. Maintained via `tasks-axi`; the Backlog contract
   below owns it.
@@ -186,7 +190,7 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\ClaudeWorkspace.psm1` | writes a worktree's `settings.local.json` and pre-seeds folder trust, because no arguments can be passed to a worker |
 | `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, point a worker at the decision it parked on, query, save |
 | `bin\Projects.psm1` | the project registry: read an entry and its posture, add one, test importability |
-| `bin\Dispatch-Worker.ps1` | creates one worktree and spawns one worker in it, attaches the project's own standing files to the brief without being asked, and returns what Crew.psm1 must record |
+| `bin\Dispatch-Worker.ps1` | creates one worktree and spawns one worker in it, attaches the standing files that project carries - its own and its family's - to the brief without being asked, and returns what Crew.psm1 must record |
 | `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the one ref a worker branches from and the landing gate diffs against, unless that dispatch names its own - the integration branch the repo declares in `.no-mistakes.yaml`, and its default branch where it declares none, always confirmed with `git rev-parse --verify` |
 | `bin\Get-CrewStatus.ps1` | joins crew.json with herdr's live agent state |
 | `bin\Get-SurveySnapshot.ps1` | the one bounded gather behind `/survey`: registry, workers joined with live state, reports, un-dispatched briefs. Returns structured data, renders nothing, never throws |
@@ -349,7 +353,9 @@ an older backlog line, ticket text or report - a worker left to choose picks wro
   a folder never to touch, its branch naming, where its login is kept - is the other: it belongs in
   `data\rules-<project>.md`, which you also write, in the turn the King states it. Test the two
   apart by asking whether a worker could report pass or fixed against it; where it could not, it is
-  a rule and not a criterion. Both are outside `chronicle`'s budget and its sweep, and nothing
+  a rule and not a criterion. Where the rule holds for a whole family of projects rather than one,
+  it goes in that family's `data\rules-<family>.md` instead, and only their registry entries decide
+  who is in the family. All three are outside `chronicle`'s budget and its sweep, and nothing
   expires them.
 - Knowledge useful to every contributor to one project belongs in that project's own memory file,
   written by a worker through its delivery path, never by you. Hard rule 1 is not relaxed for a
@@ -375,8 +381,11 @@ concise question when several projects or none plausibly match.
 Per-project conventions - a project's shorthand, its tagging, the vocabulary its tickets use -
 live in `data\rules-<project>.md`, not here and not in the registry. That file does not load into
 this session on its own, so **read it before writing a brief or creating a work item**, and copy
-tag casing rather than reconstructing it. A worker gets its own copy without you passing one, but
-that copy reaches the worker rather than you, and it is you who writes the ticket text.
+tag casing rather than reconstructing it. **Where the digest showed a `+family:` token against that
+project, read `data\rules-<family>.md` too** - a convention several repositories share is written
+there once rather than repeated in each - and where the two disagree the project's own file wins.
+A worker gets its own copy of both without you passing either, but those copies reach the worker
+rather than you, and it is you who writes the ticket text.
 
 Consult the evidence that already exists before commissioning an investigation: an earlier
 `report.md`, the ticket, and its comments. **A diagnostic request, a report, a recommendation or

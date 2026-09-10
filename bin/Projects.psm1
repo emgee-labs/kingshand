@@ -7,7 +7,7 @@ Set-StrictMode -Version Latest
 # A task's mode is resolved at intake and passed explicitly to the brief and the dispatch.
 #
 # Entry format (data\projects.md), byte-compatible with firstmate's line plus a path line:
-#   - <name> [<mode> +yolo +merge] - <desc> (added <date>)
+#   - <name> [<mode> +yolo +merge +family:<family>] - <desc> (added <date>)
 #         path: <absolute path>
 #
 # `+merge` is the per-repository permission to merge that project's own green pull requests on the
@@ -23,18 +23,39 @@ Set-StrictMode -Version Latest
 # Get-ProjectEntry rather than returning a value at all, so a caller never receives 'off' as a
 # substitute for "could not tell", and never receives 'on' by accident.
 #
-# Merge is the strict one, deliberately: mode and yolo keep their existing leniency, because an
-# unrecognised token has never changed either and this is not the change that makes it.
+# `+family:<name>` names the family of projects this one belongs to, reported on the entry's
+# `family` key. A family is a set of repositories that share conventions, and its shared rules live
+# in one file, data\rules-<family>.md, which bin\Dispatch-Worker.ps1 attaches to every brief for
+# every project in the family beside that project's own. `annex` owns what goes in the file; this
+# module only reports which family was declared.
+#
+# NO FAMILY IS THE ORDINARY STATE and it is reported as the EMPTY STRING, never as a word. The key
+# is always present, so a caller reads it without testing for it, and the empty string is the one
+# value that cannot be composed into a file name to go looking for - where a state word like 'none'
+# would name data\rules-none.md, which somebody could perfectly well have written.
+#
+# The name after the colon becomes that file name, so it is held to the same shape a project name
+# is, asked of Index.psm1 for the reason the import below gives. A token of any other shape - no
+# colon, an empty name, a name with a separator or a traversal in it - is unrecognised, and so is a
+# second `+family:` on one entry, because one project belongs to one family and a line declaring two
+# is a line this parser could not read unambiguously.
+#
+# Merge and family are the strict ones, deliberately: mode and yolo keep their existing leniency,
+# because an unrecognised token has never changed either and this is not the change that makes it.
+# An annotation this parser could not read in full yields neither the permission nor the family, and
+# an unknown mode drops both with everything else the annotation granted.
 #
 # All strictness lives in Get-ProjectEntry. Get-ProjectPosture inherits it by calling through.
 # Get-AllProjects is the sole lenient function: it is a listing and validates nothing.
 
 $script:ValidModes = @('no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only')
 
-# For the project-name shape only. The index owns that rule because the name becomes a file name
-# there, and this module asks rather than keeping a second copy of the pattern: two copies of one
-# validation drift the moment either is edited, and a registry that accepted more than the index
-# could resolve let a project register and then fail every index write it was ever named in.
+# For the shape of a name that becomes a file name - a project name, and the family name after
+# `+family:`. The index owns that rule because a project name becomes a file name there, and this
+# module asks rather than keeping a second copy of the pattern: two copies of one validation drift
+# the moment either is edited, and a registry that accepted more than the index could resolve let a
+# project register and then fail every index write it was ever named in. A family name is the same
+# question one step along - it becomes data\rules-<family>.md - so it is asked of the same owner.
 #
 # NOT -Force - a module never forces a nested import. The rule and the failure it prevents are in
 # the `statute` skill's style rules; tests\Projects.Tests.ps1 pins this edge.
@@ -60,20 +81,22 @@ function Read-Registry {
         $m = [regex]::Match($lines[$i], '^-\s+(?<name>\S+)(?:\s+\[(?<ann>[^\]]*)\])?\s+-\s+(?<desc>.*)$')
         if (-not $m.Success) { continue }
 
-        $name  = $m.Groups['name'].Value
-        $desc  = $m.Groups['desc'].Value.Trim()
-        $mode  = 'no-mistakes'
-        $yolo  = 'off'
-        $merge = 'off'
+        $name   = $m.Groups['name'].Value
+        $desc   = $m.Groups['desc'].Value.Trim()
+        $mode   = 'no-mistakes'
+        $yolo   = 'off'
+        $merge  = 'off'
+        $family = ''
 
         $ann = $m.Groups['ann'].Value.Trim()
         if ($ann) {
             $modeSeen = $false
 
             # Whether every token in this annotation was recognised. A false here forces merge off
-            # after the loop, and after is the only place it can be done: forcing it inside would
-            # be undone by a later `+merge`, so `[no-mistakes garbage +merge]` would still grant
-            # the permission from a line this parser demonstrably could not read in full.
+            # and the family away after the loop, and after is the only place it can be done:
+            # forcing it inside would be undone by a later `+merge` or `+family:`, so
+            # `[no-mistakes garbage +merge]` would still grant the permission from a line this
+            # parser demonstrably could not read in full.
             $annReadInFull = $true
 
             foreach ($tok in ($ann -split '\s+' | Where-Object { $_ })) {
@@ -82,12 +105,38 @@ function Read-Registry {
                         $yolo = 'on'
                     } elseif ($tok -eq '+merge') {
                         $merge = 'on'
+                    } elseif ($tok.StartsWith('+family:')) {
+                        # Two questions, both fatal to the token and neither to the mode: whether
+                        # the name can be a file name at all, and whether this entry already
+                        # declared a different family. A project belongs to one family, so a line
+                        # naming two has not said which, and guessing would hand a worker the wrong
+                        # repositories' conventions with nothing to show it had happened.
+                        $declared = $tok.Substring('+family:'.Length)
+                        if (-not (Test-IndexProjectName -Project $declared)) {
+                            # ${name} rather than $name, because a colon straight after a variable
+                            # name is PowerShell's scope qualifier - "$name:" is a parse error, not
+                            # the sentence it looks like.
+                            Write-Warning ("Unusable family token '$tok' for ${name}: the name after " +
+                                           "'+family:' becomes the file name data\rules-$declared.md, " +
+                                           "which allows only $(Get-IndexProjectNameRule). It declares " +
+                                           'no family, and merge is forced off for this entry.')
+                            $annReadInFull = $false
+                        } elseif ($family -and $family -ne $declared) {
+                            Write-Warning ("$name declares two families, '$family' and '$declared'. " +
+                                           'A project belongs to one, so neither is taken, no family ' +
+                                           'rules file is attached, and merge is forced off for this ' +
+                                           'entry. Leave one `+family:` token on the line.')
+                            $annReadInFull = $false
+                        } else {
+                            $family = $declared
+                        }
                     } else {
                         # Says what was ignored and what that costs, never what state resulted.
                         # An earlier wording claimed it left yolo and merge off when it changed
                         # neither, which read as a lost permission on an entry that still had one.
                         Write-Warning ("Unrecognised token '$tok' for $name; it grants nothing, " +
-                                       'and merge is forced off for this entry.')
+                                       'and merge is forced off for this entry, along with any ' +
+                                       'family declared on the same line.')
                         $annReadInFull = $false
                     }
                 } elseif (-not $modeSeen) {
@@ -96,13 +145,15 @@ function Read-Registry {
                         $mode = $tok
                     } else {
                         # A typo can only ever make a project stricter, never looser. Everything
-                        # the annotation granted is dropped with it, merge included - a line this
-                        # function could not read in full is not a line to take a permission from.
+                        # the annotation granted is dropped with it, merge and the family included -
+                        # a line this function could not read in full is not a line to take a
+                        # permission from, nor one to take a set of shared conventions from.
                         Write-Warning ("Unknown mode '$tok' for $name; defaulting to " +
-                                       'no-mistakes off, merge off.')
-                        $mode  = 'no-mistakes'
-                        $yolo  = 'off'
-                        $merge = 'off'
+                                       'no-mistakes off, merge off, no family.')
+                        $mode   = 'no-mistakes'
+                        $yolo   = 'off'
+                        $merge  = 'off'
+                        $family = ''
                         break
                     }
                 } else {
@@ -114,7 +165,7 @@ function Read-Registry {
                 }
             }
 
-            if (-not $annReadInFull) { $merge = 'off' }
+            if (-not $annReadInFull) { $merge = 'off'; $family = '' }
         }
 
         $added = ''
@@ -156,6 +207,9 @@ function Read-Registry {
             rawMode     = $rawMode
             yolo        = $yolo
             merge       = $merge
+            # Always present, and the empty string where no family is declared - the header owns
+            # why that rather than a word.
+            family      = $family
             description = $desc
             added       = $added
             indexable   = $indexable
@@ -204,8 +258,9 @@ function Get-ProjectEntry {
     $entry
 }
 
-# The posture string is the mode and yolo, and deliberately not merge: merge is not a posture and
-# folding it in here would make it look like one. Read it off Get-ProjectEntry's `merge` key.
+# The posture string is the mode and yolo, and deliberately neither merge nor the family: neither
+# is a posture and folding either in here would make it look like one. Read them off
+# Get-ProjectEntry's `merge` and `family` keys.
 function Get-ProjectPosture {
     [CmdletBinding()]
     param(
@@ -234,6 +289,10 @@ function Add-ProjectEntry {
         [Parameter(Mandatory)][string]$Description,
         [switch]$Yolo,
         [switch]$Merge,
+        # The family this project belongs to, or nothing. EMPTY IS THE ORDINARY CASE and the default
+        # every import takes unless the user names a family: most projects share conventions with no
+        # other repository, so the entry is written exactly as it always was and no token appears.
+        [string]$Family = '',
         [string]$RegistryPath = (Get-DefaultRegistryPath)
     )
 
@@ -249,6 +308,18 @@ function Add-ProjectEntry {
         throw ("Cannot register '$Name' as local-only with -Merge: a local-only project never " +
                'pushes, so it has no forge and no pull request to merge. Register it with a ' +
                'push-capable mode, or register it without -Merge.')
+    }
+
+    # Refused where the family is chosen, for the reason the project name below is: the name becomes
+    # the file name of the family's shared rules, so a name that cannot be one registers a project
+    # whose family file nothing can ever write or attach - and the parser would then drop the token
+    # on every read, one dispatch at a time, with only a warning to show for it.
+    $familyName = $Family.Trim()
+    if ($familyName -and -not (Test-IndexProjectName -Project $familyName)) {
+        throw ("Family name '$familyName' cannot be registered: it becomes the file name of the " +
+               "family's shared rules at data\rules-$familyName.md. Use a name of " +
+               "$(Get-IndexProjectNameRule) - for example " +
+               "'$(ConvertTo-IndexProjectName -Project $familyName)'.")
     }
 
     # Refused where the name is chosen, not later where it is used. Every durable file written for a
@@ -280,12 +351,14 @@ function Add-ProjectEntry {
         Set-Content -Path $RegistryPath -Value "# Projects" -Encoding utf8
     }
 
-    # Built from the tokens that were actually asked for, so an entry written without -Merge is
-    # byte-identical to what this function has always written and the permission is absent rather
-    # than present-and-off. There is no "+merge off" spelling: absence is the off state.
+    # Built from the tokens that were actually asked for, so an entry written without -Merge and
+    # without -Family is byte-identical to what this function has always written and the permission
+    # is absent rather than present-and-off. There is no "+merge off" spelling and no "+family:none"
+    # spelling: absence is the off state and the no-family state.
     $tokens = @($Mode)
-    if ($Yolo)  { $tokens += '+yolo' }
-    if ($Merge) { $tokens += '+merge' }
+    if ($Yolo)       { $tokens += '+yolo' }
+    if ($Merge)      { $tokens += '+merge' }
+    if ($familyName) { $tokens += "+family:$familyName" }
     $ann   = '[' + ($tokens -join ' ') + ']'
     $added = Get-Date -Format 'yyyy-MM-dd'
 
