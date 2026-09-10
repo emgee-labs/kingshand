@@ -600,7 +600,7 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
 
     # local-only's DELIVERY needs nothing - it stops on a branch, so there is no push and no pull
     # request to hold back, and the King dropped the separate confirmation deliberately. Scoped to
-    # delivery rather than to the project: every cm-* entry here is local-only with its tickets in
+    # delivery rather than to the project: every acme-* entry here is local-only with its tickets in
     # Azure DevOps, so a posture-shaped exemption would carve out the common case, and `counsel`
     # already gates its work-item path with no local-only carve-out.
     It 'the outward stop fires on the action rather than on the posture' {
@@ -7067,6 +7067,17 @@ Describe 'a project carries standing rules that reach every worker without being
             -Where 'muster Step 2' `
             -Phrase ('worst of all the family''s file, which would switch the gate off for every ' +
                      'project in the family at once')
+    }
+
+    # The snapshot carries the field, so the skill whose only permitted data source is that snapshot
+    # has to be told to report it - the merge finding one field along, and the same failure shape.
+    It 'survey reports the family beside the posture' {
+        Assert-Phrase -Text (Get-DocText (Join-Path $script:Root '.claude\skills\survey\SKILL.md')) `
+            -Where 'the survey skill' `
+            -Phrase ('`family` is the family of projects this one belongs to, or the empty string ' +
+                     'where it belongs to none - report it beside the posture where it is set, ' +
+                     'because it decides which shared rules file every worker dispatched there ' +
+                     'carries.')
     }
 
     # The rationale a later change has to argue against rather than rediscover: why a token and not

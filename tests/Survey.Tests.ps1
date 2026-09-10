@@ -162,10 +162,10 @@ Describe 'every registry entry is named with its posture' {
         foreach ($n in @('alpha', 'beta')) {
             New-Item -ItemType Directory -Force -Path (Join-Path $f.Root "repos\$n") | Out-Null
         }
-        Add-RegistryEntry $f '- alpha [direct-PR +family:cm] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        Add-RegistryEntry $f '- alpha [direct-PR +family:acme] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
         Add-RegistryEntry $f '- beta [direct-PR] - beta repo (added 2026-01-02)' (Join-Path $f.Root 'repos\beta')
         $e = @((Get-Snapshot $f).registry.entries)
-        $e[0].family | Should -Be 'cm'
+        $e[0].family | Should -Be 'acme'
         # The empty string, never a word: a word composes into data\rules-<word>.md, which somebody
         # could have written, and would then be fetched for a project that is in no family at all.
         $e[1].family | Should -Be ''
@@ -175,7 +175,7 @@ Describe 'every registry entry is named with its posture' {
     It 'reports no family where the annotation could not be read in full' {
         $f = New-Fixture 'registry-family-unreadable'
         New-Item -ItemType Directory -Force -Path (Join-Path $f.Root 'repos\alpha') | Out-Null
-        Add-RegistryEntry $f '- alpha [no-mistakes garbage +family:cm] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        Add-RegistryEntry $f '- alpha [no-mistakes garbage +family:acme] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
         @((Get-Snapshot $f).registry.entries)[0].family | Should -Be ''
     }
 

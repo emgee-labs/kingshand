@@ -886,11 +886,11 @@ Describe 'a registry entry names the family a project belongs to' {
 
     It 'reads the declared family, beside the mode and the other tokens' {
         $reg = New-TestRegistry @"
-- proj [direct-PR +yolo +merge +family:cm] - declared (added 2026-08-24)
+- proj [direct-PR +yolo +merge +family:acme] - declared (added 2026-08-24)
       path: $script:RealPath
 "@
         $e = Get-ProjectEntry -Name proj -RegistryPath $reg
-        $e.family | Should -Be 'cm'
+        $e.family | Should -Be 'acme'
         $e.mode   | Should -Be 'direct-PR'
         $e.yolo   | Should -Be 'on'
         $e.merge  | Should -Be 'on'
@@ -898,18 +898,18 @@ Describe 'a registry entry names the family a project belongs to' {
 
     It 'reads it wherever it sits among the tokens' {
         $reg = New-TestRegistry @"
-- proj [no-mistakes +family:cm +yolo] - declared first (added 2026-08-24)
+- proj [no-mistakes +family:acme +yolo] - declared first (added 2026-08-24)
       path: $script:RealPath
 "@
         $e = Get-ProjectEntry -Name proj -RegistryPath $reg
-        $e.family | Should -Be 'cm'
+        $e.family | Should -Be 'acme'
         $e.yolo   | Should -Be 'on'
     }
 
     # A family is not a posture, and folding it into the posture string would make it read as one.
     It 'never appears in the posture string' {
         $reg = New-TestRegistry @"
-- proj [no-mistakes +family:cm] - declared (added 2026-08-24)
+- proj [no-mistakes +family:acme] - declared (added 2026-08-24)
       path: $script:RealPath
 "@
         Get-ProjectPosture -Name proj -RegistryPath $reg      | Should -Be 'no-mistakes off'
@@ -961,7 +961,7 @@ Describe 'a registry entry names the family a project belongs to' {
     # a worker another set of repositories' conventions with nothing to show it had happened.
     It 'takes neither family when an entry declares two' {
         $reg = New-TestRegistry @"
-- proj [no-mistakes +merge +family:cm +family:acme] - two families (added 2026-08-24)
+- proj [no-mistakes +merge +family:acme +family:globex] - two families (added 2026-08-24)
       path: $script:RealPath
 "@
         $w = @()
@@ -975,15 +975,15 @@ Describe 'a registry entry names the family a project belongs to' {
     # The same family twice is a duplicate rather than a contradiction: it says one thing, twice.
     It 'accepts the same family declared twice' {
         $reg = New-TestRegistry @"
-- proj [no-mistakes +family:cm +family:cm] - said twice (added 2026-08-24)
+- proj [no-mistakes +family:acme +family:acme] - said twice (added 2026-08-24)
       path: $script:RealPath
 "@
-        (Get-ProjectEntry -Name proj -RegistryPath $reg).family | Should -Be 'cm'
+        (Get-ProjectEntry -Name proj -RegistryPath $reg).family | Should -Be 'acme'
     }
 
     It 'an unknown mode drops the family with everything else the annotation granted' {
         $reg = New-TestRegistry @"
-- proj [no-mstakes +yolo +merge +family:cm] - typo in the mode (added 2026-08-24)
+- proj [no-mstakes +yolo +merge +family:acme] - typo in the mode (added 2026-08-24)
       path: $script:RealPath
 "@
         $e = Get-ProjectEntry -Name proj -RegistryPath $reg -WarningAction SilentlyContinue
@@ -1000,7 +1000,7 @@ Describe 'a registry entry names the family a project belongs to' {
         @{ junk = '+bogus' }
     ) {
         $reg = New-TestRegistry @"
-- proj [no-mistakes $junk +family:cm] - part unreadable (added 2026-08-24)
+- proj [no-mistakes $junk +family:acme] - part unreadable (added 2026-08-24)
       path: $script:RealPath
 "@
         $e = Get-ProjectEntry -Name proj -RegistryPath $reg -WarningAction SilentlyContinue
@@ -1016,12 +1016,12 @@ Describe 'a registry entry names the family a project belongs to' {
 - one [local-only] - first (added 2026-08-24)
       path: $script:RealPath
 
-- two [local-only +family:cm] - second (added 2026-08-24)
+- two [local-only +family:acme] - second (added 2026-08-24)
       path: $script:RealPath
 "@
         $all = Get-AllProjects -RegistryPath $reg
         $all[0].family | Should -Be ''
-        $all[1].family | Should -Be 'cm'
+        $all[1].family | Should -Be 'acme'
     }
 
     Context 'writing the token' {
@@ -1050,17 +1050,17 @@ Describe 'a registry entry names the family a project belongs to' {
 
         It 'writes the +family token when a family is named' {
             Add-ProjectEntry -Name 'acme' -Path $script:RealPath -Mode 'direct-PR' `
-                -Description 'in a family' -Family 'cm' -RegistryPath $script:famReg
+                -Description 'in a family' -Family 'acme' -RegistryPath $script:famReg
             (Get-EntryBlock -Path $script:famReg -Name 'acme')[0].StartsWith(
-                '- acme [direct-PR +family:cm] - in a family (added ') | Should -BeTrue
-            (Get-ProjectEntry -Name 'acme' -RegistryPath $script:famReg).family | Should -Be 'cm'
+                '- acme [direct-PR +family:acme] - in a family (added ') | Should -BeTrue
+            (Get-ProjectEntry -Name 'acme' -RegistryPath $script:famReg).family | Should -Be 'acme'
         }
 
         It 'writes it beside the other tokens rather than in place of them' {
             Add-ProjectEntry -Name 'acme' -Path $script:RealPath -Mode 'no-mistakes' `
-                -Description 'everything' -Yolo -Merge -Family 'cm' -RegistryPath $script:famReg
+                -Description 'everything' -Yolo -Merge -Family 'acme' -RegistryPath $script:famReg
             (Get-EntryBlock -Path $script:famReg -Name 'acme')[0].StartsWith(
-                '- acme [no-mistakes +yolo +merge +family:cm] - everything (added ') | Should -BeTrue
+                '- acme [no-mistakes +yolo +merge +family:acme] - everything (added ') | Should -BeTrue
         }
 
         # Refused where the name is chosen, not one dispatch at a time later, where the parser would

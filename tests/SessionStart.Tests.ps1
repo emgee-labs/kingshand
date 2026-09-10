@@ -367,10 +367,10 @@ Describe 'the registry is named project by project, with its posture' {
         foreach ($n in @('alpha', 'beta')) {
             New-Item -ItemType Directory -Force -Path (Join-Path $f.Root "repos\$n") | Out-Null
         }
-        Add-RegistryEntry $f '- alpha [direct-PR +yolo +family:cm] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        Add-RegistryEntry $f '- alpha [direct-PR +yolo +family:acme] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
         Add-RegistryEntry $f '- beta [direct-PR +yolo] - beta repo (added 2026-01-02)' (Join-Path $f.Root 'repos\beta')
         $text = Get-Digest $f
-        $text.Contains('- alpha [direct-PR] yolo on +family:cm') | Should -BeTrue
+        $text.Contains('- alpha [direct-PR] yolo on +family:acme') | Should -BeTrue
         $text.Contains('- beta [direct-PR] yolo on -') |
             Should -BeTrue -Because 'a project in no family prints exactly as it always has'
         $text.Contains('- beta [direct-PR] yolo on +family') | Should -BeFalse
@@ -381,7 +381,7 @@ Describe 'the registry is named project by project, with its posture' {
     It 'names no family on an entry whose annotation could not be read in full' {
         $f = New-Fixture 'registry-family-unreadable'
         New-Item -ItemType Directory -Force -Path (Join-Path $f.Root 'repos\alpha') | Out-Null
-        Add-RegistryEntry $f '- alpha [no-mistakes garbage +family:cm] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        Add-RegistryEntry $f '- alpha [no-mistakes garbage +family:acme] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
         (Get-Digest $f).Contains('+family') | Should -BeFalse
     }
 

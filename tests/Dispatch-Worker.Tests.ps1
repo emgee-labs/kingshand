@@ -3301,15 +3301,15 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         It 'attaches the family file nobody passed, where the worker can reach it' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-attached'
-            $name = Register-FixtureProject -Fixture $f -Family 'cm'
-            New-StandingFile -Fixture $f -Leaf 'rules-cm.md' -Text 'Every cm ticket is tagged CM-.' | Out-Null
+            $name = Register-FixtureProject -Fixture $f -Family 'acme'
+            New-StandingFile -Fixture $f -Leaf 'rules-acme.md' -Text 'Every acme ticket is tagged AC-.' | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
 
             (Invoke-Dispatch -Fixture $f -Name 'T-9101').id | Should -Be 'T-9101'
-            $copy = Join-Path $f.BriefDir 'read-first\rules-cm.md'
+            $copy = Join-Path $f.BriefDir 'read-first\rules-acme.md'
             Test-Path -LiteralPath $copy | Should -BeTrue
-            (Get-Content -LiteralPath $copy -Raw) | Should -BeLike '*tagged CM-*'
-            (Get-BriefText -Fixture $f).Contains('read-first\rules-cm.md') | Should -BeTrue
+            (Get-Content -LiteralPath $copy -Raw) | Should -BeLike '*tagged AC-*'
+            (Get-BriefText -Fixture $f).Contains('read-first\rules-acme.md') | Should -BeTrue
             $name | Should -Be 'acme-web'
         }
 
@@ -3318,18 +3318,18 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         It 'says in the line itself that the project s own file wins' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-precedence'
-            $name = Register-FixtureProject -Fixture $f -Family 'cm'
-            New-StandingFile -Fixture $f -Leaf 'rules-cm.md' | Out-Null
+            $name = Register-FixtureProject -Fixture $f -Family 'acme'
+            New-StandingFile -Fixture $f -Leaf 'rules-acme.md' | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
 
             Invoke-Dispatch -Fixture $f -Name 'T-9102' | Out-Null
             $line = @(@(Get-Content -LiteralPath $f.BriefPath) |
-                        Where-Object { $_ -like '*read-first\rules-cm.md*' })[0]
+                        Where-Object { $_ -like '*read-first\rules-acme.md*' })[0]
             ($null -ne $line) | Should -BeTrue
             $line | Should -BeLike "*Where it and this project's own rules-$name.md disagree*"
             $line | Should -BeLike "*rules-$name.md wins*"
             $line | Should -BeLike '*the more specific of the two*'
-            $line | Should -BeLike '*shared by every project in the cm family*'
+            $line | Should -BeLike '*shared by every project in the acme family*'
         }
 
         # A family may be declared before anybody writes its shared rules, so an absent file is an
@@ -3337,7 +3337,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         It 'attaches nothing and writes no line for a family whose file is not there yet' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-declared-no-file'
-            Register-FixtureProject -Fixture $f -Family 'cm' | Out-Null
+            Register-FixtureProject -Fixture $f -Family 'acme' | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
             $before = Get-BriefText -Fixture $f
 
@@ -3352,7 +3352,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-undeclared'
             Register-FixtureProject -Fixture $f | Out-Null
-            New-StandingFile -Fixture $f -Leaf 'rules-cm.md' | Out-Null
+            New-StandingFile -Fixture $f -Leaf 'rules-acme.md' | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
             $before = Get-BriefText -Fixture $f
 
@@ -3364,8 +3364,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         It 'adds no second line when the same ticket is dispatched again' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-redispatch'
-            Register-FixtureProject -Fixture $f -Family 'cm' | Out-Null
-            New-StandingFile -Fixture $f -Leaf 'rules-cm.md' | Out-Null
+            Register-FixtureProject -Fixture $f -Family 'acme' | Out-Null
+            New-StandingFile -Fixture $f -Leaf 'rules-acme.md' | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
 
             Invoke-Dispatch -Fixture $f -Name 'T-9105' | Out-Null
@@ -3379,16 +3379,16 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         It 'names the criteria file, then the project rules, then the family rules' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-order'
-            $name = Register-FixtureProject -Fixture $f -Family 'cm'
+            $name = Register-FixtureProject -Fixture $f -Family 'acme'
             New-StandingFile -Fixture $f -Leaf "done-$name.md"  -Text '- Pester is green.' | Out-Null
             New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
-            New-StandingFile -Fixture $f -Leaf 'rules-cm.md'    | Out-Null
+            New-StandingFile -Fixture $f -Leaf 'rules-acme.md'    | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @(
                 '- Nothing beyond this brief - the index was checked and nothing in it applies.')
 
             Invoke-Dispatch -Fixture $f -Name 'T-9106' | Out-Null
 
-            $o = Get-FamilyOrder -Fixture $f -Project $name -Family 'cm'
+            $o = Get-FamilyOrder -Fixture $f -Project $name -Family 'acme'
             ($o.LeadIn   -gt $o.Heading)  | Should -BeTrue
             ($o.Criteria -gt $o.LeadIn)   | Should -BeTrue
             ($o.Rules    -gt $o.Criteria) | Should -BeTrue
@@ -3400,16 +3400,16 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         It 'keeps the family rules last when its file appears after the first dispatch' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-grew'
-            $name = Register-FixtureProject -Fixture $f -Family 'cm'
+            $name = Register-FixtureProject -Fixture $f -Family 'acme'
             New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @(
                 '- Nothing beyond this brief - the index was checked and nothing in it applies.')
 
             Invoke-Dispatch -Fixture $f -Name 'T-9107' | Out-Null
-            New-StandingFile -Fixture $f -Leaf 'rules-cm.md' | Out-Null
+            New-StandingFile -Fixture $f -Leaf 'rules-acme.md' | Out-Null
             Invoke-Dispatch -Fixture $f -Name 'T-9107' | Out-Null
 
-            $o = Get-FamilyOrder -Fixture $f -Project $name -Family 'cm'
+            $o = Get-FamilyOrder -Fixture $f -Project $name -Family 'acme'
             ($null -ne $o.Family)      | Should -BeTrue
             ($o.Rules  -gt $o.LeadIn)  | Should -BeTrue
             ($o.Family -gt $o.Rules)   | Should -BeTrue
@@ -3423,8 +3423,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         It 'does not let the attached family file satisfy the index gate' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-not-engagement'
-            Register-FixtureProject -Fixture $f -Family 'cm' -WithIndex | Out-Null
-            New-StandingFile -Fixture $f -Leaf 'rules-cm.md' | Out-Null
+            Register-FixtureProject -Fixture $f -Family 'acme' -WithIndex | Out-Null
+            New-StandingFile -Fixture $f -Leaf 'rules-acme.md' | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
 
             { Invoke-Dispatch -Fixture $f -Name 'T-9108' } |
@@ -3434,13 +3434,13 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         It 'says in that refusal which family file it is attaching by itself' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-refusal-names'
-            Register-FixtureProject -Fixture $f -Family 'cm' -WithIndex | Out-Null
-            New-StandingFile -Fixture $f -Leaf 'rules-cm.md' | Out-Null
+            Register-FixtureProject -Fixture $f -Family 'acme' -WithIndex | Out-Null
+            New-StandingFile -Fixture $f -Leaf 'rules-acme.md' | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
 
             $msg = ''
             try { Invoke-Dispatch -Fixture $f -Name 'T-9109' } catch { $msg = $_.Exception.Message }
-            $msg | Should -BeLike '*rules-cm.md*'
+            $msg | Should -BeLike '*rules-acme.md*'
             $msg | Should -BeLike '*say nothing about this task either*'
         }
 
@@ -3450,19 +3450,19 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         It 'discounts the family file the Hand passed, and calls it the family s' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-passed-by-hand'
-            Register-FixtureProject -Fixture $f -Family 'cm' -WithIndex | Out-Null
-            $shared = New-StandingFile -Fixture $f -Leaf 'rules-cm.md'
+            Register-FixtureProject -Fixture $f -Family 'acme' -WithIndex | Out-Null
+            $shared = New-StandingFile -Fixture $f -Leaf 'rules-acme.md'
             Set-ReadFirstBrief -Fixture $f -Body @(
-                "- ``$($f.BriefDir)\read-first\rules-cm.md`` - the shared rules, copied from ``$shared``.")
+                "- ``$($f.BriefDir)\read-first\rules-acme.md`` - the shared rules, copied from ``$shared``.")
 
             $msg = ''
             try {
                 & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9110' `
                     -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $shared
             } catch { $msg = $_.Exception.Message }
-            $msg | Should -BeLike '*the standing rules the cm family shares*'
+            $msg | Should -BeLike '*the standing rules the acme family shares*'
             $msg | Should -BeLike '*every brief for every project in that family passes*'
-            $msg | Should -BeLike "*beyond the cm family's standing rules above*"
+            $msg | Should -BeLike "*beyond the acme family's standing rules above*"
         }
 
         # An unreadable file is not an absent one. Reading it as absent ships a worker without rules
@@ -3470,8 +3470,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         It 'refuses a family file that is there and cannot be opened' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-unreadable'
-            Register-FixtureProject -Fixture $f -Family 'cm' | Out-Null
-            $shared = New-StandingFile -Fixture $f -Leaf 'rules-cm.md'
+            Register-FixtureProject -Fixture $f -Family 'acme' | Out-Null
+            $shared = New-StandingFile -Fixture $f -Leaf 'rules-acme.md'
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
 
             $held = [System.IO.File]::Open($shared, 'Open', 'Read', 'None')
@@ -3485,11 +3485,11 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         It 'refuses a -ReadPath whose name collides with the family file' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-collision'
-            Register-FixtureProject -Fixture $f -Family 'cm' | Out-Null
-            New-StandingFile -Fixture $f -Leaf 'rules-cm.md' | Out-Null
-            $elsewhere = Join-Path $f.Home 'rules-cm.md'
+            Register-FixtureProject -Fixture $f -Family 'acme' | Out-Null
+            New-StandingFile -Fixture $f -Leaf 'rules-acme.md' | Out-Null
+            $elsewhere = Join-Path $f.Home 'rules-acme.md'
             Set-Content -LiteralPath $elsewhere -Value 'a different file with the same name' -Encoding utf8
-            Set-ReadFirstBrief -Fixture $f -Leaf 'rules-cm.md' -From $elsewhere
+            Set-ReadFirstBrief -Fixture $f -Leaf 'rules-acme.md' -From $elsewhere
 
             { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9112' `
                 -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $elsewhere } |
@@ -3501,14 +3501,14 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         It 'clears the copy and the line when the family file is deleted' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-file-removed'
-            $name = Register-FixtureProject -Fixture $f -Family 'cm'
+            $name = Register-FixtureProject -Fixture $f -Family 'acme'
             New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
-            $shared = New-StandingFile -Fixture $f -Leaf 'rules-cm.md'
+            $shared = New-StandingFile -Fixture $f -Leaf 'rules-acme.md'
             Set-ReadFirstBrief -Fixture $f -Body @(
                 '- Nothing beyond this brief - the index was checked and nothing in it applies.')
 
             Invoke-Dispatch -Fixture $f -Name 'T-9113' | Out-Null
-            $copy = Join-Path $f.BriefDir 'read-first\rules-cm.md'
+            $copy = Join-Path $f.BriefDir 'read-first\rules-acme.md'
             Test-Path -LiteralPath $copy | Should -BeTrue
 
             Remove-Item -LiteralPath $shared -Force
@@ -3516,7 +3516,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             Test-Path -LiteralPath $copy | Should -BeFalse
             $text = Get-BriefText -Fixture $f
-            $text.Contains('read-first\rules-cm.md') | Should -BeFalse
+            $text.Contains('read-first\rules-acme.md') | Should -BeFalse
             # The project's own file is untouched, and so is the lead-in that introduces it.
             $text.Contains("read-first\rules-$name.md") | Should -BeTrue
             $text | Should -BeLike '*attached by dispatch from this project*'
@@ -3528,14 +3528,14 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         It 'clears the copy and the line when the family token is taken off the entry' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-token-removed'
-            $name = Register-FixtureProject -Fixture $f -Family 'cm'
+            $name = Register-FixtureProject -Fixture $f -Family 'acme'
             New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
-            New-StandingFile -Fixture $f -Leaf 'rules-cm.md' | Out-Null
+            New-StandingFile -Fixture $f -Leaf 'rules-acme.md' | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @(
                 '- Nothing beyond this brief - the index was checked and nothing in it applies.')
 
             Invoke-Dispatch -Fixture $f -Name 'T-9114' | Out-Null
-            $copy = Join-Path $f.BriefDir 'read-first\rules-cm.md'
+            $copy = Join-Path $f.BriefDir 'read-first\rules-acme.md'
             Test-Path -LiteralPath $copy | Should -BeTrue
 
             Remove-FixtureFamily -Fixture $f -Project $name
@@ -3543,18 +3543,18 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             Test-Path -LiteralPath $copy | Should -BeFalse
             $text = Get-BriefText -Fixture $f
-            $text.Contains('read-first\rules-cm.md') | Should -BeFalse
+            $text.Contains('read-first\rules-acme.md') | Should -BeFalse
             $text.Contains("read-first\rules-$name.md") | Should -BeTrue
             # The shared file itself is not this dispatch's to delete - other projects still use it.
-            Test-Path -LiteralPath (Join-Path $f.DataPath 'rules-cm.md') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $f.DataPath 'rules-acme.md') | Should -BeTrue
         }
 
         # The whole thing is reversible, which is what makes pruning safe to do at all.
         It 'brings both back when the family token is put back on the entry' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-token-restored'
-            $name = Register-FixtureProject -Fixture $f -Family 'cm'
-            New-StandingFile -Fixture $f -Leaf 'rules-cm.md' | Out-Null
+            $name = Register-FixtureProject -Fixture $f -Family 'acme'
+            New-StandingFile -Fixture $f -Leaf 'rules-acme.md' | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @(
                 '- Nothing beyond this brief - the index was checked and nothing in it applies.')
 
@@ -3567,12 +3567,12 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $gone | Should -BeLike '*Nothing beyond this brief - the index was checked*'
 
             Remove-Item -LiteralPath (Join-Path $f.DataPath 'projects.md') -Force
-            Register-FixtureProject -Fixture $f -Project $name -Family 'cm' | Out-Null
+            Register-FixtureProject -Fixture $f -Project $name -Family 'acme' | Out-Null
             Invoke-Dispatch -Fixture $f -Name 'T-9115' | Out-Null
 
             $back = Get-BriefText -Fixture $f
-            $back.Contains('read-first\rules-cm.md') | Should -BeTrue
-            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\rules-cm.md') | Should -BeTrue
+            $back.Contains('read-first\rules-acme.md') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\rules-acme.md') | Should -BeTrue
         }
 
         # The prune reads a directory listing, never the brief's prose, so it must leave alone every
@@ -3624,14 +3624,14 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         It 'copies the family file through without reading a thing inside it' {
             Set-AgentStartState
             $f = New-DispatchFixture 'family-opaque'
-            Register-FixtureProject -Fixture $f -Family 'cm' | Out-Null
+            Register-FixtureProject -Fixture $f -Family 'acme' | Out-Null
             $body = @('## Read first', '```', '- `C:\not\a\path.md`', '```',
                       'index checked, nothing applies') -join "`r`n"
-            New-StandingFile -Fixture $f -Leaf 'rules-cm.md' -Text $body | Out-Null
+            New-StandingFile -Fixture $f -Leaf 'rules-acme.md' -Text $body | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
 
             (Invoke-Dispatch -Fixture $f -Name 'T-9118').id | Should -Be 'T-9118'
-            (Get-Content -LiteralPath (Join-Path $f.BriefDir 'read-first\rules-cm.md') -Raw).Trim() |
+            (Get-Content -LiteralPath (Join-Path $f.BriefDir 'read-first\rules-acme.md') -Raw).Trim() |
                 Should -Be $body
         }
     }
