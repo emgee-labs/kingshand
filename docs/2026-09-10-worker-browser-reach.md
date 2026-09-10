@@ -19,8 +19,9 @@ So the question was never whether the browser is useful. It was where the payloa
 **The browser tools load in a worker.** They are deferred, and a worker's single batched load
 returned all of them, including the two read tools the record is built from. `witness` owns the
 exact load line and `bin\BrowserVerify.psm1` owns the required set; both were used as written and
-the availability check came back available with nothing missing. Being dispatched into a worktree
-costs a worker nothing here - the tool inventory is the session's, not the directory's.
+the availability check came back available with nothing missing. One tool was loaded on top of that
+line rather than from it, and the tab-close recommendation below names it. Being dispatched into a
+worktree costs a worker nothing here - the tool inventory is the session's, not the directory's.
 
 **They drive a real browser, not a stub.** A tab was created, navigated to a static
 documentation-example page, its rendered text read back, its console and network traces read, and
@@ -31,12 +32,17 @@ its own tab group. Asked for its context without permission to create one, a fre
 no group exists for this session; creating one produced a group holding exactly one new tab;
 closing that tab emptied the group and the browser removed it. So the group held only the tab the
 worker itself created, and a worker starts with no handle on any tab it did not create - nothing
-the King has open is reachable by accident. The tool's documented contract goes further and says
-only tabs in the session's own group can be closed at all, but that is contract rather than
-evidence: testing it means aiming the close tool at a tab the worker did not create, which this run
-was forbidden to touch. What was measured is enough to make driving a browser the King is sitting
-in front of an acceptable thing for a background worker to do; the stronger claim is untested and
-is listed below.
+the King has open is reachable by accident through a tab-scoped tool. The tool's documented
+contract goes further and says only tabs in the session's own group can be closed at all, but that
+is contract rather than evidence: testing it means aiming the close tool at a tab the worker did
+not create, which this run was forbidden to touch.
+
+That conclusion is bounded twice over. It covers the tab-scoped tools this run actually used, and
+for those it is enough to make driving a browser the King is sitting in front of an acceptable
+thing for a background worker to do. It says nothing about a tool that reads the screen or drives
+mouse and keyboard: the procedure's base batch loads one of those and a find tool on every run, and
+this run exercised neither, so there is no evidence here either way about what they reach. And the
+stronger containment claim is untested. Both gaps are listed below.
 
 **Which browser gets driven is not a worker's decision, and it cannot be made into one.** Two
 browsers were connected to the account during this run. The listing result instructs the caller to
@@ -59,16 +65,24 @@ not the obvious one.
 nothing to do with the page. Evidence read out of a personal browser has to be filtered before it
 means anything, and an unfiltered trace is both misleading and large.
 
-**The payload lands in the worker, which is the whole point.** Every result above arrived in the
-worker's own context. There is no path by which a worker's tool result is surfaced to the Hand: the
-Hand sees the worker's `report.md`, its final message, and whatever is on its screen. So the
-premise holds and the design is viable. One caveat, stated because it is the only leak: a worker's
-screen is readable while the worker lives, and that read is wider than what the worker chose to
-print. `bin\Herdr.psm1` reads the rendered terminal with the `recent-unwrapped` source, which
-includes scrollback, so a rendered tool-result block is on that screen whether the worker printed
-anything or not. The bound is the number of rendered lines the call site asks for - the widest read
-written down anywhere is 60 lines - and the truncation the terminal already applied to the result.
-The full tool result never reaches the pane, so the payload still lands in the worker.
+**The payload lands in the worker, which is the whole point.** Every result above was returned into
+the worker's own context window and none of it was added to the Hand's. That is the cost question
+and the answer holds: the Hand does not pay context for a result a worker received, so the premise
+stands and the design is viable.
+
+Not being in the Hand's context is not the same as existing nowhere, and the second is what "the
+cost dies with the worker" would have to mean. Two paths carry it further. The first is the
+worker's screen, readable while the worker lives and wider than what the worker chose to print:
+`bin\Herdr.psm1` reads the rendered terminal with the `recent-unwrapped` source, which includes
+scrollback, so a rendered tool-result block is on that screen whether the worker printed anything
+or not. That read is bounded by the number of rendered lines the call site asks for - the widest
+written down anywhere is 60 lines - and by the truncation the terminal already applied, so the full
+result never reaches the pane. The second has no such bound: the worker's on-disk session
+transcript records tool output in full, and this repository names it in two places as somewhere
+tool output lands. That is a durable, untruncated copy of the whole payload rather than a render of
+it, and it is a path to anyone who goes looking, the Hand included. `CLAUDE.md` says the session
+and its transcript go at teardown while `report.md` survives, so the on-disk copy is bounded in
+time rather than permanent - this repository's stated behaviour, not something this run measured.
 
 ## What could not be established, and why it was not tested
 
@@ -86,7 +100,12 @@ says it does, and nothing seen here contradicts that, but confirming it means ha
 tool a tab the worker did not create. Not tested, and not a thing to test against a browser
 somebody is using.
 
-All three are recorded as not established rather than inferred. The tab-group evidence above is
+**Whether the screen-and-input tool and the find tool are scoped to the session's tab group.** The
+procedure loads `computer` and `find` on every run and this run used neither, so nothing here says
+what they can reach. That is not evidence against them either - it is a gap, and the tab-group
+argument above does not cover it.
+
+All four are recorded as not established rather than inferred. The tab-group evidence above is
 what is known; the rest is not.
 
 ## What a follow-up would change
@@ -95,19 +114,22 @@ Recommendations only. Nothing below was implemented, and each is a separate chan
 gate.
 
 - **`witness` should say to call the console and network reads before the navigation to be
-  observed.** It currently describes reading them afterwards, which returns an empty trace on a
-  first call and looks like a clean run. This is the finding most likely to produce a false pass.
+  observed.** It prescribes no order at all today, and the natural reading of that silence is to
+  navigate and then read, which returns an empty trace on a first call and looks like a clean run.
+  This is the finding most likely to produce a false pass.
 - **`witness` should say to filter the network trace rather than read it whole**, and say why: a
   personal browser's extensions dominate the trace and the unfiltered result is large.
 - **`witness` should state that a worker never selects or switches the browser.** The selection is
   account-wide, the prompt for it cannot be answered by a background worker, and the broadcast
   alternative interrupts the King. A check that depends on landing in a particular browser is a
   check to record as not checked.
-- **`witness` should load a tab-close tool and say to close the tab it created.** Its batched load
-  line carries no way to close a tab and the procedure never mentions closing one, so a worker that
-  follows it leaves its tab open in the browser the King is using. The tab group only empties, and
-  the safety argument above only holds, if the tab the worker opened is closed when the checks are
-  done.
+- **`witness` should load `tabs_close_mcp` and say to close the tab it created.** That is the tool
+  this run used, loaded deliberately on top of the batched load line rather than from it, and it is
+  the only reason the tab could be closed at all. The load line carries no way to close a tab and
+  the procedure never mentions closing one, so a worker that follows it as written leaves its tab
+  open in the browser the King is using. The tab group only empties, and the safety argument above
+  only holds, if the tab the worker opened is closed when the checks are done. The load line and
+  the required set both need that exact name.
 - **The claim that a worker cannot see a variable set after the server started should come out of
   `bin\BrowserVerify.psm1` first.** That is where it originates: the module states it as measured
   fact and builds its reason strings on it, one of which tells the report the worker was started
