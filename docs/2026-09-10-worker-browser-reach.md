@@ -59,8 +59,12 @@ means anything, and an unfiltered trace is both misleading and large.
 worker's own context. There is no path by which a worker's tool result is surfaced to the Hand: the
 Hand sees the worker's `report.md`, its final message, and whatever is on its screen. So the
 premise holds and the design is viable. One caveat, stated because it is the only leak: a worker's
-screen is readable while the worker lives, so anything the worker prints is visible there. That is
-bounded by what a worker chooses to print and is not the tool result itself.
+screen is readable while the worker lives, and that read is wider than what the worker chose to
+print. `bin\Herdr.psm1` reads the rendered terminal with the `recent-unwrapped` source, which
+includes scrollback, so a rendered tool-result block is on that screen whether the worker printed
+anything or not. The bound is the rendered line count - 40 by default - and the truncation the
+terminal already applied to the result. The full tool result never reaches the pane, so the payload
+still lands in the worker.
 
 ## What could not be established, and why it was not tested
 

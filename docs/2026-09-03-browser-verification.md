@@ -57,9 +57,12 @@ Measured on this machine, 2026-09-03:
 
 That is ordinary Windows behaviour rather than a defect in anything: a process inherits its
 parent's environment block at creation, and a long-running console server never learns that the
-user environment changed. Every worker it starts inherits the environment as it was when the
-server started. The failure mode is the bad one - `$env:NAME` reads empty for a variable that is
-correctly set, and an empty password looks exactly like a wrong password.
+user environment changed. That was measured only for a child spawned from an already-stale parent,
+and it does not hold for a worker: herdr composes a fresh environment for each pane, so a worker
+does see a variable set after the server started. That measurement is owned by
+`docs\2026-09-04-worker-environment-propagation.md`. The failure mode is the bad one - `$env:NAME`
+reads empty for a variable that is correctly set, and an empty password looks exactly like a wrong
+password.
 
 `Get-BrowserCredentialStatus` therefore reads the process block first and the user environment
 second, and reports which source answered. The second read is the one that usually succeeds, so
