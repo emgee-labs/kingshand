@@ -94,6 +94,11 @@ gate.
   account-wide, the prompt for it cannot be answered by a background worker, and the broadcast
   alternative interrupts the King. A check that depends on landing in a particular browser is a
   check to record as not checked.
+- **`witness` should load a tab-close tool and say to close the tab it created.** Its batched load
+  line carries no way to close a tab and the procedure never mentions closing one, so a worker that
+  follows it leaves its tab open in the browser the King is using. The tab group only empties, and
+  the safety argument above only holds, if the tab the worker opened is closed when the checks are
+  done.
 - **Nothing in `bin\BrowserVerify.psm1` needs to change.** Its required set is exactly what a
   worker needs and its availability check answered correctly on the first call.
 

@@ -43,7 +43,7 @@ a browser step as a side effect.
 copied into brief after brief. That is the point at which a per-project home earns itself. One
 project's worth of rules does not.
 
-## The environment a worker inherits is a snapshot, and it is usually stale
+## The credential read takes two sources, and a bare lookup is not one of them
 
 A login has to reach a worker without being written down anywhere, so it comes from a user-scope
 environment variable. The trap is that it does not arrive.
@@ -60,15 +60,18 @@ parent's environment block at creation, and a long-running console server never 
 user environment changed. That was measured only for a child spawned from an already-stale parent,
 and it does not hold for a worker: herdr composes a fresh environment for each pane, so a worker
 does see a variable set after the server started. That measurement is owned by
-`docs\2026-09-04-worker-environment-propagation.md`. The failure mode is the bad one - `$env:NAME`
-reads empty for a variable that is correctly set, and an empty password looks exactly like a wrong
-password.
+`docs\2026-09-04-worker-environment-propagation.md`. In that measured case - a child spawned from a
+parent whose own block was already stale - the failure mode is the bad one: `$env:NAME` reads empty
+for a variable that is correctly set, and an empty password looks exactly like a wrong password.
+That is the case the read below is built for, not what a worker ordinarily hits.
 
 `Get-BrowserCredentialStatus` therefore reads the process block first and the user environment
-second, and reports which source answered. The second read is the one that usually succeeds, so
-the answer is a variable that simply works rather than an instruction to restart a server, which
-is advice a background worker cannot act on anyway. The restart is still named in the not-found
-message, because a variable set in neither place needs it.
+second, and reports which source answered. Because a pane gets a freshly composed environment, the
+process-block read is the one that usually answers for a worker and the user-environment read is
+the backstop that covers the stale case. Either way the answer is a variable that simply works
+rather than an instruction to restart a server, which is advice a background worker cannot act on
+anyway. The restart is still named in the not-found message, because a variable set in neither
+place needs it.
 
 The login itself is not in what that function returns. A hashtable evaluated on its own prints
 every key it holds, so a worker typing `$cred` to see whether a login was found would put the
@@ -76,9 +79,11 @@ login into its pane and its transcript - a foot-gun no prose warning removes. Th
 therefore safe to print by construction, and `Get-BrowserCredentialValue` is the only way to the
 login, called where it is typed into the page and nowhere else.
 
-**Do not replace that second read with a bare `$env:` lookup.** It will appear to work on any
-machine where the server was started after the variable was set, which is exactly the machine
-nobody tests on.
+**Do not replace that second read with a bare `$env:` lookup.** It will appear to work in the
+ordinary case, because a pane's freshly composed environment carries a variable that was set before
+the pane existed - which makes the second read easy to drop rather than safe to drop. What it
+covers is the narrower case that still exists: a process whose parent block was already stale when
+it was spawned, where the variable is in the user environment and in no process block at all.
 
 ## The implementing worker drives the browser
 
