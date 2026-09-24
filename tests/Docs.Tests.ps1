@@ -8400,8 +8400,15 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
                      'nothing has told you what it is**')
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
             -Phrase ('Find it by taking the newest `*-land.html` in `data\<id>\` for a landing ' +
-                     'gate, and the newest `*.html` in `data\_dispatch\` for a dispatch gate, ' +
-                     'then re-run the poll on that path.')
+                     'gate, and the newest `*-<ids>.html` in `data\_dispatch\` for the ids the ' +
+                     'backlog says are awaiting dispatch, then re-run the poll on that path.')
+        # The landing half is scoped by the work item's own directory; the dispatch half shares
+        # one directory with every gate ever rendered and nothing cleans it up, so date alone
+        # re-arms one outstanding gate and silently strands the other.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Match on the ids rather than on the date alone: nothing clears that ' +
+                     'directory, so with two gates outstanding the newest file is one of them ' +
+                     'and the other is stranded.')
     }
 
     It 'names the one call that answers in the surface and waits again' {
@@ -8457,6 +8464,13 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
                      'fired says re-arm again')
         $script:Surface.Contains('**`Send & End` is the one result with nothing to re-arm.**') |
             Should -BeFalse -Because 'naming one button as the rule leaves every other ended return re-arming'
+        # Stopping the poll is not the whole answer when they ended without sending: nothing was
+        # approved, the path is spent for a plain open, and the decision is left with no surface
+        # at all. The failed-artifact case one paragraph below is routed the same way.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Where that return carried no feedback at all, the decision is still ' +
+                     'open and now has no surface**, so put it in chat rather than leaving it ' +
+                     'on a page nobody is watching.')
     }
 
     # The return that looks like an ending and is not one. A failure recorded against a live
@@ -8618,21 +8632,36 @@ Describe 'the review-surface contract is stated once and cross-referenced everyw
         Assert-Phrase -Text $step -Where 'the dispatch gate' `
             -Phrase ('it runs to milliseconds because a rewritten gate can be rendered in the ' +
                      'same second as the one it replaces')
-        # The revision loop renders again into the path the user may have just ended.
+        # The revision loop, scoped: a path is spent only once the user has ended it, so while the
+        # session is open the revision goes over the same file and Lavish reloads the window they
+        # are looking at. A new name beside a live session gives them two gates for one decision,
+        # and an approval sent in the stale one returns as consent to a brief that is gone.
         Assert-Phrase -Text $step -Where 'the dispatch gate' `
-            -Phrase ('If they change a brief, rewrite it and render again - to a new `$gate` ' +
-                     'name, because a revised gate is a new decision and the old path may ' +
-                     'already be spent.')
+            -Phrase ('**render again over the same `$gate` file while that session is still ' +
+                     'open** - Lavish live-reloads it in the window they are already looking ' +
+                     'at, exactly as a repaired artifact is.')
+        Assert-Phrase -Text $step -Where 'the dispatch gate' `
+            -Phrase ('A new name is for a gate whose session they have ended, and only then: ' +
+                     'rendering a revision to a new name beside a live one leaves them two ' +
+                     'gates for one decision, and an approval sent in the stale window comes ' +
+                     'back as consent to a brief that no longer exists.')
     }
 
     # Per unit of work is not per decision, and the landing gate is where the difference bites:
     # a rejected landing is fixed and comes back here, into a session the user already ended.
-    It 'the landing gate takes a fresh name on every render, not one per work item' {
-        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+    It 'the landing gate takes a fresh name once its session has ended, not per work item' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
             -Phrase '**One name per decision, not one per unit of work.**'
-        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+        Assert-Phrase -Text $step -Where 'the landing gate' `
             -Phrase ('rendering it into the name the first one used reaches a session they ' +
-                     'already ended, which opens nothing')
+                     'ended with that rejection, which opens nothing')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('Where the session is still open, this gate re-renders over the same file ' +
+                     'and lets Lavish reload it, rather than opening a second window on the ' +
+                     'same decision.')
+        $step.Contains('takes a fresh `$gate` name every time it is rendered') |
+            Should -BeFalse -Because 'unconditional, that opens a second window on a session still live'
     }
 
     # The always-loaded file listed the old fixed landing-gate name, so leaving it would have

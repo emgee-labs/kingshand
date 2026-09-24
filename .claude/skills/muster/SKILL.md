@@ -831,15 +831,19 @@ re-run.
 
 **`poll` needs the gate file's absolute path, and after a restart nothing has told you what it
 is** - the gates render under a timestamped name, so there is no fixed one to type. Find it by
-taking the newest `*-land.html` in `data\<id>\` for a landing gate, and the newest `*.html` in
-`data\_dispatch\` for a dispatch gate, then re-run the poll on that path.
+taking the newest `*-land.html` in `data\<id>\` for a landing gate, and the newest
+`*-<ids>.html` in `data\_dispatch\` for the ids the backlog says are awaiting dispatch, then
+re-run the poll on that path. Match on the ids rather than on the date alone: nothing clears that
+directory, so with two gates outstanding the newest file is one of them and the other is stranded.
 
 **A return whose session has ended is the one with nothing to re-arm**, and `Send & End` is only
 the commonest way to reach that state - ending the review without sending anything reaches it too.
 Whatever final feedback there was is still delivered once, and after that response polling stops.
 Re-arming anyway is the mistake this rule invites: the reply is written into the chat of a closed
 session nobody will read, the poll returns the same ended result at once, and the rule that just
-fired says re-arm again. The session is not reopened uninvited to carry it either.
+fired says re-arm again. The session is not reopened uninvited to carry it either. **Where that
+return carried no feedback at all, the decision is still open and now has no surface**, so put it
+in chat rather than leaving it on a page nobody is watching.
 
 **An `artifact_failures` return on a session that is still open is the surface failing, not the
 session ending, and it is re-armed.** That return says the page could not be used while they can
@@ -905,9 +909,12 @@ surface, re-arming the poll, what an ended session means - is `## The review sur
 Only the user's own sent feedback is consent to dispatch.
 
 When `$proj.yolo -eq 'off'`, dispatch nothing until they approve. If they change a brief, rewrite
-it and render again - to a new `$gate` name, because a revised gate is a new decision and the old
-path may already be spent. None of this gate binds a `+yolo` project - there the brief is written,
-the one line is said, and Step 4 follows.
+it and **render again over the same `$gate` file while that session is still open** - Lavish
+live-reloads it in the window they are already looking at, exactly as a repaired artifact is.
+A new name is for a gate whose session they have ended, and only then: rendering a revision to a
+new name beside a live one leaves them two gates for one decision, and an approval sent in the
+stale window comes back as consent to a brief that no longer exists. None of this gate binds a
+`+yolo` project - there the brief is written, the one line is said, and Step 4 follows.
 
 ## Step 4 - Dispatch
 
@@ -1815,8 +1822,10 @@ test pins the spelling for that reason.
 
 **One name per decision, not one per unit of work.** A rejected landing comes back here after the
 worker fixes it, and that is a second decision: rendering it into the name the first one used
-reaches a session they already ended, which opens nothing. So this gate takes a fresh `$gate` name
-every time it is rendered, the same way Step 3 does - the directory stays `data\<id>\`.
+reaches a session they ended with that rejection, which opens nothing. So a landing gate whose
+session has ended takes a fresh `$gate` name, the same way Step 3 does - the directory stays
+`data\<id>\`. Where the session is still open, this gate re-renders over the same file and lets
+Lavish reload it, rather than opening a second window on the same decision.
 
 Sections carry what they need to judge it: the changed files, the diff, the check results, the base
 ref the diff was taken against, and anything the worker's `report.md` left unresolved. Then say one
