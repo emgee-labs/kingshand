@@ -8432,6 +8432,21 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
                      'into, which is the reported symptom rather than the fix.')
     }
 
+    # An unbounded re-arm rule leaves one live poll per decision ever answered, because a settled
+    # gate's session is never ended - the fix is to stop the job, not to end anything.
+    It 'stops re-arming once the decision it belongs to is closed out' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Re-arming stops once that decision is settled and its work is closed ' +
+                     'out.**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('an answered one left armed is a job still waiting to wake this session ' +
+                     'over something already done, and a fleet''s worth of them accumulates one ' +
+                     'gate at a time')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Stop the background job it was running in - the session itself needs ' +
+                     'nothing done to it.')
+    }
+
     # Both constraints are Lavish's own, carried in rather than reinvented. A kingshand-flavoured
     # paraphrase drifts away from the tool that actually enforces them.
     It 'keeps the poll in the foreground and allows only a waking background job' {
@@ -8506,17 +8521,36 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
                      'their eyes, and it is never a way around the refusal.')
     }
 
-    # Without this the refusal has no exit: a session is keyed by the file's path and an ended one
-    # is kept for good, so a decision they have never seen, rendered into a path somebody once
-    # ended, is refused as though it were a retry and the gate is never shown at all.
-    It 'separates a new decision on a spent path from a retry of the same one' {
+    # Without this the refusal has no exit and the weaker remedy is what a reader reaches for: a
+    # reopen is not inert, because the session carries its old side chat and untriaged layout
+    # warnings across, so decision two opens showing decision one's conversation.
+    It 'sends a new decision to a new name rather than to a reopened path' {
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('**A new decision put on a path that already carried an ended session is ' +
-                     'that reopen case rather than a retry**')
+            -Phrase ('**A new decision belongs on a new name, not on a reopened path**')
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('pressing the same decision again is what the refusal is for, while a ' +
-                     'decision they have not seen yet needs their eyes by definition, and ' +
-                     'rendering it into the dead path opens nothing at all')
+            -Phrase ('reopening is not inert, because the session carries its old side-chat ' +
+                     'history and its untriaged layout warnings across, so they would open the ' +
+                     'second decision''s page showing the first one''s conversation')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase 'Reach for `--reopen` only where a fresh name is not available.'
+    }
+
+    # The rule for choosing the file a session is opened on belongs in the section that calls
+    # itself the only statement of how the surface is opened - the two gates are not the only
+    # readers, and counsel and annex are pointed here with no output path of their own.
+    It 'owns the one-name-per-decision rule rather than leaving it in the gates' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Every decision is rendered to its own file name, and no two share one.**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('a reused name is a path that opens nothing once they have ended a session ' +
+                     'on it, and a poll left armed from an earlier decision sits on the same ' +
+                     'session as this one and can drain the answer meant for it')
+        # The one reuse that is correct, and it is the live case: a revision reloads in place
+        # rather than opening a second window on the decision they are already looking at.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('The one name that is reused is a revision of a decision they are still ' +
+                     'looking at: while that session is open the same file is rendered again ' +
+                     'and Lavish reloads it in place.')
     }
 
     # Stated by what has to be present, and by that alone. The rule carried a list of example
@@ -8534,6 +8568,20 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
                      'passes every one nobody did')
         $script:Surface.Contains('Those are illustrations and not the test') |
             Should -BeFalse -Because 'the enumeration it introduced is what kept describing real answers'
+    }
+
+    # Necessary is not sufficient, and the gap is reachable: queueing a layout fix from the browser
+    # inbox, or sending whiteboard edits, returns the poll carrying the user's own sent feedback
+    # while approving nothing. A rule that stops at "their feedback is present" dispatches work
+    # nobody agreed to. This is a sufficiency condition, not a list of return shapes.
+    It 'requires the feedback to answer the question the gate asked' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Their feedback being there is what makes a return readable, not what ' +
+                     'makes it a yes.** It has to answer the question the gate asked before ' +
+                     'anything acts on it')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('they can send from that page for reasons of their own, and none of those ' +
+                     'is approval')
     }
 
     # The direction that costs a decision rather than risking one: answering and ending in one go
@@ -8615,25 +8663,19 @@ Describe 'the review-surface contract is stated once and cross-referenced everyw
             Should -BeFalse -Because 'a fixed gate name is spent the first time a session on it is ended'
     }
 
-    It 'the dispatch gate states the one-name-per-decision rule for both gates' {
+    It 'the dispatch gate points at the one-name-per-decision rule rather than restating it' {
         $step = Get-MusterStep 'Step 3 - Gate one'
         Assert-Phrase -Text $step -Where 'the dispatch gate' `
-            -Phrase ('**Every gate gets its own file name and no two share one - this one and ' +
-                     'the landing gate alike.**')
-        # Scoped to the user on purpose: the reopen guard fires only on a session they ended from
-        # the browser, and one the agent ended reopens on a bare open. The owner section above
-        # says the same, and this rationale was the one place the scope was lost.
-        Assert-Phrase -Text $step -Where 'the dispatch gate' `
-            -Phrase ('a fixed name is a path that opens nothing the first time the user ends a ' +
-                     'session on it')
-        Assert-Phrase -Text $step -Where 'the dispatch gate' `
-            -Phrase ('a poll left armed from an earlier decision sits on the same session as ' +
-                     'this one and can drain the answer meant for it')
+            -Phrase ('**One file name per decision is `## The review surface` above, and this ' +
+                     'is what it looks like here.**')
+        $step.Contains('Lavish keys a session by the absolute path of the file') |
+            Should -BeFalse -Because 'the owner section states the rule and its reasons, and this points at it'
         # Justified by a sequence the procedure actually produces. A rewrite no longer renames
         # while the session is open, so the precision cannot rest on that case any more.
         Assert-Phrase -Text $step -Where 'the dispatch gate' `
-            -Phrase ('it runs to milliseconds because two decisions raised in quick succession ' +
-                     '- two unrelated ids gated one after the other - land inside the same second')
+            -Phrase ('The stamp runs to milliseconds because two decisions raised in quick ' +
+                     'succession - two unrelated ids gated one after the other - land inside ' +
+                     'the same second.')
         $step.Contains('a rewritten gate can be rendered in the same second as the one it replaces') |
             Should -BeFalse -Because 'a rewrite keeps its name while the session is open'
         # The revision loop, scoped: a path is spent only once the user has ended it, so while the
@@ -8653,17 +8695,15 @@ Describe 'the review-surface contract is stated once and cross-referenced everyw
 
     # Per unit of work is not per decision, and the landing gate is where the difference bites:
     # a rejected landing is fixed and comes back here, into a session the user already ended.
-    It 'the landing gate takes a fresh name once its session has ended, not per work item' {
+    It 'the landing gate points at the naming rule and names the case that misses it' {
         $step = Get-MusterStep 'Step 7 - Gate two'
         Assert-Phrase -Text $step -Where 'the landing gate' `
-            -Phrase '**One name per decision, not one per unit of work.**'
+            -Phrase ('**One name per decision, not one per unit of work** - the rule is ' +
+                     '`## The review surface` above, and this gate is where it is easiest to miss.')
         Assert-Phrase -Text $step -Where 'the landing gate' `
-            -Phrase ('rendering it into the name the first one used reaches a session they ' +
-                     'ended with that rejection, which opens nothing')
-        Assert-Phrase -Text $step -Where 'the landing gate' `
-            -Phrase ('Where the session is still open, this gate re-renders over the same file ' +
-                     'and lets Lavish reload it, rather than opening a second window on the ' +
-                     'same decision.')
+            -Phrase ('A rejected landing comes back here after the worker fixes it, and that is ' +
+                     'a second decision, so it takes a fresh `$gate` name rather than the name ' +
+                     'the first one used.')
         $step.Contains('takes a fresh `$gate` name every time it is rendered') |
             Should -BeFalse -Because 'unconditional, that opens a second window on a session still live'
     }

@@ -791,13 +791,20 @@ lavish-axi poll <file>
 `poll` on its own fails with `No active Lavish Editor session for this file` / `NOT_FOUND`; the
 bare `lavish-axi <file>` call is what opens the session that `poll` then waits on.
 
+**Every decision is rendered to its own file name, and no two share one.** A session is keyed by
+the file's absolute path and an ended one is kept for good, so a reused name is a path that opens
+nothing once they have ended a session on it, and a poll left armed from an earlier decision sits
+on the same session as this one and can drain the answer meant for it. The one name that is reused
+is a revision of a decision they are still looking at: while that session is open the same file is
+rendered again and Lavish reloads it in place.
+
 **A session the user ended from the browser is not reopened.** That same open call refuses and
 explains why rather than reopening uninvited, so a refusal there is the tool working and never
 something to retry. `--reopen` is for when they ask for further review or something needs their
-eyes, and it is never a way around the refusal. **A new decision put on a path that already
-carried an ended session is that reopen case rather than a retry** - pressing the same decision
-again is what the refusal is for, while a decision they have not seen yet needs their eyes by
-definition, and rendering it into the dead path opens nothing at all.
+eyes, and it is never a way around the refusal. **A new decision belongs on a new name, not on a
+reopened path** - reopening is not inert, because the session carries its old side-chat history
+and its untriaged layout warnings across, so they would open the second decision's page showing
+the first one's conversation. Reach for `--reopen` only where a fresh name is not available.
 
 `poll` long-polls and stays silent until they send. That is expected - do not treat a slow return
 as a hang, do not kill it, and do not poll in a loop. Keep it in the foreground by default and let
@@ -822,6 +829,11 @@ side chat is that rule broken on a different surface. A bare `poll` re-arms too 
 looking at silence they sent into, which is the reported symptom rather than the fix. Where there
 is work to do before they can answer again, that re-armed poll is the harness-native tracked
 background job above; where there is nothing to do but wait, it is the foreground one.
+
+**Re-arming stops once that decision is settled and its work is closed out.** The poll belongs to
+one decision, so an answered one left armed is a job still waiting to wake this session over
+something already done, and a fleet's worth of them accumulates one gate at a time. Stop the
+background job it was running in - the session itself needs nothing done to it.
 
 **A poll that was killed or timed out is just re-run - queued feedback is never lost.** So
 anything they sent while nothing was watching is still waiting for the next poll to collect, and
@@ -859,6 +871,10 @@ than for a field naming why the return arrived: a rule made of the non-answers s
 passes every one nobody did, and every field it would name belongs to a tool that owns its own
 meaning.
 
+**Their feedback being there is what makes a return readable, not what makes it a yes.** It has to
+answer the question the gate asked before anything acts on it - they can send from that page for
+reasons of their own, and none of those is approval.
+
 The reverse is the one that costs a decision. **`ended_by: user` arrives alongside their feedback
 whenever they answer and end in one go, and that is an answer** - so read it as one, rather than
 dropping a decision because the session it came from is closed.
@@ -895,13 +911,10 @@ lavish-axi $gate
 lavish-axi poll $gate
 ```
 
-**Every gate gets its own file name and no two share one - this one and the landing gate alike.**
-Lavish keys a session by the absolute path of the file and keeps ended ones for good, so a fixed
-name is a path that opens nothing the first time the user ends a session on it, and a poll left
-armed from an earlier decision sits on the same session as this one and can drain the answer meant
-for it. The timestamp above is what stops both, and it runs to milliseconds because two decisions
-raised in quick succession - two unrelated ids gated one after the other - land inside the same
-second. The directory stays `data\_dispatch\`; only the name varies.
+**One file name per decision is `## The review surface` above, and this is what it looks like
+here.** The stamp runs to milliseconds because two decisions raised in quick succession - two
+unrelated ids gated one after the other - land inside the same second. The directory stays
+`data\_dispatch\`; only the name varies.
 
 **Both commands, in that order**, and everything that follows the first return - replying in the
 surface, re-arming the poll, what an ended session means - is `## The review surface` above.
@@ -1820,12 +1833,10 @@ The parameter is `-OutputPath`. An earlier draft of this block abbreviated it, w
 thrown the first time anyone reached the landing gate - a documented command nothing exercises. A
 test pins the spelling for that reason.
 
-**One name per decision, not one per unit of work.** A rejected landing comes back here after the
-worker fixes it, and that is a second decision: rendering it into the name the first one used
-reaches a session they ended with that rejection, which opens nothing. So a landing gate whose
-session has ended takes a fresh `$gate` name, the same way Step 3 does - the directory stays
-`data\<id>\`. Where the session is still open, this gate re-renders over the same file and lets
-Lavish reload it, rather than opening a second window on the same decision.
+**One name per decision, not one per unit of work** - the rule is `## The review surface` above,
+and this gate is where it is easiest to miss. A rejected landing comes back here after the worker
+fixes it, and that is a second decision, so it takes a fresh `$gate` name rather than the name the
+first one used. The directory stays `data\<id>\`.
 
 Sections carry what they need to judge it: the changed files, the diff, the check results, the base
 ref the diff was taken against, and anything the worker's `report.md` left unresolved. Then say one
