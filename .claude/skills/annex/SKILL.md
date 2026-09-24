@@ -275,7 +275,9 @@ Get-AllProjects | ForEach-Object { [pscustomobject]$_ } |
 `Select-Object name, ...` does not project hashtable keys: without the cast the table prints its
 header and zero populated rows, so "what is registered" answers blank.
 
-Answer in at most six lines. If there is more to say than that, render it and use lavish.
+Answer in at most six lines. If there is more to say than that, render it and use lavish - and if
+you then wait on that surface, `muster`'s `## The review surface` section owns answering in it and
+re-arming the poll.
 
 ## Changing a posture later
 

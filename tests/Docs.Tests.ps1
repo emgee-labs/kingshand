@@ -8345,3 +8345,144 @@ Describe 'CLAUDE.md keeps the away boundary to a pointer' {
             Should -BeFalse -Because 'that scoped the whole skill to the gate, and half of it fires without one'
     }
 }
+
+# ---------------------------------------------------------------------------------------------
+# The side chat went silent. The Hand rendered, armed one poll, read what came back, and then went
+# to work - leaving the surface with nothing watching it, so everything the user sent after that
+# reached nobody while the page still looked healthy. Arming, reading and answering are all
+# kingshand's, and `--agent-reply` appeared in zero tracked files while the symptom was reported
+# three times in one day. These pin the rule that reading a result is the event that leaves the
+# surface unwatched, and the one call that answers and re-arms together.
+
+Describe 'reading a poll result is what leaves the review surface unwatched' {
+    BeforeAll { $script:Surface = Get-MusterStep 'The review surface' }
+
+    It 'declares itself the single owner of the contract' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**This section is the only statement of how that surface is opened, ' +
+                     'watched and answered in.**')
+    }
+
+    # The whole defect in one assertion: re-arming after the work is re-arming after the silence.
+    It 're-arms at the instant the result is read, before acting on it' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('The instant a poll returns, nothing is watching that surface any more: ' +
+                     'they can send again and it reaches nobody.')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**re-arm at that instant, before you act on what the result said** - not ' +
+                     'after the work is done, and not once you have something worth replying with.')
+    }
+
+    It 'names the one call that answers in the surface and waits again' {
+        $fence = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains('lavish-axi poll <file> --agent-reply') })
+        $fence.Count | Should -Be 1 -Because 'the reply-and-re-arm call has to be copyable, not described'
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase 'That displays your answer in the side chat and waits again.'
+        # The one rule this contract could be read as relaxing. A reply is owed to something the
+        # user sent; hard rule 6 still bans the unprompted progress note, on any surface.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**It answers what they just sent and nothing else** - hard rule 6 still ' +
+                     'forbids narrating progress, and a running commentary in the side chat is ' +
+                     'that rule broken on a different surface.')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('A bare `poll` re-arms too but leaves them looking at silence they sent ' +
+                     'into, which is the reported symptom rather than the fix.')
+    }
+
+    # Both constraints are Lavish's own, carried in rather than reinvented. A kingshand-flavoured
+    # paraphrase drifts away from the tool that actually enforces them.
+    It 'keeps the poll in the foreground and allows only a waking background job' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase 'Keep it in the foreground by default and let it return the feedback directly to you.'
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('A background poll is allowed only through a harness-native tracked ' +
+                     'background job whose completion is guaranteed to wake this same session, ' +
+                     'never through `&`, `nohup`, `disown` or any detached process.')
+    }
+
+    It 'never claims the artifact is watched before the wake path exists' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Do not tell the user the artifact is being monitored until that wake ' +
+                     'path is live.**')
+    }
+
+    # The inverse mistake, and it sits beside the rule on purpose: a rule that says always re-arm
+    # invites re-arming into a session that has already stopped polling.
+    It 'stops rather than re-arming after the final feedback' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**`Send & End` is the one result with nothing to re-arm.** It ends the ' +
+                     'session, its final feedback is still delivered once, and after that ' +
+                     'response polling stops.')
+    }
+
+    It 'reads a refused reopen as the tool working, not as something to retry' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase '**A session the user ended from the browser is not reopened.**'
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('`--reopen` is for when they ask for further review or something needs ' +
+                     'their eyes, and it is never a way around the refusal.')
+    }
+
+    It 'still refuses to read a closed session as an answer' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('A returned poll is not automatically an answer. `ended_by: agent` means ' +
+                     'the session was closed rather than answered, so nothing on it was agreed to.')
+    }
+}
+
+Describe 'the review-surface contract is stated once and cross-referenced everywhere else' {
+    # Standing criterion 5, and the reason this task existed at all: the polling rules were spread
+    # across both muster gates and five other files, so each copy drifted on its own and none of
+    # them ever gained the reply. One owner, and every other mention is a pointer with no substance
+    # in it.
+    It 'the reply flag appears in exactly one tracked document' {
+        $docs = @(Join-Path $script:Root 'CLAUDE.md') +
+                @(Get-ChildItem -Path (Join-Path $script:Root '.claude\skills') -Filter 'SKILL.md' -Recurse |
+                    ForEach-Object { $_.FullName }) +
+                @(Get-ChildItem -Path (Join-Path $script:Root 'docs') -Filter '*.md' |
+                    ForEach-Object { $_.FullName })
+        $carriers = @($docs | Where-Object { (Get-Content -Path $_ -Raw).Contains('--agent-reply') })
+        $carriers.Count | Should -Be 1 -Because 'a second copy is what drifts, and the first copy is muster'
+        (Split-Path (Split-Path $carriers[0] -Parent) -Leaf) |
+            Should -Be 'muster' -Because 'muster owns the surface both gates render to'
+    }
+
+    It 'the dispatch gate points at the owner instead of restating it' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 3 - Gate one') -Where 'the dispatch gate' `
+            -Phrase ('**Both commands, in that order**, and everything that follows the first ' +
+                     'return - replying in the surface, re-arming the poll, what `Send & End` ' +
+                     'means - is `## The review surface` above.')
+    }
+
+    It 'the landing gate points at the owner instead of restating it' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase ('`## The review surface` above owns the foreground rule, the reply and the ' +
+                     're-arm, and this gate changes none of it.')
+    }
+
+    # CLAUDE.md loads every session and a procedure does not belong in it, so what it carries is
+    # the trigger alone: rendering is not the end of the exchange, and here is what owns the rest.
+    It 'CLAUDE.md rule 5 carries the trigger and none of the procedure' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 5' `
+            -Phrase ('Rendering is not where it ends: answering in that surface and re-arming ' +
+                     'the poll the moment a result is read is `muster`''s `## The review ' +
+                     'surface` section, so load it before you wait on one.')
+        (Get-DocText $script:HandMd).Contains('--agent-reply') |
+            Should -BeFalse -Because 'the always-loaded file pays for every line and owns no procedure'
+    }
+
+    It 'counsel points at the owner where it renders a decomposition' {
+        Assert-Phrase -Text (Get-DocText (Join-Path $script:Root '.claude\skills\counsel\SKILL.md')) `
+            -Where 'the counsel render step' `
+            -Phrase ('Opening that surface, answering in it and re-arming the poll the moment a ' +
+                     'result is read is `muster`''s `## The review surface` section, which owns ' +
+                     'all of it - load it before you wait here.')
+    }
+
+    It 'annex points at the owner where it tells the Hand to render' {
+        Assert-Phrase -Text (Get-DocText $script:ImportMd) -Where 'the annex registry answer' `
+            -Phrase ('and if you then wait on that surface, `muster`''s `## The review surface` ' +
+                     'section owns answering in it and re-arming the poll.')
+    }
+}

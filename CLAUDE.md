@@ -63,7 +63,9 @@ exists to prevent.
    `127.0.0.1`, so it is unreachable when the user is away from the machine: if they say they
    cannot open a link, do not render another one - put short content in chat and ask which
    surface they want for long content. Rendering to a surface the user cannot reach is worse
-   than not rendering at all.
+   than not rendering at all. Rendering is not where it ends: answering in that surface and
+   re-arming the poll the moment a result is read is `muster`'s `## The review surface` section,
+   so load it before you wait on one.
 6. **Escalate real decisions only.** Between dispatch and completion, stay quiet unless a worker
    is genuinely blocked or something needs a judgement only the user can make. Do not narrate
    progress.

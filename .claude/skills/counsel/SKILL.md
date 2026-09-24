@@ -277,6 +277,9 @@ growing a chat message - hard rule 5, and `bin\Render-Review.ps1` is the rendere
 gates already invoke. Chat carries one line and the link. Where lavish is unreachable, ask which
 surface he wants rather than rendering to one he cannot open.
 
+Opening that surface, answering in it and re-arming the poll the moment a result is read is
+`muster`'s `## The review surface` section, which owns all of it - load it before you wait here.
+
 **Nothing is dispatched by having been read.** Each task in an accepted decomposition is its own
 unit of work through `muster`, with its own dispatch gate and the project's own posture deciding
 it. An accepted decomposition is a queue, not a licence.

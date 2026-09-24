@@ -773,6 +773,64 @@ built "would have refused nothing, ever" - correct to the letter, and it had to 
 rule 1 says a worker checks it, so write the requirement as a premise to verify before building to
 it rather than as a settled fact.
 
+## The review surface
+
+Both gates render to Lavish and then wait in it, and so does anything else that puts a decision in
+front of the user. **This section is the only statement of how that surface is opened, watched and
+answered in.** Step 3 and Step 7 carry their own render command and point back here, and so do the
+other skills that render.
+
+Open the session, then arm the poll, in that order:
+
+```powershell
+$env:LAVISH_AXI_PORT = '4388'
+lavish-axi <file>
+lavish-axi poll <file>
+```
+
+`poll` on its own fails with `No active Lavish Editor session for this file` / `NOT_FOUND`; the
+bare `lavish-axi <file>` call is what opens the session that `poll` then waits on.
+
+**A session the user ended from the browser is not reopened.** That same open call refuses and
+explains why rather than reopening uninvited, so a refusal there is the tool working and never
+something to retry. `--reopen` is for when they ask for further review or something needs their
+eyes, and it is never a way around the refusal.
+
+`poll` long-polls and stays silent until they send. That is expected - do not treat a slow return
+as a hang, do not kill it, and do not poll in a loop. Keep it in the foreground by default and let
+it return the feedback directly to you. A background poll is allowed only through a harness-native
+tracked background job whose completion is guaranteed to wake this same session, never through
+`&`, `nohup`, `disown` or any detached process. **Do not tell the user the artifact is being
+monitored until that wake path is live.**
+
+### Reading a result is what leaves the surface unwatched
+
+The instant a poll returns, nothing is watching that surface any more: they can send again and it
+reaches nobody. So **re-arm at that instant, before you act on what the result said** - not after
+the work is done, and not once you have something worth replying with. One call does both:
+
+```powershell
+lavish-axi poll <file> --agent-reply "<what you are about to do>"
+```
+
+That displays your answer in the side chat and waits again. **It answers what they just sent and
+nothing else** - hard rule 6 still forbids narrating progress, and a running commentary in the
+side chat is that rule broken on a different surface. A bare `poll` re-arms too but leaves them
+looking at silence they sent into, which is the reported symptom rather than the fix. Where there
+is work to do before they can answer again, that re-armed poll is the harness-native tracked
+background job above; where there is nothing to do but wait, it is the foreground one.
+
+**`Send & End` is the one result with nothing to re-arm.** It ends the session, its final feedback
+is still delivered once, and after that response polling stops. Re-arming anyway is the mistake
+this rule invites, and the session is not reopened uninvited to carry it.
+
+A returned poll is not automatically an answer. `ended_by: agent` means the session was closed
+rather than answered, so nothing on it was agreed to.
+
+Lavish binds to 127.0.0.1, so every one of these surfaces is unreachable when the user is away
+from the machine. If they say they cannot open the link, put short content directly in chat and
+ask which surface they want for long content rather than rendering another unreachable page.
+
 ## Step 3 - Gate one: approve the dispatch
 
 **This gate is skipped when the project is registered `+yolo`.** In that case write the brief,
@@ -799,21 +857,11 @@ lavish-axi $env:KINGSHAND_HOME\data\_dispatch\review.html
 lavish-axi poll $env:KINGSHAND_HOME\data\_dispatch\review.html
 ```
 
-**Both commands, in that order.** `poll` on its own fails with `No active Lavish Editor session
-for this file` / `NOT_FOUND`; the bare `lavish-axi <file>` call is what opens the session that
-`poll` then waits on.
+**Both commands, in that order**, and everything that follows the first return - replying in the
+surface, re-arming the poll, what `Send & End` means - is `## The review surface` above.
 
-`poll` blocks until the user sends. That is expected - it stays silent the whole time. Do not
-treat a slow return as a hang, do not kill it, and do not poll in a loop. Run it as a tracked
-background job so its completion wakes you; never with `&` or a detached process.
-
-A returned poll is not automatically an approval. Check what came back: `ended_by: agent` means
-the session was closed rather than answered, and nothing was approved. Only the user's own sent
-feedback is consent to dispatch.
-
-Lavish binds to 127.0.0.1, so these gates are unreachable when the user is away from the
-machine. If they say they cannot open the link, put short gates directly in chat and ask which
-surface they want for long ones rather than rendering another unreachable page.
+Only the user's own sent feedback is consent to dispatch. A poll that came back because the
+session was closed agreed to nothing, so read what returned before treating this gate as passed.
 
 When `$proj.yolo -eq 'off'`, dispatch nothing until they approve. If they change a brief, rewrite
 it and render again. None of this gate binds a `+yolo` project - there the brief is written, the
@@ -1725,9 +1773,9 @@ Sections carry what they need to judge it: the changed files, the diff, the chec
 ref the diff was taken against, and anything the worker's `report.md` left unresolved. Then say one
 line in chat naming what is waiting and stop - the surface holds the detail, chat holds the pointer.
 
-`lavish-axi poll` long-polls and stays silent until they answer. Keep it in the foreground, or run
-it as a harness-tracked background job whose completion wakes you. Never leave it detached with
-nothing to wake on - that is the same silence this whole layer exists to prevent.
+`lavish-axi poll` long-polls and stays silent until they answer, and the instant it returns the
+surface is unwatched again - `## The review surface` above owns the foreground rule, the reply and
+the re-arm, and this gate changes none of it.
 
 **On a push-capable project with `yolo` off, this gate is held before the push, and approving it
 is the user's word for the outward step.** The worker stopped at the last local step because Step
