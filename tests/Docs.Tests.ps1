@@ -1883,7 +1883,19 @@ Describe 'recovery reconciles records against reality before taking new work' {
         Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
             -Phrase 'The digest''s `RE-ARM:` section carries'
         Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
-            -Phrase 'names every surface holding feedback nobody collected'
+            -Phrase 'names every surface still worth re-polling'
+    }
+
+    # The half that is not re-armed, and it has to be said here or the rule reads as "re-poll
+    # everything that is holding something". muster's `## The review surface` calls an ended
+    # session the one with nothing to re-arm - the reply would land in a chat nobody reads and the
+    # poll returns the same ended result at once - so it is counted rather than named, and the
+    # decision it leaves open goes to the user directly.
+    It 'keeps an ended session out of what gets re-polled without losing it' {
+        $s = Get-HandSection 'Recovery'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase ('A session that already ended holding feedback is counted there rather than ' +
+                     'named, because that is the one with nothing to re-arm - its decision goes in chat.')
     }
 
     # R-002 in one sentence. The window is the fix, not an implementation detail: three ticks at the
@@ -4787,8 +4799,14 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     # lavish-axi's session store and, forty lines away in a comment, says where the skills load
     # from - two facts with nothing to do with each other, which at file scope read as one script
     # putting skills in the profile. A path that joins the two is one statement, so that is the
-    # scope this is asserted at. Nothing is given up by narrowing it: the mechanism the whole rule
-    # exists against is banned outright above, by the junction and symlink check over every file.
+    # scope this is asserted at.
+    #
+    # WHAT THAT LEAVES UNCOVERED IS WORTH STATING RATHER THAN IMPLYING. CLAUDE.md forbids linking
+    # OR COPYING the skills into `~\.claude\skills\`, and the junction and symlink check above bans
+    # exactly two item types - so a `Copy-Item` into a profile path passes it, and so does any path
+    # assembled over two lines, which passes this one too. Neither test is a proof that nothing can
+    # reach that directory. This asserts the narrower thing it can actually assert: no single
+    # statement in this repository names the profile and the skills together.
     It 'no script writes to the user profile skills directory' {
         foreach ($f in $script:AllSource) {
             foreach ($line in @(Get-Content -Path $f.FullName)) {
@@ -4831,25 +4849,10 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         $usage.Contains('.claude\accounts\.active') |
             Should -BeTrue -Because 'the account name is one file, named exactly'
 
-        $digest = Get-Content -Path (Join-Path $script:Root 'bin\Get-SessionStart.ps1') -Raw
-        $digest.Contains('.lavish-axi') |
-            Should -BeTrue -Because 'the session store is one directory, named exactly'
-        $digest.Contains('LAVISH_AXI_STATE_DIR') |
-            Should -BeTrue -Because 'the tool documents an override and the digest honours it'
-    }
-
-    # The hard half of the third exception. The store is read for one fact - which surfaces are
-    # holding feedback nobody collected - and a digest that wrote to another tool's state file
-    # would be corrupting a record it does not own, on a hook, before the session has started.
-    It 'the digest never writes to the session store' {
-        $digest = Get-Content -Path (Join-Path $script:Root 'bin\Get-SessionStart.ps1') -Raw
-        foreach ($line in @($digest -split "`r?`n")) {
-            if (-not ($line.Contains('LavishStatePath') -or $line.Contains('lavishStateDir'))) { continue }
-            foreach ($writer in @('Set-Content', 'Out-File', 'Add-Content', 'Remove-Item', 'New-Item')) {
-                $line.Contains($writer) |
-                    Should -BeFalse -Because "the session store is read, never $writer"
-            }
-        }
+        # The digest's half of this is not asserted from its source. Which file it opens, and that
+        # it honours the tool's own override variable, are both driven end to end in
+        # SessionStart.Tests.ps1 - `the store path resolves the way lavish-axi resolves it` - and
+        # that it never writes to that file is observed there too, from the file's own bytes.
     }
 
     # The hard half of that exception. The accounts directory holds the credential blobs the King's

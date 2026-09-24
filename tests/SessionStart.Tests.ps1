@@ -916,6 +916,95 @@ Describe 'the digest names review surfaces holding feedback nobody collected' {
         $text | Should -Match '`muster`''s `## The review surface` owns what a return means'
     }
 
+    # muster's `## The review surface`: a return whose session has ended is the one with nothing to
+    # re-arm. Its final feedback was delivered once and polling stops after it, so naming it under
+    # "re-run the poll on each" sends the reply into a closed session nobody reads and gets the same
+    # ended result straight back. Not dropped in silence either - on this machine two of these have
+    # sat holding a message since early September, and a row quietly removed is evidence lost.
+    It 'keeps an ended session out of the re-poll list and still says it is holding something' {
+        $f = New-Fixture 'surface-ended'
+        $gone = Join-Path $f.Data 'kh-ended\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $gone -Pending 1 -Status 'ended')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text.Contains($gone) |
+            Should -BeFalse -Because 'polling an ended session re-arms nothing, which is muster''s rule'
+        $text | Should -Not -Match 'Re-run the poll on each named'
+        $text | Should -Match '1 more ended holding feedback nobody collected'
+        $text | Should -Match 'polling an\s+ended session re-arms nothing'
+        $text | Should -Match 'goes\s+in chat instead' `
+            -Because 'the decision is still open and now has no surface to decide it on'
+    }
+
+    # The other side of the same split, on one store, so the counts are shown telling them apart
+    # rather than each branch being shown alone.
+    It 'still names an open surface beside an ended one and counts the ended one separately' {
+        $f = New-Fixture 'surface-ended-and-open'
+        $live = Join-Path $f.Data 'kh-live\gate.html'
+        $gone = Join-Path $f.Data 'kh-gone\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $live -Pending 1 -Status 'open'),
+            (New-LavishSession -File $gone -Pending 1 -Status 'ended')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match '1 of 2 .* hold feedback nobody has'
+        $text.Contains($live) | Should -BeTrue
+        $text.Contains($gone) | Should -BeFalse
+        $text | Should -Match '1 more ended holding feedback nobody collected'
+    }
+
+    # The direction the doubt is resolved in, and it is deliberate: polling a surface that did not
+    # need it costs a moment, dropping one that did costs the King's answer. So only the tool's own
+    # exact word is treated as ended - a status it did not give, and one spelled any other way,
+    # both stay on the list.
+    It 'keeps a surface whose status is missing or is not exactly ended on the list' {
+        $f = New-Fixture 'surface-not-ended'
+        $none  = Join-Path $f.Data 'kh-nostatus\gate.html'
+        $cased = Join-Path $f.Data 'kh-cased\gate.html'
+        $row = New-LavishSession -File $none -Pending 1
+        $row.Remove('status')
+        New-LavishStore -Fixture $f -Sessions @(
+            $row,
+            (New-LavishSession -File $cased -Pending 1 -Status 'Ended')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match '2 of 2 .* hold feedback nobody has'
+        $text.Contains($none) |
+            Should -BeTrue -Because 'a status the store did not give is not the store saying ended'
+        $text.Contains($cased) |
+            Should -BeTrue -Because 'the exact word is the match, and anything else is not it'
+        $text | Should -Not -Match 'more ended holding feedback'
+    }
+
+    # The store belongs to lavish-axi. The digest reads it for one fact and must leave it exactly
+    # as it found it - a hook that corrupted another tool's own record before the session had even
+    # started would be a failure nobody could trace back here. Observed from the file rather than
+    # argued from the source: same bytes, same modification time, and the surface named proves the
+    # run actually opened it.
+    It 'leaves the session store exactly as it found it' {
+        $f = New-Fixture 'surface-readonly'
+        $gate = Join-Path $f.Data 'kh-ro\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $gate -Pending 1 -Status 'feedback')
+        ) | Out-Null
+
+        $stat = {
+            $i = Get-Item -LiteralPath $f.LavishState
+            "$((Get-FileHash -LiteralPath $f.LavishState -Algorithm SHA256).Hash)|$($i.LastWriteTimeUtc.Ticks)|$($i.Length)"
+        }
+        $before = & $stat
+        $text = Get-Digest $f
+        $after = & $stat
+
+        $text.Contains($gate) |
+            Should -BeTrue -Because 'a store the run never opened would be unchanged for the wrong reason'
+        $after | Should -Be $before -Because 'the digest reads another tool''s record and never writes it'
+    }
+
     # An open session is not evidence anyone is waiting. Counting them keeps the digest honest
     # about what it looked at without turning dozens of settled decisions into a to-do list.
     It 'counts a surface with nothing queued rather than naming it' {

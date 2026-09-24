@@ -519,6 +519,18 @@ Add-Line '    here reads that file and nothing here decides it.'
 # it is the King's own answer sitting where nobody is listening, and it clears the moment it is
 # collected. So the queued ones are named with the path the poll needs, and the rest are a count
 # with a sentence saying plainly that the count is not a list of things to do.
+#
+# A SESSION THE TOOL CALLS `ended` IS THE ONE WITH NOTHING TO RE-ARM, and naming it in a list
+# headed "re-poll these" is telling the reader to do the thing `muster`'s `## The review surface`
+# forbids: its final feedback was delivered once and polling stops after it, so a re-armed poll
+# returns the same ended result at once and the rule that just fired says re-arm again. Matched as
+# the exact word and nothing else - a status the store did not give, one spelled any other way, one
+# this could not read, all stay in the re-poll list, because polling a surface that did not need it
+# costs a moment and dropping one that did costs the King's answer.
+#
+# They are not dropped in silence either. Feedback that ended uncollected is still feedback nobody
+# has, so it is counted in a sentence of its own that says polling re-arms nothing - the fact
+# survives the digest without the reader being pointed at a surface that cannot answer.
 try {
     if (-not $LavishStatePath) {
         Add-Line '  Surfaces: no home directory to resolve lavish-axi''s session store against, so no'
@@ -537,21 +549,23 @@ try {
             Add-Line "  Surfaces: the session store at $LavishStatePath named no sessions at all, so"
             Add-Line '            which surfaces are open was not established.'
         } else {
-            $rows  = @($sessions.PSObject.Properties | ForEach-Object { $_.Value })
-            $mine  = @($rows | Where-Object { Test-PathUnder -Path (Get-Field $_ 'file') -Root $DataPath })
-            $held  = @($mine | Where-Object { (Get-QueuedPromptCount $_) -ne 0 })
-            $quiet = $mine.Count - $held.Count
+            $rows   = @($sessions.PSObject.Properties | ForEach-Object { $_.Value })
+            $mine   = @($rows | Where-Object { Test-PathUnder -Path (Get-Field $_ 'file') -Root $DataPath })
+            $held   = @($mine | Where-Object { (Get-QueuedPromptCount $_) -ne 0 })
+            $ended  = @($held | Where-Object { (Get-Field $_ 'status') -ceq 'ended' })
+            $repoll = @($held | Where-Object { (Get-Field $_ 'status') -cne 'ended' })
 
-            if ($held.Count -eq 0) {
+            if ($repoll.Count -eq 0) {
                 Add-Line "  Surfaces: none of the $($mine.Count) under $DataPath is holding feedback nobody"
-                Add-Line '            has collected. A session still open is not counted as waiting - nothing'
-                Add-Line '            ends one when its decision is settled, so they accumulate for good.'
+                Add-Line '            has collected on a surface a poll can still reach. A session still open'
+                Add-Line '            is not counted as waiting - nothing ends one when its decision is settled,'
+                Add-Line '            so they accumulate for good.'
             } else {
-                Add-Line "  Surfaces: $($held.Count) of $($mine.Count) under $DataPath hold feedback nobody has"
-                Add-Line "            collected; the other $quiet hold none. Re-run the poll on each named"
+                Add-Line "  Surfaces: $($repoll.Count) of $($mine.Count) under $DataPath hold feedback nobody has"
+                Add-Line '            collected and are the surfaces to re-poll. Re-run the poll on each named'
                 Add-Line '            below - queued feedback is never lost, so the answer is still there to'
                 Add-Line '            collect. `muster`''s `## The review surface` owns what a return means.'
-                Add-BoundedList -Items @($held | ForEach-Object {
+                Add-BoundedList -Items @($repoll | ForEach-Object {
                     $n = Get-QueuedPromptCount $_
                     # An unreadable count is said as unreadable. It is listed either way, because
                     # the one thing that cannot be concluded from a count nobody could read is that
@@ -566,6 +580,15 @@ try {
                     # the first place - it is not counted rather than counted without a path.
                     "- $queued, status $status, $(Get-SessionStamp $_) - $(Get-Field $_ 'file')"
                 })
+            }
+
+            # Counted, never listed and never silent. Discarded evidence is the thing this whole
+            # section is against, so the count says plainly that the feedback was never collected
+            # and that there is no surface left to collect it from.
+            if ($ended.Count -gt 0) {
+                Add-Line "            $($ended.Count) more ended holding feedback nobody collected, and polling an"
+                Add-Line '            ended session re-arms nothing - so whatever is still undecided there goes'
+                Add-Line '            in chat instead.'
             }
         }
     }

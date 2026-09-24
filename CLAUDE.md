@@ -418,10 +418,12 @@ both fail where nobody can see them.** The pulse is changed-only, so one that ha
 exactly like one with nothing to say - the King has twice reported that as "no tokens, no updates".
 A poll is a background job too, so a restart leaves the surface live with his answer queued on it,
 which reads exactly like a King who has not answered yet. The digest's `RE-ARM:` section carries
-the pulse's arming command and names every surface holding feedback nobody collected, so neither
-depends on your remembering: arm the pulse as **one job for the whole session, never a set number
-of ticks** - three at ten minutes buys half an hour and then stops - and re-run the poll on each
-surface it names, where `muster`'s `## The review surface` owns what the return means.
+the pulse's arming command and names every surface still worth re-polling, so neither depends on
+your remembering: arm the pulse as **one job for the whole session, never a set number of ticks** -
+three at ten minutes buys half an hour and then stops - and re-run the poll on each surface it
+names, where `muster`'s `## The review surface` owns what the return means. A session that already
+ended holding feedback is counted there rather than named, because that is the one with nothing to
+re-arm - its decision goes in chat.
 
 **Say in one line that the pulse is on when you arm it.** Silence is the pulse working, and a
 reader with no line saying it started has nothing to tell that apart from a pulse that never did.
