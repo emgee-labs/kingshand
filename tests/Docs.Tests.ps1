@@ -8364,32 +8364,54 @@ Describe 'reading a poll result is what shuts the review surface down' {
     }
 
     # The whole defect in one assertion: re-arming after the work is re-arming after the silence.
-    # The diagnosis has to be the lock-out rather than a message going nowhere, because the two
-    # look identical from here and only one of them is what a returned-with-feedback poll causes.
+    # The diagnosis has to be the lock-out rather than a message going nowhere, and it has to cut
+    # on DELIVERY rather than on whose feedback came back - a return is delivered whenever prompts
+    # or artifact failures are present, and any delivery disables both send buttons. Cut on "their
+    # feedback" instead and the artifact-failure return, which this section routes eight paragraphs
+    # later, lands on the wrong side and is described as a page they can still type into.
     It 're-arms at the instant the result is read, before acting on it' {
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('**The instant a poll returns carrying their feedback, they are locked out ' +
-                     'of sending until you reply or re-arm.**')
+            -Phrase ('**The instant a poll delivers anything, they are locked out of sending ' +
+                     'until you reply or re-arm.**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Their feedback, a fatal artifact failure, or both in one return - it makes ' +
+                     'no difference which, because the surface reads any delivery as you having ' +
+                     'gone off to work.')
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
             -Phrase ('Both buttons go dead on a page that otherwise looks entirely normal, with ' +
                      'no banner saying why')
-        # The other branch, where the old premise was right and has to stay stated: no feedback
-        # came back, so the buttons are live, the banner shows, and a message really is lost on
-        # nobody. One sentence covering both returns would be wrong for one of them.
+        # The other branch, and the only one where the old premise was right: nothing was
+        # delivered, so the buttons are live, the banner shows, and a message really is lost.
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('A return carrying no feedback - a killed or timed-out poll - is the other ' +
-                     'half: the buttons stay live and it is the banner that tells them nobody ' +
-                     'is listening, so there the message really does go nowhere.')
+            -Phrase ('A poll that delivers nothing - killed or timed out - is the other half and ' +
+                     'the only one where a message really is lost on nobody: the buttons stay ' +
+                     'live and the banner tells them nobody is listening.')
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
             -Phrase ('**re-arm at that instant, before you act on what the result said** - not ' +
                      'after the work is done, and not once you have something worth replying with.')
-        $script:Surface.Contains('The instant a poll returns, that surface is unwatched') |
-            Should -BeFalse -Because 'a delivered result locks the page, it does not leave it open and ignored'
+        $script:Surface.Contains('A return carrying no feedback') |
+            Should -BeFalse -Because 'a fatal artifact failure carries no user feedback and still locks the page'
     }
 
-    # Lavish's own recovery rule, and the reason the sentence above says nobody is watching rather
-    # than that the message is gone: a restart kills the job the poll ran in, and the fix is to
-    # re-run the poll, never to ask the user to type it all again.
+    # This premise is stated in the owner section and echoed at the landing gate, and the landing
+    # gate has now three times been left holding the superseded half after the owner was corrected.
+    # Scoped to the whole skill so neither site can keep the old wording, and pinned at the gate
+    # that echoes it so a future correction has to carry through.
+    It 'no gate still says a returned poll leaves the surface merely unwatched' {
+        $muster = Get-DocText $script:MusterMd
+        foreach ($stale in @('the surface is unwatched again',
+                             'The instant a poll returns, that surface is unwatched')) {
+            $muster.Contains($stale) |
+                Should -BeFalse -Because "a delivered result locks the page rather than leaving it open and ignored ($stale)"
+        }
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase ('the instant it delivers their rejection they are locked out of sending ' +
+                     'until you reply or re-arm')
+    }
+
+    # Lavish's own recovery rule, and the branch above where nothing was delivered: a restart kills
+    # the job the poll ran in, and the fix is to re-run the poll, never to ask the user to type it
+    # all again.
     It 'recovers a killed or timed-out poll by re-running it rather than losing the feedback' {
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
             -Phrase ('**A poll that was killed or timed out is just re-run - queued feedback ' +
@@ -8512,9 +8534,15 @@ Describe 'reading a poll result is what shuts the review surface down' {
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
             -Phrase ('**An `artifact_failures` return on a session that is still open is the ' +
                      'surface failing, not the session ending, and it is re-armed.**')
+        # It is a delivery, so it locks the page exactly like their own feedback does. Saying they
+        # can still send into it describes the surface as usable while broken, which is the one
+        # thing it is not, and it puts this return on the killed-poll side of the rule above.
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('That return says the page could not be used while they can still send ' +
-                     'into it, so the re-armed poll has something to wake it.')
+            -Phrase ('It is a delivery like any other, so it locks their sending too, and the ' +
+                     'session being open is what makes re-arming worth doing: it unlocks them ' +
+                     'and gives the poll something to wake on.')
+        $script:Surface.Contains('the page could not be used while they can still send into it') |
+            Should -BeFalse -Because 'the fatal return disables both send buttons like any other delivery'
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
             -Phrase ('Repair the artifact and re-arm on the same file - Lavish live-reloads it ' +
                      'once the repair is saved, so the session is not reopened and ' +

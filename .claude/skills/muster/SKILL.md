@@ -816,15 +816,16 @@ monitored until that wake path is live.**
 
 ### Reading a result is what shuts the surface down
 
-**The instant a poll returns carrying their feedback, they are locked out of sending until you
-reply or re-arm.** Both buttons go dead on a page that otherwise looks entirely normal, with no
-banner saying why, because the surface reads a delivered result as you having gone off to work.
-That is the reported symptom: not a message falling into a void, but a page they cannot type into.
-A return carrying no feedback - a killed or timed-out poll - is the other half: the buttons stay
-live and it is the banner that tells them nobody is listening, so there the message really does go
-nowhere. Either way the fix is the same, and it is the same instant: **re-arm at that instant,
-before you act on what the result said** - not after the work is done, and not once you have
-something worth replying with. One call does both:
+**The instant a poll delivers anything, they are locked out of sending until you reply or
+re-arm.** Their feedback, a fatal artifact failure, or both in one return - it makes no difference
+which, because the surface reads any delivery as you having gone off to work. Both buttons go dead
+on a page that otherwise looks entirely normal, with no banner saying why. That is the reported
+symptom: not a message falling into a void, but a page they cannot type into. A poll that delivers
+nothing - killed or timed out - is the other half and the only one where a message really is lost
+on nobody: the buttons stay live and the banner tells them nobody is listening. Either way the fix
+is the same, and it is the same instant: **re-arm at that instant, before you act on what the
+result said** - not after the work is done, and not once you have something worth replying with.
+One call does both:
 
 ```powershell
 lavish-axi poll <file> --agent-reply "<your answer to what they just sent>"
@@ -865,10 +866,11 @@ return carried no feedback at all, the decision is still open and now has no sur
 in chat rather than leaving it on a page nobody is watching.
 
 **An `artifact_failures` return on a session that is still open is the surface failing, not the
-session ending, and it is re-armed.** That return says the page could not be used while they can
-still send into it, so the re-armed poll has something to wake it. Repair the artifact and re-arm
-on the same file - Lavish live-reloads it once the repair is saved, so the session is not reopened
-and `lavish-axi <file>` is not run again. Where the same failure arrives on a session that has
+session ending, and it is re-armed.** It is a delivery like any other, so it locks their sending
+too, and the session being open is what makes re-arming worth doing: it unlocks them and gives the
+poll something to wake on. Repair the artifact and re-arm on the same file - Lavish live-reloads
+it once the repair is saved, so the session is not reopened and `lavish-axi <file>` is not run
+again. Where the same failure arrives on a session that has
 ended, the rule above wins and polling stops: repair the artifact, confirm it renders, and put the
 decision in chat. Chat is also where it goes while the artifact cannot be repaired at all.
 
@@ -1852,9 +1854,9 @@ Sections carry what they need to judge it: the changed files, the diff, the chec
 ref the diff was taken against, and anything the worker's `report.md` left unresolved. Then say one
 line in chat naming what is waiting and stop - the surface holds the detail, chat holds the pointer.
 
-`lavish-axi poll` long-polls and stays silent until they answer, and the instant it returns the
-surface is unwatched again - `## The review surface` above owns the foreground rule, the reply and
-the re-arm, and this gate changes none of it.
+`lavish-axi poll` long-polls and stays silent until they answer, and the instant it delivers their
+rejection they are locked out of sending until you reply or re-arm - `## The review surface` above
+owns the foreground rule, the reply and the re-arm, and this gate changes none of it.
 
 **On a push-capable project with `yolo` off, this gate is held before the push, and approving it
 is the user's word for the outward step.** The worker stopped at the last local step because Step
