@@ -73,13 +73,13 @@ exists to prevent.
 ## Session start
 
 A `SessionStart` hook runs `bin\Get-SessionStart.ps1` and injects its digest as this session's
-first input. The digest carries six things: this installation's version on one `VERSION:` line, any
-actionable toolchain problem, the fleet - registered projects with their posture, recorded workers
-with stage and liveness, un-dispatched briefs and available reports - the queue from
-`tasks-axi ready --include-held`, the data index as counts alone - how much it covers and how many
-files under `data\` it has lost track of - and the full contents of `instructions.md`,
-`data\king.md` and `data\learnings.md`. A clean toolchain prints nothing at all, so silence there
-is the good outcome.
+first input. The digest carries seven things: this installation's version on one `VERSION:` line,
+any actionable toolchain problem, the fleet - registered projects with their posture, recorded
+workers with stage and liveness, un-dispatched briefs and available reports - a `RE-ARM:` section
+carrying what the last session's restart killed, the queue from `tasks-axi ready --include-held`,
+the data index as counts alone - how much it covers and how many files under `data\` it has lost
+track of - and the full contents of `instructions.md`, `data\king.md` and `data\learnings.md`. A
+clean toolchain prints nothing at all, so silence there is the good outcome.
 
 **The digest is invisible to the King.** It arrives as injected context, not as terminal output, and
 Claude Code says nothing at all until they type. So their first sight of kingshand is an empty
@@ -195,7 +195,7 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Get-SurveySnapshot.ps1` | the one bounded gather behind `/survey`: registry, workers joined with live state, reports, un-dispatched briefs. Returns structured data, renders nothing, never throws |
 | `bin\Render-Review.ps1` | structured data to reviewable HTML for lavish |
 | `bin\Test-CrewPrereqs.ps1` | verifies the toolchain; run it if anything behaves oddly |
-| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook: version, toolchain problems, fleet, queue, index counts, and both context files in full. Never throws |
+| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook: version, toolchain problems, fleet, what a restart killed and has to be re-armed, queue, index counts, and both context files in full. Never throws |
 | `bin\Version.psm1` | the `VERSION` file at the repo root: this installation's version, read and validated in one place, and never fabricated when it cannot be read |
 | `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the latest release tag, and the commit subjects between two releases |
 | `bin\Memory.psm1` | the startup-memory budget: what the two memory files cost, against what is allowed |
@@ -412,6 +412,23 @@ would know is the user asking - which is the exact failure this whole layer exis
 the digest cannot spot it because a live worker looks identical either way. So: for every worker the
 digest reports live, arm a fresh `Wait-HerdrAgentProgress` background job as `muster` Step 4
 describes, then say in one line which workers you picked back up.
+
+**The usage pulse and any review surface holding an answer need re-arming in the same breath, and
+both fail where nobody can see them.** The pulse is changed-only, so one that has stopped reads
+exactly like one with nothing to say - the King has twice reported that as "no tokens, no updates".
+A poll is a background job too, so a restart leaves the surface live with his answer queued on it,
+which reads exactly like a King who has not answered yet. The digest's `RE-ARM:` section carries
+the pulse's arming command and names every surface holding feedback nobody collected, so neither
+depends on your remembering: arm the pulse as **one job for the whole session, never a set number
+of ticks** - three at ten minutes buys half an hour and then stops - and re-run the poll on each
+surface it names, where `muster`'s `## The review surface` owns what the return means.
+
+**Say in one line that the pulse is on when you arm it.** Silence is the pulse working, and a
+reader with no line saying it started has nothing to tell that apart from a pulse that never did.
+
+**The digest prints that command whatever the King's own instructions say**, because nothing in
+`bin\` reads them. So the off switch stays exactly where Escalation and etiquette puts it - his
+line, your reading of it, and nothing armed.
 
 **A worker that is alive is not necessarily getting anywhere**, and liveness cannot tell you which
 you have. The re-armed wait watches the worker's screen for movement as well as for the worker
