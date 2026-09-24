@@ -8694,7 +8694,7 @@ Describe 'the review-surface contract is stated once and cross-referenced everyw
     }
 
     # Per unit of work is not per decision, and the landing gate is where the difference bites:
-    # a rejected landing is fixed and comes back here, into a session the user already ended.
+    # a rejected landing is fixed and comes back here, into the session that rejected it.
     It 'the landing gate points at the naming rule and names the case that misses it' {
         $step = Get-MusterStep 'Step 7 - Gate two'
         Assert-Phrase -Text $step -Where 'the landing gate' `
@@ -8702,10 +8702,33 @@ Describe 'the review-surface contract is stated once and cross-referenced everyw
                      '`## The review surface` above, and this gate is where it is easiest to miss.')
         Assert-Phrase -Text $step -Where 'the landing gate' `
             -Phrase ('A rejected landing comes back here after the worker fixes it, and that is ' +
-                     'a second decision, so it takes a fresh `$gate` name rather than the name ' +
-                     'the first one used.')
+                     'a second decision, so **a fresh `$gate` name is for a landing whose ' +
+                     'session they have ended, and only then**')
         $step.Contains('takes a fresh `$gate` name every time it is rendered') |
             Should -BeFalse -Because 'unconditional, that opens a second window on a session still live'
+        $step.Contains('so it takes a fresh `$gate` name rather than the name the first one used') |
+            Should -BeFalse -Because 'unconditional again: a plain Send leaves that session open'
+    }
+
+    # Both gates state this rule, and the landing gate has now twice been left holding the
+    # unconditional half after the dispatch gate was corrected. A rule stated at two sites needs
+    # pinning at both, or the next edit to one silently leaves the other contradicting the owner.
+    It 'the <Gate> gate renames only once the session has ended, and re-renders in place while open' -ForEach @(
+        @{ Gate = 'dispatch'; Step = 'Step 3 - Gate one'
+           Ended = 'A new name is for a gate whose session they have ended, and only then'
+           Open  = 'render again over the same `$gate` file while that session is still open'
+           Harm  = 'leaves them two gates for one decision' }
+        @{ Gate = 'landing';  Step = 'Step 7 - Gate two'
+           Ended = ('**a fresh `$gate` name is for a landing whose session they have ended, ' +
+                    'and only then**')
+           Open  = ('while that session is still open the fixed work is rendered again over ' +
+                    'the same file and Lavish reloads it in place')
+           Harm  = 'A new name beside a live one leaves them two gates for one landing' }
+    ) {
+        $step = Get-MusterStep $Step
+        Assert-Phrase -Text $step -Where "the $Gate gate" -Phrase $Ended
+        Assert-Phrase -Text $step -Where "the $Gate gate" -Phrase $Open
+        Assert-Phrase -Text $step -Where "the $Gate gate" -Phrase $Harm
     }
 
     # The always-loaded file listed the old fixed landing-gate name, so leaving it would have

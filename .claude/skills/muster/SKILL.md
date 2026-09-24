@@ -1835,8 +1835,12 @@ test pins the spelling for that reason.
 
 **One name per decision, not one per unit of work** - the rule is `## The review surface` above,
 and this gate is where it is easiest to miss. A rejected landing comes back here after the worker
-fixes it, and that is a second decision, so it takes a fresh `$gate` name rather than the name the
-first one used. The directory stays `data\<id>\`.
+fixes it, and that is a second decision, so **a fresh `$gate` name is for a landing whose session
+they have ended, and only then**; while that session is still open the fixed work is rendered
+again over the same file and Lavish reloads it in place. A new name beside a live one leaves them
+two gates for one landing, and an approval sent in the stale window - still showing the diff from
+before the fix - comes back as consent to land a version that no longer exists. The directory
+stays `data\<id>\`.
 
 Sections carry what they need to judge it: the changed files, the diff, the check results, the base
 ref the diff was taken against, and anything the worker's `report.md` left unresolved. Then say one
