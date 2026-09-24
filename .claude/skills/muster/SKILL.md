@@ -830,11 +830,12 @@ re-run.
 is still delivered once, and after that response polling stops. Re-arming anyway is the mistake
 this rule invites, and the session is not reopened uninvited to carry it.
 
-**An `artifact_failures` return is the second, and it is not re-armed either.** That is the fatal
-signal: the surface itself could not be used, and the failure is cleared as it is delivered, so a
-poll armed on it waits for something that will never arrive, on a page nobody can open. Repair the
-artifact, render it again and open the surface afresh before arming any poll on it - or, where it
-cannot be repaired now, put the decision in chat instead.
+**An `artifact_failures` return is the surface itself failing, and it is still re-armed.** That
+return says the page could not be used, not that the session is over: it stays open and they can
+still send into it, so the re-armed poll has something to wake it. Repair the artifact and re-arm
+on the same file - Lavish live-reloads it once the repair is saved, so the session is not reopened
+and `lavish-axi <file>` is not run again. The decision goes to chat instead only where the session
+has already ended, or where the artifact cannot be repaired.
 
 **Only the user's own sent feedback is an answer.** A return carrying none of it agreed to
 nothing and settles nothing, whatever else it says. Read for the sent feedback being there rather
@@ -879,8 +880,7 @@ lavish-axi poll $env:KINGSHAND_HOME\data\_dispatch\review.html
 **Both commands, in that order**, and everything that follows the first return - replying in the
 surface, re-arming the poll, what `Send & End` means - is `## The review surface` above.
 
-Only the user's own sent feedback is consent to dispatch. A poll that came back because the
-session was closed agreed to nothing, so read what returned before treating this gate as passed.
+Only the user's own sent feedback is consent to dispatch.
 
 When `$proj.yolo -eq 'off'`, dispatch nothing until they approve. If they change a brief, rewrite
 it and render again. None of this gate binds a `+yolo` project - there the brief is written, the

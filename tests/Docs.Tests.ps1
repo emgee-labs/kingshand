@@ -8438,20 +8438,24 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
                      'response polling stops.')
     }
 
-    # The other return with nothing to re-arm, and it has to be named rather than inferred: the
-    # fatal signal is cleared as it is delivered, so a poll armed after one waits forever on a
-    # surface nobody can open - the going-silent symptom this whole section exists to remove.
-    It 'names the fatal surface return as the second thing never re-armed' {
+    # The return that looks like an ending and is not one. A failure recorded against a live
+    # session leaves it open and still accepting prompts, so stopping there abandons a surface the
+    # user is sitting in - the going-silent symptom this whole section exists to remove. Only an
+    # already-ended session stops the polling, and the rule above it owns that case.
+    It 'repairs in place and re-arms on a fatal surface return' {
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('**An `artifact_failures` return is the second, and it is not re-armed ' +
-                     'either.**')
+            -Phrase ('**An `artifact_failures` return is the surface itself failing, and it is ' +
+                     'still re-armed.**')
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('the failure is cleared as it is delivered, so a poll armed on it waits ' +
-                     'for something that will never arrive, on a page nobody can open')
+            -Phrase ('it stays open and they can still send into it, so the re-armed poll has ' +
+                     'something to wake it')
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('Repair the artifact, render it again and open the surface afresh before ' +
-                     'arming any poll on it - or, where it cannot be repaired now, put the ' +
-                     'decision in chat instead.')
+            -Phrase ('Repair the artifact and re-arm on the same file - Lavish live-reloads it ' +
+                     'once the repair is saved, so the session is not reopened and ' +
+                     '`lavish-axi <file>` is not run again.')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('The decision goes to chat instead only where the session has already ' +
+                     'ended, or where the artifact cannot be repaired.')
     }
 
     It 'reads a refused reopen as the tool working, not as something to retry' {
@@ -8510,10 +8514,18 @@ Describe 'the review-surface contract is stated once and cross-referenced everyw
     }
 
     It 'the dispatch gate points at the owner instead of restating it' {
-        Assert-Phrase -Text (Get-MusterStep 'Step 3 - Gate one') -Where 'the dispatch gate' `
+        $gate = Get-MusterStep 'Step 3 - Gate one'
+        Assert-Phrase -Text $gate -Where 'the dispatch gate' `
             -Phrase ('**Both commands, in that order**, and everything that follows the first ' +
                      'return - replying in the surface, re-arming the poll, what `Send & End` ' +
                      'means - is `## The review surface` above.')
+        Assert-Phrase -Text $gate -Where 'the dispatch gate' `
+            -Phrase 'Only the user''s own sent feedback is consent to dispatch.'
+        # A pointer plus a second-hand copy of the rule is how the contract drifted in the first
+        # place: this copy said a returned-and-closed poll agreed to nothing, while the owner says
+        # feedback arriving with a closed session is an answer. Reading only the gate loses it.
+        $gate.Contains('A poll that came back because the session was closed agreed to nothing') |
+            Should -BeFalse -Because 'the owner section states what a return settles, and the gate points at it'
     }
 
     It 'the landing gate points at the owner instead of restating it' {
