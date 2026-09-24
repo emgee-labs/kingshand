@@ -870,9 +870,9 @@ session ending, and it is re-armed.** It is a delivery like any other, so it loc
 too, and the session being open is what makes re-arming worth doing: it unlocks them and gives the
 poll something to wake on. Repair the artifact and re-arm on the same file - Lavish live-reloads
 it once the repair is saved, so the session is not reopened and `lavish-axi <file>` is not run
-again. Where the same failure arrives on a session that has
-ended, the rule above wins and polling stops: repair the artifact, confirm it renders, and put the
-decision in chat. Chat is also where it goes while the artifact cannot be repaired at all.
+again. Where the same failure arrives on a session that has ended, the rule above wins and polling
+stops: repair the artifact, confirm it renders, and put the decision in chat. Chat is also where
+it goes while the artifact cannot be repaired at all.
 
 **Only the user's own sent feedback is an answer.** A return carrying none of it agreed to
 nothing and settles nothing, whatever else it says. Read for the sent feedback being there rather
