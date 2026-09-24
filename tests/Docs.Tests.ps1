@@ -8348,13 +8348,13 @@ Describe 'CLAUDE.md keeps the away boundary to a pointer' {
 
 # ---------------------------------------------------------------------------------------------
 # The side chat went silent. The Hand rendered, armed one poll, read what came back, and then went
-# to work - leaving the surface with nothing watching it, so everything the user sent after that
-# reached nobody while the page still looked healthy. Arming, reading and answering are all
-# kingshand's, and `--agent-reply` appeared in zero tracked files while the symptom was reported
-# three times in one day. These pin the rule that reading a result is the event that leaves the
-# surface unwatched, and the one call that answers and re-arms together.
+# to work - and a delivered result with no poll behind it is read as the agent having gone away,
+# which disables both send buttons on a page that still looks healthy. Arming, reading and
+# answering are all kingshand's, and `--agent-reply` appeared in zero tracked files while the
+# symptom was reported three times in one day. These pin the rule that reading a result is the
+# event that shuts the surface down, and the one call that answers and re-arms together.
 
-Describe 'reading a poll result is what leaves the review surface unwatched' {
+Describe 'reading a poll result is what shuts the review surface down' {
     BeforeAll { $script:Surface = Get-MusterStep 'The review surface' }
 
     It 'declares itself the single owner of the contract' {
@@ -8364,13 +8364,27 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
     }
 
     # The whole defect in one assertion: re-arming after the work is re-arming after the silence.
+    # The diagnosis has to be the lock-out rather than a message going nowhere, because the two
+    # look identical from here and only one of them is what a returned-with-feedback poll causes.
     It 're-arms at the instant the result is read, before acting on it' {
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('The instant a poll returns, that surface is unwatched: they can send ' +
-                     'again and nobody is watching it at that moment.')
+            -Phrase ('**The instant a poll returns carrying their feedback, they are locked out ' +
+                     'of sending until you reply or re-arm.**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Both buttons go dead on a page that otherwise looks entirely normal, with ' +
+                     'no banner saying why')
+        # The other branch, where the old premise was right and has to stay stated: no feedback
+        # came back, so the buttons are live, the banner shows, and a message really is lost on
+        # nobody. One sentence covering both returns would be wrong for one of them.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('A return carrying no feedback - a killed or timed-out poll - is the other ' +
+                     'half: the buttons stay live and it is the banner that tells them nobody ' +
+                     'is listening, so there the message really does go nowhere.')
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
             -Phrase ('**re-arm at that instant, before you act on what the result said** - not ' +
                      'after the work is done, and not once you have something worth replying with.')
+        $script:Surface.Contains('The instant a poll returns, that surface is unwatched') |
+            Should -BeFalse -Because 'a delivered result locks the page, it does not leave it open and ignored'
     }
 
     # Lavish's own recovery rule, and the reason the sentence above says nobody is watching rather
@@ -8545,12 +8559,16 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
             -Phrase ('a reused name is a path that opens nothing once they have ended a session ' +
                      'on it, and a poll left armed from an earlier decision sits on the same ' +
                      'session as this one and can drain the answer meant for it')
-        # The one reuse that is correct, and it is the live case: a revision reloads in place
-        # rather than opening a second window on the decision they are already looking at.
+        # The exception turns on the session, not on counting decisions. Phrased the other way it
+        # asked the reader to classify the render first, and a rejected-then-fixed landing reads
+        # as a second decision - so the headline rule sent them to a new name beside a live
+        # session, which is the harm both gates warn about.
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('The one name that is reused is a revision of a decision they are still ' +
-                     'looking at: while that session is open the same file is rendered again ' +
-                     'and Lavish reloads it in place.')
+            -Phrase ('**The session is what decides, not a judgement about how many decisions ' +
+                     'there are: while it is open, anything rendered to that file is a revision ' +
+                     'and keeps the name, and a new name is for a session they have ended.**')
+        $script:Surface.Contains('The one name that is reused is a revision of a decision') |
+            Should -BeFalse -Because 'that made reuse depend on classifying the render rather than on the session'
     }
 
     # Stated by what has to be present, and by that alone. The rule carried a list of example
@@ -8701,13 +8719,17 @@ Describe 'the review-surface contract is stated once and cross-referenced everyw
             -Phrase ('**One name per decision, not one per unit of work** - the rule is ' +
                      '`## The review surface` above, and this gate is where it is easiest to miss.')
         Assert-Phrase -Text $step -Where 'the landing gate' `
-            -Phrase ('A rejected landing comes back here after the worker fixes it, and that is ' +
-                     'a second decision, so **a fresh `$gate` name is for a landing whose ' +
-                     'session they have ended, and only then**')
+            -Phrase ('A rejected landing comes back here after the worker fixes it, and **a ' +
+                     'fresh `$gate` name is for a landing whose session they have ended, and ' +
+                     'only then**')
         $step.Contains('takes a fresh `$gate` name every time it is rendered') |
             Should -BeFalse -Because 'unconditional, that opens a second window on a session still live'
         $step.Contains('so it takes a fresh `$gate` name rather than the name the first one used') |
             Should -BeFalse -Because 'unconditional again: a plain Send leaves that session open'
+        # Calling it a second decision and then reusing the name is what the owner rule forbids
+        # for a second decision, so the classification had to go rather than the action.
+        $step.Contains('that is a second decision') |
+            Should -BeFalse -Because 'the owner section decides on the session, not on counting decisions'
     }
 
     # Both gates state this rule, and the landing gate has now twice been left holding the

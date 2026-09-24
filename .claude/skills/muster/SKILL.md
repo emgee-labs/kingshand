@@ -794,9 +794,10 @@ bare `lavish-axi <file>` call is what opens the session that `poll` then waits o
 **Every decision is rendered to its own file name, and no two share one.** A session is keyed by
 the file's absolute path and an ended one is kept for good, so a reused name is a path that opens
 nothing once they have ended a session on it, and a poll left armed from an earlier decision sits
-on the same session as this one and can drain the answer meant for it. The one name that is reused
-is a revision of a decision they are still looking at: while that session is open the same file is
-rendered again and Lavish reloads it in place.
+on the same session as this one and can drain the answer meant for it. **The session is what
+decides, not a judgement about how many decisions there are: while it is open, anything rendered
+to that file is a revision and keeps the name, and a new name is for a session they have ended.**
+Lavish reloads the revision in the window they are already looking at.
 
 **A session the user ended from the browser is not reopened.** That same open call refuses and
 explains why rather than reopening uninvited, so a refusal there is the tool working and never
@@ -813,11 +814,17 @@ tracked background job whose completion is guaranteed to wake this same session,
 `&`, `nohup`, `disown` or any detached process. **Do not tell the user the artifact is being
 monitored until that wake path is live.**
 
-### Reading a result is what leaves the surface unwatched
+### Reading a result is what shuts the surface down
 
-The instant a poll returns, that surface is unwatched: they can send again and nobody is watching
-it at that moment. So **re-arm at that instant, before you act on what the result said** - not
-after the work is done, and not once you have something worth replying with. One call does both:
+**The instant a poll returns carrying their feedback, they are locked out of sending until you
+reply or re-arm.** Both buttons go dead on a page that otherwise looks entirely normal, with no
+banner saying why, because the surface reads a delivered result as you having gone off to work.
+That is the reported symptom: not a message falling into a void, but a page they cannot type into.
+A return carrying no feedback - a killed or timed-out poll - is the other half: the buttons stay
+live and it is the banner that tells them nobody is listening, so there the message really does go
+nowhere. Either way the fix is the same, and it is the same instant: **re-arm at that instant,
+before you act on what the result said** - not after the work is done, and not once you have
+something worth replying with. One call does both:
 
 ```powershell
 lavish-axi poll <file> --agent-reply "<your answer to what they just sent>"
@@ -1835,12 +1842,11 @@ test pins the spelling for that reason.
 
 **One name per decision, not one per unit of work** - the rule is `## The review surface` above,
 and this gate is where it is easiest to miss. A rejected landing comes back here after the worker
-fixes it, and that is a second decision, so **a fresh `$gate` name is for a landing whose session
-they have ended, and only then**; while that session is still open the fixed work is rendered
-again over the same file and Lavish reloads it in place. A new name beside a live one leaves them
-two gates for one landing, and an approval sent in the stale window - still showing the diff from
-before the fix - comes back as consent to land a version that no longer exists. The directory
-stays `data\<id>\`.
+fixes it, and **a fresh `$gate` name is for a landing whose session they have ended, and only
+then**; while that session is still open the fixed work is rendered again over the same file and
+Lavish reloads it in place. A new name beside a live one leaves them two gates for one landing,
+and an approval sent in the stale window - still showing the diff from before the fix - comes back
+as consent to land a version that no longer exists. The directory stays `data\<id>\`.
 
 Sections carry what they need to judge it: the changed files, the diff, the check results, the base
 ref the diff was taken against, and anything the worker's `report.md` left unresolved. Then say one
