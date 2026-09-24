@@ -199,6 +199,30 @@ function Get-QueuedPromptCount {
     -1
 }
 
+# How many artifact failures one session is holding - or -1 for a list that could not be read.
+#
+# The second half of the tool's own condition, and it is read here for the same reason the first
+# half is: `takeFeedback` returns `ended` only where the queued prompts AND the artifact failures
+# are both empty, and returns the feedback otherwise. A row with a failure on it and nothing queued
+# still has something a single poll would deliver, so it is not "nothing to collect".
+#
+# Read as defensively as the count above. The tool writes a JSON array; anything else - a field
+# that is absent, null, or some other shape - is the tool not answering, which keeps the row.
+function Get-ArtifactFailureCount {
+    param($Row)
+    try {
+        if ($null -eq $Row) { return -1 }
+        $p = $Row.PSObject.Properties['artifact_failures']
+        if (-not $p) { return -1 }
+        $v = $p.Value
+        if ($null -eq $v -or $v -is [string]) { return -1 }
+        if ($v -is [System.Collections.IEnumerable]) { return @($v).Count }
+        return -1
+    } catch {
+        return -1
+    }
+}
+
 # When the tool last touched one session, as an instant anybody can read the same way.
 #
 # ConvertFrom-Json turns the store's timestamps into DateTime objects, and stringifying one of
@@ -219,6 +243,35 @@ function Get-SessionStamp {
     $t = "$v".Trim()
     if ($t) { return $t }
     'last touched not given'
+}
+
+# One review surface as one line: what is on it, the tool's own status word, when it was last
+# touched, and the absolute path a poll takes. Shared by both surface lists, because the two differ
+# in what the reader should do next and in nothing about the row itself.
+function Format-SurfaceLine {
+    param($Row)
+    # An unreadable count is said as unreadable. It is listed either way, because the one thing
+    # that cannot be concluded from a count nobody could read is that there is nothing there.
+    $n      = Get-QueuedPromptCount $Row
+    $queued = if ($n -lt 0) { 'queued count unreadable' } else { "$n queued" }
+
+    # Silent when the tool says there are none, because that is the ordinary row and saying "0
+    # artifact failures" on every line buries the one that has some.
+    $a = Get-ArtifactFailureCount $Row
+    $failed = if ($a -lt 0)     { ', artifact failures unreadable' }
+              elseif ($a -eq 1) { ', 1 artifact failure' }
+              elseif ($a -gt 0) { ", $a artifact failures" }
+              else              { '' }
+
+    # The tool's own status word, passed through rather than translated. This digest does not own
+    # that vocabulary and must not invent a meaning for it.
+    $status = Get-Field $Row 'status' 'status not given'
+
+    # The path is never a fallback. A row reaches a list only by having a file that resolves inside
+    # DataPath, so there is always one to print, and a row naming no file at all could not have
+    # been matched to this installation in the first place - it is not counted rather than counted
+    # without a path.
+    "- $queued$failed, status $status, $(Get-SessionStamp $Row) - $(Get-Field $Row 'file')"
 }
 
 # A list in this digest is a set of one-liners, and a fleet of forty must not turn session start
@@ -519,25 +572,33 @@ Add-Line '    here reads that file and nothing here decides it.'
 # exists. It is JSON the tool writes to its own schema and it is parsed as JSON, which is what
 # keeps this a read of a bounded format rather than a scan of an open-ended one.
 #
-# QUEUED FEEDBACK IS THE SIGNAL, NOT AN OPEN SESSION, and the difference is the whole design.
+# SOMETHING UNCOLLECTED IS THE SIGNAL, NOT AN OPEN SESSION, and the difference is the whole design.
 # Nothing ends a session once its decision is settled, so `open` accumulates for good - dozens of
 # them on this machine, every one of them looking identical to a decision raised this morning.
 # A prompt queued and uncollected is the opposite: it is the exact failure this section exists for,
 # it is the King's own answer sitting where nobody is listening, and it clears the moment it is
-# collected. So the queued ones are named with the path the poll needs, and the rest are a count
-# with a sentence saying plainly that the count is not a list of things to do.
+# collected.
 #
-# A SESSION THE TOOL CALLS `ended` IS THE ONE WITH NOTHING TO RE-ARM, and naming it in a list
-# headed "re-poll these" is telling the reader to do the thing `muster`'s `## The review surface`
-# forbids: its final feedback was delivered once and polling stops after it, so a re-armed poll
-# returns the same ended result at once and the rule that just fired says re-arm again. Matched as
-# the exact word and nothing else - a status the store did not give, one spelled any other way, one
-# this could not read, all stay in the re-poll list, because polling a surface that did not need it
-# costs a moment and dropping one that did costs the King's answer.
+# THE TOOL'S OWN CONDITION IS MIRRORED RATHER THAN SUMMARISED. `takeFeedback` reports `ended` only
+# where the queued prompts and the artifact failures are BOTH empty; with either of them holding
+# something it returns that feedback instead, carrying `session_ended` alongside, and the poll
+# route calls it at once rather than waiting. So a session that has ended while still holding a
+# queued prompt is not a dead end - it is a Send & End whose final answer was never delivered,
+# which is precisely the killed poll this whole section exists for. Dropping it on the status word
+# alone would discard the one case a single poll still recovers, and send the reader back to ask
+# for a decision the King already made.
 #
-# They are not dropped in silence either. Feedback that ended uncollected is still feedback nobody
-# has, so it is counted in a sentence of its own that says polling re-arms nothing - the fact
-# survives the digest without the reader being pointed at a surface that cannot answer.
+# THE STATUS WORD BELONGS IN THE WORDING, NOT IN THE SELECTION. A row is listed when it is holding
+# anything, and which list it lands in says what to do with it: a session still open is polled and
+# left armed, and one that has already ended is polled once to collect what is on it and not
+# re-armed, which is what `muster`'s `## The review surface` says happens after that return.
+# Matched as the exact word and nothing else - a status the store did not give, one spelled any
+# other way, one this could not read, all take the ordinary re-arming path, because re-arming a
+# surface that did not need it costs a moment and not re-arming one that did costs the answer.
+#
+# What is NOT here is stated in the section itself rather than left implied: a session that is open
+# with nothing queued on it is not named. The store records no field saying a poll was armed, so
+# one that was being waited on cannot be told from the dozens nobody ever closed.
 try {
     if (-not $LavishStatePath) {
         Add-Line '  Surfaces: no home directory to resolve lavish-axi''s session store against, so no'
@@ -556,56 +617,36 @@ try {
             Add-Line "  Surfaces: the session store at $LavishStatePath named no sessions at all, so"
             Add-Line '            which surfaces are open was not established.'
         } else {
-            $rows   = @($sessions.PSObject.Properties | ForEach-Object { $_.Value })
-            $mine   = @($rows | Where-Object { Test-PathUnder -Path (Get-Field $_ 'file') -Root $DataPath })
-            $held   = @($mine | Where-Object { (Get-QueuedPromptCount $_) -ne 0 })
-            $ended  = @($held | Where-Object { (Get-Field $_ 'status') -ceq 'ended' })
-            $repoll = @($held | Where-Object { (Get-Field $_ 'status') -cne 'ended' })
+            $rows    = @($sessions.PSObject.Properties | ForEach-Object { $_.Value })
+            $mine    = @($rows | Where-Object { Test-PathUnder -Path (Get-Field $_ 'file') -Root $DataPath })
+            $holding = @($mine | Where-Object {
+                (Get-QueuedPromptCount $_) -ne 0 -or (Get-ArtifactFailureCount $_) -ne 0
+            })
+            $ended = @($holding | Where-Object { (Get-Field $_ 'status') -ceq 'ended' })
+            $live  = @($holding | Where-Object { (Get-Field $_ 'status') -cne 'ended' })
 
-            if ($repoll.Count -eq 0) {
-                Add-Line "  Surfaces: none of the $($mine.Count) under $DataPath is holding feedback nobody"
-                Add-Line '            has collected on a surface a poll can still reach. A session still open'
-                Add-Line '            is not counted as waiting - nothing ends one when its decision is settled,'
-                Add-Line '            so they accumulate for good.'
-                $endedOpener = "$($ended.Count) of them"
+            if ($holding.Count -eq 0) {
+                Add-Line "  Surfaces: none of the $($mine.Count) under $DataPath is holding anything nobody"
+                Add-Line '            has collected.'
             } else {
-                Add-Line "  Surfaces: $($repoll.Count) of $($mine.Count) under $DataPath hold feedback nobody has"
-                Add-Line '            collected and are the surfaces to re-poll. Re-run the poll on each named'
-                Add-Line '            below - queued feedback is never lost, so the answer is still there to'
-                Add-Line '            collect. `muster`''s `## The review surface` owns what a return means.'
-                Add-BoundedList -Items @($repoll | ForEach-Object {
-                    $n = Get-QueuedPromptCount $_
-                    # An unreadable count is said as unreadable. It is listed either way, because
-                    # the one thing that cannot be concluded from a count nobody could read is that
-                    # there is nothing there.
-                    $queued = if ($n -lt 0) { 'queued count unreadable' } else { "$n queued" }
-                    # The tool's own status word, passed through rather than translated. This
-                    # digest does not own that vocabulary and must not invent a meaning for it.
-                    $status = Get-Field $_ 'status' 'status not given'
-                    # The path is never a fallback. A row reaches this list only by having a file
-                    # that resolves inside DataPath, so there is always one to print, and a row
-                    # naming no file at all could not have been matched to this installation in
-                    # the first place - it is not counted rather than counted without a path.
-                    "- $queued, status $status, $(Get-SessionStamp $_) - $(Get-Field $_ 'file')"
-                })
-                $endedOpener = "$($ended.Count) more"
+                Add-Line "  Surfaces: $($holding.Count) of $($mine.Count) under $DataPath hold something nobody"
+                Add-Line '            has collected. `muster`''s `## The review surface` owns what a return'
+                Add-Line '            means, and each is named with the absolute path its poll takes.'
             }
+            Add-Line '            Not named here: a session still open with nothing queued on it. The store'
+            Add-Line '            records no field saying a poll was armed, so one that was being waited on'
+            Add-Line '            cannot be told from the dozens nobody ever closed.'
 
-            # Counted, never listed and never silent. Discarded evidence is the thing this whole
-            # section is against, so the count says there is no surface left to collect from.
-            #
-            # The opener belongs to the branch above it. After a printed list the ended rows are
-            # additional to it and "more" has something to be more than; where nothing was named,
-            # they are the whole of what was found and "more" would follow the word "none".
-            #
-            # NOT SAID TO BE HOLDING FEEDBACK, because some of them may not be. A row is held on
-            # `pending_prompts` not being zero, which includes a count the store did not give at
-            # all - the re-poll list prints "queued count unreadable" for exactly that case, and a
-            # flat claim of uncollected feedback here would assert what that row never said.
+            if ($live.Count -gt 0) {
+                Add-Line '    Still open - re-run the poll and leave it armed:'
+                Add-BoundedList -Items @($live | ForEach-Object { Format-SurfaceLine $_ }) -Indent '      '
+            }
+            # Listed, not counted, and this is the row the earlier shape lost. The tool hands the
+            # queued feedback over on the next poll whether or not the session has ended, so the
+            # path is what the reader needs; what changes is only that nothing is re-armed after.
             if ($ended.Count -gt 0) {
-                Add-Line "            $endedOpener ended without the store showing their feedback collected, and"
-                Add-Line '            polling an ended session re-arms nothing - so whatever they left undecided'
-                Add-Line '            goes in chat.'
+                Add-Line '    Already ended - run the poll once to collect it, then do not re-arm:'
+                Add-BoundedList -Items @($ended | ForEach-Object { Format-SurfaceLine $_ }) -Indent '      '
             }
         }
     }

@@ -421,9 +421,11 @@ which reads exactly like a King who has not answered yet. The digest's `RE-ARM:`
 the pulse's arming command and names every surface still worth re-polling, so neither depends on
 your remembering: arm the pulse as **one job for the whole session, never a set number of ticks** -
 three at ten minutes buys half an hour and then stops - and re-run the poll on each surface it
-names, where `muster`'s `## The review surface` owns what the return means. A session that already
-ended holding feedback is counted there rather than named, because that is the one with nothing to
-re-arm - its decision goes in chat.
+names, where `muster`'s `## The review surface` owns what the return means. **A session that has
+already ended is named too wherever something is still uncollected on it** - the tool hands queued
+feedback over on the next poll whatever the session's state, so that one is polled once to collect
+it and then not re-armed. What the list cannot cover is a session open with nothing queued: the
+store records no field saying a poll was armed, so the digest says so rather than guessing.
 
 **Say in one line that the pulse is on when you arm it.** Silence is the pulse working, and a
 reader with no line saying it started has nothing to tell that apart from a pulse that never did.

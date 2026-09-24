@@ -97,10 +97,16 @@ BeforeAll {
         $Fixture.LavishState
     }
 
+    # `artifact_failures` is the second half of lavish-axi's own "nothing to collect" condition, so
+    # it is drivable here the same way `pending_prompts` is - present and empty, present and
+    # holding something, or absent altogether.
     function New-LavishSession {
-        param([string]$File, $Pending, [string]$Status = 'open', [string]$Updated = '2026-09-16T11:34:32Z')
+        param([string]$File, $Pending, $Failures, [string]$Status = 'open',
+              [string]$Updated = '2026-09-16T11:34:32Z')
         $row = [ordered]@{ file = $File; status = $Status; updated_at = $Updated }
-        if ($PSBoundParameters.ContainsKey('Pending')) { $row['pending_prompts'] = $Pending }
+        if ($PSBoundParameters.ContainsKey('Pending'))  { $row['pending_prompts']   = $Pending }
+        if ($PSBoundParameters.ContainsKey('Failures')) { $row['artifact_failures'] = $Failures }
+        else                                            { $row['artifact_failures'] = @() }
         $row
     }
 
@@ -936,10 +942,10 @@ Describe 'the digest says how to re-arm the usage pulse' {
 }
 
 # The other half, and the one the King loses something to. lavish-axi ships no command that lists
-# its sessions, so its own store is the one place the answer exists. Queued feedback is the signal
-# rather than an open session: nothing ends a session when its decision is settled, so `open`
+# its sessions, so its own store is the one place the answer exists. Something uncollected is the
+# signal rather than an open session: nothing ends a session when its decision is settled, so `open`
 # accumulates for good, while a queued prompt is his answer sitting where nobody is listening.
-Describe 'the digest names review surfaces holding feedback nobody collected' {
+Describe 'the digest names review surfaces holding something nobody collected' {
     It 'names a surface with queued feedback, with the path a poll needs' {
         $f = New-Fixture 'surface-queued'
         New-LavishStore -Fixture $f -Sessions @(
@@ -947,23 +953,21 @@ Describe 'the digest names review surfaces holding feedback nobody collected' {
         ) | Out-Null
         $text = Get-Digest $f
 
-        $text | Should -Match '1 of 1 .* hold feedback nobody has'
+        $text | Should -Match '1 of 1 .* hold something nobody'
+        $text | Should -Match 'Still open - re-run the poll and leave it armed'
         $text.Contains('2 queued, status feedback') | Should -BeTrue
         $text.Contains((Join-Path $f.Data 'kh-thing\gate.html')) |
             Should -BeTrue -Because 'the poll takes an absolute path and nothing else has told the Hand it'
-        $text | Should -Match '`muster`''s `## The review surface` owns what a return means'
+        $text | Should -Match '`muster`''s `## The review surface` owns what a return'
     }
 
-    # muster's `## The review surface`: a return whose session has ended is the one with nothing to
-    # re-arm. Its final feedback was delivered once and polling stops after it, so naming it under
-    # "re-run the poll on each" sends the reply into a closed session nobody reads and gets the same
-    # ended result straight back. Not dropped in silence either - on this machine two of these have
-    # sat holding a message since early September, and a row quietly removed is evidence lost.
-    # This is the shape the live machine reaches the moment its one open queued surface is
-    # collected: ended rows holding something, and nothing at all to re-poll. The sentence has to
-    # stand on its own there - "2 more" straight after the word "none" is more than nothing, which
-    # is a contradiction the reader has to unpick before they can act on either half.
-    It 'keeps an ended session out of the re-poll list and still says it is holding something' {
+    # THE ROW A STATUS-ONLY FILTER LOSES, and it is the one this whole section exists for.
+    # lavish-axi's `takeFeedback` reports `ended` only where the queued prompts and the artifact
+    # failures are both empty; with a prompt still queued it hands that feedback over instead,
+    # carrying `session_ended` alongside. So `ended` plus a queued prompt is a Send & End whose
+    # final answer was never delivered, and one poll still collects it. Dropping it sends the Hand
+    # back to ask for a decision the King already made - two such rows sat in the live store.
+    It 'names an ended session that still has a queued prompt, as a poll to run once' {
         $f = New-Fixture 'surface-ended'
         $gone = Join-Path $f.Data 'kh-ended\gate.html'
         New-LavishStore -Fixture $f -Sessions @(
@@ -971,20 +975,49 @@ Describe 'the digest names review surfaces holding feedback nobody collected' {
         ) | Out-Null
         $text = Get-Digest $f
 
+        $text | Should -Match '1 of 1 .* hold something nobody'
         $text.Contains($gone) |
-            Should -BeFalse -Because 'polling an ended session re-arms nothing, which is muster''s rule'
-        $text | Should -Not -Match 'Re-run the poll on each named'
-        $text | Should -Match '1 of them ended without the store showing their feedback collected'
-        $text | Should -Not -Match '\d+ more ended' `
-            -Because '"more" than none is a contradiction where no surface was named'
-        $text | Should -Match 'polling an ended session re-arms nothing'
-        $text | Should -Match 'goes\s+in chat' `
-            -Because 'the decision is still open and now has no surface to decide it on'
+            Should -BeTrue -Because 'one poll still delivers it, and the poll takes that path'
+        $text | Should -Match 'Already ended - run the poll once to collect it, then do not re-arm'
+        $text | Should -Not -Match 'Still open - re-run the poll' `
+            -Because 'an ended session is collected once, never left armed'
     }
 
-    # The other side of the same split, on one store, so the counts are shown telling them apart
-    # rather than each branch being shown alone. Here "more" has the printed list to be more than.
-    It 'still names an open surface beside an ended one and counts the ended one separately' {
+    # The other half of the tool's condition, and on its own it is enough to keep a row: a session
+    # with nothing queued but a failure recorded still has something the next poll hands over.
+    It 'names an ended session whose only uncollected thing is an artifact failure' {
+        $f = New-Fixture 'surface-ended-artifact'
+        $gate = Join-Path $f.Data 'kh-artifact\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $gate -Pending 0 -Failures @('render failed') -Status 'ended')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text.Contains($gate) |
+            Should -BeTrue -Because 'the tool reports ended only when the failures are empty too'
+        $text.Contains('0 queued, 1 artifact failure, status ended') |
+            Should -BeTrue -Because 'the reason the row was kept has to be visible on the row'
+        $text | Should -Match 'Already ended - run the poll once to collect it'
+    }
+
+    # The one an ended session is genuinely dropped for: the tool's condition satisfied on both
+    # halves, which is the state that actually returns `ended` and delivers nothing.
+    It 'leaves out an ended session with nothing queued and no failures' {
+        $f = New-Fixture 'surface-ended-empty'
+        $gate = Join-Path $f.Data 'kh-settled\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $gate -Pending 0 -Failures @() -Status 'ended')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match 'none of the 1 .* is holding anything nobody'
+        $text.Contains($gate) |
+            Should -BeFalse -Because 'there is nothing on it for a poll to collect'
+    }
+
+    # Both states on one store, so the split is shown telling them apart rather than each branch
+    # being shown alone. Both are named; only what to do afterwards differs.
+    It 'names an open surface and an ended one under their own headings' {
         $f = New-Fixture 'surface-ended-and-open'
         $live = Join-Path $f.Data 'kh-live\gate.html'
         $gone = Join-Path $f.Data 'kh-gone\gate.html'
@@ -992,35 +1025,25 @@ Describe 'the digest names review surfaces holding feedback nobody collected' {
             (New-LavishSession -File $live -Pending 1 -Status 'open'),
             (New-LavishSession -File $gone -Pending 1 -Status 'ended')
         ) | Out-Null
-        $text = Get-Digest $f
+        $lines = @((Get-Digest $f) -split "`r?`n")
 
-        $text | Should -Match '1 of 2 .* hold feedback nobody has'
-        $text.Contains($live) | Should -BeTrue
-        $text.Contains($gone) | Should -BeFalse
-        $text | Should -Match '1 more ended without the store showing their feedback collected'
+        (@($lines) -join "`n") | Should -Match '2 of 2 .* hold something nobody'
+        $openAt  = [array]::FindIndex([string[]]$lines, [Predicate[string]]{ $args[0].Contains('Still open - re-run') })
+        $endedAt = [array]::FindIndex([string[]]$lines, [Predicate[string]]{ $args[0].Contains('Already ended - run the poll once') })
+        $liveAt  = [array]::FindIndex([string[]]$lines, [Predicate[string]]{ $args[0].Contains('kh-live') })
+        $goneAt  = [array]::FindIndex([string[]]$lines, [Predicate[string]]{ $args[0].Contains('kh-gone') })
+
+        @($openAt, $endedAt, $liveAt, $goneAt) | Should -Not -Contain -1
+        $liveAt | Should -BeGreaterThan $openAt
+        $liveAt | Should -BeLessThan $endedAt -Because 'each surface sits under the heading that tells its reader what to do'
+        $goneAt | Should -BeGreaterThan $endedAt
     }
 
-    # A row is held on `pending_prompts` not being zero, and that includes a count the store never
-    # gave - the re-poll list says "queued count unreadable" for exactly that row. Folded into the
-    # ended count it must not be upgraded into a claim that feedback is sitting there: what is
-    # actually known is that the store never showed it collected.
-    It 'does not claim feedback for an ended session whose queued count the store did not give' {
-        $f = New-Fixture 'surface-ended-unreadable'
-        $row = New-LavishSession -File (Join-Path $f.Data 'kh-ended-x\gate.html') -Status 'ended'
-        $row.Remove('pending_prompts')
-        New-LavishStore -Fixture $f -Sessions @($row) | Out-Null
-        $text = Get-Digest $f
-
-        $text | Should -Match '1 of them ended without the store showing their feedback collected'
-        $text | Should -Not -Match 'ended holding feedback' `
-            -Because 'the store gave no count, so nothing here may assert one'
-    }
-
-    # The direction the doubt is resolved in, and it is deliberate: polling a surface that did not
-    # need it costs a moment, dropping one that did costs the King's answer. So only the tool's own
-    # exact word is treated as ended - a status it did not give, and one spelled any other way,
-    # both stay on the list.
-    It 'keeps a surface whose status is missing or is not exactly ended on the list' {
+    # The direction the doubt is resolved in, and it is deliberate: re-arming a surface that did not
+    # need it costs a moment, failing to re-arm one that did costs the King's answer. So only the
+    # tool's own exact word takes the collect-once path - a status it did not give, and one spelled
+    # any other way, are re-armed the ordinary way.
+    It 'treats a status that is missing or is not exactly ended as a surface to re-arm' {
         $f = New-Fixture 'surface-not-ended'
         $none  = Join-Path $f.Data 'kh-nostatus\gate.html'
         $cased = Join-Path $f.Data 'kh-cased\gate.html'
@@ -1032,12 +1055,48 @@ Describe 'the digest names review surfaces holding feedback nobody collected' {
         ) | Out-Null
         $text = Get-Digest $f
 
-        $text | Should -Match '2 of 2 .* hold feedback nobody has'
+        $text | Should -Match '2 of 2 .* hold something nobody'
         $text.Contains($none) |
             Should -BeTrue -Because 'a status the store did not give is not the store saying ended'
         $text.Contains($cased) |
             Should -BeTrue -Because 'the exact word is the match, and anything else is not it'
-        $text | Should -Not -Match 'more ended holding feedback'
+        $text | Should -Not -Match 'Already ended - run the poll once' `
+            -Because 'neither row is the tool saying ended, so neither takes the collect-once path'
+    }
+
+    # Both halves of the condition read the same defensive way. A list that is absent, null or not
+    # a list at all is the tool not answering, and "nothing is waiting" is the one answer this
+    # section must never give without having looked.
+    It 'keeps a surface whose artifact failures could not be read' {
+        $f = New-Fixture 'surface-artifact-unreadable'
+        $absent = Join-Path $f.Data 'kh-af-absent\gate.html'
+        $junk   = Join-Path $f.Data 'kh-af-junk\gate.html'
+        $row = New-LavishSession -File $absent -Pending 0
+        $row.Remove('artifact_failures')
+        New-LavishStore -Fixture $f -Sessions @(
+            $row,
+            (New-LavishSession -File $junk -Pending 0 -Failures 17)
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match '2 of 2 .* hold something nobody'
+        @($text -split "`r?`n" | Where-Object { $_.Contains('artifact failures unreadable') }).Count |
+            Should -Be 2 -Because 'an absent list and one that is not a list are both the tool not answering'
+        $text.Contains($absent) | Should -BeTrue
+        $text.Contains($junk)   | Should -BeTrue
+    }
+
+    # Stated rather than left to be inferred from what the list happens to contain. A reader told
+    # which surfaces are named needs telling which are not, or silence reads as "nothing else".
+    It 'says what it cannot see, so the list is not read as everything that was being waited on' {
+        $f = New-Fixture 'surface-limits'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File (Join-Path $f.Data 'kh-limits\gate.html') -Pending 0 -Status 'open')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match 'Not named here: a session still open with nothing queued on it'
+        $text | Should -Match 'records no field saying a poll was armed'
     }
 
     # The store belongs to lavish-axi. The digest reads it for one fact and must leave it exactly
@@ -1075,8 +1134,7 @@ Describe 'the digest names review surfaces holding feedback nobody collected' {
         ) | Out-Null
         $text = Get-Digest $f
 
-        $text | Should -Match 'none of the 1 .* is holding feedback nobody'
-        $text | Should -Match 'nothing\s+ends one when its decision is settled'
+        $text | Should -Match 'none of the 1 .* is holding anything nobody'
         $text.Contains($quiet) |
             Should -BeFalse -Because 'a settled decision named at every session start is noise, not work'
     }
@@ -1106,7 +1164,7 @@ Describe 'the digest names review surfaces holding feedback nobody collected' {
         ) | Out-Null
         $text = Get-Digest $f
 
-        $text | Should -Match '2 of 2 .* hold feedback nobody has'
+        $text | Should -Match '2 of 2 .* hold something nobody'
         @($text -split "`n" | Where-Object { $_.Contains('queued count unreadable') }).Count |
             Should -Be 2 -Because 'an absent count and an unparseable one are both the tool not answering'
         $text.Contains($a) | Should -BeTrue
@@ -1165,7 +1223,7 @@ Describe 'the digest names review surfaces holding feedback nobody collected' {
         ) | Out-Null
         $text = Get-Digest $f
 
-        $text | Should -Match '30 of 30 .* hold feedback nobody has'
+        $text | Should -Match '30 of 30 .* hold something nobody'
         $text.Contains('... and 5 more') |
             Should -BeTrue -Because 'the tail is counted rather than printed, as every other list here is'
     }
@@ -1180,7 +1238,7 @@ Describe 'a session store that cannot be read says so rather than saying nothing
         $text = Get-Digest $f
         $text.Contains('no session store at') | Should -BeTrue
         $text | Should -Match 'there is nothing to re-arm'
-        $text | Should -Not -Match 'hold feedback nobody has'
+        $text | Should -Not -Match 'hold something nobody'
     }
 
     It 'names the failure when the store is not the JSON it reads' {

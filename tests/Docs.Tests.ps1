@@ -1886,16 +1886,27 @@ Describe 'recovery reconciles records against reality before taking new work' {
             -Phrase 'names every surface still worth re-polling'
     }
 
-    # The half that is not re-armed, and it has to be said here or the rule reads as "re-poll
-    # everything that is holding something". muster's `## The review surface` calls an ended
-    # session the one with nothing to re-arm - the reply would land in a chat nobody reads and the
-    # poll returns the same ended result at once - so it is counted rather than named, and the
-    # decision it leaves open goes to the user directly.
-    It 'keeps an ended session out of what gets re-polled without losing it' {
+    # The half that is polled but not re-armed, and it has to be said here or the rule reads as
+    # "an ended session is finished with". It is not: the tool hands queued feedback over on the
+    # next poll whatever the session's state, so a Send & End whose poll was killed is the one case
+    # a single poll still recovers. Dropping it sends the Hand back to ask for a decision already
+    # made. What changes for it is only that nothing is re-armed afterwards.
+    It 'still names an ended session that is holding something, and stops at one poll' {
         $s = Get-HandSection 'Recovery'
         Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
-            -Phrase ('A session that already ended holding feedback is counted there rather than ' +
-                     'named, because that is the one with nothing to re-arm - its decision goes in chat.')
+            -Phrase ('**A session that has already ended is named too wherever something is still ' +
+                     'uncollected on it**')
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase 'polled once to collect it and then not re-armed'
+    }
+
+    # The limitation, stated rather than left to be inferred from what the list happens to contain.
+    # A reader told which surfaces are named needs telling which are not, or they will read silence
+    # as "nothing else was waiting".
+    It 'says what the surface list cannot cover' {
+        Assert-Phrase -Text (Get-HandSection 'Recovery') -Where 'CLAUDE.md recovery' `
+            -Phrase ('What the list cannot cover is a session open with nothing queued: the store ' +
+                     'records no field saying a poll was armed, so the digest says so rather than guessing.')
     }
 
     # R-002 in one sentence. The window is the fix, not an implementation detail: three ticks at the
