@@ -8463,6 +8463,22 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
                 Should -BeTrue -Because "$nonAnswer is one of the returns the positive rule has to fail"
         }
     }
+
+    # The first case the enumeration met, and it got it backwards: answering and ending in one go
+    # queues the user's own prompts and sets `ended_by: user` in the same write, so that field
+    # arrives on a real approval. Listed unqualified, it drops the decision the gate was waiting
+    # for and the ended session cannot be reopened to ask again.
+    It 'qualifies the ended-by-user illustration to the return that carries no feedback' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('`ended_by: user` with no feedback attached, where they closed the review ' +
+                     'from the browser chrome without sending')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**`ended_by: user` arrives alongside their feedback whenever they answer ' +
+                     'and end in one go, and that is an answer** - so read it as one, rather ' +
+                     'than dropping a decision because the session it came from is closed.')
+        $script:Surface.Contains('`ended_by: user` where they ended the review from the browser chrome') |
+            Should -BeFalse -Because 'the unqualified gloss covers the return that carries a real approval'
+    }
 }
 
 Describe 'the review-surface contract is stated once and cross-referenced everywhere else' {

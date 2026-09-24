@@ -831,11 +831,15 @@ is still delivered once, and after that response polling stops. Re-arming anyway
 this rule invites, and the session is not reopened uninvited to carry it.
 
 **Only the user's own sent feedback is an answer.** A return carrying none of it agreed to
-nothing and settles nothing, whatever else it says - `ended_by: user` where they ended the review
-from the browser chrome, `ended_by: agent` where the session was closed rather than answered, and
-an `artifact_failures` return, which arrives with no user action at all. Those are illustrations
-and not the test: read for the sent feedback being there, because a rule made of the non-answers
-somebody thought of passes every one nobody did.
+nothing and settles nothing, whatever else it says - `ended_by: user` with no feedback attached,
+where they closed the review from the browser chrome without sending, `ended_by: agent` where the
+session was closed rather than answered, and an `artifact_failures` return, which arrives with no
+user action at all. Those are illustrations and not the test: read for the sent feedback being
+there, because a rule made of the non-answers somebody thought of passes every one nobody did.
+
+That cuts both ways, and the field is what misleads. **`ended_by: user` arrives alongside their
+feedback whenever they answer and end in one go, and that is an answer** - so read it as one,
+rather than dropping a decision because the session it came from is closed.
 
 Lavish binds to 127.0.0.1, so every one of these surfaces is unreachable when the user is away
 from the machine. If they say they cannot open the link, put short content directly in chat and
