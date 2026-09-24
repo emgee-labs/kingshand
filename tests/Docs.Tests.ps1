@@ -8448,22 +8448,27 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
 
     # The return that looks like an ending and is not one. A failure recorded against a live
     # session leaves it open and still accepting prompts, so stopping there abandons a surface the
-    # user is sitting in - the going-silent symptom this whole section exists to remove. Only an
-    # already-ended session stops the polling, and the rule above it owns that case.
-    It 'repairs in place and re-arms on a fatal surface return' {
+    # user is sitting in - the going-silent symptom this whole section exists to remove. But the
+    # same failure can arrive on a session that has already ended, and stated without its
+    # condition this rule and the ended-session rule above both claim that one return: the reader
+    # who indexes on this one re-arms into a closed session and loops.
+    It 'repairs in place and re-arms on a fatal return, while the session is open' {
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('**An `artifact_failures` return is the surface itself failing, and it is ' +
-                     'still re-armed.**')
+            -Phrase ('**An `artifact_failures` return on a session that is still open is the ' +
+                     'surface failing, not the session ending, and it is re-armed.**')
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('it stays open and they can still send into it, so the re-armed poll has ' +
-                     'something to wake it')
+            -Phrase ('That return says the page could not be used while they can still send ' +
+                     'into it, so the re-armed poll has something to wake it.')
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
             -Phrase ('Repair the artifact and re-arm on the same file - Lavish live-reloads it ' +
                      'once the repair is saved, so the session is not reopened and ' +
                      '`lavish-axi <file>` is not run again.')
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('The decision goes to chat instead only where the session has already ' +
-                     'ended, or where the artifact cannot be repaired.')
+            -Phrase ('Where the same failure arrives on a session that has ended, the rule ' +
+                     'above wins and polling stops: repair the artifact, confirm it renders, ' +
+                     'and put the decision in chat.')
+        $script:Surface.Contains('**An `artifact_failures` return is the surface itself failing') |
+            Should -BeFalse -Because 'stated without its condition it claims the ended return too'
     }
 
     It 'reads a refused reopen as the tool working, not as something to retry' {
@@ -8555,36 +8560,70 @@ Describe 'the review-surface contract is stated once and cross-referenced everyw
                      're-arm, and this gate changes none of it.')
     }
 
-    # A session is keyed by the file's absolute path and an ended one is kept for good, so the
-    # fixed `_dispatch\review.html` this gate used to render to dies permanently the first time
-    # anybody ends a session on it - the gate then opens nothing and the user sees no decision at
-    # all. The landing gate already varies its path per unit of work; this one had to as well, and
-    # the same key is what let a poll left armed from an earlier gate drain this one's answer.
-    It 'the dispatch gate renders each decision to its own file' {
-        $fence = @(Get-CodeFence $script:MusterMd |
-            Where-Object { $_.Contains('-Title "Dispatch: <ids>"') })
-        $fence.Count | Should -Be 1 -Because 'the dispatch render command is copied from one place'
-        $fence[0] | Should -Match ([regex]::Escape('$gate = "$env:KINGSHAND_HOME\data\_dispatch\') +
-                                  '\$\(Get-Date -Format ''yyyyMMdd-HHmmss''\)-<ids>\.html"') `
-            -Because 'the name has to vary per decision and stay under the _dispatch scratch directory'
+    # A session is keyed by the file's absolute path and an ended one is kept for good, so a fixed
+    # gate name dies permanently the first time anybody ends a session on it - the gate then opens
+    # nothing and the user sees no decision at all. Both gates had it: the dispatch gate rendered
+    # every decision to `_dispatch\review.html`, and the landing gate rendered every decision for
+    # one work item to `data\<id>\review.html`, which is per unit of work and not per decision.
+    # The same shared key is what let a poll left armed from an earlier gate drain a later one's
+    # answer. The millisecond stamp is part of the contract: a rejected gate can be re-rendered
+    # inside the same second as the one it replaces.
+    It 'the <Gate> gate renders each decision to its own file' -ForEach @(
+        @{ Gate = 'dispatch'; Step = 'Step 3 - Gate one'; Title = '-Title "Dispatch: <ids>"'
+           Name = '$gate = "$env:KINGSHAND_HOME\data\_dispatch\'; Suffix = '-<ids>\.html"' }
+        @{ Gate = 'landing';  Step = 'Step 7 - Gate two';  Title = '-Title "Land: <id>"'
+           Name = '$gate = "$env:KINGSHAND_HOME\data\<id>\'; Suffix = '-land\.html"' }
+    ) {
+        $fence = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains($Title) })
+        $fence.Count | Should -Be 1 -Because "the $Gate render command is copied from one place"
+        $fence[0] | Should -Match ([regex]::Escape($Name) +
+                                  '\$\(Get-Date -Format ''yyyyMMdd-HHmmssfff''\)') `
+            -Because 'the name varies per decision, to the millisecond, inside the same directory'
+        $fence[0] | Should -Match $Suffix -Because 'the rest of the name still says which gate this is'
         foreach ($usage in @('-OutputPath $gate', 'lavish-axi $gate', 'lavish-axi poll $gate')) {
             $fence[0].Contains($usage) |
                 Should -BeTrue -Because "the render and both calls use one per-decision path ($usage)"
         }
-        (Get-DocText $script:MusterMd).Contains('_dispatch\review.html') |
+        (Get-MusterStep $Step).Contains('review.html') |
             Should -BeFalse -Because 'a fixed gate name is spent the first time a session on it is ended'
+    }
 
+    It 'the dispatch gate states the one-name-per-decision rule for both gates' {
         $step = Get-MusterStep 'Step 3 - Gate one'
         Assert-Phrase -Text $step -Where 'the dispatch gate' `
-            -Phrase '**Every dispatch gate gets its own file name and no two share one.**'
+            -Phrase ('**Every gate gets its own file name and no two share one - this one and ' +
+                     'the landing gate alike.**')
         Assert-Phrase -Text $step -Where 'the dispatch gate' `
             -Phrase ('a poll left armed from an earlier decision sits on the same session as ' +
                      'this one and can drain the answer meant for it')
+        Assert-Phrase -Text $step -Where 'the dispatch gate' `
+            -Phrase ('it runs to milliseconds because a rewritten gate can be rendered in the ' +
+                     'same second as the one it replaces')
         # The revision loop renders again into the path the user may have just ended.
         Assert-Phrase -Text $step -Where 'the dispatch gate' `
             -Phrase ('If they change a brief, rewrite it and render again - to a new `$gate` ' +
                      'name, because a revised gate is a new decision and the old path may ' +
                      'already be spent.')
+    }
+
+    # Per unit of work is not per decision, and the landing gate is where the difference bites:
+    # a rejected landing is fixed and comes back here, into a session the user already ended.
+    It 'the landing gate takes a fresh name on every render, not one per work item' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase '**One name per decision, not one per unit of work.**'
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase ('rendering it into the name the first one used reaches a session they ' +
+                     'already ended, which opens nothing')
+    }
+
+    # The always-loaded file listed the old fixed landing-gate name, so leaving it would have
+    # re-taught the spent path the skill just stopped using.
+    It 'CLAUDE.md names the landing-gate artefact as one file per decision' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md file list' `
+            -Phrase ('`data\<id>\<stamp>-land.html` - rendered for lavish at a landing gate, ' +
+                     'one file per decision.')
+        (Get-DocText $script:HandMd).Contains('`data\<id>\review.html`') |
+            Should -BeFalse -Because 'that name is the one the gate stopped reusing'
     }
 
     # CLAUDE.md loads every session and a procedure does not belong in it, so what it carries is

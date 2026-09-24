@@ -836,12 +836,13 @@ Re-arming anyway is the mistake this rule invites: the reply is written into the
 session nobody will read, the poll returns the same ended result at once, and the rule that just
 fired says re-arm again. The session is not reopened uninvited to carry it either.
 
-**An `artifact_failures` return is the surface itself failing, and it is still re-armed.** That
-return says the page could not be used, not that the session is over: it stays open and they can
+**An `artifact_failures` return on a session that is still open is the surface failing, not the
+session ending, and it is re-armed.** That return says the page could not be used while they can
 still send into it, so the re-armed poll has something to wake it. Repair the artifact and re-arm
 on the same file - Lavish live-reloads it once the repair is saved, so the session is not reopened
-and `lavish-axi <file>` is not run again. The decision goes to chat instead only where the session
-has already ended, or where the artifact cannot be repaired.
+and `lavish-axi <file>` is not run again. Where the same failure arrives on a session that has
+ended, the rule above wins and polling stops: repair the artifact, confirm it renders, and put the
+decision in chat. Chat is also where it goes while the artifact cannot be repaired at all.
 
 **Only the user's own sent feedback is an answer.** A return carrying none of it agreed to
 nothing and settles nothing, whatever else it says. Read for the sent feedback being there rather
@@ -870,7 +871,7 @@ PowerShell - it would skip this gate on every project and dispatch work no one a
 Build one section per unit of work, one item per requirement, then render:
 
 ```powershell
-$gate = "$env:KINGSHAND_HOME\data\_dispatch\$(Get-Date -Format 'yyyyMMdd-HHmmss')-<ids>.html"
+$gate = "$env:KINGSHAND_HOME\data\_dispatch\$(Get-Date -Format 'yyyyMMdd-HHmmssfff')-<ids>.html"
 
 $sections = @(
   @{ heading = '<id> - <repo>'; items = @(
@@ -885,11 +886,13 @@ lavish-axi $gate
 lavish-axi poll $gate
 ```
 
-**Every dispatch gate gets its own file name and no two share one.** Lavish keys a session by the
-absolute path of the file and keeps ended ones for good, so a fixed name is a path that opens
-nothing the first time anybody ends a session on it, and a poll left armed from an earlier
-decision sits on the same session as this one and can drain the answer meant for it. The
-timestamped name above is what stops both; the directory stays `data\_dispatch\`.
+**Every gate gets its own file name and no two share one - this one and the landing gate alike.**
+Lavish keys a session by the absolute path of the file and keeps ended ones for good, so a fixed
+name is a path that opens nothing the first time anybody ends a session on it, and a poll left
+armed from an earlier decision sits on the same session as this one and can drain the answer meant
+for it. The timestamp above is what stops both, and it runs to milliseconds because a rewritten
+gate can be rendered in the same second as the one it replaces. The directory stays
+`data\_dispatch\`; only the name varies.
 
 **Both commands, in that order**, and everything that follows the first return - replying in the
 surface, re-arming the poll, what an ended session means - is `## The review surface` above.
@@ -1780,6 +1783,8 @@ into chat and ask for a yes. This is a decision, and hard rule 5 says every deci
 however short the summary looks:
 
 ```powershell
+$gate = "$env:KINGSHAND_HOME\data\<id>\$(Get-Date -Format 'yyyyMMdd-HHmmssfff')-land.html"
+
 $sections = @(
   @{ heading = 'What changed'; items = @(
       @{ id='F-001'; text='<file> - <what changed and why it matters>'; detail='<+n/-n>'; badges=@(); flag=$false }
@@ -1792,16 +1797,21 @@ $sections = @(
   )}
 )
 & $env:KINGSHAND_HOME\bin\Render-Review.ps1 -Title "Land: <id>" -Subtitle "<repo> - <mode>" `
-    -Sections $sections -OutputPath $env:KINGSHAND_HOME\data\<id>\review.html
+    -Sections $sections -OutputPath $gate
 
 $env:LAVISH_AXI_PORT = '4388'
-lavish-axi $env:KINGSHAND_HOME\data\<id>\review.html
-lavish-axi poll $env:KINGSHAND_HOME\data\<id>\review.html
+lavish-axi $gate
+lavish-axi poll $gate
 ```
 
 The parameter is `-OutputPath`. An earlier draft of this block abbreviated it, which would have
 thrown the first time anyone reached the landing gate - a documented command nothing exercises. A
 test pins the spelling for that reason.
+
+**One name per decision, not one per unit of work.** A rejected landing comes back here after the
+worker fixes it, and that is a second decision: rendering it into the name the first one used
+reaches a session they already ended, which opens nothing. So this gate takes a fresh `$gate` name
+every time it is rendered, the same way Step 3 does - the directory stays `data\<id>\`.
 
 Sections carry what they need to judge it: the changed files, the diff, the check results, the base
 ref the diff was taken against, and anything the worker's `report.md` left unresolved. Then say one
