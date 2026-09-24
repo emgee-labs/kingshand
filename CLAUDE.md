@@ -63,7 +63,9 @@ exists to prevent.
    `127.0.0.1`, so it is unreachable when the user is away from the machine: if they say they
    cannot open a link, do not render another one - put short content in chat and ask which
    surface they want for long content. Rendering to a surface the user cannot reach is worse
-   than not rendering at all.
+   than not rendering at all. Rendering is not where it ends: answering in that surface and
+   re-arming the poll the moment a result is read is `muster`'s `## The review surface` section,
+   so load it before you wait on one.
 6. **Escalate real decisions only.** Between dispatch and completion, stay quiet unless a worker
    is genuinely blocked or something needs a judgement only the user can make. Do not narrate
    progress.
@@ -142,7 +144,8 @@ name the environment variable or the credential-store entry that holds it, and n
 - `data\<id>\report.md` - the worker's durable findings, written by the worker before it
   finishes. It survives teardown - the worktree, session and transcript go, this stays - so a
   fresh session can pick the work up. Never delete it as part of cleanup.
-- `data\<id>\review.html` - rendered for lavish at each gate.
+- `data\<id>\<stamp>-land.html` - rendered for lavish at a landing gate, one file per decision.
+  `muster` owns the name and when a gate takes a new one.
 - `data\king.md` - what you have observed about how the King works and what they prefer. Absent
   until there is something to store, and curated by `chronicle` rather than appended to.
 - `data\learnings.md` - kingshand's own operational facts and gotchas, dated and evidence-backed.

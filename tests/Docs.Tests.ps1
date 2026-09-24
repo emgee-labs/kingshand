@@ -615,18 +615,18 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
     }
 
     It 'local-only is named as needing nothing, scoped to its delivery' {
-        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
             -Where 'muster Step 2' `
             -Phrase ('**`local-only` is untouched**: no Done-means block above changes, because ' +
                      'none of them pushes or opens a pull request')
-        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
             -Where 'muster Step 2' `
             -Phrase ('a comment or a work item on a `local-only` project is gated by rule 2 like ' +
                      'any other')
     }
 
     It 'muster Step 2 replaces the direct-PR outward bullet with a stop' {
-        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
             -Where 'muster Step 2' `
             -Phrase ('Leave the work committed and stop there. Do not push, do not open a ' +
                      'pull request, do not comment anywhere, and do not create or update a work ' +
@@ -634,7 +634,7 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
     }
 
     It 'muster Step 2 replaces the no-mistakes pipeline bullet with a gate run that stops locally' {
-        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
             -Where 'muster Step 2' `
             -Phrase ('Run the gate with `--skip push,pr,ci` so it stops at the last local step, ' +
                      'and fix everything it parks.')
@@ -644,7 +644,7 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
     # run and reaches the ci step. Dropping $ci.briefLine here reinstates the unbounded wait that
     # the Step 1b preflight exists to end, on exactly the repositories that cannot report a check.
     It 'the approved run still carries the CI brief line rather than losing it' {
-        $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -'
+        $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface'
         Assert-Phrase -Text $region -Where 'muster Step 2' `
             -Phrase ('- When you are told the push is approved, run the same gate line again ' +
                      'without `--skip`. <the `Drive the pipeline` bullet Step 1b chose, verbatim>')
@@ -659,7 +659,7 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
     # itself, which is exactly one reason - and a reason worth pinning, because "shorten the run"
     # is the misuse the old prohibition existed to prevent and it is still a misuse.
     It 'the skip flags have exactly one sanctioned use and it is named' {
-        $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -'
+        $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface'
         Assert-Phrase -Text $region -Where 'muster Step 2' `
             -Phrase ('there is exactly one reason to add them: `yolo` off, per the section ' +
                      'above, where they are what holds the push back until the user has answered')
@@ -5365,7 +5365,7 @@ Describe 'a brief settles the mechanism questions that have no last review round
         # Step 2 is the only place the Hand reads while writing a brief, so these rules are
         # asserted at that step rather than anywhere in the file.
         $script:MusterStep2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' `
-            -ToHeading 'Step 3 - Gate one'
+            -ToHeading 'The review surface'
     }
 
     # The biggest block of waste in the evidence, and the one rule here that pays for itself on its
@@ -5417,7 +5417,7 @@ Describe 'a brief settles the mechanism questions that have no last review round
 Describe 'a project has a standing definition of done, and repeated findings are reported not capped' {
     BeforeAll {
         $script:CritStep2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' `
-            -ToHeading 'Step 3 - Gate one'
+            -ToHeading 'The review surface'
         $script:CritStep6 = Get-MusterStep 'Step 6 - Completion'
         # The brief template is the one fence carrying both the Goal and the Done-means headings,
         # and it is read raw because the assertion below is about the order of its sections.
@@ -6713,7 +6713,7 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
     # Both ways: no section on a task that renders nothing, and no bare list of things to look at
     # on a task that does.
     It 'keeps the section out of every brief that does not need one' {
-        $step2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' -ToHeading 'Step 3 - Gate one'
+        $step2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' -ToHeading 'The review surface'
         Assert-Phrase -Text $step2 -Where 'muster Step 2' `
             -Phrase '**`Browser checks` is the one optional section, and it is optional both ways.**'
         Assert-Phrase -Text $step2 -Where 'muster Step 2' `
@@ -8343,5 +8343,482 @@ Describe 'CLAUDE.md keeps the away boundary to a pointer' {
                      'worker happens on any posture.')
         $script:AwayHand.Contains('Only the `no-mistakes` review gate produces one.') |
             Should -BeFalse -Because 'that scoped the whole skill to the gate, and half of it fires without one'
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# The side chat went silent. The Hand rendered, armed one poll, read what came back, and then went
+# to work - and a delivered result with no poll behind it is read as the agent having gone away,
+# which disables both send buttons on a page that still looks healthy. Arming, reading and
+# answering are all kingshand's, and `--agent-reply` appeared in zero tracked files while the
+# symptom was reported three times in one day. These pin the rule that reading a result is the
+# event that shuts the surface down, and the one call that answers and re-arms together.
+
+Describe 'reading a poll result is what shuts the review surface down' {
+    BeforeAll { $script:Surface = Get-MusterStep 'The review surface' }
+
+    It 'declares itself the single owner of the contract' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**This section is the only statement of how that surface is opened, ' +
+                     'watched and answered in.**')
+    }
+
+    # The whole defect in one assertion: re-arming after the work is re-arming after the silence.
+    # The diagnosis has to be the lock-out rather than a message going nowhere, and it has to cut
+    # on DELIVERY rather than on whose feedback came back - a return is delivered whenever prompts
+    # or artifact failures are present, and any delivery disables both send buttons. Cut on "their
+    # feedback" instead and the artifact-failure return, which this section routes eight paragraphs
+    # later, lands on the wrong side and is described as a page they can still type into.
+    It 're-arms at the instant the result is read, before acting on it' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**The instant a poll delivers anything, they are locked out of sending ' +
+                     'until you reply or re-arm.**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Their feedback, a fatal artifact failure, or both in one return - it makes ' +
+                     'no difference which, because the surface reads any delivery as you having ' +
+                     'gone off to work.')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Both buttons go dead on a page that otherwise looks entirely normal, with ' +
+                     'no banner saying why')
+        # The other branch, and the only one where the old premise was right: nothing was
+        # delivered, so the buttons are live, the banner shows, and a message really is lost.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('A poll that delivers nothing - killed or timed out - is the other half and ' +
+                     'the only one where a message really is lost on nobody: the buttons stay ' +
+                     'live and the banner tells them nobody is listening.')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**re-arm at that instant, before you act on what the result said** - not ' +
+                     'after the work is done, and not once you have something worth replying with.')
+        $script:Surface.Contains('A return carrying no feedback') |
+            Should -BeFalse -Because 'a fatal artifact failure carries no user feedback and still locks the page'
+    }
+
+    # This premise is stated in the owner section and echoed at the landing gate, and the landing
+    # gate has now three times been left holding the superseded half after the owner was corrected.
+    # Scoped to the whole skill so neither site can keep the old wording, and pinned at the gate
+    # that echoes it so a future correction has to carry through.
+    It 'no gate still says a returned poll leaves the surface merely unwatched' {
+        $muster = Get-DocText $script:MusterMd
+        foreach ($stale in @('the surface is unwatched again',
+                             'The instant a poll returns, that surface is unwatched')) {
+            $muster.Contains($stale) |
+                Should -BeFalse -Because "a delivered result locks the page rather than leaving it open and ignored ($stale)"
+        }
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase ('the instant it delivers their rejection they are locked out of sending ' +
+                     'until you reply or re-arm')
+    }
+
+    # Lavish's own recovery rule, and the branch above where nothing was delivered: a restart kills
+    # the job the poll ran in, and the fix is to re-run the poll, never to ask the user to type it
+    # all again.
+    It 'recovers a killed or timed-out poll by re-running it rather than losing the feedback' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**A poll that was killed or timed out is just re-run - queued feedback ' +
+                     'is never lost.**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('anything they sent while nothing was watching is still waiting for the ' +
+                     'next poll to collect, and re-running is the fix rather than asking them ' +
+                     'to send it again')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('A session restart is the ordinary case: it takes the background job the ' +
+                     'poll was running in with it, and the answer is that same re-run.')
+        $script:Surface.Contains('they can send again and it reaches nobody') |
+            Should -BeFalse -Because 'queued feedback survives the poll, so nothing sent is lost'
+    }
+
+    # The re-run needs a path, and once each gate renders under a timestamped name there is no
+    # fixed one to type: a restarted session holds no record of what was rendered, so a recovery
+    # rule that stops at "re-run it" cannot be carried out at all.
+    It 'says how to find the gate file the re-run needs' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**`poll` needs the gate file''s absolute path, and after a restart ' +
+                     'nothing has told you what it is**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Find it by taking the newest `*-land.html` in `data\<id>\` for a landing ' +
+                     'gate, and the newest `*-<ids>.html` in `data\_dispatch\` for the ids the ' +
+                     'backlog says are awaiting dispatch, then re-run the poll on that path.')
+        # The landing half is scoped by the work item's own directory; the dispatch half shares
+        # one directory with every gate ever rendered and nothing cleans it up, so date alone
+        # re-arms one outstanding gate and silently strands the other.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Match on the ids rather than on the date alone: nothing clears that ' +
+                     'directory, so with two gates outstanding the newest file is one of them ' +
+                     'and the other is stranded.')
+    }
+
+    It 'names the one call that answers in the surface and waits again' {
+        $fence = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains('lavish-axi poll <file> --agent-reply') })
+        $fence.Count | Should -Be 1 -Because 'the reply-and-re-arm call has to be copyable, not described'
+        # The copyable line is the one a reader follows, so its placeholder cannot ask for the
+        # progress note the paragraph below forbids.
+        $fence[0].Contains('--agent-reply "<your answer to what they just sent>"') |
+            Should -BeTrue -Because 'the reply answers what they sent rather than announcing work'
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase 'That displays your answer in the side chat and waits again.'
+        # The one rule this contract could be read as relaxing. A reply is owed to something the
+        # user sent; hard rule 6 still bans the unprompted progress note, on any surface.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**It answers what they just sent and nothing else** - hard rule 6 still ' +
+                     'forbids narrating progress, and a running commentary in the side chat is ' +
+                     'that rule broken on a different surface.')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('A bare `poll` re-arms too but leaves them looking at silence they sent ' +
+                     'into, which is the reported symptom rather than the fix.')
+    }
+
+    # An unbounded re-arm rule leaves one live poll per decision ever answered, because a settled
+    # gate's session is never ended - the fix is to stop the job, not to end anything.
+    It 'stops re-arming once the decision it belongs to is closed out' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Re-arming stops once that decision is settled and its work is closed ' +
+                     'out.**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('an answered one left armed is a job still waiting to wake this session ' +
+                     'over something already done, and a fleet''s worth of them accumulates one ' +
+                     'gate at a time')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Stop the background job it was running in - the session itself needs ' +
+                     'nothing done to it.')
+    }
+
+    # Both constraints are Lavish's own, carried in rather than reinvented. A kingshand-flavoured
+    # paraphrase drifts away from the tool that actually enforces them.
+    It 'keeps the poll in the foreground and allows only a waking background job' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase 'Keep it in the foreground by default and let it return the feedback directly to you.'
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('A background poll is allowed only through a harness-native tracked ' +
+                     'background job whose completion is guaranteed to wake this same session, ' +
+                     'never through `&`, `nohup`, `disown` or any detached process.')
+    }
+
+    It 'never claims the artifact is watched before the wake path exists' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Do not tell the user the artifact is being monitored until that wake ' +
+                     'path is live.**')
+    }
+
+    # The inverse mistake, and it sits beside the rule on purpose: a rule that says always re-arm
+    # invites re-arming into a session that has already stopped polling. Stated as the condition
+    # rather than as one named button, because ending the review without sending anything reaches
+    # the same state and is not `Send & End` - named as the rule, that return re-arms forever.
+    It 'stops re-arming once the session has ended, however it ended' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**A return whose session has ended is the one with nothing to re-arm**, ' +
+                     'and `Send & End` is only the commonest way to reach that state - ending ' +
+                     'the review without sending anything reaches it too.')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('the reply is written into the chat of a closed session nobody will read, ' +
+                     'the poll returns the same ended result at once, and the rule that just ' +
+                     'fired says re-arm again')
+        $script:Surface.Contains('**`Send & End` is the one result with nothing to re-arm.**') |
+            Should -BeFalse -Because 'naming one button as the rule leaves every other ended return re-arming'
+        # Stopping the poll is not the whole answer when they ended without sending: nothing was
+        # approved, the path is spent for a plain open, and the decision is left with no surface
+        # at all. The failed-artifact case one paragraph below is routed the same way.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Where that return carried no feedback at all, the decision is still ' +
+                     'open and now has no surface**, so put it in chat rather than leaving it ' +
+                     'on a page nobody is watching.')
+    }
+
+    # The return that looks like an ending and is not one. A failure recorded against a live
+    # session leaves it open and still accepting prompts, so stopping there abandons a surface the
+    # user is sitting in - the going-silent symptom this whole section exists to remove. But the
+    # same failure can arrive on a session that has already ended, and stated without its
+    # condition this rule and the ended-session rule above both claim that one return: the reader
+    # who indexes on this one re-arms into a closed session and loops.
+    It 'repairs in place and re-arms on a fatal return, while the session is open' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**An `artifact_failures` return on a session that is still open is the ' +
+                     'surface failing, not the session ending, and it is re-armed.**')
+        # It is a delivery, so it locks the page exactly like their own feedback does. Saying they
+        # can still send into it describes the surface as usable while broken, which is the one
+        # thing it is not, and it puts this return on the killed-poll side of the rule above.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('It is a delivery like any other, so it locks their sending too, and the ' +
+                     'session being open is what makes re-arming worth doing: it unlocks them ' +
+                     'and gives the poll something to wake on.')
+        $script:Surface.Contains('the page could not be used while they can still send into it') |
+            Should -BeFalse -Because 'the fatal return disables both send buttons like any other delivery'
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Repair the artifact and re-arm on the same file - Lavish live-reloads it ' +
+                     'once the repair is saved, so the session is not reopened and ' +
+                     '`lavish-axi <file>` is not run again.')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Where the same failure arrives on a session that has ended, the rule ' +
+                     'above wins and polling stops: repair the artifact, confirm it renders, ' +
+                     'and put the decision in chat.')
+        $script:Surface.Contains('**An `artifact_failures` return is the surface itself failing') |
+            Should -BeFalse -Because 'stated without its condition it claims the ended return too'
+    }
+
+    It 'reads a refused reopen as the tool working, not as something to retry' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase '**A session the user ended from the browser is not reopened.**'
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('`--reopen` is for when they ask for further review or something needs ' +
+                     'their eyes, and it is never a way around the refusal.')
+    }
+
+    # Without this the refusal has no exit and the weaker remedy is what a reader reaches for: a
+    # reopen is not inert, because the session carries its old side chat and untriaged layout
+    # warnings across, so decision two opens showing decision one's conversation.
+    It 'sends a new decision to a new name rather than to a reopened path' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**A new decision belongs on a new name, not on a reopened path**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('reopening is not inert, because the session carries its old side-chat ' +
+                     'history and its untriaged layout warnings across, so they would open the ' +
+                     'second decision''s page showing the first one''s conversation')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase 'Reach for `--reopen` only where a fresh name is not available.'
+    }
+
+    # The rule for choosing the file a session is opened on belongs in the section that calls
+    # itself the only statement of how the surface is opened - the two gates are not the only
+    # readers, and counsel and annex are pointed here with no output path of their own.
+    It 'owns the one-name-per-decision rule rather than leaving it in the gates' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Every decision is rendered to its own file name, and no two share one.**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('a reused name is a path that opens nothing once they have ended a session ' +
+                     'on it, and a poll left armed from an earlier decision sits on the same ' +
+                     'session as this one and can drain the answer meant for it')
+        # The exception turns on the session, not on counting decisions. Phrased the other way it
+        # asked the reader to classify the render first, and a rejected-then-fixed landing reads
+        # as a second decision - so the headline rule sent them to a new name beside a live
+        # session, which is the harm both gates warn about.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**The session is what decides, not a judgement about how many decisions ' +
+                     'there are: while it is open, anything rendered to that file is a revision ' +
+                     'and keeps the name, and a new name is for a session they have ended.**')
+        $script:Surface.Contains('The one name that is reused is a revision of a decision') |
+            Should -BeFalse -Because 'that made reuse depend on classifying the render rather than on the session'
+    }
+
+    # Stated by what has to be present, and by that alone. The rule carried a list of example
+    # non-answers for two rounds and two of its three items turned out to describe a return that
+    # does carry a real answer - each item was a hand-written claim about a third-party tool's
+    # field semantics, and the set they enumerate is open. The positive rule catches every
+    # non-answer including the ones nobody thought of, so the list is gone rather than qualified.
+    It 'reads only the user own sent feedback as an answer' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Only the user''s own sent feedback is an answer.** A return carrying ' +
+                     'none of it agreed to nothing and settles nothing, whatever else it says.')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Read for the sent feedback being there rather than for a field naming why ' +
+                     'the return arrived: a rule made of the non-answers somebody thought of ' +
+                     'passes every one nobody did')
+        $script:Surface.Contains('Those are illustrations and not the test') |
+            Should -BeFalse -Because 'the enumeration it introduced is what kept describing real answers'
+    }
+
+    # Necessary is not sufficient, and the gap is reachable: queueing a layout fix from the browser
+    # inbox, or sending whiteboard edits, returns the poll carrying the user's own sent feedback
+    # while approving nothing. A rule that stops at "their feedback is present" dispatches work
+    # nobody agreed to. This is a sufficiency condition, not a list of return shapes.
+    It 'requires the feedback to answer the question the gate asked' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Their feedback being there is what makes a return readable, not what ' +
+                     'makes it a yes.** It has to answer the question the gate asked before ' +
+                     'anything acts on it')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('they can send from that page for reasons of their own, and none of those ' +
+                     'is approval')
+    }
+
+    # The direction that costs a decision rather than risking one: answering and ending in one go
+    # queues the user's own prompts and sets `ended_by: user` in the same write, so that field
+    # arrives on a real approval. Read as a closed session, the gate drops the answer it was
+    # waiting for and the ended session cannot be reopened to ask again.
+    It 'reads feedback that arrived with a closed session as an answer' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**`ended_by: user` arrives alongside their feedback whenever they answer ' +
+                     'and end in one go, and that is an answer** - so read it as one, rather ' +
+                     'than dropping a decision because the session it came from is closed.')
+    }
+}
+
+Describe 'the review-surface contract is stated once and cross-referenced everywhere else' {
+    # Standing criterion 5, and the reason this task existed at all: the polling rules were spread
+    # across both muster gates and five other files, so each copy drifted on its own and none of
+    # them ever gained the reply. One owner, and every other mention is a pointer with no substance
+    # in it.
+    # Scoped to the instructions that are followed - CLAUDE.md and the skills. `docs\` holds dated
+    # design notes rather than contract owners, and a note explaining this decision would have to
+    # name the flag to be worth writing.
+    It 'the reply flag appears in exactly one instruction document' {
+        $docs = @(Join-Path $script:Root 'CLAUDE.md') +
+                @(Get-ChildItem -Path (Join-Path $script:Root '.claude\skills') -Filter 'SKILL.md' -Recurse |
+                    ForEach-Object { $_.FullName })
+        $carriers = @($docs | Where-Object { (Get-Content -Path $_ -Raw).Contains('--agent-reply') })
+        $carriers.Count | Should -Be 1 -Because 'a second copy is what drifts, and the first copy is muster'
+        (Split-Path (Split-Path $carriers[0] -Parent) -Leaf) |
+            Should -Be 'muster' -Because 'muster owns the surface both gates render to'
+    }
+
+    It 'the dispatch gate points at the owner instead of restating it' {
+        $gate = Get-MusterStep 'Step 3 - Gate one'
+        Assert-Phrase -Text $gate -Where 'the dispatch gate' `
+            -Phrase ('**Both commands, in that order**, and everything that follows the first ' +
+                     'return - replying in the surface, re-arming the poll, what an ended ' +
+                     'session means - is `## The review surface` above.')
+        Assert-Phrase -Text $gate -Where 'the dispatch gate' `
+            -Phrase 'Only the user''s own sent feedback is consent to dispatch.'
+        # A pointer plus a second-hand copy of the rule is how the contract drifted in the first
+        # place: this copy said a returned-and-closed poll agreed to nothing, while the owner says
+        # feedback arriving with a closed session is an answer. Reading only the gate loses it.
+        $gate.Contains('A poll that came back because the session was closed agreed to nothing') |
+            Should -BeFalse -Because 'the owner section states what a return settles, and the gate points at it'
+    }
+
+    It 'the landing gate points at the owner instead of restating it' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase ('`## The review surface` above owns the foreground rule, the reply and the ' +
+                     're-arm, and this gate changes none of it.')
+    }
+
+    # A session is keyed by the file's absolute path and an ended one is kept for good, so a fixed
+    # gate name dies permanently the first time anybody ends a session on it - the gate then opens
+    # nothing and the user sees no decision at all. Both gates had it: the dispatch gate rendered
+    # every decision to `_dispatch\review.html`, and the landing gate rendered every decision for
+    # one work item to `data\<id>\review.html`, which is per unit of work and not per decision.
+    # The same shared key is what let a poll left armed from an earlier gate drain a later one's
+    # answer. The millisecond stamp is part of the contract: two decisions raised one after the
+    # other land inside the same second.
+    It 'the <Gate> gate renders each decision to its own file' -ForEach @(
+        @{ Gate = 'dispatch'; Step = 'Step 3 - Gate one'; Title = '-Title "Dispatch: <ids>"'
+           Name = '$gate = "$env:KINGSHAND_HOME\data\_dispatch\'; Suffix = '-<ids>\.html"' }
+        @{ Gate = 'landing';  Step = 'Step 7 - Gate two';  Title = '-Title "Land: <id>"'
+           Name = '$gate = "$env:KINGSHAND_HOME\data\<id>\'; Suffix = '-land\.html"' }
+    ) {
+        $fence = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains($Title) })
+        $fence.Count | Should -Be 1 -Because "the $Gate render command is copied from one place"
+        $fence[0] | Should -Match ([regex]::Escape($Name) +
+                                  '\$\(Get-Date -Format ''yyyyMMdd-HHmmssfff''\)') `
+            -Because 'the name varies per decision, to the millisecond, inside the same directory'
+        $fence[0] | Should -Match $Suffix -Because 'the rest of the name still says which gate this is'
+        foreach ($usage in @('-OutputPath $gate', 'lavish-axi $gate', 'lavish-axi poll $gate')) {
+            $fence[0].Contains($usage) |
+                Should -BeTrue -Because "the render and both calls use one per-decision path ($usage)"
+        }
+        (Get-MusterStep $Step).Contains('review.html') |
+            Should -BeFalse -Because 'a fixed gate name is spent the first time a session on it is ended'
+    }
+
+    It 'the dispatch gate points at the one-name-per-decision rule rather than restating it' {
+        $step = Get-MusterStep 'Step 3 - Gate one'
+        Assert-Phrase -Text $step -Where 'the dispatch gate' `
+            -Phrase ('**One file name per decision is `## The review surface` above, and this ' +
+                     'is what it looks like here.**')
+        $step.Contains('Lavish keys a session by the absolute path of the file') |
+            Should -BeFalse -Because 'the owner section states the rule and its reasons, and this points at it'
+        # Justified by a sequence the procedure actually produces. A rewrite no longer renames
+        # while the session is open, so the precision cannot rest on that case any more.
+        Assert-Phrase -Text $step -Where 'the dispatch gate' `
+            -Phrase ('The stamp runs to milliseconds because two decisions raised in quick ' +
+                     'succession - two unrelated ids gated one after the other - land inside ' +
+                     'the same second.')
+        $step.Contains('a rewritten gate can be rendered in the same second as the one it replaces') |
+            Should -BeFalse -Because 'a rewrite keeps its name while the session is open'
+        # The revision loop, scoped: a path is spent only once the user has ended it, so while the
+        # session is open the revision goes over the same file and Lavish reloads the window they
+        # are looking at. A new name beside a live session gives them two gates for one decision,
+        # and an approval sent in the stale one returns as consent to a brief that is gone.
+        Assert-Phrase -Text $step -Where 'the dispatch gate' `
+            -Phrase ('**render again over the same `$gate` file while that session is still ' +
+                     'open** - Lavish live-reloads it in the window they are already looking ' +
+                     'at, exactly as a repaired artifact is.')
+        Assert-Phrase -Text $step -Where 'the dispatch gate' `
+            -Phrase ('A new name is for a gate whose session they have ended, and only then: ' +
+                     'rendering a revision to a new name beside a live one leaves them two ' +
+                     'gates for one decision, and an approval sent in the stale window comes ' +
+                     'back as consent to a brief that no longer exists.')
+    }
+
+    # Per unit of work is not per decision, and the landing gate is where the difference bites:
+    # a rejected landing is fixed and comes back here, into the session that rejected it.
+    It 'the landing gate points at the naming rule and names the case that misses it' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**One name per decision, not one per unit of work** - the rule is ' +
+                     '`## The review surface` above, and this gate is where it is easiest to miss.')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('A rejected landing comes back here after the worker fixes it, and **a ' +
+                     'fresh `$gate` name is for a landing whose session they have ended, and ' +
+                     'only then**')
+        $step.Contains('takes a fresh `$gate` name every time it is rendered') |
+            Should -BeFalse -Because 'unconditional, that opens a second window on a session still live'
+        $step.Contains('so it takes a fresh `$gate` name rather than the name the first one used') |
+            Should -BeFalse -Because 'unconditional again: a plain Send leaves that session open'
+        # Calling it a second decision and then reusing the name is what the owner rule forbids
+        # for a second decision, so the classification had to go rather than the action.
+        $step.Contains('that is a second decision') |
+            Should -BeFalse -Because 'the owner section decides on the session, not on counting decisions'
+    }
+
+    # Both gates state this rule, and the landing gate has now twice been left holding the
+    # unconditional half after the dispatch gate was corrected. A rule stated at two sites needs
+    # pinning at both, or the next edit to one silently leaves the other contradicting the owner.
+    It 'the <Gate> gate renames only once the session has ended, and re-renders in place while open' -ForEach @(
+        @{ Gate = 'dispatch'; Step = 'Step 3 - Gate one'
+           Ended = 'A new name is for a gate whose session they have ended, and only then'
+           Open  = 'render again over the same `$gate` file while that session is still open'
+           Harm  = 'leaves them two gates for one decision' }
+        @{ Gate = 'landing';  Step = 'Step 7 - Gate two'
+           Ended = ('**a fresh `$gate` name is for a landing whose session they have ended, ' +
+                    'and only then**')
+           Open  = ('while that session is still open the fixed work is rendered again over ' +
+                    'the same file and Lavish reloads it in place')
+           Harm  = 'A new name beside a live one leaves them two gates for one landing' }
+    ) {
+        $step = Get-MusterStep $Step
+        Assert-Phrase -Text $step -Where "the $Gate gate" -Phrase $Ended
+        Assert-Phrase -Text $step -Where "the $Gate gate" -Phrase $Open
+        Assert-Phrase -Text $step -Where "the $Gate gate" -Phrase $Harm
+    }
+
+    # The always-loaded file listed the old fixed landing-gate name, so leaving it would have
+    # re-taught the spent path the skill just stopped using. It then stated the replacement as an
+    # absolute - a gate never reuses a name - which is the opposite of what both gates now do
+    # while a session is open, and this is the file a Hand reads without loading the skill. It
+    # owns no procedure, so it points at the owner rather than restating the condition.
+    It 'CLAUDE.md names the landing-gate artefact without contradicting the gates' {
+        $hand = Get-DocText $script:HandMd
+        Assert-Phrase -Text $hand -Where 'the CLAUDE.md file list' `
+            -Phrase ('`data\<id>\<stamp>-land.html` - rendered for lavish at a landing gate, ' +
+                     'one file per decision. `muster` owns the name and when a gate takes a new one.')
+        $hand.Contains('`data\<id>\review.html`') |
+            Should -BeFalse -Because 'that name is the one the gate stopped reusing'
+        $hand.Contains('a gate never reuses one') |
+            Should -BeFalse -Because 'a revision reuses the name while its session is still open'
+    }
+
+    # CLAUDE.md loads every session and a procedure does not belong in it, so what it carries is
+    # the trigger alone: rendering is not the end of the exchange, and here is what owns the rest.
+    It 'CLAUDE.md rule 5 carries the trigger and none of the procedure' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 5' `
+            -Phrase ('Rendering is not where it ends: answering in that surface and re-arming ' +
+                     'the poll the moment a result is read is `muster`''s `## The review ' +
+                     'surface` section, so load it before you wait on one.')
+        (Get-DocText $script:HandMd).Contains('--agent-reply') |
+            Should -BeFalse -Because 'the always-loaded file pays for every line and owns no procedure'
+    }
+
+    It 'counsel points at the owner where it renders a decomposition' {
+        Assert-Phrase -Text (Get-DocText (Join-Path $script:Root '.claude\skills\counsel\SKILL.md')) `
+            -Where 'the counsel render step' `
+            -Phrase ('Opening that surface, answering in it and re-arming the poll the moment a ' +
+                     'result is read is `muster`''s `## The review surface` section, which owns ' +
+                     'all of it - load it before you wait here.')
+    }
+
+    It 'annex points at the owner where it tells the Hand to render' {
+        Assert-Phrase -Text (Get-DocText $script:ImportMd) -Where 'the annex registry answer' `
+            -Phrase ('and if you then wait on that surface, `muster`''s `## The review surface` ' +
+                     'section owns answering in it and re-arming the poll.')
     }
 }

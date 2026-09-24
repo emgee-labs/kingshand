@@ -773,6 +773,125 @@ built "would have refused nothing, ever" - correct to the letter, and it had to 
 rule 1 says a worker checks it, so write the requirement as a premise to verify before building to
 it rather than as a settled fact.
 
+## The review surface
+
+Both gates render to Lavish and then wait in it, and so does anything else that puts a decision in
+front of the user. **This section is the only statement of how that surface is opened, watched and
+answered in.** Step 3 and Step 7 carry their own render command and point back here, and so do the
+other skills that render.
+
+Open the session, then arm the poll, in that order:
+
+```powershell
+$env:LAVISH_AXI_PORT = '4388'
+lavish-axi <file>
+lavish-axi poll <file>
+```
+
+`poll` on its own fails with `No active Lavish Editor session for this file` / `NOT_FOUND`; the
+bare `lavish-axi <file>` call is what opens the session that `poll` then waits on.
+
+**Every decision is rendered to its own file name, and no two share one.** A session is keyed by
+the file's absolute path and an ended one is kept for good, so a reused name is a path that opens
+nothing once they have ended a session on it, and a poll left armed from an earlier decision sits
+on the same session as this one and can drain the answer meant for it. **The session is what
+decides, not a judgement about how many decisions there are: while it is open, anything rendered
+to that file is a revision and keeps the name, and a new name is for a session they have ended.**
+Lavish reloads the revision in the window they are already looking at.
+
+**A session the user ended from the browser is not reopened.** That same open call refuses and
+explains why rather than reopening uninvited, so a refusal there is the tool working and never
+something to retry. `--reopen` is for when they ask for further review or something needs their
+eyes, and it is never a way around the refusal. **A new decision belongs on a new name, not on a
+reopened path** - reopening is not inert, because the session carries its old side-chat history
+and its untriaged layout warnings across, so they would open the second decision's page showing
+the first one's conversation. Reach for `--reopen` only where a fresh name is not available.
+
+`poll` long-polls and stays silent until they send. That is expected - do not treat a slow return
+as a hang, do not kill it, and do not poll in a loop. Keep it in the foreground by default and let
+it return the feedback directly to you. A background poll is allowed only through a harness-native
+tracked background job whose completion is guaranteed to wake this same session, never through
+`&`, `nohup`, `disown` or any detached process. **Do not tell the user the artifact is being
+monitored until that wake path is live.**
+
+### Reading a result is what shuts the surface down
+
+**The instant a poll delivers anything, they are locked out of sending until you reply or
+re-arm.** Their feedback, a fatal artifact failure, or both in one return - it makes no difference
+which, because the surface reads any delivery as you having gone off to work. Both buttons go dead
+on a page that otherwise looks entirely normal, with no banner saying why. That is the reported
+symptom: not a message falling into a void, but a page they cannot type into. A poll that delivers
+nothing - killed or timed out - is the other half and the only one where a message really is lost
+on nobody: the buttons stay live and the banner tells them nobody is listening. Either way the fix
+is the same, and it is the same instant: **re-arm at that instant, before you act on what the
+result said** - not after the work is done, and not once you have something worth replying with.
+One call does both:
+
+```powershell
+lavish-axi poll <file> --agent-reply "<your answer to what they just sent>"
+```
+
+That displays your answer in the side chat and waits again. **It answers what they just sent and
+nothing else** - hard rule 6 still forbids narrating progress, and a running commentary in the
+side chat is that rule broken on a different surface. A bare `poll` re-arms too but leaves them
+looking at silence they sent into, which is the reported symptom rather than the fix. Where there
+is work to do before they can answer again, that re-armed poll is the harness-native tracked
+background job above; where there is nothing to do but wait, it is the foreground one.
+
+**Re-arming stops once that decision is settled and its work is closed out.** The poll belongs to
+one decision, so an answered one left armed is a job still waiting to wake this session over
+something already done, and a fleet's worth of them accumulates one gate at a time. Stop the
+background job it was running in - the session itself needs nothing done to it.
+
+**A poll that was killed or timed out is just re-run - queued feedback is never lost.** So
+anything they sent while nothing was watching is still waiting for the next poll to collect, and
+re-running is the fix rather than asking them to send it again. A session restart is the ordinary
+case: it takes the background job the poll was running in with it, and the answer is that same
+re-run.
+
+**`poll` needs the gate file's absolute path, and after a restart nothing has told you what it
+is** - the gates render under a timestamped name, so there is no fixed one to type. Find it by
+taking the newest `*-land.html` in `data\<id>\` for a landing gate, and the newest
+`*-<ids>.html` in `data\_dispatch\` for the ids the backlog says are awaiting dispatch, then
+re-run the poll on that path. Match on the ids rather than on the date alone: nothing clears that
+directory, so with two gates outstanding the newest file is one of them and the other is stranded.
+
+**A return whose session has ended is the one with nothing to re-arm**, and `Send & End` is only
+the commonest way to reach that state - ending the review without sending anything reaches it too.
+Whatever final feedback there was is still delivered once, and after that response polling stops.
+Re-arming anyway is the mistake this rule invites: the reply is written into the chat of a closed
+session nobody will read, the poll returns the same ended result at once, and the rule that just
+fired says re-arm again. The session is not reopened uninvited to carry it either. **Where that
+return carried no feedback at all, the decision is still open and now has no surface**, so put it
+in chat rather than leaving it on a page nobody is watching.
+
+**An `artifact_failures` return on a session that is still open is the surface failing, not the
+session ending, and it is re-armed.** It is a delivery like any other, so it locks their sending
+too, and the session being open is what makes re-arming worth doing: it unlocks them and gives the
+poll something to wake on. Repair the artifact and re-arm on the same file - Lavish live-reloads
+it once the repair is saved, so the session is not reopened and `lavish-axi <file>` is not run
+again. Where the same failure arrives on a session that has ended, the rule above wins and polling
+stops: repair the artifact, confirm it renders, and put the decision in chat. Chat is also where
+it goes while the artifact cannot be repaired at all.
+
+**Only the user's own sent feedback is an answer.** A return carrying none of it agreed to
+nothing and settles nothing, whatever else it says. Read for the sent feedback being there rather
+than for a field naming why the return arrived: a rule made of the non-answers somebody thought of
+passes every one nobody did, and every field it would name belongs to a tool that owns its own
+meaning.
+
+**Their feedback being there is what makes a return readable, not what makes it a yes.** It has to
+answer the question the gate asked before anything acts on it - they can send from that page for
+reasons of their own, and none of those is approval.
+
+The reverse is the one that costs a decision. **`ended_by: user` arrives alongside their feedback
+whenever they answer and end in one go, and that is an answer** - so read it as one, rather than
+dropping a decision because the session it came from is closed.
+
+Lavish binds to 127.0.0.1, so every one of these surfaces is unreachable when the user is away
+from the machine. If they say they cannot open the link, put short content directly in chat and
+ask which surface they want for long content rather than rendering another unreachable page.
+
 ## Step 3 - Gate one: approve the dispatch
 
 **This gate is skipped when the project is registered `+yolo`.** In that case write the brief,
@@ -786,38 +905,38 @@ PowerShell - it would skip this gate on every project and dispatch work no one a
 Build one section per unit of work, one item per requirement, then render:
 
 ```powershell
+$gate = "$env:KINGSHAND_HOME\data\_dispatch\$(Get-Date -Format 'yyyyMMdd-HHmmssfff')-<ids>.html"
+
 $sections = @(
   @{ heading = '<id> - <repo>'; items = @(
       @{ id='R-001'; text='<requirement>'; detail='<source>'; badges=@(); flag=$false }
   )}
 )
 & $env:KINGSHAND_HOME\bin\Render-Review.ps1 -Title "Dispatch: <ids>" -Subtitle "<n> workers" `
-    -Sections $sections -OutputPath $env:KINGSHAND_HOME\data\_dispatch\review.html
+    -Sections $sections -OutputPath $gate
 
 $env:LAVISH_AXI_PORT = '4388'
-lavish-axi $env:KINGSHAND_HOME\data\_dispatch\review.html
-lavish-axi poll $env:KINGSHAND_HOME\data\_dispatch\review.html
+lavish-axi $gate
+lavish-axi poll $gate
 ```
 
-**Both commands, in that order.** `poll` on its own fails with `No active Lavish Editor session
-for this file` / `NOT_FOUND`; the bare `lavish-axi <file>` call is what opens the session that
-`poll` then waits on.
+**One file name per decision is `## The review surface` above, and this is what it looks like
+here.** The stamp runs to milliseconds because two decisions raised in quick succession - two
+unrelated ids gated one after the other - land inside the same second. The directory stays
+`data\_dispatch\`; only the name varies.
 
-`poll` blocks until the user sends. That is expected - it stays silent the whole time. Do not
-treat a slow return as a hang, do not kill it, and do not poll in a loop. Run it as a tracked
-background job so its completion wakes you; never with `&` or a detached process.
+**Both commands, in that order**, and everything that follows the first return - replying in the
+surface, re-arming the poll, what an ended session means - is `## The review surface` above.
 
-A returned poll is not automatically an approval. Check what came back: `ended_by: agent` means
-the session was closed rather than answered, and nothing was approved. Only the user's own sent
-feedback is consent to dispatch.
-
-Lavish binds to 127.0.0.1, so these gates are unreachable when the user is away from the
-machine. If they say they cannot open the link, put short gates directly in chat and ask which
-surface they want for long ones rather than rendering another unreachable page.
+Only the user's own sent feedback is consent to dispatch.
 
 When `$proj.yolo -eq 'off'`, dispatch nothing until they approve. If they change a brief, rewrite
-it and render again. None of this gate binds a `+yolo` project - there the brief is written, the
-one line is said, and Step 4 follows.
+it and **render again over the same `$gate` file while that session is still open** - Lavish
+live-reloads it in the window they are already looking at, exactly as a repaired artifact is.
+A new name is for a gate whose session they have ended, and only then: rendering a revision to a
+new name beside a live one leaves them two gates for one decision, and an approval sent in the
+stale window comes back as consent to a brief that no longer exists. None of this gate binds a
+`+yolo` project - there the brief is written, the one line is said, and Step 4 follows.
 
 ## Step 4 - Dispatch
 
@@ -1698,6 +1817,8 @@ into chat and ask for a yes. This is a decision, and hard rule 5 says every deci
 however short the summary looks:
 
 ```powershell
+$gate = "$env:KINGSHAND_HOME\data\<id>\$(Get-Date -Format 'yyyyMMdd-HHmmssfff')-land.html"
+
 $sections = @(
   @{ heading = 'What changed'; items = @(
       @{ id='F-001'; text='<file> - <what changed and why it matters>'; detail='<+n/-n>'; badges=@(); flag=$false }
@@ -1710,24 +1831,32 @@ $sections = @(
   )}
 )
 & $env:KINGSHAND_HOME\bin\Render-Review.ps1 -Title "Land: <id>" -Subtitle "<repo> - <mode>" `
-    -Sections $sections -OutputPath $env:KINGSHAND_HOME\data\<id>\review.html
+    -Sections $sections -OutputPath $gate
 
 $env:LAVISH_AXI_PORT = '4388'
-lavish-axi $env:KINGSHAND_HOME\data\<id>\review.html
-lavish-axi poll $env:KINGSHAND_HOME\data\<id>\review.html
+lavish-axi $gate
+lavish-axi poll $gate
 ```
 
 The parameter is `-OutputPath`. An earlier draft of this block abbreviated it, which would have
 thrown the first time anyone reached the landing gate - a documented command nothing exercises. A
 test pins the spelling for that reason.
 
+**One name per decision, not one per unit of work** - the rule is `## The review surface` above,
+and this gate is where it is easiest to miss. A rejected landing comes back here after the worker
+fixes it, and **a fresh `$gate` name is for a landing whose session they have ended, and only
+then**; while that session is still open the fixed work is rendered again over the same file and
+Lavish reloads it in place. A new name beside a live one leaves them two gates for one landing,
+and an approval sent in the stale window - still showing the diff from before the fix - comes back
+as consent to land a version that no longer exists. The directory stays `data\<id>\`.
+
 Sections carry what they need to judge it: the changed files, the diff, the check results, the base
 ref the diff was taken against, and anything the worker's `report.md` left unresolved. Then say one
 line in chat naming what is waiting and stop - the surface holds the detail, chat holds the pointer.
 
-`lavish-axi poll` long-polls and stays silent until they answer. Keep it in the foreground, or run
-it as a harness-tracked background job whose completion wakes you. Never leave it detached with
-nothing to wake on - that is the same silence this whole layer exists to prevent.
+`lavish-axi poll` long-polls and stays silent until they answer, and the instant it delivers their
+rejection they are locked out of sending until you reply or re-arm - `## The review surface` above
+owns the foreground rule, the reply and the re-arm, and this gate changes none of it.
 
 **On a push-capable project with `yolo` off, this gate is held before the push, and approving it
 is the user's word for the outward step.** The worker stopped at the last local step because Step
