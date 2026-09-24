@@ -79,8 +79,8 @@ the job itself does. A restart kills the job along with every other one the last
 because the pulse is changed-only there is nothing to notice - which is how "no tokens, no updates"
 was reported twice in one day.
 
-**No count, ever - it runs until the session ends.** That is the default and it is the whole of
-R-002's answer: a session is hours long, `-Count 3` at the default cadence is thirty minutes, and
+**No count, ever - it runs until the session ends.** That is the default, and the reason is that
+a session runs for hours: `-Count 3` at the default cadence is thirty minutes, and
 what follows the third tick is silence indistinguishable from a pulse with nothing to say. Any
 finite count is a promise to go quiet at a moment nobody will notice.
 
