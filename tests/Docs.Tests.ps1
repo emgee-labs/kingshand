@@ -8438,6 +8438,22 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
                      'response polling stops.')
     }
 
+    # The other return with nothing to re-arm, and it has to be named rather than inferred: the
+    # fatal signal is cleared as it is delivered, so a poll armed after one waits forever on a
+    # surface nobody can open - the going-silent symptom this whole section exists to remove.
+    It 'names the fatal surface return as the second thing never re-armed' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**An `artifact_failures` return is the second, and it is not re-armed ' +
+                     'either.**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('the failure is cleared as it is delivered, so a poll armed on it waits ' +
+                     'for something that will never arrive, on a page nobody can open')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Repair the artifact, render it again and open the surface afresh before ' +
+                     'arming any poll on it - or, where it cannot be repaired now, put the ' +
+                     'decision in chat instead.')
+    }
+
     It 'reads a refused reopen as the tool working, not as something to retry' {
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
             -Phrase '**A session the user ended from the browser is not reopened.**'
@@ -8446,38 +8462,32 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
                      'their eyes, and it is never a way around the refusal.')
     }
 
-    # Stated by what has to be present, not by the returns somebody remembered. A test made of
-    # `ended_by: agent` alone passes a session the user ended from the browser chrome, which comes
-    # back `ended_by: user`, and passes an artifact_failures return that no user ever touched -
-    # at the landing gate on a push-capable project that reads as approval to push.
+    # Stated by what has to be present, and by that alone. The rule carried a list of example
+    # non-answers for two rounds and two of its three items turned out to describe a return that
+    # does carry a real answer - each item was a hand-written claim about a third-party tool's
+    # field semantics, and the set they enumerate is open. The positive rule catches every
+    # non-answer including the ones nobody thought of, so the list is gone rather than qualified.
     It 'reads only the user own sent feedback as an answer' {
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
             -Phrase ('**Only the user''s own sent feedback is an answer.** A return carrying ' +
-                     'none of it agreed to nothing and settles nothing, whatever else it says')
+                     'none of it agreed to nothing and settles nothing, whatever else it says.')
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('Those are illustrations and not the test: read for the sent feedback ' +
-                     'being there, because a rule made of the non-answers somebody thought of ' +
-                     'passes every one nobody did.')
-        foreach ($nonAnswer in @('`ended_by: user`', '`ended_by: agent`', '`artifact_failures`')) {
-            $script:Surface.Contains($nonAnswer) |
-                Should -BeTrue -Because "$nonAnswer is one of the returns the positive rule has to fail"
-        }
+            -Phrase ('Read for the sent feedback being there rather than for a field naming why ' +
+                     'the return arrived: a rule made of the non-answers somebody thought of ' +
+                     'passes every one nobody did')
+        $script:Surface.Contains('Those are illustrations and not the test') |
+            Should -BeFalse -Because 'the enumeration it introduced is what kept describing real answers'
     }
 
-    # The first case the enumeration met, and it got it backwards: answering and ending in one go
+    # The direction that costs a decision rather than risking one: answering and ending in one go
     # queues the user's own prompts and sets `ended_by: user` in the same write, so that field
-    # arrives on a real approval. Listed unqualified, it drops the decision the gate was waiting
-    # for and the ended session cannot be reopened to ask again.
-    It 'qualifies the ended-by-user illustration to the return that carries no feedback' {
-        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('`ended_by: user` with no feedback attached, where they closed the review ' +
-                     'from the browser chrome without sending')
+    # arrives on a real approval. Read as a closed session, the gate drops the answer it was
+    # waiting for and the ended session cannot be reopened to ask again.
+    It 'reads feedback that arrived with a closed session as an answer' {
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
             -Phrase ('**`ended_by: user` arrives alongside their feedback whenever they answer ' +
                      'and end in one go, and that is an answer** - so read it as one, rather ' +
                      'than dropping a decision because the session it came from is closed.')
-        $script:Surface.Contains('`ended_by: user` where they ended the review from the browser chrome') |
-            Should -BeFalse -Because 'the unqualified gloss covers the return that carries a real approval'
     }
 }
 

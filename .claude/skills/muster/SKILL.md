@@ -830,16 +830,21 @@ re-run.
 is still delivered once, and after that response polling stops. Re-arming anyway is the mistake
 this rule invites, and the session is not reopened uninvited to carry it.
 
-**Only the user's own sent feedback is an answer.** A return carrying none of it agreed to
-nothing and settles nothing, whatever else it says - `ended_by: user` with no feedback attached,
-where they closed the review from the browser chrome without sending, `ended_by: agent` where the
-session was closed rather than answered, and an `artifact_failures` return, which arrives with no
-user action at all. Those are illustrations and not the test: read for the sent feedback being
-there, because a rule made of the non-answers somebody thought of passes every one nobody did.
+**An `artifact_failures` return is the second, and it is not re-armed either.** That is the fatal
+signal: the surface itself could not be used, and the failure is cleared as it is delivered, so a
+poll armed on it waits for something that will never arrive, on a page nobody can open. Repair the
+artifact, render it again and open the surface afresh before arming any poll on it - or, where it
+cannot be repaired now, put the decision in chat instead.
 
-That cuts both ways, and the field is what misleads. **`ended_by: user` arrives alongside their
-feedback whenever they answer and end in one go, and that is an answer** - so read it as one,
-rather than dropping a decision because the session it came from is closed.
+**Only the user's own sent feedback is an answer.** A return carrying none of it agreed to
+nothing and settles nothing, whatever else it says. Read for the sent feedback being there rather
+than for a field naming why the return arrived: a rule made of the non-answers somebody thought of
+passes every one nobody did, and every field it would name belongs to a tool that owns its own
+meaning.
+
+The reverse is the one that costs a decision. **`ended_by: user` arrives alongside their feedback
+whenever they answer and end in one go, and that is an answer** - so read it as one, rather than
+dropping a decision because the session it came from is closed.
 
 Lavish binds to 127.0.0.1, so every one of these surfaces is unreachable when the user is away
 from the machine. If they say they cannot open the link, put short content directly in chat and
