@@ -899,9 +899,9 @@ lavish-axi poll $gate
 Lavish keys a session by the absolute path of the file and keeps ended ones for good, so a fixed
 name is a path that opens nothing the first time the user ends a session on it, and a poll left
 armed from an earlier decision sits on the same session as this one and can drain the answer meant
-for it. The timestamp above is what stops both, and it runs to milliseconds because a rewritten
-gate can be rendered in the same second as the one it replaces. The directory stays
-`data\_dispatch\`; only the name varies.
+for it. The timestamp above is what stops both, and it runs to milliseconds because two decisions
+raised in quick succession - two unrelated ids gated one after the other - land inside the same
+second. The directory stays `data\_dispatch\`; only the name varies.
 
 **Both commands, in that order**, and everything that follows the first return - replying in the
 surface, re-arming the poll, what an ended session means - is `## The review surface` above.

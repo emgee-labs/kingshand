@@ -145,7 +145,7 @@ name the environment variable or the credential-store entry that holds it, and n
   finishes. It survives teardown - the worktree, session and transcript go, this stays - so a
   fresh session can pick the work up. Never delete it as part of cleanup.
 - `data\<id>\<stamp>-land.html` - rendered for lavish at a landing gate, one file per decision.
-  `muster` owns the name; a gate never reuses one.
+  `muster` owns the name and when a gate takes a new one.
 - `data\king.md` - what you have observed about how the King works and what they prefer. Absent
   until there is something to store, and curated by `chronicle` rather than appended to.
 - `data\learnings.md` - kingshand's own operational facts and gotchas, dated and evidence-backed.

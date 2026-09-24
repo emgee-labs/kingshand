@@ -8593,8 +8593,8 @@ Describe 'the review-surface contract is stated once and cross-referenced everyw
     # every decision to `_dispatch\review.html`, and the landing gate rendered every decision for
     # one work item to `data\<id>\review.html`, which is per unit of work and not per decision.
     # The same shared key is what let a poll left armed from an earlier gate drain a later one's
-    # answer. The millisecond stamp is part of the contract: a rejected gate can be re-rendered
-    # inside the same second as the one it replaces.
+    # answer. The millisecond stamp is part of the contract: two decisions raised one after the
+    # other land inside the same second.
     It 'the <Gate> gate renders each decision to its own file' -ForEach @(
         @{ Gate = 'dispatch'; Step = 'Step 3 - Gate one'; Title = '-Title "Dispatch: <ids>"'
            Name = '$gate = "$env:KINGSHAND_HOME\data\_dispatch\'; Suffix = '-<ids>\.html"' }
@@ -8629,9 +8629,13 @@ Describe 'the review-surface contract is stated once and cross-referenced everyw
         Assert-Phrase -Text $step -Where 'the dispatch gate' `
             -Phrase ('a poll left armed from an earlier decision sits on the same session as ' +
                      'this one and can drain the answer meant for it')
+        # Justified by a sequence the procedure actually produces. A rewrite no longer renames
+        # while the session is open, so the precision cannot rest on that case any more.
         Assert-Phrase -Text $step -Where 'the dispatch gate' `
-            -Phrase ('it runs to milliseconds because a rewritten gate can be rendered in the ' +
-                     'same second as the one it replaces')
+            -Phrase ('it runs to milliseconds because two decisions raised in quick succession ' +
+                     '- two unrelated ids gated one after the other - land inside the same second')
+        $step.Contains('a rewritten gate can be rendered in the same second as the one it replaces') |
+            Should -BeFalse -Because 'a rewrite keeps its name while the session is open'
         # The revision loop, scoped: a path is spent only once the user has ended it, so while the
         # session is open the revision goes over the same file and Lavish reloads the window they
         # are looking at. A new name beside a live session gives them two gates for one decision,
@@ -8665,13 +8669,19 @@ Describe 'the review-surface contract is stated once and cross-referenced everyw
     }
 
     # The always-loaded file listed the old fixed landing-gate name, so leaving it would have
-    # re-taught the spent path the skill just stopped using.
-    It 'CLAUDE.md names the landing-gate artefact as one file per decision' {
-        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md file list' `
+    # re-taught the spent path the skill just stopped using. It then stated the replacement as an
+    # absolute - a gate never reuses a name - which is the opposite of what both gates now do
+    # while a session is open, and this is the file a Hand reads without loading the skill. It
+    # owns no procedure, so it points at the owner rather than restating the condition.
+    It 'CLAUDE.md names the landing-gate artefact without contradicting the gates' {
+        $hand = Get-DocText $script:HandMd
+        Assert-Phrase -Text $hand -Where 'the CLAUDE.md file list' `
             -Phrase ('`data\<id>\<stamp>-land.html` - rendered for lavish at a landing gate, ' +
-                     'one file per decision.')
-        (Get-DocText $script:HandMd).Contains('`data\<id>\review.html`') |
+                     'one file per decision. `muster` owns the name and when a gate takes a new one.')
+        $hand.Contains('`data\<id>\review.html`') |
             Should -BeFalse -Because 'that name is the one the gate stopped reusing'
+        $hand.Contains('a gate never reuses one') |
+            Should -BeFalse -Because 'a revision reuses the name while its session is still open'
     }
 
     # CLAUDE.md loads every session and a procedure does not belong in it, so what it carries is
