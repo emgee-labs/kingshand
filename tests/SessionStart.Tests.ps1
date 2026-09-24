@@ -895,6 +895,44 @@ Describe 'the digest says how to re-arm the usage pulse' {
         $text.Contains('No usage pulse. Keep it off.') |
             Should -BeTrue -Because 'the Hand decides it from the file, which is printed whole'
     }
+
+    # `C:\Users\John Smith\kingshand` is an ordinary place to keep a clone, and unquoted the printed
+    # path binds as two arguments - `Import-Module` fails on a positional parameter and names the
+    # second half of the path. That error arrives at session open, the pulse is never armed, and
+    # because the pulse is changed-only the silence that follows is exactly what a working one
+    # produces. Driven by running the emitted line rather than by reading it: the block exists to be
+    # copied and run, so whether it runs is the only thing worth asserting about it.
+    It 'emits a command that still runs when the installation root has a space in it' {
+        $saved = $env:KINGSHAND_HOME
+        try {
+            $spaced = Join-Path $TestDrive 'My Tools\kings hand'
+            New-Item -ItemType Directory -Force -Path (Join-Path $spaced 'bin') | Out-Null
+            $module = Join-Path $spaced 'bin\Usage.psm1'
+            Set-Content -LiteralPath $module -Encoding utf8 `
+                -Value 'function Watch-UsagePulse { ''armed'' }'
+
+            $env:KINGSHAND_HOME = $spaced
+            $emitted = @((Get-Digest (New-Fixture 'pulse-spaced')) -split "`r?`n" |
+                         Where-Object { $_.Contains('Import-Module') })
+            $emitted.Count | Should -Be 1 -Because 'the arming block is one Import-Module line'
+
+            # A separate runspace, so the stub never lands in the session running the suite.
+            $ps = [powershell]::Create()
+            try {
+                $null = $ps.AddScript($emitted[0].Trim() + "`n(Get-Module Usage).Path")
+                $loaded = @($ps.Invoke())
+                (@($ps.Streams.Error) -join '; ') |
+                    Should -BeNullOrEmpty -Because 'the Hand copies this line and runs it unchanged'
+                $loaded[-1] | Should -Be $module `
+                    -Because 'the whole path has to bind as one argument, spaces and all'
+            } finally {
+                $ps.Dispose()
+            }
+        } finally {
+            if ($null -eq $saved) { Remove-Item Env:\KINGSHAND_HOME -ErrorAction SilentlyContinue }
+            else                 { $env:KINGSHAND_HOME = $saved }
+        }
+    }
 }
 
 # The other half, and the one the King loses something to. lavish-axi ships no command that lists
@@ -921,6 +959,10 @@ Describe 'the digest names review surfaces holding feedback nobody collected' {
     # "re-run the poll on each" sends the reply into a closed session nobody reads and gets the same
     # ended result straight back. Not dropped in silence either - on this machine two of these have
     # sat holding a message since early September, and a row quietly removed is evidence lost.
+    # This is the shape the live machine reaches the moment its one open queued surface is
+    # collected: ended rows holding something, and nothing at all to re-poll. The sentence has to
+    # stand on its own there - "2 more" straight after the word "none" is more than nothing, which
+    # is a contradiction the reader has to unpick before they can act on either half.
     It 'keeps an ended session out of the re-poll list and still says it is holding something' {
         $f = New-Fixture 'surface-ended'
         $gone = Join-Path $f.Data 'kh-ended\gate.html'
@@ -932,14 +974,16 @@ Describe 'the digest names review surfaces holding feedback nobody collected' {
         $text.Contains($gone) |
             Should -BeFalse -Because 'polling an ended session re-arms nothing, which is muster''s rule'
         $text | Should -Not -Match 'Re-run the poll on each named'
-        $text | Should -Match '1 more ended holding feedback nobody collected'
-        $text | Should -Match 'polling an\s+ended session re-arms nothing'
-        $text | Should -Match 'goes\s+in chat instead' `
+        $text | Should -Match '1 of them ended without the store showing their feedback collected'
+        $text | Should -Not -Match '\d+ more ended' `
+            -Because '"more" than none is a contradiction where no surface was named'
+        $text | Should -Match 'polling an ended session re-arms nothing'
+        $text | Should -Match 'goes\s+in chat' `
             -Because 'the decision is still open and now has no surface to decide it on'
     }
 
     # The other side of the same split, on one store, so the counts are shown telling them apart
-    # rather than each branch being shown alone.
+    # rather than each branch being shown alone. Here "more" has the printed list to be more than.
     It 'still names an open surface beside an ended one and counts the ended one separately' {
         $f = New-Fixture 'surface-ended-and-open'
         $live = Join-Path $f.Data 'kh-live\gate.html'
@@ -953,7 +997,23 @@ Describe 'the digest names review surfaces holding feedback nobody collected' {
         $text | Should -Match '1 of 2 .* hold feedback nobody has'
         $text.Contains($live) | Should -BeTrue
         $text.Contains($gone) | Should -BeFalse
-        $text | Should -Match '1 more ended holding feedback nobody collected'
+        $text | Should -Match '1 more ended without the store showing their feedback collected'
+    }
+
+    # A row is held on `pending_prompts` not being zero, and that includes a count the store never
+    # gave - the re-poll list says "queued count unreadable" for exactly that row. Folded into the
+    # ended count it must not be upgraded into a claim that feedback is sitting there: what is
+    # actually known is that the store never showed it collected.
+    It 'does not claim feedback for an ended session whose queued count the store did not give' {
+        $f = New-Fixture 'surface-ended-unreadable'
+        $row = New-LavishSession -File (Join-Path $f.Data 'kh-ended-x\gate.html') -Status 'ended'
+        $row.Remove('pending_prompts')
+        New-LavishStore -Fixture $f -Sessions @($row) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match '1 of them ended without the store showing their feedback collected'
+        $text | Should -Not -Match 'ended holding feedback' `
+            -Because 'the store gave no count, so nothing here may assert one'
     }
 
     # The direction the doubt is resolved in, and it is deliberate: polling a surface that did not

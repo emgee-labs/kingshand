@@ -498,7 +498,14 @@ try {
 Add-Line ''
 Add-Line 'RE-ARM  (a restart kills every background job the last session armed)'
 Add-Line '  Pulse: arm it once, as a harness-tracked background job:'
-Add-Line ('      Import-Module ' + (Join-Path $script:Root 'bin\Usage.psm1'))
+# Quoted, because this block is printed to be copied and run and an installation root is allowed to
+# have a space in it - `C:\Users\John Smith\kingshand` is an ordinary place to keep a clone, and
+# unquoted it binds as two arguments and fails on a positional parameter. The failure is the one
+# this whole section exists against: the command errors at session open, the pulse is never armed,
+# and the silence that follows is indistinguishable from a changed-only pulse with nothing to say.
+# A quote inside the path is doubled for the same reason - it is the only other character that
+# could end the string early.
+Add-Line ("      Import-Module '" + (Join-Path $script:Root 'bin\Usage.psm1').Replace("'", "''") + "'")
 Add-Line '      Watch-UsagePulse'
 Add-Line '    It runs until the session ends rather than for a set number of ticks, and it speaks'
 Add-Line '    only when something has changed - so say in one line that it is on, because a quiet'
@@ -560,6 +567,7 @@ try {
                 Add-Line '            has collected on a surface a poll can still reach. A session still open'
                 Add-Line '            is not counted as waiting - nothing ends one when its decision is settled,'
                 Add-Line '            so they accumulate for good.'
+                $endedOpener = "$($ended.Count) of them"
             } else {
                 Add-Line "  Surfaces: $($repoll.Count) of $($mine.Count) under $DataPath hold feedback nobody has"
                 Add-Line '            collected and are the surfaces to re-poll. Re-run the poll on each named'
@@ -580,15 +588,24 @@ try {
                     # the first place - it is not counted rather than counted without a path.
                     "- $queued, status $status, $(Get-SessionStamp $_) - $(Get-Field $_ 'file')"
                 })
+                $endedOpener = "$($ended.Count) more"
             }
 
             # Counted, never listed and never silent. Discarded evidence is the thing this whole
-            # section is against, so the count says plainly that the feedback was never collected
-            # and that there is no surface left to collect it from.
+            # section is against, so the count says there is no surface left to collect from.
+            #
+            # The opener belongs to the branch above it. After a printed list the ended rows are
+            # additional to it and "more" has something to be more than; where nothing was named,
+            # they are the whole of what was found and "more" would follow the word "none".
+            #
+            # NOT SAID TO BE HOLDING FEEDBACK, because some of them may not be. A row is held on
+            # `pending_prompts` not being zero, which includes a count the store did not give at
+            # all - the re-poll list prints "queued count unreadable" for exactly that case, and a
+            # flat claim of uncollected feedback here would assert what that row never said.
             if ($ended.Count -gt 0) {
-                Add-Line "            $($ended.Count) more ended holding feedback nobody collected, and polling an"
-                Add-Line '            ended session re-arms nothing - so whatever is still undecided there goes'
-                Add-Line '            in chat instead.'
+                Add-Line "            $endedOpener ended without the store showing their feedback collected, and"
+                Add-Line '            polling an ended session re-arms nothing - so whatever they left undecided'
+                Add-Line '            goes in chat.'
             }
         }
     }

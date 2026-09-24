@@ -4807,13 +4807,23 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     # assembled over two lines, which passes this one too. Neither test is a proof that nothing can
     # reach that directory. This asserts the narrower thing it can actually assert: no single
     # statement in this repository names the profile and the skills together.
+    #
+    # Every offender is collected first and asserted once. Line scope with an assertion per line is
+    # thousands of them for one test, and the message could only name the file - which is the file
+    # scope this narrowing moved away from, handed back at the moment somebody has to act on it.
+    # Collected, the failure names the file AND the line of each statement that tripped it.
     It 'no script writes to the user profile skills directory' {
-        foreach ($f in $script:AllSource) {
-            foreach ($line in @(Get-Content -Path $f.FullName)) {
-                ($line.Contains('USERPROFILE') -and $line -match '(?i)skills') |
-                    Should -BeFalse -Because "$($f.Name) must leave ~\.claude\skills\ alone entirely"
+        $offenders = @(
+            foreach ($f in $script:AllSource) {
+                $n = 0
+                foreach ($line in @(Get-Content -Path $f.FullName)) {
+                    $n++
+                    if ($line.Contains('USERPROFILE') -and $line -match '(?i)skills') { "$($f.Name):$n" }
+                }
             }
-        }
+        )
+        ($offenders -join ', ') |
+            Should -BeNullOrEmpty -Because 'every script must leave ~\.claude\skills\ alone entirely'
     }
 
     # The blanket ban on touching the profile at all was the right proxy while nothing needed to.
