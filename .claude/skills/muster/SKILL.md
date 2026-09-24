@@ -794,7 +794,10 @@ bare `lavish-axi <file>` call is what opens the session that `poll` then waits o
 **A session the user ended from the browser is not reopened.** That same open call refuses and
 explains why rather than reopening uninvited, so a refusal there is the tool working and never
 something to retry. `--reopen` is for when they ask for further review or something needs their
-eyes, and it is never a way around the refusal.
+eyes, and it is never a way around the refusal. **A new decision put on a path that already
+carried an ended session is that reopen case rather than a retry** - pressing the same decision
+again is what the refusal is for, while a decision they have not seen yet needs their eyes by
+definition, and rendering it into the dead path opens nothing at all.
 
 `poll` long-polls and stays silent until they send. That is expected - do not treat a slow return
 as a hang, do not kill it, and do not poll in a loop. Keep it in the foreground by default and let
@@ -826,9 +829,12 @@ re-running is the fix rather than asking them to send it again. A session restar
 case: it takes the background job the poll was running in with it, and the answer is that same
 re-run.
 
-**`Send & End` is the one result with nothing to re-arm.** It ends the session, its final feedback
-is still delivered once, and after that response polling stops. Re-arming anyway is the mistake
-this rule invites, and the session is not reopened uninvited to carry it.
+**A return whose session has ended is the one with nothing to re-arm**, and `Send & End` is only
+the commonest way to reach that state - ending the review without sending anything reaches it too.
+Whatever final feedback there was is still delivered once, and after that response polling stops.
+Re-arming anyway is the mistake this rule invites: the reply is written into the chat of a closed
+session nobody will read, the poll returns the same ended result at once, and the rule that just
+fired says re-arm again. The session is not reopened uninvited to carry it either.
 
 **An `artifact_failures` return is the surface itself failing, and it is still re-armed.** That
 return says the page could not be used, not that the session is over: it stays open and they can
@@ -864,27 +870,36 @@ PowerShell - it would skip this gate on every project and dispatch work no one a
 Build one section per unit of work, one item per requirement, then render:
 
 ```powershell
+$gate = "$env:KINGSHAND_HOME\data\_dispatch\$(Get-Date -Format 'yyyyMMdd-HHmmss')-<ids>.html"
+
 $sections = @(
   @{ heading = '<id> - <repo>'; items = @(
       @{ id='R-001'; text='<requirement>'; detail='<source>'; badges=@(); flag=$false }
   )}
 )
 & $env:KINGSHAND_HOME\bin\Render-Review.ps1 -Title "Dispatch: <ids>" -Subtitle "<n> workers" `
-    -Sections $sections -OutputPath $env:KINGSHAND_HOME\data\_dispatch\review.html
+    -Sections $sections -OutputPath $gate
 
 $env:LAVISH_AXI_PORT = '4388'
-lavish-axi $env:KINGSHAND_HOME\data\_dispatch\review.html
-lavish-axi poll $env:KINGSHAND_HOME\data\_dispatch\review.html
+lavish-axi $gate
+lavish-axi poll $gate
 ```
 
+**Every dispatch gate gets its own file name and no two share one.** Lavish keys a session by the
+absolute path of the file and keeps ended ones for good, so a fixed name is a path that opens
+nothing the first time anybody ends a session on it, and a poll left armed from an earlier
+decision sits on the same session as this one and can drain the answer meant for it. The
+timestamped name above is what stops both; the directory stays `data\_dispatch\`.
+
 **Both commands, in that order**, and everything that follows the first return - replying in the
-surface, re-arming the poll, what `Send & End` means - is `## The review surface` above.
+surface, re-arming the poll, what an ended session means - is `## The review surface` above.
 
 Only the user's own sent feedback is consent to dispatch.
 
 When `$proj.yolo -eq 'off'`, dispatch nothing until they approve. If they change a brief, rewrite
-it and render again. None of this gate binds a `+yolo` project - there the brief is written, the
-one line is said, and Step 4 follows.
+it and render again - to a new `$gate` name, because a revised gate is a new decision and the old
+path may already be spent. None of this gate binds a `+yolo` project - there the brief is written,
+the one line is said, and Step 4 follows.
 
 ## Step 4 - Dispatch
 

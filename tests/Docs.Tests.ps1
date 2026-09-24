@@ -8430,12 +8430,20 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
     }
 
     # The inverse mistake, and it sits beside the rule on purpose: a rule that says always re-arm
-    # invites re-arming into a session that has already stopped polling.
-    It 'stops rather than re-arming after the final feedback' {
+    # invites re-arming into a session that has already stopped polling. Stated as the condition
+    # rather than as one named button, because ending the review without sending anything reaches
+    # the same state and is not `Send & End` - named as the rule, that return re-arms forever.
+    It 'stops re-arming once the session has ended, however it ended' {
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('**`Send & End` is the one result with nothing to re-arm.** It ends the ' +
-                     'session, its final feedback is still delivered once, and after that ' +
-                     'response polling stops.')
+            -Phrase ('**A return whose session has ended is the one with nothing to re-arm**, ' +
+                     'and `Send & End` is only the commonest way to reach that state - ending ' +
+                     'the review without sending anything reaches it too.')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('the reply is written into the chat of a closed session nobody will read, ' +
+                     'the poll returns the same ended result at once, and the rule that just ' +
+                     'fired says re-arm again')
+        $script:Surface.Contains('**`Send & End` is the one result with nothing to re-arm.**') |
+            Should -BeFalse -Because 'naming one button as the rule leaves every other ended return re-arming'
     }
 
     # The return that looks like an ending and is not one. A failure recorded against a live
@@ -8464,6 +8472,19 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
             -Phrase ('`--reopen` is for when they ask for further review or something needs ' +
                      'their eyes, and it is never a way around the refusal.')
+    }
+
+    # Without this the refusal has no exit: a session is keyed by the file's path and an ended one
+    # is kept for good, so a decision they have never seen, rendered into a path somebody once
+    # ended, is refused as though it were a retry and the gate is never shown at all.
+    It 'separates a new decision on a spent path from a retry of the same one' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**A new decision put on a path that already carried an ended session is ' +
+                     'that reopen case rather than a retry**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('pressing the same decision again is what the refusal is for, while a ' +
+                     'decision they have not seen yet needs their eyes by definition, and ' +
+                     'rendering it into the dead path opens nothing at all')
     }
 
     # Stated by what has to be present, and by that alone. The rule carried a list of example
@@ -8517,8 +8538,8 @@ Describe 'the review-surface contract is stated once and cross-referenced everyw
         $gate = Get-MusterStep 'Step 3 - Gate one'
         Assert-Phrase -Text $gate -Where 'the dispatch gate' `
             -Phrase ('**Both commands, in that order**, and everything that follows the first ' +
-                     'return - replying in the surface, re-arming the poll, what `Send & End` ' +
-                     'means - is `## The review surface` above.')
+                     'return - replying in the surface, re-arming the poll, what an ended ' +
+                     'session means - is `## The review surface` above.')
         Assert-Phrase -Text $gate -Where 'the dispatch gate' `
             -Phrase 'Only the user''s own sent feedback is consent to dispatch.'
         # A pointer plus a second-hand copy of the rule is how the contract drifted in the first
@@ -8532,6 +8553,38 @@ Describe 'the review-surface contract is stated once and cross-referenced everyw
         Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
             -Phrase ('`## The review surface` above owns the foreground rule, the reply and the ' +
                      're-arm, and this gate changes none of it.')
+    }
+
+    # A session is keyed by the file's absolute path and an ended one is kept for good, so the
+    # fixed `_dispatch\review.html` this gate used to render to dies permanently the first time
+    # anybody ends a session on it - the gate then opens nothing and the user sees no decision at
+    # all. The landing gate already varies its path per unit of work; this one had to as well, and
+    # the same key is what let a poll left armed from an earlier gate drain this one's answer.
+    It 'the dispatch gate renders each decision to its own file' {
+        $fence = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains('-Title "Dispatch: <ids>"') })
+        $fence.Count | Should -Be 1 -Because 'the dispatch render command is copied from one place'
+        $fence[0] | Should -Match ([regex]::Escape('$gate = "$env:KINGSHAND_HOME\data\_dispatch\') +
+                                  '\$\(Get-Date -Format ''yyyyMMdd-HHmmss''\)-<ids>\.html"') `
+            -Because 'the name has to vary per decision and stay under the _dispatch scratch directory'
+        foreach ($usage in @('-OutputPath $gate', 'lavish-axi $gate', 'lavish-axi poll $gate')) {
+            $fence[0].Contains($usage) |
+                Should -BeTrue -Because "the render and both calls use one per-decision path ($usage)"
+        }
+        (Get-DocText $script:MusterMd).Contains('_dispatch\review.html') |
+            Should -BeFalse -Because 'a fixed gate name is spent the first time a session on it is ended'
+
+        $step = Get-MusterStep 'Step 3 - Gate one'
+        Assert-Phrase -Text $step -Where 'the dispatch gate' `
+            -Phrase '**Every dispatch gate gets its own file name and no two share one.**'
+        Assert-Phrase -Text $step -Where 'the dispatch gate' `
+            -Phrase ('a poll left armed from an earlier decision sits on the same session as ' +
+                     'this one and can drain the answer meant for it')
+        # The revision loop renders again into the path the user may have just ended.
+        Assert-Phrase -Text $step -Where 'the dispatch gate' `
+            -Phrase ('If they change a brief, rewrite it and render again - to a new `$gate` ' +
+                     'name, because a revised gate is a new decision and the old path may ' +
+                     'already be spent.')
     }
 
     # CLAUDE.md loads every session and a procedure does not belong in it, so what it carries is
