@@ -805,12 +805,12 @@ monitored until that wake path is live.**
 
 ### Reading a result is what leaves the surface unwatched
 
-The instant a poll returns, nothing is watching that surface any more: they can send again and it
-reaches nobody. So **re-arm at that instant, before you act on what the result said** - not after
-the work is done, and not once you have something worth replying with. One call does both:
+The instant a poll returns, that surface is unwatched: they can send again and nobody is watching
+it at that moment. So **re-arm at that instant, before you act on what the result said** - not
+after the work is done, and not once you have something worth replying with. One call does both:
 
 ```powershell
-lavish-axi poll <file> --agent-reply "<what you are about to do>"
+lavish-axi poll <file> --agent-reply "<your answer to what they just sent>"
 ```
 
 That displays your answer in the side chat and waits again. **It answers what they just sent and
@@ -820,12 +820,22 @@ looking at silence they sent into, which is the reported symptom rather than the
 is work to do before they can answer again, that re-armed poll is the harness-native tracked
 background job above; where there is nothing to do but wait, it is the foreground one.
 
+**A poll that was killed or timed out is just re-run - queued feedback is never lost.** So
+anything they sent while nothing was watching is still waiting for the next poll to collect, and
+re-running is the fix rather than asking them to send it again. A session restart is the ordinary
+case: it takes the background job the poll was running in with it, and the answer is that same
+re-run.
+
 **`Send & End` is the one result with nothing to re-arm.** It ends the session, its final feedback
 is still delivered once, and after that response polling stops. Re-arming anyway is the mistake
 this rule invites, and the session is not reopened uninvited to carry it.
 
-A returned poll is not automatically an answer. `ended_by: agent` means the session was closed
-rather than answered, so nothing on it was agreed to.
+**Only the user's own sent feedback is an answer.** A return carrying none of it agreed to
+nothing and settles nothing, whatever else it says - `ended_by: user` where they ended the review
+from the browser chrome, `ended_by: agent` where the session was closed rather than answered, and
+an `artifact_failures` return, which arrives with no user action at all. Those are illustrations
+and not the test: read for the sent feedback being there, because a rule made of the non-answers
+somebody thought of passes every one nobody did.
 
 Lavish binds to 127.0.0.1, so every one of these surfaces is unreachable when the user is away
 from the machine. If they say they cannot open the link, put short content directly in chat and

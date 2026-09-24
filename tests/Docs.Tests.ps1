@@ -615,18 +615,18 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
     }
 
     It 'local-only is named as needing nothing, scoped to its delivery' {
-        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
             -Where 'muster Step 2' `
             -Phrase ('**`local-only` is untouched**: no Done-means block above changes, because ' +
                      'none of them pushes or opens a pull request')
-        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
             -Where 'muster Step 2' `
             -Phrase ('a comment or a work item on a `local-only` project is gated by rule 2 like ' +
                      'any other')
     }
 
     It 'muster Step 2 replaces the direct-PR outward bullet with a stop' {
-        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
             -Where 'muster Step 2' `
             -Phrase ('Leave the work committed and stop there. Do not push, do not open a ' +
                      'pull request, do not comment anywhere, and do not create or update a work ' +
@@ -634,7 +634,7 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
     }
 
     It 'muster Step 2 replaces the no-mistakes pipeline bullet with a gate run that stops locally' {
-        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
             -Where 'muster Step 2' `
             -Phrase ('Run the gate with `--skip push,pr,ci` so it stops at the last local step, ' +
                      'and fix everything it parks.')
@@ -644,7 +644,7 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
     # run and reaches the ci step. Dropping $ci.briefLine here reinstates the unbounded wait that
     # the Step 1b preflight exists to end, on exactly the repositories that cannot report a check.
     It 'the approved run still carries the CI brief line rather than losing it' {
-        $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -'
+        $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface'
         Assert-Phrase -Text $region -Where 'muster Step 2' `
             -Phrase ('- When you are told the push is approved, run the same gate line again ' +
                      'without `--skip`. <the `Drive the pipeline` bullet Step 1b chose, verbatim>')
@@ -659,7 +659,7 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
     # itself, which is exactly one reason - and a reason worth pinning, because "shorten the run"
     # is the misuse the old prohibition existed to prevent and it is still a misuse.
     It 'the skip flags have exactly one sanctioned use and it is named' {
-        $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -'
+        $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface'
         Assert-Phrase -Text $region -Where 'muster Step 2' `
             -Phrase ('there is exactly one reason to add them: `yolo` off, per the section ' +
                      'above, where they are what holds the push back until the user has answered')
@@ -5365,7 +5365,7 @@ Describe 'a brief settles the mechanism questions that have no last review round
         # Step 2 is the only place the Hand reads while writing a brief, so these rules are
         # asserted at that step rather than anywhere in the file.
         $script:MusterStep2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' `
-            -ToHeading 'Step 3 - Gate one'
+            -ToHeading 'The review surface'
     }
 
     # The biggest block of waste in the evidence, and the one rule here that pays for itself on its
@@ -5417,7 +5417,7 @@ Describe 'a brief settles the mechanism questions that have no last review round
 Describe 'a project has a standing definition of done, and repeated findings are reported not capped' {
     BeforeAll {
         $script:CritStep2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' `
-            -ToHeading 'Step 3 - Gate one'
+            -ToHeading 'The review surface'
         $script:CritStep6 = Get-MusterStep 'Step 6 - Completion'
         # The brief template is the one fence carrying both the Goal and the Done-means headings,
         # and it is read raw because the assertion below is about the order of its sections.
@@ -6713,7 +6713,7 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
     # Both ways: no section on a task that renders nothing, and no bare list of things to look at
     # on a task that does.
     It 'keeps the section out of every brief that does not need one' {
-        $step2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' -ToHeading 'Step 3 - Gate one'
+        $step2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' -ToHeading 'The review surface'
         Assert-Phrase -Text $step2 -Where 'muster Step 2' `
             -Phrase '**`Browser checks` is the one optional section, and it is optional both ways.**'
         Assert-Phrase -Text $step2 -Where 'muster Step 2' `
@@ -8366,17 +8366,39 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
     # The whole defect in one assertion: re-arming after the work is re-arming after the silence.
     It 're-arms at the instant the result is read, before acting on it' {
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('The instant a poll returns, nothing is watching that surface any more: ' +
-                     'they can send again and it reaches nobody.')
+            -Phrase ('The instant a poll returns, that surface is unwatched: they can send ' +
+                     'again and nobody is watching it at that moment.')
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
             -Phrase ('**re-arm at that instant, before you act on what the result said** - not ' +
                      'after the work is done, and not once you have something worth replying with.')
+    }
+
+    # Lavish's own recovery rule, and the reason the sentence above says nobody is watching rather
+    # than that the message is gone: a restart kills the job the poll ran in, and the fix is to
+    # re-run the poll, never to ask the user to type it all again.
+    It 'recovers a killed or timed-out poll by re-running it rather than losing the feedback' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**A poll that was killed or timed out is just re-run - queued feedback ' +
+                     'is never lost.**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('anything they sent while nothing was watching is still waiting for the ' +
+                     'next poll to collect, and re-running is the fix rather than asking them ' +
+                     'to send it again')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('A session restart is the ordinary case: it takes the background job the ' +
+                     'poll was running in with it, and the answer is that same re-run.')
+        $script:Surface.Contains('they can send again and it reaches nobody') |
+            Should -BeFalse -Because 'queued feedback survives the poll, so nothing sent is lost'
     }
 
     It 'names the one call that answers in the surface and waits again' {
         $fence = @(Get-CodeFence $script:MusterMd |
             Where-Object { $_.Contains('lavish-axi poll <file> --agent-reply') })
         $fence.Count | Should -Be 1 -Because 'the reply-and-re-arm call has to be copyable, not described'
+        # The copyable line is the one a reader follows, so its placeholder cannot ask for the
+        # progress note the paragraph below forbids.
+        $fence[0].Contains('--agent-reply "<your answer to what they just sent>"') |
+            Should -BeTrue -Because 'the reply answers what they sent rather than announcing work'
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
             -Phrase 'That displays your answer in the side chat and waits again.'
         # The one rule this contract could be read as relaxing. A reply is owed to something the
@@ -8424,10 +8446,22 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
                      'their eyes, and it is never a way around the refusal.')
     }
 
-    It 'still refuses to read a closed session as an answer' {
+    # Stated by what has to be present, not by the returns somebody remembered. A test made of
+    # `ended_by: agent` alone passes a session the user ended from the browser chrome, which comes
+    # back `ended_by: user`, and passes an artifact_failures return that no user ever touched -
+    # at the landing gate on a push-capable project that reads as approval to push.
+    It 'reads only the user own sent feedback as an answer' {
         Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
-            -Phrase ('A returned poll is not automatically an answer. `ended_by: agent` means ' +
-                     'the session was closed rather than answered, so nothing on it was agreed to.')
+            -Phrase ('**Only the user''s own sent feedback is an answer.** A return carrying ' +
+                     'none of it agreed to nothing and settles nothing, whatever else it says')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Those are illustrations and not the test: read for the sent feedback ' +
+                     'being there, because a rule made of the non-answers somebody thought of ' +
+                     'passes every one nobody did.')
+        foreach ($nonAnswer in @('`ended_by: user`', '`ended_by: agent`', '`artifact_failures`')) {
+            $script:Surface.Contains($nonAnswer) |
+                Should -BeTrue -Because "$nonAnswer is one of the returns the positive rule has to fail"
+        }
     }
 }
 
@@ -8436,11 +8470,12 @@ Describe 'the review-surface contract is stated once and cross-referenced everyw
     # across both muster gates and five other files, so each copy drifted on its own and none of
     # them ever gained the reply. One owner, and every other mention is a pointer with no substance
     # in it.
-    It 'the reply flag appears in exactly one tracked document' {
+    # Scoped to the instructions that are followed - CLAUDE.md and the skills. `docs\` holds dated
+    # design notes rather than contract owners, and a note explaining this decision would have to
+    # name the flag to be worth writing.
+    It 'the reply flag appears in exactly one instruction document' {
         $docs = @(Join-Path $script:Root 'CLAUDE.md') +
                 @(Get-ChildItem -Path (Join-Path $script:Root '.claude\skills') -Filter 'SKILL.md' -Recurse |
-                    ForEach-Object { $_.FullName }) +
-                @(Get-ChildItem -Path (Join-Path $script:Root 'docs') -Filter '*.md' |
                     ForEach-Object { $_.FullName })
         $carriers = @($docs | Where-Object { (Get-Content -Path $_ -Raw).Contains('--agent-reply') })
         $carriers.Count | Should -Be 1 -Because 'a second copy is what drifts, and the first copy is muster'
