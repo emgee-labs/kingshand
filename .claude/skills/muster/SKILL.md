@@ -829,6 +829,11 @@ re-running is the fix rather than asking them to send it again. A session restar
 case: it takes the background job the poll was running in with it, and the answer is that same
 re-run.
 
+**`poll` needs the gate file's absolute path, and after a restart nothing has told you what it
+is** - the gates render under a timestamped name, so there is no fixed one to type. Find it by
+taking the newest `*-land.html` in `data\<id>\` for a landing gate, and the newest `*.html` in
+`data\_dispatch\` for a dispatch gate, then re-run the poll on that path.
+
 **A return whose session has ended is the one with nothing to re-arm**, and `Send & End` is only
 the commonest way to reach that state - ending the review without sending anything reaches it too.
 Whatever final feedback there was is still delivered once, and after that response polling stops.
@@ -888,7 +893,7 @@ lavish-axi poll $gate
 
 **Every gate gets its own file name and no two share one - this one and the landing gate alike.**
 Lavish keys a session by the absolute path of the file and keeps ended ones for good, so a fixed
-name is a path that opens nothing the first time anybody ends a session on it, and a poll left
+name is a path that opens nothing the first time the user ends a session on it, and a poll left
 armed from an earlier decision sits on the same session as this one and can drain the answer meant
 for it. The timestamp above is what stops both, and it runs to milliseconds because a rewritten
 gate can be rendered in the same second as the one it replaces. The directory stays

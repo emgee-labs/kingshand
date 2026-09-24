@@ -8391,6 +8391,19 @@ Describe 'reading a poll result is what leaves the review surface unwatched' {
             Should -BeFalse -Because 'queued feedback survives the poll, so nothing sent is lost'
     }
 
+    # The re-run needs a path, and once each gate renders under a timestamped name there is no
+    # fixed one to type: a restarted session holds no record of what was rendered, so a recovery
+    # rule that stops at "re-run it" cannot be carried out at all.
+    It 'says how to find the gate file the re-run needs' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**`poll` needs the gate file''s absolute path, and after a restart ' +
+                     'nothing has told you what it is**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Find it by taking the newest `*-land.html` in `data\<id>\` for a landing ' +
+                     'gate, and the newest `*.html` in `data\_dispatch\` for a dispatch gate, ' +
+                     'then re-run the poll on that path.')
+    }
+
     It 'names the one call that answers in the surface and waits again' {
         $fence = @(Get-CodeFence $script:MusterMd |
             Where-Object { $_.Contains('lavish-axi poll <file> --agent-reply') })
@@ -8593,6 +8606,12 @@ Describe 'the review-surface contract is stated once and cross-referenced everyw
         Assert-Phrase -Text $step -Where 'the dispatch gate' `
             -Phrase ('**Every gate gets its own file name and no two share one - this one and ' +
                      'the landing gate alike.**')
+        # Scoped to the user on purpose: the reopen guard fires only on a session they ended from
+        # the browser, and one the agent ended reopens on a bare open. The owner section above
+        # says the same, and this rationale was the one place the scope was lost.
+        Assert-Phrase -Text $step -Where 'the dispatch gate' `
+            -Phrase ('a fixed name is a path that opens nothing the first time the user ends a ' +
+                     'session on it')
         Assert-Phrase -Text $step -Where 'the dispatch gate' `
             -Phrase ('a poll left armed from an earlier decision sits on the same session as ' +
                      'this one and can drain the answer meant for it')
