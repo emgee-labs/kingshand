@@ -195,7 +195,29 @@ run:
     intent,completed,0,6
 '@
 
-    # Two shapes Invoke-NoMistakesAxi returns, and nothing invented: the binary ran, or it did not.
+    $script:NodePath = (Get-Command 'node' -CommandType Application |
+                        Where-Object { $_.Source -like '*.exe' } |
+                        Select-Object -First 1).Source
+
+    # Two stand-ins for the gate binary, because the launch branches cannot be forced any other
+    # way: one that never answers, and one that prints back the arguments it was actually handed.
+    # They live under a directory whose name holds a space, so every launch through them also
+    # exercises the quoting the arguments depend on.
+    $script:ShimRoot = Join-Path ([System.IO.Path]::GetTempPath()) `
+                                 ("gate shims $([guid]::NewGuid().ToString('N'))")
+    New-Item -ItemType Directory -Path $script:ShimRoot -Force | Out-Null
+
+    $script:SlowShim = Join-Path $script:ShimRoot 'axi slow.cmd'
+    Set-Content -LiteralPath $script:SlowShim -Encoding ascii `
+        -Value @('@echo off', 'ping -n 31 127.0.0.1 >nul')
+
+    # `axi status --run <value>` puts the run id in the fourth argument, so `%~4` is the value as
+    # the binary really received it. A joined command line splits it and this prints the fragment.
+    $script:ArgvEchoShim = Join-Path $script:ShimRoot 'axi echo.cmd'
+    Set-Content -LiteralPath $script:ArgvEchoShim -Encoding ascii `
+        -Value @('@echo off', 'echo error: "the run asked for was [%~4]"')
+
+    # Two shapes the launcher returns, and nothing invented: the binary ran, or it did not.
     function New-AxiRan {
         param([string]$Value = '', [int]$ExitCode = 0, [string]$ErrorText = '')
         [pscustomobject]@{
@@ -208,6 +230,10 @@ run:
             ok = $false; value = ''; errorText = ''; exitCode = $null; error = $Error
         }
     }
+}
+
+AfterAll {
+    Remove-Item -LiteralPath $script:ShimRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Describe 'Reading a completed run' {
@@ -442,6 +468,41 @@ Describe 'Reading a gate that arrives as an object rather than a step name' {
         # live one by replacing the documented one would only move the failure.
         (ConvertFrom-GateRunOutput -Text $script:GateResponse).parkedOn       | Should -Be 'review'
         (ConvertFrom-GateRunOutput -Text $script:GateObjectResponse).parkedOn | Should -Be 'review'
+    }
+
+    It 'reads a gate key in a shape it does not recognise as a gate all the same' {
+        # The third shape, forced. `gate:` has already changed shape once, so a reader that
+        # decides the park from whichever shapes it happens to handle will one day meet one it
+        # does not and report no gate at all - which is what a list does here. The key being
+        # there is the tool saying the pipeline is waiting, whatever its value turned out to be.
+        $s = ConvertFrom-GateRunOutput -Text "gate[2]: review,test`n"
+
+        $s.isParked | Should -BeTrue -Because 'the tool did say there was a gate'
+        $s.parkedOn | Should -BeNullOrEmpty -Because 'nothing readable named a step'
+        $s.signal   | Should -Be 'gate-response'
+        $s.detail   | Should -Match 'a list of 2 item'
+        $s.detail   | Should -Match 'does not recognise'
+    }
+
+    It 'names an empty gate value rather than letting it read as no gate' {
+        $s = ConvertFrom-GateRunOutput -Text "gate: `"`"`n"
+
+        $s.isParked | Should -BeTrue
+        $s.signal   | Should -Be 'gate-response'
+        $s.detail   | Should -Match 'an empty string'
+    }
+
+    It 'says the gate shape was unrecognised on a run answer too, not only on a gate response' {
+        # The same document with a run beside it takes the other detail branch entirely, and the
+        # unrecognised shape has to be named on both or it is silent on whichever one is missed.
+        $s = ConvertFrom-GateRunOutput -Text (
+            "run:`n  id: 01M4GATESHAPE0000000000000`n  branch: feature-x`n" +
+            "  status: running`ngate[2]: review,test`n")
+
+        $s.status   | Should -Be 'has-run'
+        $s.isParked | Should -BeTrue
+        $s.detail   | Should -Match 'a list of 2 item'
+        $s.detail   | Should -Match 'does not recognise'
     }
 
     It 'reads a gate object that names no step as a gate all the same' {
@@ -714,36 +775,59 @@ Describe 'Asking the gate itself' {
 }
 
 Describe 'The boundary to the binary' {
+    # Driven through Get-GateRunState, which is the only way into this module. The helper that
+    # actually launches the binary is not exported - it takes free-form arguments, and exporting
+    # it would make the module's no-drive claim true only of the path the module itself takes -
+    # so these force each of its failures from outside rather than by reaching past the exports.
+
     It 'reports a missing binary rather than throwing' {
         Mock -ModuleName GateRun Get-NoMistakesCommandPath { $null }
 
-        $r = Invoke-NoMistakesAxi -Arguments @('axi', 'status')
+        $s = Get-GateRunState
 
-        $r.ok       | Should -BeFalse
-        $r.exitCode | Should -BeNullOrEmpty
-        $r.error    | Should -Match 'no-mistakes was not found'
+        $s.status | Should -Be 'unreadable'
+        $s.signal | Should -Be 'lookup-failed'
+        $s.detail | Should -Match 'no-mistakes was not found'
+        $s.runId  | Should -BeNullOrEmpty
     }
 
     It 'reports a repository path that is not there rather than asking about somewhere else' {
-        $missing = Join-Path ([System.IO.Path]::GetTempPath()) ('gate-run-' + [guid]::NewGuid().ToString('N'))
+        # A real binary is found, so the refusal is the missing directory and not the missing
+        # tool - which is the branch in question.
+        Mock -ModuleName GateRun Get-NoMistakesCommandPath { $script:NodePath }
+        $missing = Join-Path ([System.IO.Path]::GetTempPath()) `
+                             ('gate-run-' + [guid]::NewGuid().ToString('N'))
 
-        $r = Invoke-NoMistakesAxi -Arguments @('axi', 'status') -RepoPath $missing
+        $s = Get-GateRunState -RepoPath $missing
 
-        $r.ok    | Should -BeFalse
-        $r.error | Should -Match 'no directory at'
+        $s.status | Should -Be 'unreadable'
+        $s.signal | Should -Be 'lookup-failed'
+        $s.detail | Should -Match 'no directory at'
     }
 
     It 'stops a binary that does not answer and says so' {
         # Forced with a real process that will not return inside the timeout. This is the branch
         # the default timeout guards, and the only way to fire it is to make something hang.
-        Mock -ModuleName GateRun Get-NoMistakesCommandPath { (Get-Command 'pwsh').Source }
+        Mock -ModuleName GateRun Get-NoMistakesCommandPath { $script:SlowShim }
 
-        $r = Invoke-NoMistakesAxi -Arguments @('-NoProfile', '-Command', 'Start-Sleep -Seconds 30') `
-                                  -TimeoutSeconds 2
+        $s = Get-GateRunState -TimeoutSeconds 2
 
-        $r.ok    | Should -BeFalse
-        $r.value | Should -BeNullOrEmpty
-        $r.error | Should -Match 'did not answer within 2 seconds'
+        $s.status  | Should -Be 'unreadable'
+        $s.signal  | Should -Be 'lookup-failed'
+        $s.detail  | Should -Match 'did not answer within 2 seconds'
+        $s.runId   | Should -BeNullOrEmpty
+        $s.isParked| Should -BeFalse
+    }
+
+    It 'does not export the helper that could drive a run' {
+        # The module's header claims no flag that responds, approves, aborts or starts anything is
+        # ever passed. That claim is only enforceable if the free-form launcher is unreachable, so
+        # the export list is the thing under test: reaching it would be the way to drive the gate.
+        $reachable = @(Get-Command -Module GateRun | ForEach-Object { $_.Name })
+
+        $reachable | Should -Not -Contain 'Invoke-NoMistakesAxi'
+        $reachable | Should -Not -Contain 'Start-CapturedProcess'
+        $reachable | Should -Contain 'Get-GateRunState' -Because 'reading is what it is for'
     }
 }
 
@@ -789,15 +873,6 @@ Describe 'Launching a child process with paths that hold a space' {
                       -Destination $script:SpacedAssets
         }
         $script:SpacedDecoder = Join-Path $script:SpacedAssets 'decode.mjs'
-        $script:NodePath      = (Get-Command 'node' -CommandType Application |
-                                 Where-Object { $_.Source -like '*.exe' } |
-                                 Select-Object -First 1).Source
-
-        # A stand-in for the gate binary that prints back the arguments it was actually handed.
-        # It lives under the spaced directory too, so the launch path is the one in question.
-        $script:ArgvEcho = Join-Path $script:SpacedAssets 'argv echo.mjs'
-        Set-Content -LiteralPath $script:ArgvEcho -Encoding utf8 `
-            -Value 'process.stdout.write(JSON.stringify(process.argv.slice(2)));'
     }
 
     AfterAll {
@@ -826,19 +901,16 @@ Describe 'Launching a child process with paths that hold a space' {
         $s.detail | Should -Not -Match 'could not be decoded'
     }
 
-    It 'keeps a value holding a space as one argument to the binary' {
-        # The same joining on the other launch, where it splits a `--run` value rather than a path.
-        # Nothing here needs the gate itself - the child is asked to print back the arguments it
-        # was actually handed, which is the only thing in question.
-        Mock -ModuleName GateRun Get-NoMistakesCommandPath { $script:NodePath }
+    It 'keeps a run id holding a space as one argument to the binary' {
+        # The same joining on the other launch, where it splits a `--run` value rather than a
+        # path. The stand-in binary prints back the run id it was really handed, so a joined
+        # command line shows up as the first fragment of the value rather than the whole of it.
+        Mock -ModuleName GateRun Get-NoMistakesCommandPath { $script:ArgvEchoShim }
 
-        $r = Invoke-NoMistakesAxi -Arguments @($script:ArgvEcho, '--run', 'a run with spaces')
+        $s = Get-GateRunState -Run 'a run with spaces'
 
-        $r.ok       | Should -BeTrue
-        $r.exitCode | Should -Be 0 `
-            -Because 'a joined command line splits the script path at its space and finds nothing'
-        ($r.value | ConvertFrom-Json) | Should -Be @('--run', 'a run with spaces') `
-            -Because 'a joined command line arrives as four arguments, not two'
+        $s.error | Should -Be 'the run asked for was [a run with spaces]' `
+            -Because 'a joined command line would arrive split at each space'
     }
 }
 

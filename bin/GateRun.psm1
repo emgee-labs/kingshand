@@ -65,6 +65,14 @@ Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
 # is a separate problem and building it on top of a reader is the only order that works. It does
 # not drive a run: no flag that responds, approves, aborts or starts anything is ever passed from
 # here, and the arguments come from this module rather than from a caller's input.
+#
+# THE EXPORTS ARE WHAT MAKE THAT LAST CLAIM TRUE, rather than the code merely happening to keep
+# it. `Invoke-NoMistakesAxi` takes free-form arguments and would run `axi respond --action approve`
+# as readily as `axi status`, so it is deliberately not exported: this module's job is reading, and
+# that helper is only how it reads. Unexported, the no-drive claim holds for everything a caller
+# can reach rather than for the one path this module happens to take. A stated safety property the
+# exports do not enforce is worse than claiming nothing at all, because the claim is what a reader
+# trusts instead of checking.
 
 # How long the gate binary may take to answer before it is given up on. `axi status` asks a local
 # daemon and returns in well under a second, so this is a guard against a wedged daemon rather than
@@ -425,6 +433,25 @@ function Get-ToonNumber {
     $null
 }
 
+# What a decoded value looks like, in words, for a message that has to name a shape it could not
+# read.
+#
+# The SHAPE is named and the value itself is never quoted. A shape this does not recognise is not
+# one it should be repeating content out of, and "a list of 2 items" is what a reader needs in
+# order to act anyway.
+function Get-ToonShapeName {
+    [CmdletBinding()]
+    param($Value)
+
+    if ($null -eq $Value) { return 'nothing at all' }
+    if ($Value -is [string]) { return 'an empty string' }
+    if ($Value -is [System.Collections.IDictionary]) { return 'an object' }
+    if ($Value -is [System.Collections.IEnumerable]) {
+        return "a list of $(@($Value).Count) item(s)"
+    }
+    "a $($Value.GetType().Name)"
+}
+
 # One decoded table as a list of its rows, with an absent or empty table reading as no rows.
 #
 # The leading comma is the same load-bearing idiom Usage.psm1's ConvertTo-JsonList documents:
@@ -540,23 +567,40 @@ function ConvertFrom-GateRunOutput {
     # point, and a response carrying six findings read as none. Neither shape is dropped in favour
     # of the other, because a different version may emit either and a reader that follows the
     # documentation off a cliff is the failure this module exists to prevent.
+    # THE KEY BEING THERE IS THE GATE, NOT THE SHAPE OF ITS VALUE. The tool has changed this
+    # field's shape once already, so reading the park off whichever shapes this reader happens to
+    # handle would leave a third shape - a list, an explicit null, an empty string - falling
+    # through every arm and coming back as no gate at all, with nothing said anywhere. That is the
+    # same silent default that cost the whole gate answer last time and a missed park before that:
+    # three times in this one field, always because presence was inferred from something other
+    # than presence. `Contains` is the question actually being asked.
+    $gateKeyPresent = $doc.Contains('gate')
     $gateTable = $null
-    if ($doc.Contains('gate') -and $doc['gate'] -is [System.Collections.IDictionary]) {
-        $gateTable = $doc['gate']
-    }
-    if ($gateTable) {
-        $result.gate       = Get-ToonText -Table $gateTable -Key 'step'
-        $result.gateStatus = Get-ToonText -Table $gateTable -Key 'status'
-        $result.gateRisk   = Get-ToonText -Table $gateTable -Key 'risk'
-        $result.gateNote   = Get-ToonText -Table $gateTable -Key 'note'
-    } else {
-        $result.gate = Get-ToonText -Table $doc -Key 'gate'
+    $gateShape = ''
+    if ($gateKeyPresent) {
+        $gateValue = $doc['gate']
+        if ($gateValue -is [System.Collections.IDictionary]) {
+            $gateTable         = $gateValue
+            $result.gate       = Get-ToonText -Table $gateTable -Key 'step'
+            $result.gateStatus = Get-ToonText -Table $gateTable -Key 'status'
+            $result.gateRisk   = Get-ToonText -Table $gateTable -Key 'risk'
+            $result.gateNote   = Get-ToonText -Table $gateTable -Key 'note'
+        } else {
+            $result.gate = Get-ToonText -Table $doc -Key 'gate'
+            # Neither of the two known shapes. The gate still counts, and what was seen instead is
+            # named in `detail` below rather than being dropped on the floor.
+            if (-not $result.gate) { $gateShape = Get-ToonShapeName -Value $gateValue }
+        }
     }
 
-    # THE GATE'S PRESENCE, NOT ITS STEP NAME. A gate object that names no step still states that
-    # the pipeline is waiting, and deriving the park from `$result.gate` alone would read that
-    # unnamed gate as no gate at all - the silent default this module's header rules out.
-    $hasGate = ($null -ne $gateTable) -or [bool]$result.gate
+    $hasGate = $gateKeyPresent
+
+    # Said once, wherever the detail line is built, so the unrecognised shape cannot be named on
+    # one branch and silently skipped on the other.
+    $shapeNote = if ($gateShape) {
+        " Its gate field held $gateShape, which this reader does not recognise, so which step it " +
+        'is waiting at was not established.'
+    } else { '' }
 
     # The findings table sits inside the `gate:` object on v1.57.0, beside it on the documented
     # shape, and under the run elsewhere. All three are read, nearest to the gate first.
@@ -664,7 +708,7 @@ function ConvertFrom-GateRunOutput {
                   else { 'at a step it did not name' }
             return & $finish 'no-run' 'gate-response' `
                 ("no-mistakes answered with a gate response rather than a run: the pipeline is " +
-                 "parked $at and waiting to be answered.$listed It carries " +
+                 "parked $at and waiting to be answered.$shapeNote$listed It carries " +
                  'no run object, so the run id, branch, head and step list are not in this output.')
         }
 
@@ -690,7 +734,7 @@ function ConvertFrom-GateRunOutput {
     } else { '' }
     $ended = if ($result.outcome) { " Its outcome is $($result.outcome)." } else { '' }
 
-    & $finish 'has-run' 'run-reported' "$named$on $said.$waiting$ended"
+    & $finish 'has-run' 'run-reported' "$named$on $said.$waiting$shapeNote$ended"
 }
 
 # What a gate run is doing, read from the gate itself.
@@ -777,7 +821,9 @@ function Get-GateRunState {
     $state
 }
 
+# `Invoke-NoMistakesAxi` is absent from this list on purpose - see the no-drive paragraph in the
+# header. Nothing may add it back without answering the argument made there.
 Export-ModuleMember -Function Get-NodeCommandPath, Get-NodeHint, Get-ToonDecoderPath,
-                              ConvertFrom-ToonText, Invoke-NoMistakesAxi,
-                              Get-ToonText, Get-ToonNumber, Get-ToonRows,
+                              ConvertFrom-ToonText,
+                              Get-ToonText, Get-ToonNumber, Get-ToonRows, Get-ToonShapeName,
                               ConvertFrom-GateRunOutput, Get-GateRunState

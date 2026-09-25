@@ -4713,11 +4713,19 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         # The Tooling table is the Hand's own index of what exists. A reader nobody knows about
         # leaves the hand-written parse of `no-mistakes axi status` - the one that has been wrong
         # every time it was measured - as the path of least resistance.
+        #
+        # The table is parsed into its key cells and the claim is that a row for the module is
+        # among them. What the row says about it is free to be reworded; the row existing is not.
         It 'the module is listed in the Tooling table' {
-            Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
-                -Phrase ('| `bin\GateRun.psm1` | what a no-mistakes gate run is doing, read from ' +
-                         'the fields that say so: the run, each step with its own status, whether ' +
-                         'it is parked and on what, and the findings to decide on')
+            $tooling = @((Get-Content -Path $script:HandMd -Raw) -split '(?m)^## ' |
+                         Where-Object { $_ -like 'Tooling*' })
+            $tooling.Count | Should -Be 1 -Because 'CLAUDE.md has exactly one Tooling section'
+
+            $keys = @($tooling[0] -split "`r?`n" |
+                      Where-Object { $_ -match '^\s*\|' } |
+                      ForEach-Object { ($_ -split '\|')[1].Trim().Trim('`') })
+
+            $keys | Should -Contain 'bin\GateRun.psm1'
         }
     }
 
