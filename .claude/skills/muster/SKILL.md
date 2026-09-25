@@ -184,19 +184,24 @@ kingshand repository sat on that step for over an hour and was found only becaus
 Import-Module $env:KINGSHAND_HOME\bin\Ci.psm1 -Force
 $ci = Get-RepoCiStatus -RepoPath "<absolute repo path>"
 "$($ci.status) - $($ci.detail)"
+$ci.gateLine
 $ci.briefLine
 ```
 
 Three answers, and each one changes what happens next:
 
-- `has-ci` - carry on. `$ci.briefLine` is the ordinary line and Step 2 uses it unchanged.
+- `has-ci` - carry on. `$ci.gateLine` is the ordinary gate line, `$ci.briefLine` is the ordinary
+  delivery line, and Step 2 uses both unchanged.
 - `no-ci` - carry on, and **say so in one plain line when you tell the user what you are
-  dispatching**. `$ci.briefLine` now tells the worker to stop at the pull request instead of
-  waiting for checks that cannot arrive. Do not offer to add CI to the repository: an absence is a
+  dispatching**. `$ci.gateLine` now carries `--skip ci`, so the step that would wait for a check
+  nothing can report is never run, and `$ci.briefLine` tells the worker the pull request is where
+  delivery ends. Do not offer to add CI to the repository: an absence is a
   decision somebody made, and this step makes it safe rather than reversing it.
 - `unknown` - the question could not be settled: no `gh`, a remote this cannot see, an
   unauthenticated machine, a network that did not answer. **Say which, in one line, at dispatch
-  time.** `$ci.briefLine` is the terminating one here too, because under uncertainty a worker that
+  time.** `$ci.gateLine` deliberately carries **no skip** here - a failed lookup is not proof that
+  nothing reports, and skipping a step that may genuinely exist is a real reduction in what the gate
+  checks. `$ci.briefLine` is the terminating one instead, because under uncertainty a worker that
   stops at the pull request loses at most a wait for a check the user can see on the forge anyway,
   while one told to wait for green loses an hour to checks that may not exist.
 
@@ -204,8 +209,17 @@ Three answers, and each one changes what happens next:
 when you report it.** The whole value of the check is that a failed lookup stays visibly a failed
 lookup - `bin\Ci.psm1`'s header owns why, and it never converts one into an answer.
 
-Carry `$ci.briefLine` to Step 2 verbatim. A preflight whose answer never reaches the brief changes
-nothing at all, because the worker reads its brief and nothing else.
+**On `no-ci` the answer is carried by a flag and not by a sentence, and that is the whole of the
+fix.** A worker sitting on the `ci` step is inside the gate's own long-running call watching that
+step - it is not reading its brief, so an instruction telling it to give up after fifteen minutes
+reaches nobody. Three runs here measured exactly that: 224 seconds ending in a `cancelled` outcome
+somebody then had to explain away, one more, and finally 48 minutes against a brief that said
+fifteen. `--skip ci` removes the step instead. Anywhere a constraint has to hold while an agent is
+inside a call like that, name the flag, the timeout or the guard that enforces it rather than
+writing the constraint down and hoping.
+
+Carry `$ci.gateLine` and `$ci.briefLine` to Step 2 verbatim. A preflight whose answer never reaches
+the brief changes nothing at all, because the worker reads its brief and nothing else.
 
 ## Step 2 - Write a brief per unit of work
 
@@ -426,9 +440,9 @@ Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
 Add-IndexEntry -Project "<project>" -Path "data\<id>\brief.md" -Summary "<the one-line title>"
 ```
 
-**The Done-means block is generated from the resolved mode.** Use exactly one of these four - and
-for a `no-mistakes` task, which of the two `no-mistakes` blocks is chosen by Step 1b's answer, not
-by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
+**The Done-means block is generated from the resolved mode.** Use exactly one of these five - and
+for a `no-mistakes` task, which of the three `no-mistakes` blocks is chosen by Step 1b's answer, not
+by memory: there is one block per answer and they appear in the order `has-ci`, `no-ci`, `unknown`.
 
 `local-only`:
 
@@ -552,10 +566,71 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   message rather than reporting success.
 ```
 
-`no-mistakes`, where Step 1b answered `no-ci` or `unknown`. Identical but for the `Drive the
-pipeline` line, which is the whole point of the preflight - it ends a wait that would otherwise have
-no end. Named by its text and never by its position: bullets get inserted above it, and an ordinal
-that has gone stale points a Hand at the gate-run bullet instead:
+`no-mistakes`, where Step 1b answered `no-ci`. Identical but for two lines, and both of them are
+computed rather than chosen: the gate line carries `--skip ci`, so the step that would wait for a
+check nothing can report is never run, and the `Drive the pipeline` line says the pull request is
+where delivery ends. Both are named by their text and never by their position: bullets get inserted
+above them, and an ordinal that has gone stale points a Hand at the wrong one:
+
+```markdown
+- Implemented and committed on this worktree's branch.
+- Before you deliver - before you invoke the gate, push, open a pull request, or stop on the
+  branch - work the `Standing criteria` section above line by line and record the result in
+  `report.md`: for each line, `pass` with what you checked, `fixed` with what you changed, or `n/a`
+  with the reason. A criterion you cannot check is a criterion to report, not to skip. Where
+  `Requirements` or `Unchanged` sets a criterion aside, this brief overrides that line: record it
+  `n/a` naming the brief line that set it aside, and do not implement it.
+- Run the review gate from inside the worktree and fix what it parks:
+  `no-mistakes axi run --skip ci --intent '<the `Intent` section above, verbatim on one line>'`
+  Single quotes, and keep them: that section names files, modes and postures in backticks, and in a
+  double-quoted PowerShell string a backtick escapes the character after it, so the gate would be
+  handed a mangled sentence and no error. Run the line in PowerShell and double any single quote
+  inside the section - doubling is PowerShell's escape, and in a POSIX shell the same two
+  characters close and reopen the string, so the apostrophe is deleted instead.
+- A finding the gate classifies `ask-user` is a decision your brief does not settle, so it takes
+  the `When you reach a decision your brief does not settle` bullet below - named by its text,
+  because a bullet named by position points at whatever was inserted above it since. **Leave the
+  run parked while you wait.** `axi run` returned at that gate rather than holding your terminal,
+  so the run still owns the branch and every fix commit it has already made, and nothing is being
+  lost by waiting. Do not abort it, do not start a second run, and never pass `--yes` - that flag
+  decides ask-user findings itself with no escalation, which is the one thing you may not do. When
+  the answer reaches you, apply it with `no-mistakes axi respond` on that same run and carry on.
+- Drive the pipeline through to a pull request and stop there. Nothing reports a check on
+  this repository, so your gate line carries `--skip ci` and the pipeline ends at its `pr`
+  step with no `ci` step to wait on. Report the pull request's full https:// URL as
+  delivered, say plainly that the `ci` step was skipped because this repository has no
+  CI, and stop. Do not merge it.
+- Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
+  required every time, including when the work succeeded plainly with nothing surprising in it.
+- Never call `AskUserQuestion`, and never open any interactive prompt, menu or confirmation of
+  any kind. You are a background agent with nobody attached: there is no one to answer, and the
+  run hangs until it is killed.
+- When you reach a decision your brief does not settle, write the question into
+  `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
+  would need in order to choose - then say so in your final message and end your turn. **Write it
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
+  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
+  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  The answer comes back to you as an ordinary prompt and you carry on from there, so leave
+  everything where it is: do not undo what you have done, do not pick a different task, and do not
+  report the work as failed. When the answer reaches you, write down what was decided and what you
+  did with it in that same file, and carry on. A second question later is just another question,
+  written the same way.
+- Where you can proceed on a stated assumption instead, do that: record the assumption in
+  `report.md` and continue rather than stopping. **A finding the gate classified `ask-user` is
+  never one of those.** Stating an assumption over one and carrying on is you answering your own
+  ask-user finding, which is the one thing you may not do - write it down as the bullet above says
+  and wait, however obvious the answer looks from here.
+- Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
+- If the repo cannot build or the gate cannot run, stop and say so plainly in your final
+  message rather than reporting success.
+```
+
+`no-mistakes`, where Step 1b answered `unknown`. Identical but for the `Drive the pipeline` line,
+and **its gate line deliberately carries no skip**: a failed lookup is not proof that nothing
+reports here, and skipping a step that may genuinely exist is a real reduction in what the gate
+checks. The terminating line bounds the wait instead, which is all an unsettled question supports -
+and it is the fallback wherever a skip cannot be passed at all:
 
 ```markdown
 - Implemented and committed on this worktree's branch.
@@ -611,9 +686,10 @@ that has gone stale points a Hand at the gate-run bullet instead:
   message rather than reporting success.
 ```
 
-That `Drive the pipeline` line is `$ci.briefLine` from Step 1b, and taking it from there rather than
-retyping it is the point: the two must agree, and only one of them is computed from what the
-repository actually has. **Do not decide between the two blocks yourself** - a repository with no workflow file may
+Those two lines are `$ci.gateLine` and `$ci.briefLine` from Step 1b, and taking them from there
+rather than retyping them is the point: the block and the preflight must agree, and only one of them
+is computed from what the repository actually has. **Do not decide between the three blocks
+yourself** - a repository with no workflow file may
 still get checks from outside it, which is exactly the case a reading-by-eye gets wrong.
 
 ### With `yolo` off, a push-capable block stops before anything leaves the machine
@@ -634,23 +710,26 @@ For a `direct-PR` task, replace the `Push the branch and open a pull request` bu
   a server yet. Say in your final message that the branch is ready to go out.
 ```
 
-For a `no-mistakes` task, replace the whole `Drive the pipeline` bullet - whichever of the two
-Step 1b chose - with these two, and add `--skip push,pr,ci` to the gate line above them:
+For a `no-mistakes` task, replace the whole `Drive the pipeline` bullet - whichever of the three
+Step 1b chose - with these two, and make the gate line above them `--skip push,pr,ci`:
 
 ```markdown
 - Run the gate with `--skip push,pr,ci` so it stops at the last local step, and fix everything it
   parks. Do not push, do not open a pull request, do not comment anywhere, and do not create or
   update a work item. Report what the gate found and stop there.
-- When you are told the push is approved, run the same gate line again without `--skip`.
+- When you are told the push is approved, run the gate line again with the push hold lifted:
+  <the gate line Step 1b chose, verbatim>
   <the `Drive the pipeline` bullet Step 1b chose, verbatim>
 ```
 
-**`$ci.briefLine` is carried into that second bullet unchanged, never dropped.** The approved run
-is a full run and it reaches the `ci` step, so Step 1b's answer still decides how that step ends:
-on a repository where nothing reports checks, that line is the only thing telling the worker to
-report the pull request as delivered and stop rather than wait forever. Holding the push back
-delays the CI wait; it does not remove it, and a brief that drops the line reinstates the
-unbounded wait the preflight exists to end.
+**Both of Step 1b's lines are carried into that second bullet unchanged, never dropped.** The
+approved run is a full run and it reaches every step the gate line leaves in, so Step 1b's answer
+still decides how the `ci` step ends - or whether there is one. That is why the bullet names the
+gate line rather than saying "run it again without `--skip`": on a `no-ci` repository that sentence
+would take `--skip ci` away along with the push hold and put the worker straight back inside the
+wait the preflight removed. `$ci.briefLine` goes with it for the same reason - holding the push
+back delays the CI wait, it does not remove it, and a brief that drops either line reinstates the
+unbounded wait on exactly the repositories that cannot report a check.
 
 Name the bullet by its text when you replace it, never by its position - bullets get inserted
 above these and an ordinal that has gone stale points at the wrong one.
@@ -695,16 +774,25 @@ so transcript saving is off and there is usually no transcript on disk to fall b
 finding that lives only in the worker's output cannot be recovered by a later session.
 `report.md` is kingshand state and survives teardown.
 
-The `--skip push,pr,ci` flags are absent from the `no-mistakes` variant as written, and there is
-exactly one reason to add them: `yolo` off, per the section above, where they are what holds the
-push back until the user has answered. Registering `no-mistakes` consents to the full pipeline and
-`+yolo` is the consent to run it unattended, so on a `+yolo` project the flags never appear at
-all. Adding them for any other reason - to shorten a run, to get past a slow step, because CI
-looks unlikely to report - is the misuse this line names, and never remove the push prohibition
-from the `local-only` variant.
+`--skip` has exactly two sanctioned uses on this path and nothing else may add one. The first is
+`--skip push,pr,ci` with `yolo` off, per the section above, where the flags are what holds the push
+back until the user has answered; registering `no-mistakes` consents to the full pipeline and
+`+yolo` is the consent to run it unattended, so on a `+yolo` project those three flags never appear
+at all. The second is `--skip ci` on the gate line of a `no-ci` brief, where Step 1b established
+that nothing can report a check and the step would otherwise wait for one that cannot arrive -
+which is why it is Step 1b that puts it there and never you. **No justification widens past its own
+scope.** The `yolo`-off push hold is one sanctioned use of the flag and the `no-ci` skip is another,
+and neither one licenses adding a step the other needed: a held run takes `--skip push,pr,ci`
+because the user has not yet approved the push, and a `no-ci` gate line takes `--skip ci` because
+nothing can report a check. Neither reason reaches a step beyond the one it is for. Adding any skip
+for any other reason - to shorten a run, to get past a slow step, because CI looks unlikely to
+report - is the misuse this line names. That last one is the near miss worth recognising in your own
+reasoning: `no-ci` is proof and `unknown` is a guess, which is exactly why `unknown` keeps a
+terminating sentence instead of the flag. Never remove the push prohibition from the `local-only`
+variant.
 
 **Say in `--intent` what this task deliberately sets aside.** You write that string, not the worker:
-it is the `Intent` section of the brief, and the two `no-mistakes` blocks hand it to the gate
+it is the `Intent` section of the brief, and the three `no-mistakes` blocks hand it to the gate
 verbatim. Start from the Goal in one line and add to it the settled decisions and standing criteria
 this work breaks, and why. Leaving the section to say only what the Goal says is how a set-aside
 recorded in `Requirements` or `Unchanged` never reaches the gate at all.
@@ -1893,8 +1981,14 @@ For a `no-mistakes` worker, which must re-enter the pipeline rather than push by
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
-Send-HerdrPrompt -Name "<worker id>" -Text "Approved. Run your gate line again without --skip so the pipeline pushes and opens the pull request, then report its full https:// URL. Change nothing else."
+Send-HerdrPrompt -Name "<worker id>" -Text "Approved. Run the gate line from the push-approved bullet in your brief, exactly as it is written there, so the pipeline pushes and opens the pull request, then report its full https:// URL. Change nothing else."
 ```
+
+**The steer names the brief's own line rather than telling the worker to drop `--skip`.** On a
+repository where nothing reports a check that line carries `--skip ci`, and "run it again without
+`--skip`" would take that away with the push hold and put the worker back inside the wait Step 1b
+removed. The brief already holds the right line for this repository; the steer's job is to say
+which bullet it is.
 
 **Sending the `direct-PR` steer to a `no-mistakes` worker pushes around the gate**, skipping its
 own `push` and `pr` steps and everything they carry - the attribution scan, the pull request body
@@ -2080,9 +2174,36 @@ never executed for it:
   gh pr checks "<full https:// URL>"
   ```
 
-  Or Step 1b answered `no-ci`, which is the only absence that counts as green. **An `unknown` from
-  that preflight is not the absent-check case**: it says nothing was established, so it goes to the
-  user like any other unestablished green.
+  Or Step 1b answered `no-ci`, in which case that brief's gate line carried `--skip ci` and the run
+  has no `ci` outcome at all. **A skipped step has no outcome, and here that absence is the settled
+  absent-check case rather than a missing green** - it is the only absence that counts as green, and
+  demanding an outcome from a step nobody ran would strand every `no-ci` project on this line.
+  **Read the pull request itself once before merging on that answer**, the same read the limb above
+  and the `direct-PR` limb below already do:
+
+  ```powershell
+  gh pr checks "<full https:// URL>"
+  ```
+
+  **If that read reports checks, every one of them must pass.** A red or a pending check is not
+  green and goes to the user, exactly as everywhere else in this step. **If it reports no checks at
+  all, that is the settled absent-check case and the merge proceeds.** `gh pr checks` exits non-zero
+  and prints that no checks were reported when a pull request has none, so **that exit code is not a
+  failing check - tell the two apart by what it printed, never by the exit status alone.** Read as a
+  failure it refuses every legitimate `no-ci` merge; read the other way round, a genuine red is
+  merged as though nothing had reported.
+
+  **This is one read of what the forge already knows: not a wait, not a poll, and not the `ci` step
+  coming back.** Nothing here waits for a check to arrive - it asks only what has arrived already.
+  It is here because **detection is never the last word on whether anything looked at CI.**
+  `Get-RepoCiStatus` samples the default branch, so a provider that posts checks only on
+  pull-request head commits settles `no-ci` wrongly, and on a `+merge` project that would merge with
+  nothing having looked at CI at all. One read of the actual pull request closes that.
+
+  **An `unknown` from that preflight is not the absent-check case**: its gate line carries no skip,
+  so its run does have a `ci` step and that step's outcome is required like any other - and the
+  answer itself says nothing was established, so it goes to the user like any other unestablished
+  green.
 - **Resolved `direct-PR`** - there is no gate to complete, so green is the attribution scan Step 7
   already ran coming back clean, plus CI green on the pull request. Step 1b never ran for this
   mode, so nothing has established whether anything reports a check here. Read it now rather than
@@ -2103,15 +2224,34 @@ never executed for it:
     gh pr checks "<full https:// URL>"
     ```
 
-  - `no-ci` - the settled absent-check case, and the only absence that counts as green.
+  - `no-ci` - **read the pull request once before merging on that answer**, the same read the
+    `has-ci` bullet above and the `no-mistakes` limb already require:
+
+    ```powershell
+    gh pr checks "<full https:// URL>"
+    ```
+
+    **If that read reports checks, every one of them must pass.** A red or a pending check is not
+    green and goes to the user. **If it reports no checks at all, that is the settled absent-check
+    case and the merge proceeds** - the only absence that counts as green. `gh pr checks` exits
+    non-zero and prints that no checks were reported when a pull request has none, so **that exit
+    code is not a failing check - tell the two apart by what it printed, never by the exit status
+    alone.** **This is one read of what the forge already knows: not a wait and not a poll.**
+
+    **Both limbs carry this read, and they must agree.** Two limbs disagreeing about whether
+    detection can be trusted is worse than either answer on its own, because a reader cannot tell
+    which is the intended rule. This limb needs it at least as much as the other one does: Step 1b
+    never runs for `direct-PR`, so the `Get-RepoCiStatus` call above is the only CI evidence
+    anywhere in this flow.
   - `unknown` - **not green.** The lookup failed or the remote could not be read, so nothing was
     established. It goes to the user rather than being merged.
 
-**`unknown` and `no-ci` are interchangeable at Step 1b and are not interchangeable here.** There
-they take the same brief line because that line tells the worker to *stop*, and stopping under
-uncertainty is safe; merging under uncertainty is not, so the two part company at exactly this
-step. A Hand who has read `bin\Ci.psm1` will otherwise carry the equivalence across, and be right
-to on that module's own terms.
+**`unknown` and `no-ci` both stop a worker at the pull request, and only one of them is green
+here.** At Step 1b they end in the same place - the work delivered, nobody waiting on a check -
+because stopping under uncertainty is safe. Merging under uncertainty is not, so the resemblance
+ends at exactly this step. They already differ before it, in how they get there: `no-ci` skips the
+`ci` step outright and `unknown` runs it with the wait bounded by a sentence. What must not travel
+across is the one thing they still share, which is where the worker stops.
 
 Anything red, anything that widened the brief, anything destructive, irreversible or
 security-sensitive goes to the user instead, exactly as Step 7's floors say. This is the moment

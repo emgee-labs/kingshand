@@ -211,6 +211,40 @@ If the posture is `no-mistakes` or `no-mistakes-prod-only` and the gate is not i
 plainly - work dispatched there will stop at its review gate until `no-mistakes init` is run in
 that repository.
 
+### Say what can report a check here, where the posture reaches a pull request
+
+**Only on a push-capable mode** - `direct-PR`, `no-mistakes` or `no-mistakes-prod-only`. A
+`local-only` project opens no pull request and runs no pipeline, so nothing there ever waits on a
+check and a line about CI is noise.
+
+Import is the moment to say it, because the alternative is the user finding out from a run that
+behaves oddly for an hour. Ask the module the dispatcher asks, so the answer here and the answer at
+dispatch are one answer rather than two readings:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Ci.psm1 -Force
+$ci = Get-RepoCiStatus -RepoPath $path
+"$($ci.status) - $($ci.detail)"
+```
+
+One line to the user, and never more than one:
+
+- `has-ci` - **say nothing at all.** It is the ordinary case, and a line about it is noise.
+- `no-ci` - say plainly that nothing reports a check on this repository, so work here is delivered
+  as a pull request and stops there rather than waiting for a green that cannot arrive. **Do not
+  offer to add CI.** An absence is a decision somebody made, and `muster` Step 1b owns that rule -
+  this is the cross-reference to it, not a second statement of it.
+- `unknown` - say which part of the lookup failed, from `$ci.detail`, and that delivery will stop
+  at the pull request under that uncertainty. This is the one that pays for itself with a new
+  user: a push-capable mode has already been refused above if `gh` is missing, so what is usually
+  left is an unauthenticated `gh` or a remote this cannot see, and both are a minute's work once
+  somebody says so.
+
+**The answer is not recorded in the registry.** CI comes and goes, so a value written at import is
+wrong the first time somebody adds a workflow or deletes the last one - and `Get-RepoCiStatus` is
+cheap and already runs on every dispatch. This is a sentence said once at import, not a field, and
+`data\projects.md`'s format does not change.
+
 ## Step 4b - Offer the project's standing rules file
 
 **Ask, in one line, whether this project has standing rules a worker must know**, and offer

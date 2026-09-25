@@ -73,36 +73,107 @@ Describe 'Get-CiBriefLine puts the answer into the brief rather than leaving it 
         $line.Contains('Do not merge it.')       | Should -BeTrue
     }
 
-    It 'tells a worker on a repository with no CI to stop at the pull request' {
+    # The `no-ci` gate line skips the step, so there is nothing left to wait on and nothing to tell
+    # a worker to stop waiting for. A timing instruction surviving here would be the exact defect
+    # the skip removes: a sentence nobody can act on, because the worker it addresses is inside the
+    # call watching that step rather than reading its brief.
+    It 'tells a worker on a repository with no CI to stop at the pull request, with no wait to end' {
         $line = Get-CiBriefLine -Status 'no-ci'
         $line.Contains('stop there')            | Should -BeTrue
-        $line.Contains('fifteen minutes')       | Should -BeTrue -Because 'an open-ended wait is the failure this removes'
-        $line.Contains('Do not sit on it.')     | Should -BeTrue
+        $line.Contains('`--skip ci`')           | Should -BeTrue -Because 'the flag is what ends the wait'
+        $line.Contains('fifteen minutes') |
+            Should -BeFalse -Because 'there is no step left to time out of'
         $line.Contains('when CI is first green') |
             Should -BeFalse -Because 'green can never arrive where nothing reports'
     }
 
-    # Under uncertainty the terminating instruction is the safe one: stopping at the pull request
-    # loses at most a wait for a check the user can see on the forge anyway, while waiting for green
-    # loses an hour to checks that may not exist.
-    It 'gives an undetermined repository the same terminating line as one with no CI' {
-        Get-CiBriefLine -Status 'unknown' | Should -Be (Get-CiBriefLine -Status 'no-ci')
+    # With the step skipped, this worker never looks at the pull request's checks, so it may not be
+    # told to report a result it did not observe. The clause belongs to `unknown`, whose worker does
+    # sit inside the `ci` step and watch nothing arrive; carried here it states as fact something
+    # nothing looked at, and on a falsely-detected repository it reports a red check as an absence.
+    It 'never has the no-ci worker report a check result it did not observe' {
+        $line = Get-CiBriefLine -Status 'no-ci'
+        $line.Contains('no checks were reported') |
+            Should -BeFalse -Because 'this worker skipped the step and read nothing'
+        $line.Contains('the `ci` step was skipped because this repository has no CI') |
+            Should -BeTrue -Because 'it reports what actually happened to the step'
     }
 
-    # Sharing the instruction is deliberate; sharing a claim would not be. An `unknown` lookup never
-    # established that nothing reports here - a missing `gh` or an expired token gets that answer -
-    # so a line asserting it as fact would have the worker report a repository as CI-less on the
-    # strength of a failed lookup, which is the one conversion this module refuses to make.
-    It 'states only what both statuses support, never that nothing reports here' {
+    # They shared one line while both told the worker to stop waiting. They cannot share one now:
+    # `no-ci` has no `ci` step to describe and `unknown` has one that may wait forever.
+    It 'gives an undetermined repository a different line from one proven to have no CI' {
+        Get-CiBriefLine -Status 'unknown' | Should -Not -Be (Get-CiBriefLine -Status 'no-ci')
+    }
+
+    # An `unknown` lookup never established that nothing reports here - a missing `gh` or an expired
+    # token gets that answer - so a line asserting it as fact would have the worker report a
+    # repository as CI-less on the strength of a failed lookup, which is the one conversion this
+    # module refuses to make. Its step does run, so the terminating instruction stays.
+    It 'bounds the undetermined wait without claiming nothing reports here' {
         $line = Get-CiBriefLine -Status 'unknown'
         $line.Contains('may not report') |
-            Should -BeTrue -Because 'the shared line may only claim what an unanswered lookup supports'
+            Should -BeTrue -Because 'the line may only claim what an unanswered lookup supports'
+        $line.Contains('fifteen minutes') |
+            Should -BeTrue -Because 'the step still runs here, so something has to bound the wait'
         $line.Contains('are not expected to report') |
             Should -BeFalse -Because 'an unsettled question is not evidence that nothing reports'
     }
 
     It 'refuses a status that is not one of the three' {
         { Get-CiBriefLine -Status 'probably' } | Should -Throw
+    }
+}
+
+# The half of the answer that acts. A brief line describes what happened; this removes the step, so
+# nothing has to be remembered by an agent that is not in a position to remember anything.
+Describe 'Get-CiGateLine skips the step rather than asking a worker to give up on it' {
+    It 'skips ci where the repository is proven to have none' {
+        $line = Get-CiGateLine -Status 'no-ci'
+        $line.Contains('--skip ci') | Should -BeTrue
+        $line.StartsWith('no-mistakes axi run ') |
+            Should -BeTrue -Because 'it is the gate line the brief carries, not a fragment of one'
+    }
+
+    # The expensive wrong answer. A failed lookup is not proof of absence, and skipping a step that
+    # may genuinely report reduces what the gate checks on a repository that may well have CI.
+    It 'never skips on an unsettled lookup' {
+        (Get-CiGateLine -Status 'unknown').Contains('--skip') |
+            Should -BeFalse -Because 'a failed lookup is not proof there is no CI'
+        Get-CiGateLine -Status 'unknown' | Should -Be (Get-CiGateLine -Status 'has-ci')
+    }
+
+    It 'runs every step where the repository has CI' {
+        (Get-CiGateLine -Status 'has-ci').Contains('--skip') | Should -BeFalse
+    }
+
+    # Registering `no-mistakes` is consent to the whole pipeline. The only other sanctioned use of
+    # the flag is muster's `yolo`-off push hold, which this function has no part in.
+    It 'never widens the skip past ci' {
+        $skipsOf = {
+            param($line)
+            $parts = $line -split '\s+'
+            @(0..($parts.Count - 1) |
+                Where-Object { $parts[$_] -eq '--skip' -and $_ -lt ($parts.Count - 1) } |
+                ForEach-Object { $parts[$_ + 1] -split ',' })
+        }
+        @(& $skipsOf (Get-CiGateLine -Status 'no-ci')) | Should -Be @('ci')
+        foreach ($status in 'has-ci', 'unknown') {
+            @(& $skipsOf (Get-CiGateLine -Status $status)) | Should -BeNullOrEmpty
+        }
+    }
+
+    It 'hands the gate the intent in a string that survives backticks' {
+        foreach ($status in 'has-ci', 'no-ci', 'unknown') {
+            $line = Get-CiGateLine -Status $status
+            $line.Contains("--intent '<the ``Intent`` section above, verbatim on one line>'") |
+                Should -BeTrue -Because 'the brief and this line must be the same text'
+            $line.Contains('--intent "') |
+                Should -BeFalse -Because 'a double-quoted string eats the backticks the section uses'
+        }
+    }
+
+    It 'refuses a status that is not one of the three' {
+        { Get-CiGateLine -Status 'probably' } | Should -Throw
     }
 }
 
@@ -483,8 +554,8 @@ Describe 'Get-RepoCiStatus refuses to guess, and never converts a failed lookup 
         }
     }
 
-    Context 'the answer always carries the line the brief needs' {
-        It 'carries the matching brief line for <case>' -ForEach @(
+    Context 'the answer always carries the lines the brief needs' {
+        It 'carries the matching gate and brief lines for <case>' -ForEach @(
             @{ case = 'has-ci' }
             @{ case = 'no-ci' }
             @{ case = 'unknown' }
@@ -503,7 +574,27 @@ Describe 'Get-RepoCiStatus refuses to guess, and never converts a failed lookup 
 
             $r = Get-RepoCiStatus -RepoPath $repo
             $r.status    | Should -Be $case
+            $r.gateLine  | Should -Be (Get-CiGateLine -Status $case)
             $r.briefLine | Should -Be (Get-CiBriefLine -Status $case)
+        }
+    }
+
+    # Every early return goes through the same $finish block, so a status settled before the
+    # lookups reaches the caller with both lines on it rather than with two empty strings.
+    Context 'a status settled without asking GitHub still carries both lines' {
+        It 'fills them in on a path that is not a repository at all' {
+            $r = Get-RepoCiStatus -RepoPath (Join-Path ([System.IO.Path]::GetTempPath()) 'no-such-repo-8c31')
+            $r.status    | Should -Be 'unknown'
+            $r.gateLine  | Should -Be (Get-CiGateLine -Status 'unknown')
+            $r.briefLine | Should -Be (Get-CiBriefLine -Status 'unknown')
+        }
+
+        It 'fills them in on a repository with no remote' {
+            $r = Get-RepoCiStatus -RepoPath (New-TempRepo)
+            $r.status   | Should -Be 'no-ci'
+            $r.gateLine | Should -Be (Get-CiGateLine -Status 'no-ci')
+            $r.gateLine.Contains('--skip ci') |
+                Should -BeTrue -Because 'the flag has to reach the brief or nothing changes'
         }
     }
 }

@@ -294,17 +294,22 @@ function Get-CommitCheckCount {
 # .status       has-ci | no-ci | unknown
 # .signal       what settled it
 # .detail       one line naming the evidence, written to be read to a person
+# .gateLine     the review-gate command line a `no-mistakes` brief must carry for this repository.
+#               On `no-ci` it carries `--skip ci`, so the step that would wait for a check nothing
+#               can report is never run at all.
 # .briefLine    the Done-means line a `no-mistakes` brief must carry for this repository. A
-#               `yolo`-off task defers it rather than dropping it: muster Step 2 holds the push
-#               back and carries this line verbatim into the bullet covering the approved run,
-#               which is a full run and still reaches the `ci` step. Nothing here reads posture -
-#               this module answers only what the repository has.
+#               `yolo`-off task defers both of those rather than dropping either: muster Step 2
+#               holds the push back and carries them verbatim into the bullet covering the approved
+#               run, which is a full run and reaches the `ci` step wherever the gate line still
+#               leaves one to reach. Nothing here reads posture - this module answers only what the
+#               repository has.
 #
-# `unknown` takes the same brief line as `no-ci` on purpose. Under uncertainty the terminating
-# instruction is the safe one: a worker told to stop at the pull request loses at most a wait for a
-# check the user can see on the forge anyway, while a worker told to wait for green loses an hour to
-# checks that may not exist. The Hand is told plainly which of the two it got, and the line itself
-# states no more than both statuses support.
+# `unknown` DOES NOT take `no-ci`'s skip, and that is the one place the two statuses part company
+# here. A failed lookup is not proof that nothing reports, so skipping the step would be a real
+# reduction in what the gate checks on a repository that may well have CI - where stopping at the
+# pull request under uncertainty loses at most a wait for a check the user can see on the forge
+# anyway. So `unknown` keeps a terminating instruction in its brief line and a gate line that runs
+# every step, and that line states no more than an unsettled question supports.
 function Get-RepoCiStatus {
     [CmdletBinding()]
     param(
@@ -322,6 +327,7 @@ function Get-RepoCiStatus {
         branch      = ''
         commits     = 0
         checksFound = 0
+        gateLine    = ''
         briefLine   = ''
     }
 
@@ -330,6 +336,7 @@ function Get-RepoCiStatus {
         $result.status = $status
         $result.signal = $signal
         $result.detail = $detail
+        $result.gateLine  = Get-CiGateLine -Status $status
         $result.briefLine = Get-CiBriefLine -Status $status
         [pscustomobject]$result
     }
@@ -431,14 +438,52 @@ function Get-RepoCiStatus {
          "$($result.branch), so nothing will report on a pull request there.")
 }
 
+# The review-gate command line for a `no-mistakes` brief, keyed on the status. This is the half of
+# the answer that acts; the brief line below is only ever the sentence describing what it did.
+#
+# IT IS A FLAG BECAUSE A SENTENCE CANNOT DO THIS JOB. The instruction it replaces asked the worker
+# to give up on the `ci` step after fifteen minutes - and a worker at that moment is inside the
+# gate's own long-running call watching that very step, not reading its brief, so it never acts on
+# the sentence at all. Three runs here measured it on 2026-09-24/25: 224 seconds ending in a
+# `cancelled` outcome somebody then had to explain away so nobody read it as a failure, one more,
+# and finally 48 minutes against a brief that said fifteen. `--skip ci` removes the step instead,
+# and a step that never runs needs nobody to remember anything.
+#
+# `no-ci` alone takes it. An `unknown` lookup established nothing, and skipping a step that may
+# genuinely report is a real reduction in what the gate checks - so `unknown` runs every step and
+# takes the terminating brief line below instead. `--skip` is never widened past `ci` here:
+# registering `no-mistakes` is consent to the whole pipeline, and the only other sanctioned use of
+# the flag belongs to muster's `yolo`-off push hold.
+#
+# The `--intent` placeholder is muster's own wording, reproduced here verbatim so the brief the Hand
+# writes and the line this computes cannot drift. `tests\Docs.Tests.ps1` pins the two together.
+function Get-CiGateLine {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][ValidateSet('has-ci', 'no-ci', 'unknown')][string]$Status)
+
+    $intent = '--intent ''<the `Intent` section above, verbatim on one line>'''
+    if ($Status -eq 'no-ci') { return "no-mistakes axi run --skip ci $intent" }
+
+    "no-mistakes axi run $intent"
+}
+
 # The Done-means line for a `no-mistakes` brief, keyed on the status. Stated here rather than left
 # to be retyped, because a preflight whose answer never reaches the brief changes nothing at all.
 #
-# The terminating line is shared by `no-ci` and `unknown`, so it may only claim what both of them
-# support. "Checks may not report" is that claim; "checks are not expected to report" is not - it
-# states as fact something an `unknown` lookup never established, and a worker told that would
-# report a repository as having no CI on the strength of an expired token. The instruction is
-# identical either way, which is the part that ends the wait.
+# All three lines differ, and the two that are not `has-ci` differ for a reason worth keeping. On
+# `no-ci` the gate line above carries `--skip ci`, so there is no step left to wait on and the line
+# says where delivery ends rather than when to give up waiting. On `unknown` the gate line runs
+# every step, so a `ci` step is there and may wait forever, and the terminating instruction stays.
+#
+# That terminating line may only claim what an unsettled lookup supports. "Checks may not report" is
+# that claim; "checks are not expected to report" is not - it states as fact something an `unknown`
+# lookup never established, and a worker told that would report a repository as having no CI on the
+# strength of an expired token.
+#
+# It is also the one place a sentence is still asked to bound a wait from inside the call, and that
+# is deliberate rather than overlooked: no flag bounds a wait for a check that may genuinely exist,
+# and the alternative - skipping a step that may report - is the more expensive wrong answer. It
+# stays the fallback anywhere a skip cannot be passed.
 function Get-CiBriefLine {
     [CmdletBinding()]
     param([Parameter(Mandatory)][ValidateSet('has-ci', 'no-ci', 'unknown')][string]$Status)
@@ -446,6 +491,14 @@ function Get-CiBriefLine {
     if ($Status -eq 'has-ci') {
         return ('- Drive the pipeline through to a pull request and report its full https:// URL when CI is ' +
                 'first green. Do not merge it.')
+    }
+
+    if ($Status -eq 'no-ci') {
+        return ('- Drive the pipeline through to a pull request and stop there. Nothing reports a check on ' +
+                'this repository, so your gate line carries `--skip ci` and the pipeline ends at its `pr` ' +
+                'step with no `ci` step to wait on. Report the pull request''s full https:// URL as ' +
+                'delivered, say plainly that the `ci` step was skipped because this repository has no ' +
+                'CI, and stop. Do not merge it.')
     }
 
     '- Drive the pipeline through to a pull request and stop there. ' +
@@ -458,4 +511,4 @@ function Get-CiBriefLine {
 Export-ModuleMember -Function Get-GhCommandPath, Invoke-GhApi, Get-RepoGitHubSlug,
                               Get-RepoCiConfigFiles, Get-WorkflowTriggers,
                               Get-ReportingCiConfigFiles, Get-CommitCheckCount, Get-RepoCiStatus,
-                              Get-CiBriefLine
+                              Get-CiGateLine, Get-CiBriefLine
