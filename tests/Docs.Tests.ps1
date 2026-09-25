@@ -250,7 +250,7 @@ Describe 'the local-only push prohibition survives' {
 
     It 'the skill forbids removing that prohibition' {
         Assert-Phrase -Text (Get-DocText $script:MusterMd) -Where 'the muster skill' `
-            -Phrase 'never remove the push prohibition from the `local-only` variant'
+            -Phrase 'Never remove the push prohibition from the `local-only` variant'
     }
 
     It 'an unregistered project is never pushed' {
@@ -425,22 +425,45 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
             -Phrase ('Step 6 is the only place a parked worker is seen')
     }
 
-    # Get-RepoCiStatus returns three states and Ci.psm1 documents `unknown` taking `no-ci`'s brief
-    # line on purpose. That equivalence is safe at Step 1b, where the line says STOP, and unsafe
-    # here, where carrying it across merges with nothing established about the checks.
+    # Get-RepoCiStatus returns three states, and `unknown` and `no-ci` still send a worker to the
+    # same place - stopped at the pull request. That resemblance is safe at Step 1b, where stopping
+    # is the whole instruction, and unsafe here, where carrying it across merges with nothing
+    # established about the checks.
     It 'Step 8a keeps unknown apart from the absent-check case' {
         $step = Get-MusterStep 'Step 8a'
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
-            -Phrase ('**`unknown` and `no-ci` are interchangeable at Step 1b and are not ' +
-                     'interchangeable here.**')
+            -Phrase ('**`unknown` and `no-ci` both stop a worker at the pull request, and only one ' +
+                     'of them is green here.**')
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
-            -Phrase ('stopping under uncertainty is safe; merging under uncertainty is not, so ' +
-                     'the two part company at exactly this step')
+            -Phrase ('Merging under uncertainty is not, so the resemblance ends at exactly this step.')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('`no-ci` skips the `ci` step outright and `unknown` runs it with the wait ' +
+                     'bounded by a sentence')
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
             -Phrase ('`unknown` - **not green.**')
         # The no-mistakes limb leans on Step 1b's answer and must not inherit the equivalence.
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
             -Phrase ('**An `unknown` from that preflight is not the absent-check case**')
+    }
+
+    # The limb above requires the run's own `ci` outcome, and on a `no-ci` repository the gate line
+    # skipped that step, so there is no outcome to require. Read as a missing green it strands every
+    # such project here; read as the settled absence it is, the merge goes ahead. `unknown` runs the
+    # step, so it stays out of that sentence and its outcome is required like any other.
+    It 'Step 8a reads a skipped ci step as the settled absence, not as a missing green' {
+        $step = Get-MusterStep 'Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('Or Step 1b answered `no-ci`, in which case that brief''s gate line carried ' +
+                     '`--skip ci` and the run has no `ci` outcome at all.')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**A skipped step has no outcome, and here that absence is the settled ' +
+                     'absent-check case rather than a missing green**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('demanding an outcome from a step nobody ran would strand every `no-ci` ' +
+                     'project on this line')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('its gate line carries no skip, so its run does have a `ci` step and that ' +
+                     'step''s outcome is required like any other')
     }
 
     # "CI green on the pull request" had no command, while every other evidence read in the step
@@ -641,30 +664,47 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
     }
 
     # Holding the push back delays the CI wait, it does not remove it: the approved run is a full
-    # run and reaches the ci step. Dropping $ci.briefLine here reinstates the unbounded wait that
-    # the Step 1b preflight exists to end, on exactly the repositories that cannot report a check.
-    It 'the approved run still carries the CI brief line rather than losing it' {
+    # run and reaches every step its gate line leaves in. Both of Step 1b's lines have to survive
+    # into that bullet - and it names the gate line rather than saying "again without `--skip`",
+    # because on a `no-ci` repository that sentence drops `--skip ci` along with the push hold and
+    # puts the worker straight back inside the unbounded wait the preflight exists to end.
+    It 'the approved run still carries both of the CI lines rather than losing them' {
         $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface'
         Assert-Phrase -Text $region -Where 'muster Step 2' `
-            -Phrase ('- When you are told the push is approved, run the same gate line again ' +
-                     'without `--skip`. <the `Drive the pipeline` bullet Step 1b chose, verbatim>')
+            -Phrase ('- When you are told the push is approved, run the gate line again with the ' +
+                     'push hold lifted: <the gate line Step 1b chose, verbatim> <the `Drive the ' +
+                     'pipeline` bullet Step 1b chose, verbatim>')
         Assert-Phrase -Text $region -Where 'muster Step 2' `
-            -Phrase ('**`$ci.briefLine` is carried into that second bullet unchanged, never ' +
-                     'dropped.**')
+            -Phrase ('**Both of Step 1b''s lines are carried into that second bullet unchanged, ' +
+                     'never dropped.**')
         Assert-Phrase -Text $region -Where 'muster Step 2' `
-            -Phrase ('Holding the push back delays the CI wait; it does not remove it')
+            -Phrase ('would take `--skip ci` away along with the push hold and put the worker ' +
+                     'straight back inside the wait the preflight removed')
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase ('holding the push back delays the CI wait, it does not remove it')
     }
 
-    # The flags used to be forbidden outright for a no-mistakes project. They are now the stop
-    # itself, which is exactly one reason - and a reason worth pinning, because "shorten the run"
-    # is the misuse the old prohibition existed to prevent and it is still a misuse.
-    It 'the skip flags have exactly one sanctioned use and it is named' {
+    # The flags used to be forbidden outright for a no-mistakes project, then had exactly one
+    # sanctioned use. The CI preflight adds the second and no more: `--skip ci` where `no-ci` was
+    # proven. Both are pinned, because "shorten the run" and "CI looks unlikely to report" are the
+    # misuses the original prohibition existed to prevent and they are still misuses.
+    It 'the skip flags have exactly two sanctioned uses and both are named' {
         $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface'
         Assert-Phrase -Text $region -Where 'muster Step 2' `
-            -Phrase ('there is exactly one reason to add them: `yolo` off, per the section ' +
-                     'above, where they are what holds the push back until the user has answered')
+            -Phrase ('`--skip` has exactly two sanctioned uses on this path and nothing else may ' +
+                     'add one.')
         Assert-Phrase -Text $region -Where 'muster Step 2' `
-            -Phrase 'on a `+yolo` project the flags never appear at all'
+            -Phrase ('The first is `--skip push,pr,ci` with `yolo` off, per the section above, ' +
+                     'where the flags are what holds the push back until the user has answered')
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase ('The second is `--skip ci` on the gate line of a `no-ci` brief, where Step 1b ' +
+                     'established that nothing can report a check')
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase 'on a `+yolo` project those three flags never appear at all'
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase '**Neither widens.** `--skip` is never carried past `ci` on the `no-ci` path'
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase '`no-ci` is proof and `unknown` is a guess'
     }
 
     It 'the landing gate is held before the push and says what the approval buys' {
@@ -701,8 +741,23 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
         Assert-Phrase -Text $step -Where 'the landing gate' `
             -Phrase ('**Sending the `direct-PR` steer to a `no-mistakes` worker pushes around ' +
                      'the gate**')
-        $step | Should -Match 'Run your gate line again without --skip so the pipeline pushes' `
+        $step | Should -Match 'Run the gate line from the push-approved bullet in your brief' `
             -Because 'the no-mistakes steer must re-enter the pipeline, not push by hand'
+    }
+
+    # "Run it again without --skip" was right while the only skip was the push hold. On a repository
+    # proven to have no CI the brief's gate line also carries `--skip ci`, and a steer that tells the
+    # worker to drop every skip takes that with it and reinstates the wait Step 1b removed.
+    It 'the steer names the brief''s own gate line rather than telling the worker to drop --skip' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**The steer names the brief''s own line rather than telling the worker to ' +
+                     'drop `--skip`.**')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('"run it again without `--skip`" would take that away with the push hold and ' +
+                     'put the worker back inside the wait Step 1b removed')
+        $step | Should -Not -Match 'Run your gate line again without --skip' `
+            -Because 'that steer drops the ci skip along with the push hold'
     }
 
     It 'the counsel skill applies it to work items rather than exempting them' {
@@ -734,12 +789,13 @@ Describe 'the anti-attribution rule is in every Done-means variant' {
             Where-Object { $_.Contains("Implemented and committed on this worktree's branch.") })
     }
 
-    # Four, not three: the `no-mistakes` variant split in two when the CI preflight arrived, because
-    # a repository where nothing can report a check needs a worker told to stop at the pull request
-    # rather than one told to wait for a green that cannot come. The count is pinned so that adding a
-    # fifth variant without carrying the prohibitions into it fails here.
-    It 'there are exactly four Done-means blocks' {
-        $script:DoneBlocks.Count | Should -Be 4
+    # Five, not three: the `no-mistakes` variant is one block per CI answer, because the three
+    # answers need three different endings - wait for green, stop at a pull request with the `ci`
+    # step skipped, and stop at a pull request with the wait bounded by a sentence because the step
+    # still runs. The count is pinned so that adding a sixth variant without carrying the
+    # prohibitions into it fails here.
+    It 'there are exactly five Done-means blocks' {
+        $script:DoneBlocks.Count | Should -Be 5
     }
 
     It 'each one forbids mentioning Claude, AI or an assistant' {
@@ -749,9 +805,9 @@ Describe 'the anti-attribution rule is in every Done-means variant' {
         }
     }
 
-    It 'the three push-capable variants extend it to the PR title and body' {
+    It 'the four push-capable variants extend it to the PR title and body' {
         $pr = @($script:DoneBlocks | Where-Object { $_.Contains('PR title, PR body') })
-        $pr.Count | Should -Be 3
+        $pr.Count | Should -Be 4
     }
 
     It 'CLAUDE.md rule 3 covers anything reaching a remote or Azure DevOps' {
@@ -774,8 +830,8 @@ Describe 'the worker writes findings to a file that outlives the session' {
             Where-Object { $_.Contains("Implemented and committed on this worktree's branch.") })
     }
 
-    It 'each of the four Done-means blocks requires report.md at an exact path' {
-        $script:ReportBlocks.Count | Should -Be 4
+    It 'each of the five Done-means blocks requires report.md at an exact path' {
+        $script:ReportBlocks.Count | Should -Be 5
         foreach ($block in $script:ReportBlocks) {
             $block.Contains('Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish.') |
                 Should -BeTrue -Because 'every Done-means variant must name the exact report path'
@@ -827,8 +883,8 @@ Describe 'a background worker never opens an interactive prompt' {
             ForEach-Object { ConvertTo-NormalisedText $_ })
     }
 
-    It 'the prohibition is in all four Done-means blocks, not just one' {
-        $script:PromptBlocks.Count | Should -Be 4
+    It 'the prohibition is in all five Done-means blocks, not just one' {
+        $script:PromptBlocks.Count | Should -Be 5
     }
 
     It 'each one forbids AskUserQuestion and every other interactive surface' {
@@ -5001,6 +5057,38 @@ Describe 'the review gate is never promised a check that cannot come' {
         $fences[0].Contains('Ci.psm1') | Should -BeTrue -Because 'the module is imported where it is used'
         $fences[0].Contains('briefLine') |
             Should -BeTrue -Because 'the answer has to reach the brief, which is the only thing a worker reads'
+        $fences[0].Contains('gateLine') |
+            Should -BeTrue -Because 'the flag is the half that acts, and it is printed where it is read'
+    }
+
+    # The measured failure, and the rule taken from it. Three runs sat on a `ci` step that could
+    # never report, against a brief telling the worker to give up after fifteen minutes - and a
+    # worker at that moment is inside the gate's own long-running call watching that step, not
+    # reading its brief. A flag removes the step; a sentence reaches nobody.
+    It 'carries the no-ci answer as a flag and says why a sentence cannot do it' {
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase ('**On `no-ci` the answer is carried by a flag and not by a sentence, and that ' +
+                     'is the whole of the fix.**')
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase ('A worker sitting on the `ci` step is inside the gate''s own long-running call ' +
+                     'watching that step - it is not reading its brief, so an instruction telling it ' +
+                     'to give up after fifteen minutes reaches nobody.')
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase ('Anywhere a constraint has to hold while an agent is inside a call like that, ' +
+                     'name the flag, the timeout or the guard that enforces it rather than writing ' +
+                     'the constraint down and hoping.')
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase ('`$ci.gateLine` now carries `--skip ci`, so the step that would wait for a ' +
+                     'check nothing can report is never run')
+    }
+
+    # The expensive wrong answer in the other direction. A failed lookup is not proof of absence,
+    # and a skip taken on one throws away a real check on a repository that may well have CI.
+    It 'refuses the skip on an unsettled lookup and says what it would cost' {
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase ('`$ci.gateLine` deliberately carries **no skip** here - a failed lookup is not ' +
+                     'proof that nothing reports, and skipping a step that may genuinely exist is a ' +
+                     'real reduction in what the gate checks.')
     }
 
     It 'names the failure it prevents, so nobody deletes it as a formality' {
@@ -5034,39 +5122,132 @@ Describe 'the review gate is never promised a check that cannot come' {
 
     It 'carries the answer into the brief rather than leaving it to be retyped' {
         Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase ('Carry `$ci.gateLine` and `$ci.briefLine` to Step 2 verbatim.')
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
             -Phrase ('A preflight whose answer never reaches the brief changes nothing at all, ' +
                      'because the worker reads its brief and nothing else.')
     }
 
-    # The two `no-mistakes` variants differ in one line, and the difference is the whole preflight.
+    # The gated Done-means block is chosen by the answer, and there is one per answer, so the
+    # lead-in has to count them right or a Hand looks for a fourth that is not there.
+    It 'Step 2 counts the blocks and keys the gated ones on the preflight' {
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
+            -Where 'muster Step 2' `
+            -Phrase ('**The Done-means block is generated from the resolved mode.** Use exactly one ' +
+                     'of these five - and for a `no-mistakes` task, which of the three ' +
+                     '`no-mistakes` blocks is chosen by Step 1b''s answer, not by memory')
+    }
+
+    # Three `no-mistakes` variants, one per answer. They were two while `no-ci` and `unknown` ended
+    # the same way; they part company the moment `no-ci` takes `--skip ci` and `unknown` does not.
     It 'has one no-mistakes Done-means block per answer, keyed on the preflight' {
         $text = Get-DocText $script:MusterMd
         Assert-Phrase -Text $text -Where 'muster Step 2' `
             -Phrase '`no-mistakes`, where Step 1b answered `has-ci`:'
         Assert-Phrase -Text $text -Where 'muster Step 2' `
-            -Phrase '`no-mistakes`, where Step 1b answered `no-ci` or `unknown`.'
+            -Phrase '`no-mistakes`, where Step 1b answered `no-ci`.'
         Assert-Phrase -Text $text -Where 'muster Step 2' `
-            -Phrase ('**Do not decide between the two blocks yourself** - a repository with no ' +
+            -Phrase '`no-mistakes`, where Step 1b answered `unknown`.'
+        Assert-Phrase -Text $text -Where 'muster Step 2' `
+            -Phrase ('**Do not decide between the three blocks yourself** - a repository with no ' +
                      'workflow file may still get checks from outside it')
     }
 
-    # The line is shared by `no-ci` and `unknown`, so it says what both support and no more. An
-    # `unknown` lookup never established that nothing reports here, and a worker told it had would
-    # report a repository as CI-less on the strength of an expired token.
-    It 'the no-CI variant ends the wait instead of leaving it open' {
+    # The `no-ci` block's gate line removes the step, so nothing in it may still be telling a worker
+    # when to give up on that step - a sentence about a step that never runs is the dead prose this
+    # change exists to delete, and the worker it addressed could never act on it anyway.
+    It 'the no-CI variant skips the step rather than timing a worker out of it' {
+        $blocks = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains('no-mistakes axi run --skip ci --intent') })
+        $blocks.Count | Should -Be 1 -Because 'the skip belongs to the no-ci block alone'
+        $blocks[0].Contains('Nothing reports a check on') |
+            Should -BeTrue -Because 'the block says why its gate line carries the flag'
+        $blocks[0].Contains('fifteen minutes') |
+            Should -BeFalse -Because 'there is no step left to time out of'
+        $blocks[0].Contains('Do not merge it.') | Should -BeTrue
+    }
+
+    # An `unknown` lookup never established that nothing reports here, so its gate line runs the
+    # step and a sentence is all that bounds the wait. It says what an unsettled question supports
+    # and no more: a worker told as fact that nothing reports would report a repository as CI-less
+    # on the strength of an expired token.
+    It 'the undetermined variant keeps the terminating line and takes no skip' {
         $blocks = @(Get-CodeFence $script:MusterMd |
             Where-Object { $_.Contains('Checks may not report on this repository at all') })
         $blocks.Count | Should -Be 1 -Because 'the terminating line is stated once, in its own Done-means block'
         $blocks[0].Contains('waiting more than fifteen minutes') |
-            Should -BeTrue -Because 'an open-ended wait is exactly the failure this removes'
+            Should -BeTrue -Because 'the step still runs here, so something has to bound the wait'
         $blocks[0].Contains('Do not sit on it.') | Should -BeTrue
         $blocks[0].Contains('Do not merge it.') | Should -BeTrue
+        $blocks[0].Contains('--skip') |
+            Should -BeFalse -Because 'a failed lookup is not proof there is no step to run'
     }
 
     It 'CLAUDE.md lists the module that answers the question' {
         Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
             -Phrase ('| `bin\Ci.psm1` | whether a repository has any CI that could report a check, ' +
                      'before a task is promised a wait for one |')
+    }
+}
+
+# Import is the last moment the CI answer costs nothing to say. A user who is not told finds out
+# from a run that behaves as though the repository had no CI - which, on an `unknown`, is usually an
+# unauthenticated `gh` and a minute's work once somebody says so.
+Describe 'the CI answer is said once at import and never written down' {
+    BeforeAll { $script:ImportCi = Get-DocText $script:ImportMd }
+
+    # The same module the dispatcher asks, so the two cannot disagree - and scoped to the postures
+    # that reach a pull request, because a local-only project never waits on a check at all.
+    It 'reads it from the module the dispatcher uses, on push-capable modes only' {
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('**Only on a push-capable mode** - `direct-PR`, `no-mistakes` or ' +
+                     '`no-mistakes-prod-only`.')
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('Ask the module the dispatcher asks, so the answer here and the answer at ' +
+                     'dispatch are one answer rather than two readings')
+        $fences = @(Get-CodeFence $script:ImportMd | Where-Object { $_.Contains('Get-RepoCiStatus') })
+        $fences.Count | Should -Be 1 -Because 'one call, not a second detection of its own'
+        $fences[0].Contains('Ci.psm1') | Should -BeTrue -Because 'the module is imported where it is used'
+    }
+
+    It 'says nothing at all on the ordinary answer' {
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('- `has-ci` - **say nothing at all.** It is the ordinary case, and a line ' +
+                     'about it is noise.')
+    }
+
+    # The absence is a decision somebody made, and muster Step 1b owns that rule. Restating it here
+    # would be the second owner the one-owner rule forbids.
+    It 'names where delivery stops on no-ci and refuses to offer CI' {
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('say plainly that nothing reports a check on this repository, so work here is ' +
+                     'delivered as a pull request and stops there rather than waiting for a green ' +
+                     'that cannot arrive')
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('**Do not offer to add CI.** An absence is a decision somebody made, and ' +
+                     '`muster` Step 1b owns that rule - this is the cross-reference to it, not a ' +
+                     'second statement of it.')
+    }
+
+    It 'names which part of the lookup failed on unknown, and what it costs' {
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('say which part of the lookup failed, from `$ci.detail`, and that delivery ' +
+                     'will stop at the pull request under that uncertainty')
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('what is usually left is an unauthenticated `gh` or a remote this cannot see, ' +
+                     'and both are a minute''s work once somebody says so')
+    }
+
+    # A field would be wrong the first time somebody adds a workflow, and nothing would ever go back
+    # and correct it. The lookup is cheap and already runs per dispatch, so there is nothing to save.
+    It 'keeps the answer out of the registry' {
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('**The answer is not recorded in the registry.** CI comes and goes, so a value ' +
+                     'written at import is wrong the first time somebody adds a workflow or deletes ' +
+                     'the last one')
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('This is a sentence said once at import, not a field, and `data\projects.md`''s ' +
+                     'format does not change.')
     }
 }
 
@@ -5731,14 +5912,14 @@ Describe 'a project has a standing definition of done, and repeated findings are
             Should -BeTrue -Because 'a slot that only repeats the Goal changes nothing'
 
         $gated = @($script:CritDoneBlocks | Where-Object { $_.Contains('no-mistakes axi run') })
-        $gated.Count | Should -Be 2 -Because 'only the two no-mistakes blocks invoke the gate'
+        $gated.Count | Should -Be 3 -Because 'only the three no-mistakes blocks invoke the gate'
         foreach ($block in $gated) {
             $block.Contains("--intent '<the ``Intent`` section above, verbatim on one line>'") |
                 Should -BeTrue -Because 'the worker passes the section rather than reconstructing it'
         }
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
             -Phrase ('You write that string, not the worker: it is the `Intent` section of the ' +
-                     'brief, and the two `no-mistakes` blocks hand it to the gate verbatim')
+                     'brief, and the three `no-mistakes` blocks hand it to the gate verbatim')
     }
 
     # The section is specified to carry settled decisions and criteria, and this repository names
@@ -5747,7 +5928,7 @@ Describe 'a project has a standing definition of done, and repeated findings are
     # escapes the next character and a double quote ends the argument, both silently.
     It 'the gate is handed the intent in a string that survives backticks' {
         $gated = @($script:CritDoneBlocks | Where-Object { $_.Contains('no-mistakes axi run') })
-        $gated.Count | Should -Be 2
+        $gated.Count | Should -Be 3
         foreach ($block in $gated) {
             $block.Contains('--intent "') |
                 Should -BeFalse -Because 'a double-quoted string eats the backticks the section uses'
@@ -5760,13 +5941,15 @@ Describe 'a project has a standing definition of done, and repeated findings are
         }
     }
 
-    # In all four, because the criteria only ever mattered as something the worker is made to work
-    # through. The count stays four - per-project content inside these blocks would multiply them.
+    # In all five, because the criteria only ever mattered as something the worker is made to work
+    # through. The count is bounded by what varies: one block per delivery mode, and one per CI
+    # answer for the mode that runs a gate - three answers, closed set. Per-project content inside
+    # these blocks would multiply them without bound, and still must not.
     # The trigger names delivery generically: `direct-PR` neither runs a gate nor stops on the
     # branch, so a two-clause trigger left the one mode whose next bullet opens a pull request
     # describing no moment at all.
-    It 'all four Done-means blocks make the worker work the list before it delivers' {
-        $script:CritDoneBlocks.Count | Should -Be 4
+    It 'all five Done-means blocks make the worker work the list before it delivers' {
+        $script:CritDoneBlocks.Count | Should -Be 5
         foreach ($block in $script:CritDoneBlocks) {
             $block.Contains('Before you deliver - before you invoke the gate, push, open a pull request, or stop on the branch - work the `Standing criteria` section above line by line and record the result in `report.md`') |
                 Should -BeTrue -Because 'every mode has to recognise its own delivery act here'
@@ -5793,11 +5976,11 @@ Describe 'a project has a standing definition of done, and repeated findings are
     # already gated, pushed or opened a pull request against - a criterion it then records `fixed`
     # is a commit the delivered PR does not contain, and on a gated block it records `pass` on a
     # criterion the gate itself had just caught, which sends Step 6 off to reword a working line.
-    # Asserted on all four blocks by position rather than on the two with a gate: the bullet is
-    # copied four times, and the last round repositioned two of them and left two.
+    # Asserted on all five blocks by position rather than on the three with a gate: the bullet is
+    # copied five times, and one round repositioned some of them and left the rest.
     It 'the self-check is the second bullet of every Done-means block' {
         $script:CritDoneBlocksRaw.Count |
-            Should -Be 4 -Because 'one Done-means block per delivery mode'
+            Should -Be 5 -Because 'one block per delivery mode, and one per CI answer for the gated mode'
         foreach ($block in $script:CritDoneBlocksRaw) {
             $bullets = @($block -split "`n" | Where-Object { $_ -match '^- ' })
             $bullets[0] | Should -BeLike "- Implemented and committed on this worktree's branch.*" `
@@ -5810,32 +5993,35 @@ Describe 'a project has a standing definition of done, and repeated findings are
     # "Identical but for the third line" was true until a bullet was inserted above it, and then it
     # pointed at the gate-run bullet - a Hand substituting $ci.briefLine where the prose said would
     # have dropped `no-mistakes axi run` out of the brief entirely. Asserted against Ci.psm1's own
-    # output rather than an ordinal or a sentence: the two blocks must differ in exactly the line
-    # that function computes, and in nothing else, which is what the prose claims and what makes
-    # taking it from Step 1b safe.
-    It 'the two gated blocks differ only in the line Ci.psm1 computes' {
+    # output rather than an ordinal or a sentence: the three blocks must differ in exactly the two
+    # lines that module computes - the gate line and the delivery line - and in nothing else, which
+    # is what the prose claims and what makes taking them from Step 1b safe.
+    It 'the three gated blocks differ only in the lines Ci.psm1 computes' {
         Import-Module "$PSScriptRoot\..\bin\Ci.psm1" -Force
         $gated = @($script:CritDoneBlocks | Where-Object { $_.Contains('no-mistakes axi run') })
-        $gated.Count | Should -Be 2 -Because 'only the two no-mistakes blocks invoke the gate'
+        $gated.Count | Should -Be 3 -Because 'only the three no-mistakes blocks invoke the gate'
 
-        $hasCi = ConvertTo-NormalisedText (Get-CiBriefLine -Status 'has-ci')
-        $noCi  = ConvertTo-NormalisedText (Get-CiBriefLine -Status 'no-ci')
-        $withHasCi = @($gated | Where-Object { $_.Contains($hasCi) })
-        $withNoCi  = @($gated | Where-Object { $_.Contains($noCi) })
-        $withHasCi.Count | Should -Be 1 -Because 'one block carries the has-ci line Step 1b computes'
-        $withNoCi.Count  | Should -Be 1 -Because 'the other carries the terminating line'
+        $stripped = foreach ($status in 'has-ci', 'no-ci', 'unknown') {
+            $gate  = ConvertTo-NormalisedText (Get-CiGateLine  -Status $status)
+            $brief = ConvertTo-NormalisedText (Get-CiBriefLine -Status $status)
+            $hit   = @($gated | Where-Object { $_.Contains($gate) -and $_.Contains($brief) })
+            $hit.Count | Should -Be 1 -Because "one block carries the pair Step 1b computes for $status"
+            $hit[0].Replace($gate, '').Replace($brief, '')
+        }
 
-        $withHasCi[0].Replace($hasCi, '') | Should -Be $withNoCi[0].Replace($noCi, '') `
-            -Because 'identical but for that line is what lets the Hand swap one for the other'
+        @(@($stripped) | Select-Object -Unique).Count | Should -Be 1 `
+            -Because 'identical but for those two lines is what lets the Hand swap one for another'
     }
 
-    # And the prose names it by its text, so the next bullet inserted above it cannot restale the
-    # reference the way an ordinal was.
-    It 'the prose names that line by its text rather than its position' {
+    # And the prose names them by their text, so the next bullet inserted above them cannot restale
+    # the reference the way an ordinal did.
+    It 'the prose names those lines by their text rather than their position' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase 'Both are named by their text and never by their position'
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
             -Phrase 'Identical but for the `Drive the pipeline` line'
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
-            -Phrase 'That `Drive the pipeline` line is `$ci.briefLine` from Step 1b'
+            -Phrase 'Those two lines are `$ci.gateLine` and `$ci.briefLine` from Step 1b'
         $script:CritStep2.Contains('Identical but for the third line') |
             Should -BeFalse -Because 'an ordinal goes stale the moment a bullet is inserted above it'
     }
@@ -7150,8 +7336,8 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         $script:RouteFences = @(Get-CodeFence $script:MusterMd)
     }
 
-    It 'all four Done-means blocks send an unsettled decision to the report as prose' {
-        $script:RouteBlocks.Count | Should -Be 4
+    It 'all five Done-means blocks send an unsettled decision to the report as prose' {
+        $script:RouteBlocks.Count | Should -Be 5
         foreach ($block in $script:RouteBlocks) {
             $block.Contains('**Write it as prose, the way you would put it to a colleague at their desk.**') |
                 Should -BeTrue -Because 'the report carries the question and the reasoning, which is what prose is for'
@@ -7177,7 +7363,7 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
     # The load-bearing half for the worker: ending a turn is not the same as ending the work. A
     # worker that reads it as "stop" undoes its own change or reports failure, and the parked run
     # loses everything it was holding.
-    It 'all four say ending the turn is not ending the work, and forbid unwinding it' {
+    It 'all five say ending the turn is not ending the work, and forbid unwinding it' {
         foreach ($block in $script:RouteBlocks) {
             $block.Contains('**Ending your turn is not the end of your work.**') |
                 Should -BeTrue -Because 'stopping and waiting are different, and the worker has to be told which'
@@ -7190,11 +7376,11 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         }
     }
 
-    # Only the two no-mistakes blocks have a gate, so only they carry the parked-run half. Pinned at
-    # two rather than four so moving it into a block with no gate fails here.
-    It 'the two no-mistakes blocks leave the gate run parked rather than aborting it' {
+    # Only the three no-mistakes blocks have a gate, so only they carry the parked-run half. Pinned
+    # at three rather than five so moving it into a block with no gate fails here.
+    It 'the three no-mistakes blocks leave the gate run parked rather than aborting it' {
         $parked = @($script:RouteBlocks | Where-Object { $_.Contains('**Leave the run parked while you wait.**') })
-        $parked.Count | Should -Be 2 -Because 'a review gate exists only in the two no-mistakes variants'
+        $parked.Count | Should -Be 3 -Because 'a review gate exists only in the three no-mistakes variants'
         foreach ($block in $parked) {
             $block.Contains('the run still owns the branch and every fix commit it has already made') |
                 Should -BeTrue -Because 'the reason to leave it parked is what stops someone aborting it'
@@ -7222,7 +7408,7 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
     # answer and carry on. The escape hatch stays - it is the ordinary case - but not for these.
     It 'the assumption escape hatch is closed to a gate ask-user finding' {
         $parked = @($script:RouteBlocks | Where-Object { $_.Contains('**Leave the run parked while you wait.**') })
-        $parked.Count | Should -Be 2
+        $parked.Count | Should -Be 3
         foreach ($block in $parked) {
             $block.Contains('Where you can proceed on a stated assumption instead, do that: record the assumption in `report.md` and continue rather than stopping.') |
                 Should -BeTrue -Because 'the ordinary case still prefers a recorded assumption to stopping'
@@ -7239,7 +7425,7 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
     # drove a parked gate finding to a PR instead of writing it down and waiting.
     It 'the parked-run bullet names the bullet it defers to by its text' {
         $parked = @($script:RouteBlocks | Where-Object { $_.Contains('**Leave the run parked while you wait.**') })
-        $parked.Count | Should -Be 2
+        $parked.Count | Should -Be 3
         foreach ($block in $parked) {
             $block.Contains('it takes the `When you reach a decision your brief does not settle` bullet below') |
                 Should -BeTrue -Because 'a bullet named by position points at whatever was inserted above it since'
