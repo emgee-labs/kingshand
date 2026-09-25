@@ -122,9 +122,15 @@ Where one is needed:
   registered: a `no-mistakes-prod-only` project resolves to `no-mistakes` on product-facing work
   and this bullet fires there too, exactly as it does on a project registered `no-mistakes`. There
   is no gate to preflight and no gate line to carry, and `direct-PR` is the existing contract that
-  ends at a pull request without one. The project's registered posture is unchanged - what changes
-  is this dispatch. Step 6's fold-back does not fire either, for the same reason it does not on a
-  project with no gate: there is no round to compare the self-check against.
+  ends at a pull request without one. **You take that block with its conditions, never stripped of
+  them.** Step 2's own section "With `yolo` off, a push-capable block stops before anything leaves
+  the machine" applies unchanged, and the substitution to make is its `direct-PR` one, because the
+  `direct-PR` block is what this dispatch took - read that section and follow it rather than
+  anything restated here. **So with `yolo` off the work stops on the branch**, nothing goes to a
+  server, and the push is asked for afterwards as a line in chat like every other parley gate. The
+  project's registered posture is unchanged - what changes is this dispatch. Step 6's fold-back
+  does not fire either, for the same reason it does not on a project with no gate: there is no
+  round to compare the self-check against.
 - **Write the no-gate marker into the brief twice, in these words.** This is the marker block, and
   it is copied rather than reinvented:
 
@@ -144,15 +150,23 @@ Where one is needed:
     already has.
 
   **A brief without that block is a parley brief written wrong, and so is a brief that carries it
-  in `## Requirements` and never asks the worker to reproduce it in `report.md`** - the brief is
-  not what the landing path reads months later. A skipped gate nobody can see afterwards is the
-  failure mode, and the marker is what makes it visible: the brief and the report are on disk, so
-  they survive a restart, a compaction and a fresh session picking the work up. **It says what it
-  means and what it forbids rather than setting a flag**, because the Hand that reads it next may
-  have never heard of parley and must still be unable to misread it.
+  in `## Requirements` and never asks the worker to reproduce it in `report.md`.** The two copies
+  are not redundant halves of one check. **The brief's copy is the instruction that puts the line
+  into `report.md`, and `report.md` is the only file the landing path actually reads** - nothing in
+  Step 6, Step 7 or Step 8a ever opens a brief. A skipped gate nobody can see afterwards is the
+  failure mode, and the marker is what makes it visible: `report.md` is on disk, so it survives a
+  restart, a compaction and a fresh session picking the work up. **It says what it means and what
+  it forbids rather than setting a flag**, because the Hand that reads it next may have never heard
+  of parley and must still be unable to misread it.
 
   **Do not reword or respell that first line.** `muster` Step 7's floor matches
   `PARLEY DISPATCH - NO REVIEW GATE RAN.` literally, so a paraphrase disarms the floor silently.
+
+  **The gap that remains, named rather than papered over.** A worker that does not reproduce the
+  line leaves the floor blind, and nothing makes it comply - which is why the brief's requirement
+  is mandatory rather than a nicety. **A parley dispatch whose `report.md` lacks the line is a
+  report to query, never a run to merge**: ask the worker, or treat the run as carrying the marker,
+  because the one thing that is certain is that no review gate ran.
 - **Do not wait.** Arm the worker's wait exactly as `muster` Step 4 requires - a worker nobody is
   watching is the failure `CLAUDE.md`'s Recovery section exists to prevent, and that is a safety
   rule rather than ceremony - then answer in one line and end the turn. Parley does not hold an
@@ -234,10 +248,11 @@ is supposed to honour - so each one is answered rather than assumed.
   so no agent is ever inside a run and told to stop. That is the `--skip ci` shape rather than the
   fifteen-minutes-in-a-brief shape.
 - The no-merge rule on a parley dispatch is enforced by `muster` Step 7's floor, which matches the
-  line `PARLEY DISPATCH - NO REVIEW GATE RAN.` in the brief and in the worker's `report.md` and
-  refuses the merge on any posture. **The marker is durable and the memory of the mode is not**, so
-  that floor holds through a restart and holds on a `direct-PR` posture, which has no gate outcome
-  for an older reading of Step 7 to miss.
+  line `PARLEY DISPATCH - NO REVIEW GATE RAN.` in the worker's `report.md` and refuses the merge on
+  any posture. **The marker is durable and the memory of the mode is not**, so that floor holds
+  through a restart and holds on a `direct-PR` posture, which has no gate outcome for an older
+  reading of Step 7 to miss. What it cannot do is make a worker write the line, which is the gap
+  the dispatch section names.
 - **The exit conditions are enforced by nothing at all.** A Hand that has forgotten it is in parley
   will not announce the exit. That is accepted rather than fixed, because the failure runs the safe
   way for ceremony - a forgotten mode is the default ceremony returning - and because the

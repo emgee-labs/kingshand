@@ -463,9 +463,9 @@ by memory: there is one block per answer and they appear in the order `has-ci`, 
 - When you reach a decision your brief does not settle, write the question into
   `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
   would need in order to choose - then say so in your final message and end your turn. **Write it
-  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
-  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
-  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses the question
+  you write here, so there is no heading to match exactly, no slug to keep and no marker to get
+  wrong: the Hand reads what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
   The answer comes back to you as an ordinary prompt and you carry on from there, so leave
   everything where it is: do not undo what you have done, do not pick a different task, and do not
   report the work as failed. When the answer reaches you, write down what was decided and what you
@@ -498,9 +498,9 @@ by memory: there is one block per answer and they appear in the order `has-ci`, 
 - When you reach a decision your brief does not settle, write the question into
   `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
   would need in order to choose - then say so in your final message and end your turn. **Write it
-  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
-  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
-  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses the question
+  you write here, so there is no heading to match exactly, no slug to keep and no marker to get
+  wrong: the Hand reads what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
   The answer comes back to you as an ordinary prompt and you carry on from there, so leave
   everything where it is: do not undo what you have done, do not pick a different task, and do not
   report the work as failed. When the answer reaches you, write down what was decided and what you
@@ -548,9 +548,9 @@ by memory: there is one block per answer and they appear in the order `has-ci`, 
 - When you reach a decision your brief does not settle, write the question into
   `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
   would need in order to choose - then say so in your final message and end your turn. **Write it
-  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
-  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
-  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses the question
+  you write here, so there is no heading to match exactly, no slug to keep and no marker to get
+  wrong: the Hand reads what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
   The answer comes back to you as an ordinary prompt and you carry on from there, so leave
   everything where it is: do not undo what you have done, do not pick a different task, and do not
   report the work as failed. When the answer reaches you, write down what was decided and what you
@@ -608,9 +608,9 @@ above them, and an ordinal that has gone stale points a Hand at the wrong one:
 - When you reach a decision your brief does not settle, write the question into
   `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
   would need in order to choose - then say so in your final message and end your turn. **Write it
-  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
-  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
-  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses the question
+  you write here, so there is no heading to match exactly, no slug to keep and no marker to get
+  wrong: the Hand reads what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
   The answer comes back to you as an ordinary prompt and you carry on from there, so leave
   everything where it is: do not undo what you have done, do not pick a different task, and do not
   report the work as failed. When the answer reaches you, write down what was decided and what you
@@ -668,9 +668,9 @@ and it is the fallback wherever a skip cannot be passed at all:
 - When you reach a decision your brief does not settle, write the question into
   `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
   would need in order to choose - then say so in your final message and end your turn. **Write it
-  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
-  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
-  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses the question
+  you write here, so there is no heading to match exactly, no slug to keep and no marker to get
+  wrong: the Hand reads what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
   The answer comes back to you as an ordinary prompt and you carry on from there, so leave
   everything where it is: do not undo what you have done, do not pick a different task, and do not
   report the work as failed. When the answer reaches you, write down what was decided and what you
@@ -1802,16 +1802,16 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
 - Merge on the forge only where this project's registry entry declares `+merge`, and never
   otherwise. The rest of this step owns that rule.
 - Never push a project that is not registered with a push-capable posture.
-- **Never merge on the forge a run whose brief or `report.md` carries the line
+- **Never merge on the forge a run whose `report.md` carries the line
   `PARLEY DISPATCH - NO REVIEW GATE RAN.`**, on any posture and whatever that project's entry
   declares with `+merge`. **Match that exact line and nothing else** - not a sentence that means
   the same thing - because an ordinary gateless brief mentions having no review gate in passing all
   the time, and a floor firing on those would refuse merges nobody restricted. **Say why rather
   than only refusing**: this run had no review gate, so nothing has established it is safe to
-  merge, and that is what goes to the user. The line is written into the brief and carried from
-  there into `report.md`, so it is on disk rather than in anyone's memory - **this floor survives a
-  restart and does not depend on knowing how the work was dispatched.** **It blocks the forge merge
-  only**: landing on a branch and opening a pull request are unaffected.
+  merge, and that is what goes to the user. **`report.md` is the one file this floor reads**, and
+  Step 6 has already read it - it is on disk rather than in anyone's memory, so **this floor
+  survives a restart and does not depend on knowing how the work was dispatched.** **It blocks the
+  forge merge only**: landing on a branch and opening a pull request are unaffected.
 - **Never land a worker whose pointer names a hold that is still open.** It is mid-run rather than
   delivered, whatever its branch shows, and Step 6 owns what to do with it. **Read the pointer, and
   where it names a key read that hold**: the field says which decision, and the hold says whether

@@ -59,9 +59,10 @@ brief written with no review gate outlives the session that wrote it, so a forgo
 leave an ungated run looking like any other green branch - and on a project registered `+merge` it
 would be merged as though it had been reviewed. So the constraint is attached to the work rather
 than to the session: the brief carries a marker opening `PARLEY DISPATCH - NO REVIEW GATE RAN.` and
-saying the run must not be merged on the forge, the brief also asks the worker to reproduce that
-block in `report.md`, and muster Step 7 refuses the merge on matching that line. Both files are on
-disk, so the refusal holds through a restart with nobody remembering how the work was dispatched.
+saying the run must not be merged on the forge, and it asks the worker to reproduce that block in
+`report.md`. The brief's copy is the instruction; `report.md` is what muster Step 7 reads, and it
+refuses the merge on matching that line there. That file is on disk, so the refusal holds through a
+restart with nobody remembering how the work was dispatched.
 The line is matched literally rather than by meaning, because an ordinary gateless brief mentions
 having no review gate in passing and a floor firing on those would refuse merges nobody
 restricted.
@@ -92,12 +93,15 @@ and a fatal-return path that would have blocked a poll forever. Every one of tho
 of a few lines - the size parley is for. The King was told that plainly and answered "no review gate
 in quick mode".
 
-One thing keeps the absence visible rather than silent, and it does the work twice over. A parley
-brief carries a marker block opening `PARLEY DISPATCH - NO REVIEW GATE RAN.` in two places - as a
-requirement, and in the list of what the report must contain, so the worker reproduces it in
-`report.md`. Both files are durable, and muster Step 7 carries a floor that matches that exact line
-and refuses the merge - on any posture and whatever `+merge` declares, because nothing has
-established that a run with no review gate is safe to merge. Resting
+One thing keeps the absence visible rather than silent. A parley brief carries a marker block
+opening `PARLEY DISPATCH - NO REVIEW GATE RAN.` in two places - as a requirement, and in the list
+of what the report must contain, so the worker reproduces it in `report.md`. Those two are not
+halves of one check: the brief's copy is the instruction, and `report.md` is the file muster Step 7
+reads, because nothing on the landing path ever opens a brief. Step 7 carries a floor that matches
+that exact line there and refuses the merge - on any posture and whatever `+merge` declares,
+because nothing has established that a run with no review gate is safe to merge. What no floor can
+do is make a worker write the line, so a report that lacks it is one to query rather than a run to
+merge. Resting
 the rule on Step 7's older gate check instead would have left it absent exactly where it read as
 protection: that check lives on the `no-mistakes` limb alone, and the `direct-PR` limb requires no
 gate at all. The King's own word is what moves it.
@@ -112,7 +116,7 @@ Everything else has something. The absent review gate is an absence in the brief
 instruction to abandon a run, which is the same shape as `--skip ci`: a constraint that has to hold
 while an agent sits inside a long call is carried by a flag, never by a sentence the agent is not
 reading. The no-merge rule is enforced rather than merely stated: muster Step 7 carries a floor that
-refuses a forge merge while the brief and `report.md` carry the line
+refuses a forge merge while the worker's `report.md` carries the line
 `PARLEY DISPATCH - NO REVIEW GATE RAN.`, on any posture and whatever `+merge` declares. It matches
 that line literally and not a sentence meaning the same thing, because muster's own template has
 every gateless worker writing about the absent gate in passing. That marker is durable, so the

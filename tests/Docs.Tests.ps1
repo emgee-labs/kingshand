@@ -330,9 +330,13 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
     It 'refuses a forge merge on a run whose own record says it had no review gate' {
         $step = Get-MusterStep 'Step 7 - Gate two'
         Assert-Phrase -Text $step -Where 'the landing gate floors' `
-            -Phrase ('**Never merge on the forge a run whose brief or `report.md` carries the line ' +
+            -Phrase ('**Never merge on the forge a run whose `report.md` carries the line ' +
                      '`PARLEY DISPATCH - NO REVIEW GATE RAN.`**, on any posture and whatever that ' +
                      'project''s entry declares with `+merge`.')
+        # report.md only. The floor once named the brief too, but nothing from Step 6 onward ever
+        # opens a brief, so that limb promised a read no step performs.
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase '**`report.md` is the one file this floor reads**, and Step 6 has already read it'
         # Keyed on one closed token, never on meaning. muster's own Step 2 template has every
         # gateless worker writing about the absent gate in passing, so a floor that matched the
         # sense of it would refuse ordinary direct-PR merges the +merge grant allows.
@@ -5172,6 +5176,20 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                 -Phrase ('Key this on the task''s resolved mode from `muster` Step 1, never on how ' +
                          'the project is registered: a `no-mistakes-prod-only` project resolves to ' +
                          '`no-mistakes` on product-facing work and this bullet fires there too')
+            # Hard rule 2, not a preference. The direct-PR block's delivery bullet pushes and opens
+            # a pull request, so borrowing that block without its yolo-off hold sends work to a
+            # server before the landing gate is ever asked.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**You take that block with its conditions, never stripped of them.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('Step 2''s own section "With `yolo` off, a push-capable block stops before ' +
+                         'anything leaves the machine" applies unchanged, and the substitution to ' +
+                         'make is its `direct-PR` one, because the `direct-PR` block is what this ' +
+                         'dispatch took')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**So with `yolo` off the work stops on the branch**, nothing goes to a ' +
+                         'server, and the push is asked for afterwards as a line in chat like every ' +
+                         'other parley gate.')
         }
 
         # The marker is the durable half of the mode. Everything else about parley lives in the
@@ -5204,7 +5222,21 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase ('**A brief without that block is a parley brief written wrong, and so is a ' +
                          'brief that carries it in `## Requirements` and never asks the worker to ' +
-                         'reproduce it in `report.md`**')
+                         'reproduce it in `report.md`.**')
+            # The two copies do different jobs and neither substitutes for the other. Read as a
+            # conjunction, a Hand could merge a run whose brief has the line and whose report does
+            # not - which is every run where the worker simply did not comply.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**The brief''s copy is the instruction that puts the line into ' +
+                         '`report.md`, and `report.md` is the only file the landing path actually ' +
+                         'reads** - nothing in Step 6, Step 7 or Step 8a ever opens a brief.')
+            # The honest half: no mechanism makes a worker comply, so the skill says what to do
+            # when one has not rather than implying the floor covers it.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**The gap that remains, named rather than papered over.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**A parley dispatch whose `report.md` lacks the line is a report to query, ' +
+                         'never a run to merge**')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase 'A skipped gate nobody can see afterwards is the failure mode'
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
@@ -5362,8 +5394,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase ('The no-merge rule on a parley dispatch is enforced by `muster` Step 7''s ' +
                          'floor, which matches the line `PARLEY DISPATCH - NO REVIEW GATE RAN.` in ' +
-                         'the brief and in the worker''s `report.md` and refuses the merge on any ' +
-                         'posture.')
+                         'the worker''s `report.md` and refuses the merge on any posture.')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase '**The marker is durable and the memory of the mode is not**'
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
@@ -7920,8 +7951,13 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         foreach ($block in $script:RouteBlocks) {
             $block.Contains('**Write it as prose, the way you would put it to a colleague at their desk.**') |
                 Should -BeTrue -Because 'the report carries the question and the reasoning, which is what prose is for'
-            $block.Contains('Nothing parses this file, so there is no heading to match exactly, no slug to keep and no marker to get wrong') |
+            # Scoped to the question, never to the file. Written as a flat claim about report.md it
+            # contradicted the one line a parley brief does ask a worker to reproduce verbatim, and
+            # a worker holding both instructions drops the marker Step 7's floor matches.
+            $block.Contains('Nothing parses the question you write here, so there is no heading to match exactly, no slug to keep and no marker to get wrong') |
                 Should -BeTrue -Because 'a worker told to write a marker exactly is a worker that can get it wrong'
+            $block.Contains('Nothing parses this file') |
+                Should -BeFalse -Because 'as a claim about the whole file it contradicts the no-gate marker'
         }
     }
 
