@@ -2,7 +2,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
-[![Tests](https://img.shields.io/badge/tests-1360%20passing-3fb950)](tests)
+[![Tests](https://img.shields.io/badge/tests-1935%20passing-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 # You rule. It executes.
@@ -41,9 +41,10 @@ reads.
   rather than inferred.
 - **A durable queue.** Work items, dependencies and held decisions survive a restart, because a
   decision that lives only in the conversation is a decision you will lose.
-- **A session-start digest.** The version you are on, registered projects, live workers, the queue,
-  the index of everything the tool holds for you, your standing instructions and the curated
-  memory, printed once at session open. A restart is meant to be a non-event.
+- **A session-start digest.** The version you are on, registered projects, live workers, what the
+  last restart quietly killed and has to be picked back up, the queue, the index of everything the
+  tool holds for you, your standing instructions and the curated memory, printed once at session
+  open. A restart is meant to be a non-event.
 - **A version, and one command to move it.** `/update` fast-forwards this installation to the
   latest tagged release, re-runs the installer, and tells you what you moved from, what you moved
   to, and what changed. It updates to a release rather than to whatever was pushed last, and it
@@ -58,7 +59,7 @@ reads.
   and is the switch.
 - **Your preferences stay yours.** `instructions.md` is read every session and never written by the
   tool - enforced by the permission layer, not just asked for in prose.
-- **Your other projects are untouched.** All sixteen skills live in this repository's own
+- **Your other projects are untouched.** All seventeen skills live in this repository's own
   `.claude\skills\`. Nothing is written into `~\.claude\`, so a session anywhere else on the machine
   behaves exactly as it did before.
 
@@ -99,6 +100,12 @@ straight into a brief, which needs the `ado-local-mcp` server configured in Clau
 organization and a token. Nothing here installs it and nothing here needs it. With it absent, the
 Hand says so once and asks you to paste the ticket or describe the work, and handles it as adhoc -
 which is the ordinary path and works exactly as well.
+
+**`quota-axi`, only for the usage pulse.** It is what reports how much of the current usage window
+is spent, and kingshand asks it rather than reading a credential file or a transcript of its own.
+Nothing here installs it: `npm install -g quota-axi`. Without it everything still dispatches - the
+pulse says the usage is not known and the refusal near the limit fails open on purpose, because a
+reader that breaks must not make the tool undispatchable.
 
 **Pester 6+, only to run this repository's own tests.** Nothing in `bin\` and no skill imports it,
 so an installation without Pester dispatches, gates and lands identically. `Install-Module Pester
@@ -188,7 +195,7 @@ astray - neither of which a detached background session allows.
 
 ## Built-in skills
 
-Sixteen, all project-local. Ten you invoke; six the Hand loads for itself.
+Seventeen, all project-local. Eleven you invoke; six the Hand loads for itself.
 
 | Skill | What it is for |
 |---|---|
@@ -198,14 +205,15 @@ Sixteen, all project-local. Ten you invoke; six the Hand loads for itself.
 | `muster` | Dispatch and supervise workers across tickets and repos |
 | `survey` | Where everything stands - the catch-up digest |
 | `herald` | Owns reply shape, which is on by default. Load it to turn it off |
-| `regency` | Hold the fleet while you are away, and batch what does not need you. Also `/afk` |
+| `vigil` | Owns the usage pulse, which is on by default. Load it to turn it off |
+| `regency` | Hold the fleet while you are away, and batch what does not need you - `petition` below says what may be decided in your stead. Also `/afk` |
 | `audience` | What happened while you were away from this session |
 | `chronicle` | Curate durable memory before a context reset |
 | `counsel` | Break a story or a whole feature into work, and find where the stories overlap |
 | `rally` | A worker that has stopped making progress |
 | `decree` | Finishing an investigation without losing a decision that is yours |
 | `inquest` | Diagnosing a reported bug before writing its brief |
-| `petition` | Deciding an ask-user finding from the review gate |
+| `petition` | Deciding an ask-user finding from the review gate, including in your stead while you are away |
 | `statute` | Changing kingshand's own tracked material |
 | `witness` | Exercising a front-end change in a real browser, and recording what was seen |
 
@@ -226,7 +234,10 @@ What still constrains it:
   the machine. With no `~\.claude.json`, nothing is written and the worker stops at the dialog.
 - Nothing is dispatched into a repository you have not registered.
 - Nothing pushes unless that project is registered with a push-capable posture, and nothing is
-  merged on the forge at all.
+  merged on the forge unless that project's registry entry declares `+merge`, which is off unless
+  you write it.
+- With `yolo` off, nothing goes to a server until you say so - not a push, a pull request, a
+  comment, or a work item.
 - `deny` blocks reads of `~\.ssh`, AWS credentials and `config\credentials\`, and blocks edits to
   `instructions.md` - your standing instructions are protected by the permission layer, not just by
   prose asking nicely.
@@ -240,8 +251,9 @@ great many prompts.
 CLAUDE.md               the Hand's always-loaded instructions - identity, hard rules, contracts
 VERSION                 this installation's version, and the only place it is written down
 bin\                    dispatch, worker state, registry, snapshot, digest, herdr, workspace prep,
-                        version, self-update and browser verification
-.claude\skills\         sixteen project-local skills. They load only in this directory
+                        version, self-update, browser verification, the away journal, the usage
+                        window and a gate run's state
+.claude\skills\         seventeen project-local skills. They load only in this directory
 tests\                  the Pester suite
 tools\herdr\            herdr, fetched and SHA-256 verified by the installer - gitignored,
                         and deliberately not on PATH

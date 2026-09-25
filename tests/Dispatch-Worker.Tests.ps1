@@ -293,6 +293,22 @@ Describe 'Resolve-BaseRef - the declared integration branch' {
                                        (New-Object System.Text.UTF8Encoding $true))
         Resolve-BaseRef -RepoPath $repo | Should -Be 'origin/dev'
     }
+
+    # THE WORKER-BRANCH GUARD IS SHARED WITH THE DISPATCHER'S -Base, so widening what it refuses
+    # widens what this function refuses too. These are the values real repositories actually
+    # declare, and every one of them has to resolve to what it always did: the guard's extra
+    # spellings are about a caller-supplied string, and the candidate list built here holds none of
+    # them.
+    It 'resolves the ordinary declared values exactly as before' -ForEach @(
+        @{ Declared = 'dev';        Expected = 'origin/dev' },
+        @{ Declared = 'main';       Expected = 'origin/main' },
+        @{ Declared = 'origin/dev'; Expected = 'origin/dev' }
+    ) {
+        $repo = New-SplitBranchRepo
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: $Declared"
+        Test-WorkerBranch $Declared | Should -BeFalse
+        Resolve-BaseRef -RepoPath $repo -WarningAction SilentlyContinue | Should -Be $Expected
+    }
 }
 
 Describe 'Resolve-BaseRef - a repository that declares nothing' {
@@ -478,6 +494,30 @@ Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
         $text | Should -BeLike '*worker branch*'
         $text | Should -Not -BeLike '*neither origin/worktree-other nor worktree-other resolves*'
         $text | Should -Not -BeLike '*Fetch worktree-other*'
+        $text | Should -BeLike '*refused on its name alone*'
+        $text | Should -Not -BeLike '*It resolves fine*'
+        $text | Should -Not -BeLike '*it belongs to another worker*'
+    }
+
+    # `$declaredIsWorker` is decided on the NAME, so this warning fires whether or not the declared
+    # branch exists - both forms are dropped before anything is resolved. It must therefore not
+    # claim the ref resolves: on a declaration naming a `worktree-*` branch nobody ever created,
+    # "it resolves fine" is simply false, and the reader is being told about the wrong thing.
+    It 'does not claim a declared worker branch resolves when no such branch exists' {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: worktree-ghost"
+        Test-RefResolves -RepoPath $repo -Ref 'worktree-ghost'        | Should -BeFalse
+        Test-RefResolves -RepoPath $repo -Ref 'origin/worktree-ghost' | Should -BeFalse
+
+        $warnings = @()
+        $base = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        $base | Should -Be 'origin/main'
+        $text = $warnings -join ' '
+        $text | Should -BeLike '*worktree-ghost*'
+        $text | Should -BeLike '*refused on its name alone*'
+        $text | Should -Not -BeLike '*It resolves fine*'
+        $text | Should -Not -BeLike '*it belongs to another worker*'
     }
 
     It 'says the same thing in the refusal when a declared worker branch is all there is' {
@@ -675,6 +715,48 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             'exit /b 0'
         )
 
+        # quota-axi is shimmed on PATH beside herdr, for the same reason and with the same effect:
+        # the usage refusal is the first thing dispatch checks now, so every case below has to have
+        # an answer waiting for it. It types one canned report and never logs a call, because the
+        # call log is what the herdr assertions count.
+        Set-Content -Path (Join-Path $script:ShimDir 'quota-axi.cmd') -Encoding ascii -Value @(
+            '@echo off',
+            'if exist "%KINGSHAND_TEST_HERDR_DIR%\quota-axi.fail" exit /b 1',
+            'type "%KINGSHAND_TEST_HERDR_DIR%\quota-axi.json"',
+            'exit /b 0'
+        )
+
+        # How much of the window this dispatch will believe is spent. A percentage produces a real
+        # reading; -Broken makes the tool exit non-zero, which is the unknown the refusal must fail
+        # open on; -NoWindows is the settled "nothing here reports this".
+        function Set-UsageReply {
+            param([double]$Percent = 5, [switch]$Broken, [switch]$NoWindows, [switch]$Stale)
+
+            $fail = Join-Path $script:ShimDir 'quota-axi.fail'
+            if ($Broken) { Set-Content -Path $fail -Value 'x' -Encoding ascii }
+            elseif (Test-Path -LiteralPath $fail) { Remove-Item -LiteralPath $fail -Force }
+
+            $windows = @()
+            if (-not $NoWindows) {
+                # A reset relative to now, never a fixed timestamp: a window only counts while its
+                # reset is still ahead, so a literal one turns every case here into a time bomb.
+                # The spend cap rides along at 100 percent with no reset at all, because that is
+                # what this machine really reports and it must never refuse a dispatch.
+                $windows = @(
+                    @{ id = 'five_hour'; kind = 'session'; percentUsed = $Percent
+                       resetsAt = ([datetimeoffset]::UtcNow.AddHours(3).ToString('o')) },
+                    @{ id = 'extra_usage'; kind = 'credits'; percentUsed = 100 }
+                )
+            }
+            @{ schemaVersion = 3
+               generatedAt = ([datetimeoffset]::UtcNow.ToString('o'))
+               providers = @(@{ provider = 'claude'; windows = $windows
+                                state = @{ status = if ($Stale) { 'stale' } else { 'fresh' }
+                                           stale = [bool]$Stale } }) } |
+                ConvertTo-Json -Depth 12 |
+                Set-Content -Path (Join-Path $script:ShimDir 'quota-axi.json') -Encoding utf8
+        }
+
         # Test-HerdrServer matches on this shape, so a running server needs no real one.
         Set-Content -Encoding ascii -Path (Join-Path $script:ShimDir 'status.txt') -Value @(
             'client:', '  version: 0.8.2', '', 'server:', '  status: running', '  socket: none'
@@ -729,6 +811,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         Set-HerdrReply -Verb 'pane-list'        -Result @{ panes = @(@{ pane_id = 'p1' }) }
         Set-HerdrReply -Verb 'pane-split'       -Result @{ pane = @{ pane_id = 'p2' } }
         Set-AgentStartState
+        Set-UsageReply
 
         $env:KINGSHAND_TEST_HERDR_DIR = $script:ShimDir
         $env:PATH = $script:ShimDir + [IO.Path]::PathSeparator + $env:PATH
@@ -772,10 +855,21 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         # its index live. Passed on every dispatch below, not only the gate's own cases: a suite
         # whose default reached the real installation's data\ would pass or fail on whatever that
         # machine happens to have registered.
+        #
+        # -Base is passed only by a case that names one, and the two calls below are deliberately
+        # separate rather than one call with a possibly-empty value: every other case in this file
+        # then exercises the parameter's OWN default, which is the path muster takes on every
+        # ordinary dispatch, instead of an empty string this helper invented for it.
         function Invoke-Dispatch {
-            param([Parameter(Mandatory)]$Fixture, [Parameter(Mandatory)][string]$Name)
-            & $script:DispatchScript -RepoPath $Fixture.Repo -Name $Name `
-                -BriefPath $Fixture.BriefPath -DataPath $Fixture.DataPath
+            param([Parameter(Mandatory)]$Fixture, [Parameter(Mandatory)][string]$Name,
+                  [string]$Base = '')
+            if ($Base) {
+                & $script:DispatchScript -RepoPath $Fixture.Repo -Name $Name `
+                    -BriefPath $Fixture.BriefPath -DataPath $Fixture.DataPath -Base $Base
+            } else {
+                & $script:DispatchScript -RepoPath $Fixture.Repo -Name $Name `
+                    -BriefPath $Fixture.BriefPath -DataPath $Fixture.DataPath
+            }
         }
 
         # A registered project for the fixture's repo, and optionally an index holding one entry.
@@ -993,6 +1087,219 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         }
     }
 
+    # A repository whose work integrates on a FEATURE branch, which nothing may write into its
+    # tracked `.no-mistakes.yaml`: `pr.base_branch: epic-checkout` would be wrong the moment the epic
+    # merges. So the base is named for the one task instead. What has to hold is that the ref handed
+    # in is both the ref the worktree is cut from and the ref recorded for the landing gate - one
+    # string doing both jobs, because a base naming one tree while the branch was cut from another
+    # is the gate measuring commits nobody in the ticket wrote.
+    Context 'a dispatch that names its own base' {
+        BeforeAll {
+            Set-AgentStartState
+            $script:Named = New-DispatchFixture 'named-base'
+
+            # Three branches, each carrying a file the others do not, so which one the worktree came
+            # from is decided by what is on disk rather than by the string that came back. `dev` is
+            # declared as well, and `epic-checkout` is cut from `main` rather than from `dev`, so the
+            # named base is beating a live declaration rather than winning because nothing else was
+            # there.
+            $repo = New-TempRepo -WithOrigin
+            git -C $repo checkout -q -b 'dev'
+            Set-Content -Path (Join-Path $repo 'only-on-dev.txt') -Value 'integration' -Encoding utf8
+            git -C $repo add -A
+            git -C $repo commit -q -m 'A commit that exists only on the integration branch'
+            git -C $repo push -q origin 'dev' 2>&1 | Out-Null
+            git -C $repo checkout -q 'main'
+            git -C $repo checkout -q -b 'epic-checkout'
+            Set-Content -Path (Join-Path $repo 'only-on-epic.txt') -Value 'epic' -Encoding utf8
+            git -C $repo add -A
+            git -C $repo commit -q -m 'A commit that exists only on the epic branch'
+            git -C $repo push -q origin 'epic-checkout' 2>&1 | Out-Null
+            git -C $repo checkout -q 'main'
+            git -C $repo remote set-head origin -a 2>&1 | Out-Null
+            Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: dev"
+
+            $script:Named.Repo  = $repo
+            $script:NamedResult = Invoke-Dispatch -Fixture $script:Named -Name 'T-3101' `
+                                                  -Base 'origin/epic-checkout'
+        }
+
+        It 'cuts the worktree from the base it was handed rather than from the resolved one' {
+            # What the resolver would have said, asked directly, so the named base is demonstrably
+            # replacing a live answer rather than filling in for a missing one.
+            Resolve-BaseRef -RepoPath $script:Named.Repo | Should -Be 'origin/dev'
+
+            $head = (& git -C $script:NamedResult.worktree rev-parse 'HEAD').Trim()
+            $head | Should -Be (& git -C $script:Named.Repo rev-parse 'origin/epic-checkout').Trim()
+            $head | Should -Not -Be (& git -C $script:Named.Repo rev-parse 'origin/dev').Trim()
+            $head | Should -Not -Be (& git -C $script:Named.Repo rev-parse 'origin/main').Trim()
+        }
+
+        It 'gives the worker a checkout holding the epic branch work and not the other branch''s' {
+            Test-Path -LiteralPath (Join-Path $script:NamedResult.worktree 'only-on-epic.txt') |
+                Should -BeTrue -Because 'the worker is working on top of the epic it was pointed at'
+            Test-Path -LiteralPath (Join-Path $script:NamedResult.worktree 'only-on-dev.txt') |
+                Should -BeFalse -Because 'the declaration was not what this dispatch was cut from'
+        }
+
+        # THE POINT OF THE WHOLE PARAMETER, asserted as two halves of one fact rather than as a
+        # returned string: the base recorded for the landing gate resolves to the very commit the
+        # worktree starts at. Record one ref and cut from another and the gate diffs against a tree
+        # the branch was never based on, which is how an empty diff once read as clean.
+        It 'records the same ref it cut the worktree from' {
+            $script:NamedResult.base | Should -Be 'origin/epic-checkout'
+            $recorded = (& git -C $script:NamedResult.worktree rev-parse `
+                                "$($script:NamedResult.base)^{commit}").Trim()
+            $recorded | Should -Be (& git -C $script:NamedResult.worktree rev-parse 'HEAD').Trim()
+        }
+
+        It 'leaves the landing diff empty until the worker writes something' {
+            $diff = @(& git -C $script:NamedResult.worktree diff --name-only `
+                             "$($script:NamedResult.base)...HEAD" | Where-Object { $_.Trim() })
+            $diff | Should -BeNullOrEmpty
+            @(& git -C $script:NamedResult.worktree diff --name-only 'origin/dev...HEAD') |
+                Should -Contain 'only-on-epic.txt' `
+                -Because 'this is the widened diff naming the base for one task exists to avoid'
+        }
+
+        # The parameter's own default, fired on the same repository, so the two answers are told
+        # apart by the parameter alone. This is the branch every dispatch that names no base takes.
+        It 'resolves the base itself when the same repository is dispatched without one' {
+            Set-AgentStartState
+            $r = Invoke-Dispatch -Fixture $script:Named -Name 'T-3102'
+            $r.base | Should -Be 'origin/dev' -Because 'with no base named, nothing about resolution changes'
+            (& git -C $r.worktree rev-parse 'HEAD').Trim() |
+                Should -Be (& git -C $script:Named.Repo rev-parse 'origin/dev').Trim()
+        }
+
+        # NAMING A BASE SKIPS THE RESOLVER, and the resolver is the only thing that says out loud
+        # when the branch point and the pull request target have come apart - so without this the
+        # dispatch most likely to have them apart is the quietest one in the fleet. It fires
+        # unconditionally: the target is taken from `pr.base_branch` on the default branch, falling
+        # back to that default branch, and this dispatch reads neither, so a warning conditioned on
+        # a declaration would cover half the cases while reading as though it covered all of them.
+        It 'warns that the pull request target is decided somewhere this dispatch did not look' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'named-base-warns'
+            git -C $f.Repo branch 'epic-checkout'
+
+            $warnings = @()
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-3107' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -Base 'epic-checkout' `
+                -WarningVariable warnings
+            $r.base | Should -Be 'epic-checkout'
+            $text = $warnings -join ' '
+            $text | Should -BeLike '*based on epic-checkout because this dispatch named it*'
+            $text | Should -BeLike '*pr.base_branch on the default branch*'
+            $text | Should -BeLike '*carries every commit epic-checkout has and its target does*'
+        }
+
+        # The other half of unconditional: it belongs to the parameter and to nothing else, so an
+        # ordinary dispatch - which is nearly all of them - must not start carrying a warning about
+        # a pull request target it never touched.
+        It 'says nothing of the kind when the base is resolved rather than named' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'named-base-quiet'
+
+            $warnings = @()
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-3108' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -WarningVariable warnings
+            $r.id | Should -Be 'T-3108'
+            @($warnings | Where-Object { "$_" -like '*because this dispatch named it*' }) |
+                Should -BeNullOrEmpty
+        }
+
+        # Refused where it costs nothing: before the worktree, the branch, the staged copies and the
+        # pane. A base that resolves to nothing is worse than a wrong one - `git log` and `git diff`
+        # against a missing ref write nothing to stdout, so the gate reads empty evidence as clean.
+        It 'refuses a base git cannot resolve, and makes no herdr call at all' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'named-base-unresolvable'
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-3103' -Base 'origin/no-such-epic' } |
+                Should -Throw '*git cannot resolve it*'
+            (Get-CallLines $f).Count | Should -Be 0
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-3103') |
+                Should -BeFalse -Because 'nothing is created before the base is known to exist'
+        }
+
+        # Going around the resolver must not go around its guard. The branch really does resolve, so
+        # this is the rule firing on the name rather than on the ref being missing.
+        It 'refuses a base in the worker branch namespace even though it resolves' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'named-base-worker'
+            git -C $f.Repo checkout -q -b 'worktree-other'
+            Set-Content -Path (Join-Path $f.Repo 'other.txt') -Value 'other' -Encoding utf8
+            git -C $f.Repo add -A
+            git -C $f.Repo commit -q -m 'Another worker commit'
+            git -C $f.Repo checkout -q 'main'
+            Test-RefResolves -RepoPath $f.Repo -Ref 'worktree-other' | Should -BeTrue
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-3104' -Base 'worktree-other' } |
+                Should -Throw '*worker branch namespace*'
+            (Get-CallLines $f).Count | Should -Be 0
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-3104') |
+                Should -BeFalse -Because 'nothing is created before the base is known to be allowed'
+        }
+
+        # THE SAME BRANCH UNDER EVERY NAME GIT RESOLVES IT BY. The guard used to be asked only about
+        # the resolver's own candidates, which can hold nothing but `worktree-x` and
+        # `origin/worktree-x`; asked about a string somebody typed, those two are not the whole
+        # question. `refs/remotes/origin/worktree-x` is what `git branch -a` prints, which is where
+        # a name gets copied from, and it points at the identical commit.
+        It 'refuses <Ref>, which git resolves to another worker''s branch' -ForEach @(
+            @{ Ref = 'refs/heads/worktree-other';          Name = 'T-3109' },
+            @{ Ref = 'heads/worktree-other';               Name = 'T-3110' },
+            @{ Ref = 'remotes/origin/worktree-other';      Name = 'T-3111' },
+            @{ Ref = 'refs/remotes/origin/worktree-other'; Name = 'T-3112' }
+        ) {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'named-base-spelling'
+            $f.Repo = New-TempRepo -WithOrigin
+            git -C $f.Repo checkout -q -b 'worktree-other'
+            Set-Content -Path (Join-Path $f.Repo 'other.txt') -Value 'other' -Encoding utf8
+            git -C $f.Repo add -A
+            git -C $f.Repo commit -q -m 'Another worker commit'
+            git -C $f.Repo push -q origin 'worktree-other' 2>&1 | Out-Null
+            git -C $f.Repo checkout -q 'main'
+            Test-RefResolves -RepoPath $f.Repo -Ref $Ref | Should -BeTrue `
+                -Because 'the refusal has to fire on a name that really does resolve'
+            (& git -C $f.Repo rev-parse "$Ref^{commit}").Trim() |
+                Should -Be (& git -C $f.Repo rev-parse 'worktree-other^{commit}').Trim()
+
+            { Invoke-Dispatch -Fixture $f -Name $Name -Base $Ref } |
+                Should -Throw '*worker branch namespace*'
+            (Get-CallLines $f).Count | Should -Be 0
+            Test-Path -LiteralPath (Join-Path $f.Repo ".claude\worktrees\$Name") |
+                Should -BeFalse -Because 'nothing is created before the base is known to be allowed'
+        }
+
+        It 'leaves a base that merely contains worktree- alone' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'named-base-lookalike'
+            git -C $f.Repo branch 'feature/worktree-cleanup'
+
+            $r = Invoke-Dispatch -Fixture $f -Name 'T-3105' -Base 'feature/worktree-cleanup'
+            $r.base | Should -Be 'feature/worktree-cleanup'
+        }
+
+        # The refusals say "Nothing was created" and that has to be true of the staged copies too,
+        # which are written well before the base is used. Checked early for exactly this reason.
+        It 'refuses before a single read-first copy is staged' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'named-base-nodebris'
+            $one = Join-Path (Split-Path $f.BriefDir -Parent) 'brand.md'
+            Set-Content -Path $one -Value 'teal' -Encoding utf8
+            Set-ReadFirstBrief -Fixture $f -Leaf @('brand.md')
+
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-3106' -BriefPath $f.BriefPath `
+                -DataPath $f.DataPath -ReadPath $one -Base 'origin/no-such-epic' } |
+                Should -Throw '*Nothing was created*'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') |
+                Should -BeFalse -Because 'a refusal that says nothing was created must have created nothing'
+        }
+    }
+
     Context 're-dispatching the same ticket' {
         # `git worktree add -b` cannot be told twice, and a raw "fatal: a branch named
         # worktree-T-2001 already exists" is not something the Hand can route on. Sending a worker
@@ -1117,6 +1424,176 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 Should -Throw '*under Read first and it does not exist*'
             Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-4003') |
                 Should -BeFalse -Because 'nothing is created before every named file is known to be there'
+        }
+    }
+
+    # A worker started into the last few percent of a usage window dies mid-run and leaves the work
+    # half done. The check is first of all of them because it is the one that costs nothing to fail:
+    # nothing exists yet, so the refusal is free.
+    #
+    # THE HALF THAT MATTERS MOST IS THE FAIL-OPEN HALF. A reading nobody could take must never make
+    # kingshand undispatchable, so only a percentage that was actually read refuses.
+    Context 'the usage window near its limit' {
+        AfterEach { Set-UsageReply }
+
+        It 'refuses at the threshold nobody passes, and creates nothing' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 95
+            $f = New-DispatchFixture 'usage-refused'
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-4101' } |
+                Should -Throw '*new work is refused from 90 percent*'
+            (Get-CallLines $f).Count | Should -Be 0 -Because 'nothing is spawned to be refused later'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-4101') | Should -BeFalse
+            @(& git -C $f.Repo branch --list 'worktree-T-4101') |
+                Should -BeNullOrEmpty -Because 'the refusal says nothing was created'
+        }
+
+        It 'names the number so the Hand can relay it' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 95
+            $f = New-DispatchFixture 'usage-message'
+
+            $err = { Invoke-Dispatch -Fixture $f -Name 'T-4102' } | Should -Throw -PassThru
+            "$($err.Exception.Message)" | Should -BeLike '*95 percent spent*'
+            "$($err.Exception.Message)" | Should -BeLike '*Nothing was created*'
+        }
+
+        # THESE TWO PIN THE DEFAULT THRESHOLD, and they are where the number 90 is held. Neither
+        # passes -UsageThresholdPercent, so both run on whatever the dispatcher's own default is:
+        # move it and one of the pair goes red. Docs.Tests.ps1 holds the other end - that the vigil
+        # skill and the design note tell the King the same 90 - so the two halves cannot drift apart
+        # without a test saying so, and neither half proves its point by reading the other's source.
+        It 'refuses exactly at the threshold, not only past it' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 90
+            $f = New-DispatchFixture 'usage-boundary'
+            { Invoke-Dispatch -Fixture $f -Name 'T-4103' } | Should -Throw '*refused from 90 percent*'
+        }
+
+        It 'dispatches below the threshold' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 89
+            $f = New-DispatchFixture 'usage-under'
+            (Invoke-Dispatch -Fixture $f -Name 'T-4104').id | Should -Be 'T-4104'
+        }
+
+        It 'takes a higher threshold from a caller that has to send this one out now' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 95
+            $f = New-DispatchFixture 'usage-override'
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4105' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -UsageThresholdPercent 99
+            $r.id | Should -Be 'T-4105'
+        }
+
+        # The prompt-box guards already made this call for an unreadable screen and the reasoning
+        # transfers: a blind guard that blocks everything costs more than one that lets work through
+        # and says it could not see.
+        It 'dispatches anyway when the reading could not be taken, and warns' {
+            Set-AgentStartState
+            Set-UsageReply -Broken
+            $f = New-DispatchFixture 'usage-unknown'
+
+            $warnings = @()
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4106' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -WarningVariable warnings
+            $r.id | Should -Be 'T-4106'
+            @($warnings | Where-Object { "$_" -like '*usage window*could not be established*' }).Count |
+                Should -BeGreaterThan 0 -Because 'a guard that has gone blind must say so'
+        }
+
+        # THE MEASURED TRAP, AT THE PLACE IT WOULD HAVE COST SOMETHING. The reply above always
+        # carries a spend cap at 100 percent with no reset time, exactly as this machine reports it.
+        # A threshold taken across every window would read 100 and refuse this dispatch, and every
+        # dispatch after it, for good.
+        It 'is not refused by a hundred-percent window that has no reset time' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 5
+            $f = New-DispatchFixture 'usage-spend-cap'
+            (Invoke-Dispatch -Fixture $f -Name 'T-4108').id | Should -Be 'T-4108'
+        }
+
+        # A stale reading is never a number, so it cannot refuse as a measurement - but the cached
+        # figure is a floor, consumption never falls inside a window, and a floor already past the
+        # threshold means the real figure is too.
+        It 'refuses on a stale floor that is already past the threshold' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 95 -Stale
+            $f = New-DispatchFixture 'usage-floor-over'
+
+            $err = { Invoke-Dispatch -Fixture $f -Name 'T-4109' } | Should -Throw -PassThru
+            "$($err.Exception.Message)" | Should -BeLike '*At least 95 percent*'
+            "$($err.Exception.Message)" | Should -BeLike '*floor from a cached reading*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-4109') | Should -BeFalse
+        }
+
+        # THE COMPARISON IS RAW AND THE FIGURE SHOWN IS ROUNDED DOWN, and this case is where the
+        # two would part company if either moved. A floor of 90.4 is past the threshold as an exact
+        # number, so it refuses; the message says "at least 90 percent" because that is all the
+        # cached reading measured, and claiming 91 would assert a point nobody read. Round the
+        # comparison instead and this dispatch would go out; round the message up and it would
+        # overstate the evidence.
+        It 'refuses on the exact floor while saying only the percentage that was measured' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 90.4 -Stale
+            $f = New-DispatchFixture 'usage-floor-exact'
+
+            $err = { Invoke-Dispatch -Fixture $f -Name 'T-4111' } | Should -Throw -PassThru
+            "$($err.Exception.Message)" | Should -BeLike '*At least 90 percent*'
+            "$($err.Exception.Message)" | Should -Not -BeLike '*At least 91 percent*'
+        }
+
+        # The other side of that boundary. 89.6 shows as 89 and must still dispatch, because the
+        # exact figure is under the threshold - a comparison that rounded the floor up first would
+        # refuse this one.
+        It 'dispatches on a floor under the threshold that would refuse if it were rounded up' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 89.6 -Stale
+            $f = New-DispatchFixture 'usage-floor-near'
+
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4112' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -WarningAction SilentlyContinue
+            $r.id | Should -Be 'T-4112'
+        }
+
+        # A refusal that does not say when the window clears leaves out the one thing wanted next,
+        # and on this machine the floor refusal is the one that fires most.
+        It 'tells the user when the window resets on a floor refusal' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 95 -Stale
+            $f = New-DispatchFixture 'usage-floor-reset'
+
+            $err = { Invoke-Dispatch -Fixture $f -Name 'T-4113' } | Should -Throw -PassThru
+            "$($err.Exception.Message)" | Should -BeLike '*It resets at *'
+        }
+
+        It 'dispatches on a stale floor below the threshold, and says the reading was not current' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 20 -Stale
+            $f = New-DispatchFixture 'usage-floor-under'
+
+            $warnings = @()
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4110' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -WarningVariable warnings
+            $r.id | Should -Be 'T-4110'
+            @($warnings | Where-Object { "$_" -like '*without a current usage reading*' }).Count |
+                Should -BeGreaterThan 0
+        }
+
+        # A settled "nothing here reports this" is a stable fact about the machine rather than
+        # something wrong with it, and a warning on every dispatch for a state nobody can act on
+        # teaches the reader to skip the next one.
+        It 'dispatches without a word when the account reports no windows at all' {
+            Set-AgentStartState
+            Set-UsageReply -NoWindows
+            $f = New-DispatchFixture 'usage-none'
+
+            $warnings = @()
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4107' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -WarningVariable warnings
+            $r.id | Should -Be 'T-4107'
+            @($warnings | Where-Object { "$_" -like '*usage*' }) | Should -BeNullOrEmpty
         }
     }
 

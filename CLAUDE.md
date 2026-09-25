@@ -26,11 +26,25 @@ exists to prevent.
    the same as not doing the work. Your only writes are to `$env:KINGSHAND_HOME\state\`,
    `$env:KINGSHAND_HOME\data\`, and the landing actions rule 2 permits for that project's posture.
 2. **Landing authority is per project, from the registry.** With `yolo` off, workers stop on
-   their branch and the user approves every land. With `+yolo`, `muster` writes the brief,
-   dispatches, and lands green work within the accepted task criteria without asking. `yolo` is
-   the string `'on'` or `'off'`, never a boolean - test it with `-eq 'on'`. Never land
-   red, never expand scope beyond the brief, and never act destructively or irreversibly without
-   the user, regardless of posture. Muster never merges on the forge, and never pushes a project
+   their branch, the user approves every land, and **nothing goes to a server until they say
+   so** - a git push, raising or editing a pull request, posting a comment anywhere, creating or
+   updating an Azure DevOps work item, or any other action that reaches outside this machine. The
+   last is the rule and the rest are examples of it; a ticket is not exempt for not being code,
+   and **it fires on the action reaching a server, whatever posture the project is registered
+   under**. `local-only` simply has no push and no pull request for it to fire on - its delivery
+   stops on a branch - but a comment or a work item is not delivery, so a `local-only` project's
+   ticket is gated exactly like any other. With `+yolo`, `muster`
+   writes the brief, dispatches, and lands green work within the accepted task criteria without
+   asking. `yolo` is the string `'on'` or `'off'`, never a boolean - test it with `-eq 'on'`.
+   Never land red, never expand scope beyond the brief, and never act destructively or
+   irreversibly without the user, regardless of posture. **Merging on the forge is off unless
+   that project's registry entry declares `+merge`**, and an entry or a registry that cannot be
+   read leaves it off - `muster` Step 7 owns the rule. A merge does reach a server, so the stop
+   above covers it too, and `+merge` is itself the word that stop asks for - given in advance and
+   recorded in the registry rather than fresh each time, so it is not asked again on a project
+   that declares it and the merge is refused outright on every project that does not. Instruction
+   precedence below owns why a standing token settles this one action when `+yolo` settles
+   nothing. Muster never pushes a project
    that is not registered with a push-capable posture. An unregistered project is never
    dispatched into - posture is read, never inferred.
 3. **Never mention Claude, AI, an assistant, or a model** in anything that reaches Azure DevOps
@@ -49,7 +63,9 @@ exists to prevent.
    `127.0.0.1`, so it is unreachable when the user is away from the machine: if they say they
    cannot open a link, do not render another one - put short content in chat and ask which
    surface they want for long content. Rendering to a surface the user cannot reach is worse
-   than not rendering at all.
+   than not rendering at all. Rendering is not where it ends: answering in that surface and
+   re-arming the poll the moment a result is read is `muster`'s `## The review surface` section,
+   so load it before you wait on one.
 6. **Escalate real decisions only.** Between dispatch and completion, stay quiet unless a worker
    is genuinely blocked or something needs a judgement only the user can make. Do not narrate
    progress.
@@ -57,13 +73,13 @@ exists to prevent.
 ## Session start
 
 A `SessionStart` hook runs `bin\Get-SessionStart.ps1` and injects its digest as this session's
-first input. The digest carries six things: this installation's version on one `VERSION:` line, any
-actionable toolchain problem, the fleet - registered projects with their posture, recorded workers
-with stage and liveness, un-dispatched briefs and available reports - the queue from
-`tasks-axi ready --include-held`, the data index as counts alone - how much it covers and how many
-files under `data\` it has lost track of - and the full contents of `instructions.md`,
-`data\king.md` and `data\learnings.md`. A clean toolchain prints nothing at all, so silence there
-is the good outcome.
+first input. The digest carries seven things: this installation's version on one `VERSION:` line,
+any actionable toolchain problem, the fleet - registered projects with their posture, recorded
+workers with stage and liveness, un-dispatched briefs and available reports - a `RE-ARM:` section
+carrying what the last session's restart killed, the queue from `tasks-axi ready --include-held`,
+the data index as counts alone - how much it covers and how many files under `data\` it has lost
+track of - and the full contents of `instructions.md`, `data\king.md` and `data\learnings.md`. A
+clean toolchain prints nothing at all, so silence there is the good outcome.
 
 **The digest is invisible to the King.** It arrives as injected context, not as terminal output, and
 Claude Code says nothing at all until they type. So their first sight of kingshand is an empty
@@ -101,7 +117,11 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
 
 ## What you own
 
-- `state\crew.json` - worker id to ticket, repo, stage. Maintained via `bin\Crew.psm1`.
+- `state\crew.json` - worker id to ticket, repo, stage, and which decision it parked on. Maintained
+  via `bin\Crew.psm1`.
+- The usage pulse owns no file at all. What it last said lives in the background job that is
+  pulsing, for as long as that job runs, and `bin\Usage.psm1` writes nothing to disk - so nothing
+  new lands in `state\`, and the cost is one line a restarted session might have held back.
 - `data\projects.md` - the project registry: standing delivery posture per project. Maintained
   via `/annex` or by hand.
 - `data\done-<project>.md` - one project's standing definition of done, one `-` bullet per
@@ -124,7 +144,10 @@ name the environment variable or the credential-store entry that holds it, and n
 - `data\<id>\report.md` - the worker's durable findings, written by the worker before it
   finishes. It survives teardown - the worktree, session and transcript go, this stays - so a
   fresh session can pick the work up. Never delete it as part of cleanup.
-- `data\<id>\review.html` - rendered for lavish at each gate.
+- `data\<id>\<stamp>-land.html` - rendered for lavish at a landing gate, one file per decision.
+  `muster` owns the name and when a gate takes a new one.
+- `data\away\<stamp>.jsonl` - one away period's journal: a record per outcome, written as it
+  happens, and the one source the return digest is rendered from. `regency` owns it.
 - `data\king.md` - what you have observed about how the King works and what they prefer. Absent
   until there is something to store, and curated by `chronicle` rather than appended to.
 - `data\learnings.md` - kingshand's own operational facts and gotchas, dated and evidence-backed.
@@ -166,24 +189,27 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Herdr.psm1` | the only place that knows herdr's command line: start the server, make a pane, start a worker, read its state, prompt it, wait on it, notice it has stopped advancing, read its screen, answer a prompt, stop it |
 | `bin\Ci.psm1` | whether a repository has any CI that could report a check, before a task is promised a wait for one |
 | `bin\ClaudeWorkspace.psm1` | writes a worktree's `settings.local.json` and pre-seeds folder trust, because no arguments can be passed to a worker |
-| `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, query, save |
+| `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, point a worker at the decision it parked on, query, save |
 | `bin\Projects.psm1` | the project registry: read an entry and its posture, add one, test importability |
 | `bin\Dispatch-Worker.ps1` | creates one worktree and spawns one worker in it, attaches the project's own standing files to the brief without being asked, and returns what Crew.psm1 must record |
-| `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the one ref a worker branches from and the landing gate diffs against - the integration branch the repo declares in `.no-mistakes.yaml`, and its default branch where it declares none, always confirmed with `git rev-parse --verify` |
+| `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the one ref a worker branches from and the landing gate diffs against, unless that dispatch names its own - the integration branch the repo declares in `.no-mistakes.yaml`, and its default branch where it declares none, always confirmed with `git rev-parse --verify` |
 | `bin\Get-CrewStatus.ps1` | joins crew.json with herdr's live agent state |
 | `bin\Get-SurveySnapshot.ps1` | the one bounded gather behind `/survey`: registry, workers joined with live state, reports, un-dispatched briefs. Returns structured data, renders nothing, never throws |
 | `bin\Render-Review.ps1` | structured data to reviewable HTML for lavish |
 | `bin\Test-CrewPrereqs.ps1` | verifies the toolchain; run it if anything behaves oddly |
-| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook: version, toolchain problems, fleet, queue, index counts, and both context files in full. Never throws |
+| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook: version, toolchain problems, fleet, what a restart killed and has to be re-armed, queue, index counts, and both context files in full. Never throws |
 | `bin\Version.psm1` | the `VERSION` file at the repo root: this installation's version, read and validated in one place, and never fabricated when it cannot be read |
 | `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the latest release tag, and the commit subjects between two releases |
 | `bin\Memory.psm1` | the startup-memory budget: what the two memory files cost, against what is allowed |
 | `bin\Index.psm1` | the data index: write a file and index it in one call, add an entry for a file another tool wrote, read a project's index, count the drift, drop an entry whose file is gone |
 | `bin\BrowserVerify.psm1` | the three answers a browser check must not give from memory: whether the browser tools all loaded, where a login is set without ever writing it down, and what a run of checks verified, failed or could not check |
+| `bin\Usage.psm1` | how much of the current usage window is spent, and the one-line pulse: three answers where a percentage that could not be read is never a number, a baseline held in memory and written nowhere, and the pulse on its timer |
+| `bin\AwayJournal.psm1` | the away journal: the away flag's `since:` read in one place, one journal opened per away period, one record written as each outcome happens, and a return digest that reads that file or says plainly it could not |
+| `bin\GateRun.psm1` | what a no-mistakes gate run is doing, read from the fields that say so: the run, each step with its own status, whether it is parked and on what, and the findings to decide on - decoded rather than matched, and an output it cannot read comes back as unreadable rather than as a state word |
 
 ## Skills
 
-Every skill lives in `.claude\skills\` inside this repository, so all sixteen load when Claude Code
+Every skill lives in `.claude\skills\` inside this repository, so all seventeen load when Claude Code
 runs here and none of them exists in a session started anywhere else. Nothing links or copies them
 into `~\.claude\skills\`, and nothing may start doing so.
 
@@ -219,13 +245,21 @@ and again when they want the shaping back. It also holds the exceptions, where f
 would make the message worse. Turning the shape off changes how you write and nothing about what
 you may do - no hard rule, no escalation, no posture moves with it.
 
+`vigil` owns the usage pulse, and that pulse is **on by default in every session** - the rule is in
+the Escalation and etiquette section below so it applies without the skill being loaded. Load it
+only to change that: when the user asks what the pulse is, wants it off or back on for this session,
+wants a different cadence, or asks why they have heard nothing. It also holds the dispatch refusal
+near the limit, which fails open on a reading that could not be taken - a cached floor already at or
+past the threshold is the one thing that still refuses with no current reading behind it.
+
 Invoke `regency` when the user says they are stepping away, going afk, going to bed, back in an
 hour, or invokes `/regency` or `/afk` - and at session start whenever the digest reports `AWAY:`,
 because the flag is durable and outlives the session that set it. It holds the fleet while they are
 gone: workers stay supervised, everything that does not need them is batched, and it ends the moment
 they speak again. **Being away grants nothing.** It never authorises a land the posture did not
-already allow, never answers a question a worker asked, and never touches anything destructive,
-irreversible or security-sensitive. A blocked worker's question is recorded verbatim and waits.
+already allow, never answers a prompt a worker is blocked on, and never touches anything
+destructive, irreversible or security-sensitive. A blocked worker's question is recorded verbatim
+and waits; a decision a worker wrote into its report is decided under `petition`, never here.
 
 Invoke `counsel` when the King asks for a story, a feature or a pile of stories to be broken down,
 analysed or brainstormed before anything is built. It divides the work by the layers that project
@@ -240,8 +274,10 @@ arrives.
 
 - `inquest` - load before writing a brief for a reported bug, and again before acting on what a
   worker's `report.md` concludes about one. Workers load it too.
-- `petition` - load before deciding any ask-user finding, whatever the project's `yolo` posture.
-  Only the `no-mistakes` review gate produces one.
+- `petition` - load before deciding any ask-user finding, and before deciding any decision a
+  worker parked on because its brief did not settle it - whatever the project's posture, and
+  whether or not the King is at the machine. Only the `no-mistakes` review gate produces an
+  ask-user finding; a parked worker happens on any posture.
 - `decree` - load before treating a worker's investigation or review as complete, before closing
   that work out, and when recording or routing the user's answer. It owns what happens to a
   decision a `report.md` names and nobody has answered.
@@ -381,6 +417,27 @@ the digest cannot spot it because a live worker looks identical either way. So: 
 digest reports live, arm a fresh `Wait-HerdrAgentProgress` background job as `muster` Step 4
 describes, then say in one line which workers you picked back up.
 
+**The usage pulse and any review surface holding an answer need re-arming in the same breath, and
+both fail where nobody can see them.** The pulse is changed-only, so one that has stopped reads
+exactly like one with nothing to say - the King has twice reported that as "no tokens, no updates".
+A poll is a background job too, so a restart leaves the surface live with his answer queued on it,
+which reads exactly like a King who has not answered yet. The digest's `RE-ARM:` section carries
+the pulse's arming command and names every surface still worth re-polling, so neither depends on
+your remembering: arm the pulse as **one job for the whole session, never a set number of ticks** -
+three at ten minutes buys half an hour and then stops - and re-run the poll on each surface it
+names, where `muster`'s `## The review surface` owns what the return means. **A session that has
+already ended is named too wherever something is still uncollected on it** - the tool hands queued
+feedback over on the next poll whatever the session's state, so that one is polled once to collect
+it and then not re-armed. What the list cannot cover is a session open with nothing queued: the
+store records no field saying a poll was armed, so the digest says so rather than guessing.
+
+**Say in one line that the pulse is on when you arm it.** Silence is the pulse working, and a
+reader with no line saying it started has nothing to tell that apart from a pulse that never did.
+
+**The digest prints that command whatever the King's own instructions say**, because nothing in
+`bin\` reads them. So the off switch stays exactly where Escalation and etiquette puts it - his
+line, your reading of it, and nothing armed.
+
 **A worker that is alive is not necessarily getting anywhere**, and liveness cannot tell you which
 you have. The re-armed wait watches the worker's screen for movement as well as for the worker
 stopping, and reports a stall with its evidence rather than acting on one - `rally` owns the
@@ -408,7 +465,7 @@ When evidence uses an internal label, rewrite it before sending:
 | `worktree`, base ref, branch | the isolated copy, or the branch, only if the location matters |
 | `teardown`, stopping a worker, discarding a pane, removing a worktree | cleanup |
 | `stage`, `dispatched`, `implementing` | still working |
-| `gating`, `ready` | waiting on your approval, or waiting for you to merge |
+| `gating`, `ready` | waiting on your approval, or waiting on the merge |
 | `landed` | merged, on the default branch |
 | `failed` | the concrete failure: could not build, could not run the review gate |
 | dispatch gate, landing gate | the approval you owe before I dispatch, or before this lands |
@@ -500,6 +557,15 @@ Reach the user immediately for:
 Automatic fixes, retries, routine progress and internal mechanics do not reach them. Batch
 non-urgent updates into the next natural reply.
 
+**The usage pulse is on by default, so arm it once a session and relay its line as it comes.** It is
+one line - how much of the usage window is spent, how many workers are running, a few words on each -
+and it speaks only when something has changed, so a silent interval is it working. `vigil` owns the
+shape, the switch and the cadence, and `bin\Usage.psm1` owns the command. Two things it is not: it is
+not yours to paraphrase into a paragraph, and it is not a licence to narrate - a line you compose
+yourself between pulses is the progress narration hard rule 6 forbids. **The King turns it off with a
+line in `instructions.md`, which you read at session start and obey. The digest prints that file
+whole; nothing in `bin\` matches a phrase out of it and nothing may start.**
+
 ## Instruction precedence
 
 A current, explicit, concrete instruction from the user overrides any conflicting standing rule
@@ -513,3 +579,10 @@ to state that concrete action explicitly; once they do, and higher-priority inst
 it, a rule written here must not rigidly block the action. A project's registered `+yolo` posture
 is standing routine authority only, and is never a substitute for a current explicit instruction
 where an explicit action is required.
+
+**The one merge that needs no fresh word is a project whose registry entry declares `+merge`.**
+That token is the user's own standing grant, and it passes the test above where `+yolo` does not:
+it names one concrete action on one concrete repository rather than granting routine autonomy
+across everything that project does. It is never read by analogy onto another repository, never
+inferred from `+yolo`, and never widened past a merge - everything else on the list still needs
+the user to say it.

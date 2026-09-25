@@ -11,11 +11,12 @@ version: 1.0.0
 
 You dispatch background workers, one per unit of work, each in its own git worktree. How much
 the user is involved depends on the project's posture. With `yolo` off, which is the default,
-they are involved at two moments: approving what gets dispatched, and approving what lands. With
-`+yolo` they are involved at neither - you proceed on your own, inside the floors in Step 7 that
-no posture relaxes. And for the push-capable modes, `direct-PR` and `no-mistakes`, your
-involvement ends at a pull request the user merges on the forge rather than at anything you land
-here.
+they are involved at two moments: approving what gets dispatched, and approving what lands - and
+that second gate is held **before** anything goes to a server rather than after it, because hard
+rule 2 says nothing reaches one until they say so. With `+yolo` they are involved at neither -
+you proceed on your own, inside the floors in Step 7 that no posture relaxes. And for the
+push-capable modes, `direct-PR` and `no-mistakes`, your involvement ends at a pull request, which
+you merge only where that project's registry entry declares `+merge`.
 
 Everything you are not gating on is yours, and you stay quiet through it.
 
@@ -96,7 +97,7 @@ Resolve the project through the registry. It supplies both the path and the post
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Projects.psm1 -Force
 $proj = Get-ProjectEntry -Name "<project name>"
-[pscustomobject]$proj | Format-List name, path, rawMode, yolo
+[pscustomobject]$proj | Format-List name, path, rawMode, yolo, merge
 ```
 
 **The `[pscustomobject]` cast is required.** `Get-ProjectEntry` returns a hashtable, and
@@ -111,6 +112,11 @@ dispatching shows you nothing.
 > landing gate at Step 7 - on projects the user never granted autonomy for. There is no
 > recovery from that; the work is already dispatched or already landed. Test the value, never
 > the variable.
+
+**`$proj.merge` is the same shape and takes the same test.** It is the string `'on'` or `'off'`,
+it says only whether this repository's own green pull requests may be merged on the forge, and it
+is `'off'` on every project that does not declare `+merge`. Test it as `$proj.merge -eq 'on'`.
+Step 7 owns what it permits, and nothing before Step 7 reads it.
 
 **An unregistered project stops the dispatch.** `Get-ProjectEntry` throws, and that is correct:
 posture is never inferred, only read. Tell the user the project is not registered and offer to
@@ -178,19 +184,24 @@ kingshand repository sat on that step for over an hour and was found only becaus
 Import-Module $env:KINGSHAND_HOME\bin\Ci.psm1 -Force
 $ci = Get-RepoCiStatus -RepoPath "<absolute repo path>"
 "$($ci.status) - $($ci.detail)"
+$ci.gateLine
 $ci.briefLine
 ```
 
 Three answers, and each one changes what happens next:
 
-- `has-ci` - carry on. `$ci.briefLine` is the ordinary line and Step 2 uses it unchanged.
+- `has-ci` - carry on. `$ci.gateLine` is the ordinary gate line, `$ci.briefLine` is the ordinary
+  delivery line, and Step 2 uses both unchanged.
 - `no-ci` - carry on, and **say so in one plain line when you tell the user what you are
-  dispatching**. `$ci.briefLine` now tells the worker to stop at the pull request instead of
-  waiting for checks that cannot arrive. Do not offer to add CI to the repository: an absence is a
+  dispatching**. `$ci.gateLine` now carries `--skip ci`, so the step that would wait for a check
+  nothing can report is never run, and `$ci.briefLine` tells the worker the pull request is where
+  delivery ends. Do not offer to add CI to the repository: an absence is a
   decision somebody made, and this step makes it safe rather than reversing it.
 - `unknown` - the question could not be settled: no `gh`, a remote this cannot see, an
   unauthenticated machine, a network that did not answer. **Say which, in one line, at dispatch
-  time.** `$ci.briefLine` is the terminating one here too, because under uncertainty a worker that
+  time.** `$ci.gateLine` deliberately carries **no skip** here - a failed lookup is not proof that
+  nothing reports, and skipping a step that may genuinely exist is a real reduction in what the gate
+  checks. `$ci.briefLine` is the terminating one instead, because under uncertainty a worker that
   stops at the pull request loses at most a wait for a check the user can see on the forge anyway,
   while one told to wait for green loses an hour to checks that may not exist.
 
@@ -198,8 +209,17 @@ Three answers, and each one changes what happens next:
 when you report it.** The whole value of the check is that a failed lookup stays visibly a failed
 lookup - `bin\Ci.psm1`'s header owns why, and it never converts one into an answer.
 
-Carry `$ci.briefLine` to Step 2 verbatim. A preflight whose answer never reaches the brief changes
-nothing at all, because the worker reads its brief and nothing else.
+**On `no-ci` the answer is carried by a flag and not by a sentence, and that is the whole of the
+fix.** A worker sitting on the `ci` step is inside the gate's own long-running call watching that
+step - it is not reading its brief, so an instruction telling it to give up after fifteen minutes
+reaches nobody. Three runs here measured exactly that: 224 seconds ending in a `cancelled` outcome
+somebody then had to explain away, one more, and finally 48 minutes against a brief that said
+fifteen. `--skip ci` removes the step instead. Anywhere a constraint has to hold while an agent is
+inside a call like that, name the flag, the timeout or the guard that enforces it rather than
+writing the constraint down and hoping.
+
+Carry `$ci.gateLine` and `$ci.briefLine` to Step 2 verbatim. A preflight whose answer never reaches
+the brief changes nothing at all, because the worker reads its brief and nothing else.
 
 ## Step 2 - Write a brief per unit of work
 
@@ -420,9 +440,9 @@ Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
 Add-IndexEntry -Project "<project>" -Path "data\<id>\brief.md" -Summary "<the one-line title>"
 ```
 
-**The Done-means block is generated from the resolved mode.** Use exactly one of these four - and
-for a `no-mistakes` task, which of the two `no-mistakes` blocks is chosen by Step 1b's answer, not
-by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
+**The Done-means block is generated from the resolved mode.** Use exactly one of these five - and
+for a `no-mistakes` task, which of the three `no-mistakes` blocks is chosen by Step 1b's answer, not
+by memory: there is one block per answer and they appear in the order `has-ci`, `no-ci`, `unknown`.
 
 `local-only`:
 
@@ -442,7 +462,15 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   run hangs until it is killed.
 - When you reach a decision your brief does not settle, write the question into
   `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
-  would need in order to choose - then stop and say so in your final message.
+  would need in order to choose - then say so in your final message and end your turn. **Write it
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
+  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
+  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  The answer comes back to you as an ordinary prompt and you carry on from there, so leave
+  everything where it is: do not undo what you have done, do not pick a different task, and do not
+  report the work as failed. When the answer reaches you, write down what was decided and what you
+  did with it in that same file, and carry on. A second question later is just another question,
+  written the same way.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping.
 - Never mention Claude, AI, or an assistant in any commit message or file.
@@ -469,7 +497,15 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   run hangs until it is killed.
 - When you reach a decision your brief does not settle, write the question into
   `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
-  would need in order to choose - then stop and say so in your final message.
+  would need in order to choose - then say so in your final message and end your turn. **Write it
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
+  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
+  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  The answer comes back to you as an ordinary prompt and you carry on from there, so leave
+  everything where it is: do not undo what you have done, do not pick a different task, and do not
+  report the work as failed. When the answer reaches you, write down what was decided and what you
+  did with it in that same file, and carry on. A second question later is just another question,
+  written the same way.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
   `report.md` and continue rather than stopping.
 - Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
@@ -494,6 +530,14 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   handed a mangled sentence and no error. Run the line in PowerShell and double any single quote
   inside the section - doubling is PowerShell's escape, and in a POSIX shell the same two
   characters close and reopen the string, so the apostrophe is deleted instead.
+- A finding the gate classifies `ask-user` is a decision your brief does not settle, so it takes
+  the `When you reach a decision your brief does not settle` bullet below - named by its text,
+  because a bullet named by position points at whatever was inserted above it since. **Leave the
+  run parked while you wait.** `axi run` returned at that gate rather than holding your terminal,
+  so the run still owns the branch and every fix commit it has already made, and nothing is being
+  lost by waiting. Do not abort it, do not start a second run, and never pass `--yes` - that flag
+  decides ask-user findings itself with no escalation, which is the one thing you may not do. When
+  the answer reaches you, apply it with `no-mistakes axi respond` on that same run and carry on.
 - Drive the pipeline through to a pull request and report its full https:// URL when CI is
   first green. Do not merge it.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
@@ -503,18 +547,90 @@ by memory: `has-ci` takes the first, `no-ci` and `unknown` take the second.
   run hangs until it is killed.
 - When you reach a decision your brief does not settle, write the question into
   `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
-  would need in order to choose - then stop and say so in your final message.
+  would need in order to choose - then say so in your final message and end your turn. **Write it
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
+  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
+  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  The answer comes back to you as an ordinary prompt and you carry on from there, so leave
+  everything where it is: do not undo what you have done, do not pick a different task, and do not
+  report the work as failed. When the answer reaches you, write down what was decided and what you
+  did with it in that same file, and carry on. A second question later is just another question,
+  written the same way.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
-  `report.md` and continue rather than stopping.
+  `report.md` and continue rather than stopping. **A finding the gate classified `ask-user` is
+  never one of those.** Stating an assumption over one and carrying on is you answering your own
+  ask-user finding, which is the one thing you may not do - write it down as the bullet above says
+  and wait, however obvious the answer looks from here.
 - Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
 - If the repo cannot build or the gate cannot run, stop and say so plainly in your final
   message rather than reporting success.
 ```
 
-`no-mistakes`, where Step 1b answered `no-ci` or `unknown`. Identical but for the `Drive the
-pipeline` line, which is the whole point of the preflight - it ends a wait that would otherwise have
-no end. Named by its text and never by its position: bullets get inserted above it, and an ordinal
-that has gone stale points a Hand at the gate-run bullet instead:
+`no-mistakes`, where Step 1b answered `no-ci`. Identical but for two lines, and both of them are
+computed rather than chosen: the gate line carries `--skip ci`, so the step that would wait for a
+check nothing can report is never run, and the `Drive the pipeline` line says the pull request is
+where delivery ends. Both are named by their text and never by their position: bullets get inserted
+above them, and an ordinal that has gone stale points a Hand at the wrong one:
+
+```markdown
+- Implemented and committed on this worktree's branch.
+- Before you deliver - before you invoke the gate, push, open a pull request, or stop on the
+  branch - work the `Standing criteria` section above line by line and record the result in
+  `report.md`: for each line, `pass` with what you checked, `fixed` with what you changed, or `n/a`
+  with the reason. A criterion you cannot check is a criterion to report, not to skip. Where
+  `Requirements` or `Unchanged` sets a criterion aside, this brief overrides that line: record it
+  `n/a` naming the brief line that set it aside, and do not implement it.
+- Run the review gate from inside the worktree and fix what it parks:
+  `no-mistakes axi run --skip ci --intent '<the `Intent` section above, verbatim on one line>'`
+  Single quotes, and keep them: that section names files, modes and postures in backticks, and in a
+  double-quoted PowerShell string a backtick escapes the character after it, so the gate would be
+  handed a mangled sentence and no error. Run the line in PowerShell and double any single quote
+  inside the section - doubling is PowerShell's escape, and in a POSIX shell the same two
+  characters close and reopen the string, so the apostrophe is deleted instead.
+- A finding the gate classifies `ask-user` is a decision your brief does not settle, so it takes
+  the `When you reach a decision your brief does not settle` bullet below - named by its text,
+  because a bullet named by position points at whatever was inserted above it since. **Leave the
+  run parked while you wait.** `axi run` returned at that gate rather than holding your terminal,
+  so the run still owns the branch and every fix commit it has already made, and nothing is being
+  lost by waiting. Do not abort it, do not start a second run, and never pass `--yes` - that flag
+  decides ask-user findings itself with no escalation, which is the one thing you may not do. When
+  the answer reaches you, apply it with `no-mistakes axi respond` on that same run and carry on.
+- Drive the pipeline through to a pull request and stop there. Nothing reports a check on
+  this repository, so your gate line carries `--skip ci` and the pipeline ends at its `pr`
+  step with no `ci` step to wait on. Report the pull request's full https:// URL as
+  delivered, say plainly that the `ci` step was skipped because this repository has no
+  CI, and stop. Do not merge it.
+- Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
+  required every time, including when the work succeeded plainly with nothing surprising in it.
+- Never call `AskUserQuestion`, and never open any interactive prompt, menu or confirmation of
+  any kind. You are a background agent with nobody attached: there is no one to answer, and the
+  run hangs until it is killed.
+- When you reach a decision your brief does not settle, write the question into
+  `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
+  would need in order to choose - then say so in your final message and end your turn. **Write it
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
+  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
+  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  The answer comes back to you as an ordinary prompt and you carry on from there, so leave
+  everything where it is: do not undo what you have done, do not pick a different task, and do not
+  report the work as failed. When the answer reaches you, write down what was decided and what you
+  did with it in that same file, and carry on. A second question later is just another question,
+  written the same way.
+- Where you can proceed on a stated assumption instead, do that: record the assumption in
+  `report.md` and continue rather than stopping. **A finding the gate classified `ask-user` is
+  never one of those.** Stating an assumption over one and carrying on is you answering your own
+  ask-user finding, which is the one thing you may not do - write it down as the bullet above says
+  and wait, however obvious the answer looks from here.
+- Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
+- If the repo cannot build or the gate cannot run, stop and say so plainly in your final
+  message rather than reporting success.
+```
+
+`no-mistakes`, where Step 1b answered `unknown`. Identical but for the `Drive the pipeline` line,
+and **its gate line deliberately carries no skip**: a failed lookup is not proof that nothing
+reports here, and skipping a step that may genuinely exist is a real reduction in what the gate
+checks. The terminating line bounds the wait instead, which is all an unsettled question supports -
+and it is the fallback wherever a skip cannot be passed at all:
 
 ```markdown
 - Implemented and committed on this worktree's branch.
@@ -531,6 +647,14 @@ that has gone stale points a Hand at the gate-run bullet instead:
   handed a mangled sentence and no error. Run the line in PowerShell and double any single quote
   inside the section - doubling is PowerShell's escape, and in a POSIX shell the same two
   characters close and reopen the string, so the apostrophe is deleted instead.
+- A finding the gate classifies `ask-user` is a decision your brief does not settle, so it takes
+  the `When you reach a decision your brief does not settle` bullet below - named by its text,
+  because a bullet named by position points at whatever was inserted above it since. **Leave the
+  run parked while you wait.** `axi run` returned at that gate rather than holding your terminal,
+  so the run still owns the branch and every fix commit it has already made, and nothing is being
+  lost by waiting. Do not abort it, do not start a second run, and never pass `--yes` - that flag
+  decides ask-user findings itself with no escalation, which is the one thing you may not do. When
+  the answer reaches you, apply it with `no-mistakes axi respond` on that same run and carry on.
 - Drive the pipeline through to a pull request and stop there.
   Checks may not report on this repository at all, so when the pipeline's `ci` step has been
   waiting more than fifteen minutes with no checks reported, report the pull request's full
@@ -543,18 +667,72 @@ that has gone stale points a Hand at the gate-run bullet instead:
   run hangs until it is killed.
 - When you reach a decision your brief does not settle, write the question into
   `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
-  would need in order to choose - then stop and say so in your final message.
+  would need in order to choose - then say so in your final message and end your turn. **Write it
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
+  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
+  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  The answer comes back to you as an ordinary prompt and you carry on from there, so leave
+  everything where it is: do not undo what you have done, do not pick a different task, and do not
+  report the work as failed. When the answer reaches you, write down what was decided and what you
+  did with it in that same file, and carry on. A second question later is just another question,
+  written the same way.
 - Where you can proceed on a stated assumption instead, do that: record the assumption in
-  `report.md` and continue rather than stopping.
+  `report.md` and continue rather than stopping. **A finding the gate classified `ask-user` is
+  never one of those.** Stating an assumption over one and carrying on is you answering your own
+  ask-user finding, which is the one thing you may not do - write it down as the bullet above says
+  and wait, however obvious the answer looks from here.
 - Never mention Claude, AI, or an assistant in any commit message, PR title, PR body or file.
 - If the repo cannot build or the gate cannot run, stop and say so plainly in your final
   message rather than reporting success.
 ```
 
-That `Drive the pipeline` line is `$ci.briefLine` from Step 1b, and taking it from there rather than
-retyping it is the point: the two must agree, and only one of them is computed from what the
-repository actually has. **Do not decide between the two blocks yourself** - a repository with no workflow file may
+Those two lines are `$ci.gateLine` and `$ci.briefLine` from Step 1b, and taking them from there
+rather than retyping them is the point: the block and the preflight must agree, and only one of them
+is computed from what the repository actually has. **Do not decide between the three blocks
+yourself** - a repository with no workflow file may
 still get checks from outside it, which is exactly the case a reading-by-eye gets wrong.
+
+### With `yolo` off, a push-capable block stops before anything leaves the machine
+
+Hard rule 2 says nothing goes to a server until the user says so, and a worker cannot ask - so the
+brief stops it at the last local step, and the Step 7 gate, held before the push rather than after
+it, is where the user answers. **`local-only` is untouched**: no Done-means block above changes,
+because none of them pushes or opens a pull request, so there is nothing here to hold back and no
+separate confirmation exists for it. That is about this project's delivery and not about everything
+it touches - a comment or a work item on a `local-only` project is gated by rule 2 like any other.
+
+For a `direct-PR` task, replace the `Push the branch and open a pull request` bullet and the
+`Do not merge it` bullet after it with this one:
+
+```markdown
+- Leave the work committed and stop there. Do not push, do not open a pull request, do not
+  comment anywhere, and do not create or update a work item. Nothing this task produces goes to
+  a server yet. Say in your final message that the branch is ready to go out.
+```
+
+For a `no-mistakes` task, replace the whole `Drive the pipeline` bullet - whichever of the three
+Step 1b chose - with these two, and make the gate line above them `--skip push,pr,ci`:
+
+```markdown
+- Run the gate with `--skip push,pr,ci` so it stops at the last local step, and fix everything it
+  parks. Do not push, do not open a pull request, do not comment anywhere, and do not create or
+  update a work item. Report what the gate found and stop there.
+- When you are told the push is approved, run the gate line again with the push hold lifted:
+  <the gate line Step 1b chose, verbatim>
+  <the `Drive the pipeline` bullet Step 1b chose, verbatim>
+```
+
+**Both of Step 1b's lines are carried into that second bullet unchanged, never dropped.** The
+approved run is a full run and it reaches every step the gate line leaves in, so Step 1b's answer
+still decides how the `ci` step ends - or whether there is one. That is why the bullet names the
+gate line rather than saying "run it again without `--skip`": on a `no-ci` repository that sentence
+would take `--skip ci` away along with the push hold and put the worker straight back inside the
+wait the preflight removed. `$ci.briefLine` goes with it for the same reason - holding the push
+back delays the CI wait, it does not remove it, and a brief that drops either line reinstates the
+unbounded wait on exactly the repositories that cannot report a check.
+
+Name the bullet by its text when you replace it, never by its position - bullets get inserted
+above these and an ordinal that has gone stale points at the wrong one.
 
 **The no-interactive-prompts rule is absolute, and it is there because a worker hung on it for
 hours.** Worker `7372d875` called `AskUserQuestion`, drew a menu that said "Enter to select,
@@ -596,13 +774,25 @@ so transcript saving is off and there is usually no transcript on disk to fall b
 finding that lives only in the worker's output cannot be recovered by a later session.
 `report.md` is kingshand state and survives teardown.
 
-The `--skip push,pr,ci` flags are gone from the `no-mistakes` variant deliberately. They existed
-because nothing could leave the machine; a project registered `no-mistakes` has consented to the
-full pipeline. Never add them back for a `no-mistakes` project, and never remove the push
-prohibition from the `local-only` variant.
+`--skip` has exactly two sanctioned uses on this path and nothing else may add one. The first is
+`--skip push,pr,ci` with `yolo` off, per the section above, where the flags are what holds the push
+back until the user has answered; registering `no-mistakes` consents to the full pipeline and
+`+yolo` is the consent to run it unattended, so on a `+yolo` project those three flags never appear
+at all. The second is `--skip ci` on the gate line of a `no-ci` brief, where Step 1b established
+that nothing can report a check and the step would otherwise wait for one that cannot arrive -
+which is why it is Step 1b that puts it there and never you. **No justification widens past its own
+scope.** The `yolo`-off push hold is one sanctioned use of the flag and the `no-ci` skip is another,
+and neither one licenses adding a step the other needed: a held run takes `--skip push,pr,ci`
+because the user has not yet approved the push, and a `no-ci` gate line takes `--skip ci` because
+nothing can report a check. Neither reason reaches a step beyond the one it is for. Adding any skip
+for any other reason - to shorten a run, to get past a slow step, because CI looks unlikely to
+report - is the misuse this line names. That last one is the near miss worth recognising in your own
+reasoning: `no-ci` is proof and `unknown` is a guess, which is exactly why `unknown` keeps a
+terminating sentence instead of the flag. Never remove the push prohibition from the `local-only`
+variant.
 
 **Say in `--intent` what this task deliberately sets aside.** You write that string, not the worker:
-it is the `Intent` section of the brief, and the two `no-mistakes` blocks hand it to the gate
+it is the `Intent` section of the brief, and the three `no-mistakes` blocks hand it to the gate
 verbatim. Start from the Goal in one line and add to it the settled decisions and standing criteria
 this work breaks, and why. Leaving the section to say only what the Goal says is how a set-aside
 recorded in `Requirements` or `Unchanged` never reaches the gate at all.
@@ -671,6 +861,129 @@ built "would have refused nothing, ever" - correct to the letter, and it had to 
 rule 1 says a worker checks it, so write the requirement as a premise to verify before building to
 it rather than as a settled fact.
 
+## The review surface
+
+Both gates render to Lavish and then wait in it, and so does anything else that puts a decision in
+front of the user. **This section is the only statement of how that surface is opened, watched and
+answered in.** Step 3 and Step 7 carry their own render command and point back here, and so do the
+other skills that render.
+
+Open the session, then arm the poll, in that order:
+
+```powershell
+$env:LAVISH_AXI_PORT = '4388'
+lavish-axi <file>
+lavish-axi poll <file>
+```
+
+`poll` on its own fails with `No active Lavish Editor session for this file` / `NOT_FOUND`; the
+bare `lavish-axi <file>` call is what opens the session that `poll` then waits on.
+
+**Every decision is rendered to its own file name, and no two share one.** A session is keyed by
+the file's absolute path and an ended one is kept for good, so a reused name is a path that opens
+nothing once they have ended a session on it, and a poll left armed from an earlier decision sits
+on the same session as this one and can drain the answer meant for it. **The session is what
+decides, not a judgement about how many decisions there are: while it is open, anything rendered
+to that file is a revision and keeps the name, and a new name is for a session they have ended.**
+Lavish reloads the revision in the window they are already looking at.
+
+**A session the user ended from the browser is not reopened.** That same open call refuses and
+explains why rather than reopening uninvited, so a refusal there is the tool working and never
+something to retry. `--reopen` is for when they ask for further review or something needs their
+eyes, and it is never a way around the refusal. **A new decision belongs on a new name, not on a
+reopened path** - reopening is not inert, because the session carries its old side-chat history
+and its untriaged layout warnings across, so they would open the second decision's page showing
+the first one's conversation. Reach for `--reopen` only where a fresh name is not available.
+
+`poll` long-polls and stays silent until they send. That is expected - do not treat a slow return
+as a hang, do not kill it, and do not poll in a loop. Keep it in the foreground by default and let
+it return the feedback directly to you. A background poll is allowed only through a harness-native
+tracked background job whose completion is guaranteed to wake this same session, never through
+`&`, `nohup`, `disown` or any detached process. **Do not tell the user the artifact is being
+monitored until that wake path is live.**
+
+### Reading a result is what shuts the surface down
+
+**The instant a poll delivers anything, they are locked out of sending until you reply or
+re-arm.** Their feedback, a fatal artifact failure, or both in one return - it makes no difference
+which, because the surface reads any delivery as you having gone off to work. Both buttons go dead
+on a page that otherwise looks entirely normal, with no banner saying why. That is the reported
+symptom: not a message falling into a void, but a page they cannot type into. A poll that delivers
+nothing - killed or timed out - is the other half and the only one where a message really is lost
+on nobody: the buttons stay live and the banner tells them nobody is listening. Either way the fix
+is the same, and it is the same instant: **re-arm at that instant, before you act on what the
+result said** - not after the work is done, and not once you have something worth replying with.
+One call does both:
+
+```powershell
+lavish-axi poll <file> --agent-reply "<your answer to what they just sent>"
+```
+
+That displays your answer in the side chat and waits again. **It answers what they just sent and
+nothing else** - hard rule 6 still forbids narrating progress, and a running commentary in the
+side chat is that rule broken on a different surface. A bare `poll` re-arms too but leaves them
+looking at silence they sent into, which is the reported symptom rather than the fix. Where there
+is work to do before they can answer again, that re-armed poll is the harness-native tracked
+background job above; where there is nothing to do but wait, it is the foreground one.
+
+**Re-arming stops once that decision is settled and its work is closed out.** The poll belongs to
+one decision, so an answered one left armed is a job still waiting to wake this session over
+something already done, and a fleet's worth of them accumulates one gate at a time. Stop the
+background job it was running in - the session itself needs nothing done to it.
+
+**A poll that was killed or timed out is just re-run - queued feedback is never lost.** So
+anything they sent while nothing was watching is still waiting for the next poll to collect, and
+re-running is the fix rather than asking them to send it again. A session restart is the ordinary
+case: it takes the background job the poll was running in with it, and the answer is that same
+re-run.
+
+**`poll` needs the gate file's absolute path, and after a restart nothing has told you what it
+is** - the gates render under a timestamped name, so there is no fixed one to type. Find it by
+taking the newest `*-land.html` in `data\<id>\` for a landing gate, and the newest
+`*-<ids>.html` in `data\_dispatch\` for the ids the backlog says are awaiting dispatch, then
+re-run the poll on that path. Match on the ids rather than on the date alone: nothing clears that
+directory, so with two gates outstanding the newest file is one of them and the other is stranded.
+That search is for the surfaces the session-start digest cannot name. Its `RE-ARM:` section already
+prints the absolute path of every one still holding something nobody collected, so where a surface
+is named there, poll the path it gives rather than hunting for it - `CLAUDE.md`'s Recovery section
+owns which ones it can name and which it cannot.
+
+**A return whose session has ended is the one with nothing to re-arm**, and `Send & End` is only
+the commonest way to reach that state - ending the review without sending anything reaches it too.
+Whatever final feedback there was is still delivered once, and after that response polling stops.
+Re-arming anyway is the mistake this rule invites: the reply is written into the chat of a closed
+session nobody will read, the poll returns the same ended result at once, and the rule that just
+fired says re-arm again. The session is not reopened uninvited to carry it either. **Where that
+return carried no feedback at all, the decision is still open and now has no surface**, so put it
+in chat rather than leaving it on a page nobody is watching.
+
+**An `artifact_failures` return on a session that is still open is the surface failing, not the
+session ending, and it is re-armed.** It is a delivery like any other, so it locks their sending
+too, and the session being open is what makes re-arming worth doing: it unlocks them and gives the
+poll something to wake on. Repair the artifact and re-arm on the same file - Lavish live-reloads
+it once the repair is saved, so the session is not reopened and `lavish-axi <file>` is not run
+again. Where the same failure arrives on a session that has ended, the rule above wins and polling
+stops: repair the artifact, confirm it renders, and put the decision in chat. Chat is also where
+it goes while the artifact cannot be repaired at all.
+
+**Only the user's own sent feedback is an answer.** A return carrying none of it agreed to
+nothing and settles nothing, whatever else it says. Read for the sent feedback being there rather
+than for a field naming why the return arrived: a rule made of the non-answers somebody thought of
+passes every one nobody did, and every field it would name belongs to a tool that owns its own
+meaning.
+
+**Their feedback being there is what makes a return readable, not what makes it a yes.** It has to
+answer the question the gate asked before anything acts on it - they can send from that page for
+reasons of their own, and none of those is approval.
+
+The reverse is the one that costs a decision. **`ended_by: user` arrives alongside their feedback
+whenever they answer and end in one go, and that is an answer** - so read it as one, rather than
+dropping a decision because the session it came from is closed.
+
+Lavish binds to 127.0.0.1, so every one of these surfaces is unreachable when the user is away
+from the machine. If they say they cannot open the link, put short content directly in chat and
+ask which surface they want for long content rather than rendering another unreachable page.
+
 ## Step 3 - Gate one: approve the dispatch
 
 **This gate is skipped when the project is registered `+yolo`.** In that case write the brief,
@@ -684,38 +997,38 @@ PowerShell - it would skip this gate on every project and dispatch work no one a
 Build one section per unit of work, one item per requirement, then render:
 
 ```powershell
+$gate = "$env:KINGSHAND_HOME\data\_dispatch\$(Get-Date -Format 'yyyyMMdd-HHmmssfff')-<ids>.html"
+
 $sections = @(
   @{ heading = '<id> - <repo>'; items = @(
       @{ id='R-001'; text='<requirement>'; detail='<source>'; badges=@(); flag=$false }
   )}
 )
 & $env:KINGSHAND_HOME\bin\Render-Review.ps1 -Title "Dispatch: <ids>" -Subtitle "<n> workers" `
-    -Sections $sections -OutputPath $env:KINGSHAND_HOME\data\_dispatch\review.html
+    -Sections $sections -OutputPath $gate
 
 $env:LAVISH_AXI_PORT = '4388'
-lavish-axi $env:KINGSHAND_HOME\data\_dispatch\review.html
-lavish-axi poll $env:KINGSHAND_HOME\data\_dispatch\review.html
+lavish-axi $gate
+lavish-axi poll $gate
 ```
 
-**Both commands, in that order.** `poll` on its own fails with `No active Lavish Editor session
-for this file` / `NOT_FOUND`; the bare `lavish-axi <file>` call is what opens the session that
-`poll` then waits on.
+**One file name per decision is `## The review surface` above, and this is what it looks like
+here.** The stamp runs to milliseconds because two decisions raised in quick succession - two
+unrelated ids gated one after the other - land inside the same second. The directory stays
+`data\_dispatch\`; only the name varies.
 
-`poll` blocks until the user sends. That is expected - it stays silent the whole time. Do not
-treat a slow return as a hang, do not kill it, and do not poll in a loop. Run it as a tracked
-background job so its completion wakes you; never with `&` or a detached process.
+**Both commands, in that order**, and everything that follows the first return - replying in the
+surface, re-arming the poll, what an ended session means - is `## The review surface` above.
 
-A returned poll is not automatically an approval. Check what came back: `ended_by: agent` means
-the session was closed rather than answered, and nothing was approved. Only the user's own sent
-feedback is consent to dispatch.
-
-Lavish binds to 127.0.0.1, so these gates are unreachable when the user is away from the
-machine. If they say they cannot open the link, put short gates directly in chat and ask which
-surface they want for long ones rather than rendering another unreachable page.
+Only the user's own sent feedback is consent to dispatch.
 
 When `$proj.yolo -eq 'off'`, dispatch nothing until they approve. If they change a brief, rewrite
-it and render again. None of this gate binds a `+yolo` project - there the brief is written, the
-one line is said, and Step 4 follows.
+it and **render again over the same `$gate` file while that session is still open** - Lavish
+live-reloads it in the window they are already looking at, exactly as a repaired artifact is.
+A new name is for a gate whose session they have ended, and only then: rendering a revision to a
+new name beside a live one leaves them two gates for one decision, and an approval sent in the
+stale window comes back as consent to a brief that no longer exists. None of this gate binds a
+`+yolo` project - there the brief is written, the one line is said, and Step 4 follows.
 
 ## Step 4 - Dispatch
 
@@ -737,15 +1050,23 @@ brief already names, because that directory is the only place outside its worktr
 read. Drop the parameter only when the section states there is nothing to read.
 
 Every refusal comes before anything at all is created, so a mistake here costs nothing to fix.
-There are nine, and each is refused by name: a brief with no `## Read first` section at all, a
-brief that passes no `-ReadPath` and does not say the index was checked when anything at all is
-indexed - and neither the project's own standing files nor the browser procedure counts towards
-that one, per Step 2, which owns the rule - a brief carrying a `## Browser checks` section that
-passes no `-ReadPath` for the browser procedure or for the module it imports, a path that does not
-exist, a directory where a file was meant, two different files whose names would land on top of
-each other in the staging directory, a standing file that exists and cannot be opened, a directory
-sitting where a standing file belongs, and a brief that cannot be opened for writing to be told
-what was attached to it.
+There are twelve, and each is refused by name: a usage window already past the threshold, a `-Base`
+naming a `worktree-*` branch, a `-Base` git cannot resolve in the repository, a brief with
+no `## Read first` section at all, a brief that passes no `-ReadPath` and does not say the index
+was checked when anything at all is indexed - and neither the project's own standing files nor the
+browser procedure counts towards that one, per Step 2, which owns the rule - a brief carrying a
+`## Browser checks` section that passes no `-ReadPath` for the browser procedure or for the module
+it imports, a path that does not exist, a directory where a file was meant, two different files
+whose names would land on top of each other in the staging directory, a standing file that exists
+and cannot be opened, a directory sitting where a standing file belongs, and a brief that cannot be
+opened for writing to be told what was attached to it.
+
+**The usage one is the only refusal here that can be absent rather than raised.** Every one of the
+other eleven is about something this dispatch knows exactly - a path it was handed, or the base ref
+it was told to use; that one is about a number a separate tool reports, and a reading that could
+not be taken warns and dispatches rather than blocking. The one exception is a cached floor already
+at or past the threshold, which refuses with no current reading behind it - `vigil` owns why, and
+relaying whichever of the two you get is the whole of what it asks of you.
 
 **Dispatch attaches the project's own standing files itself and writes their `Read first` lines.**
 `data\done-<project>.md` and `data\rules-<project>.md` are staged whenever they exist, keyed off
@@ -802,18 +1123,38 @@ branch, because a repository can declare a separate integration branch that ever
 targets. The dispatcher confirms whatever it returns with `git rev-parse --verify` and refuses
 rather than inventing a name that would resolve to nothing at the gate.
 
+**Where a repository integrates on a feature branch, name the base for that task with `-Base` on
+the dispatcher.** It is for the case the declaration cannot cover: an epic branch several tickets
+land on before it merges, which nothing may write into the repository's own tracked file because
+that line would be wrong the moment the branch merges. Pass it and the resolver is not consulted at
+all; leave it off, which is the ordinary case and what you do unless the King has said otherwise,
+and the base is resolved from the repository exactly as before. The value you pass is the branch
+point and the base recorded for step 7, one string doing both jobs. Dispatch checks it before
+anything is created and refuses two ways - a `worktree-*` name, on its name alone, because going
+around the resolver must not go around its guard, and a ref `git rev-parse --verify` cannot confirm.
+Neither creates anything, and both name the ref.
+
 **On a re-dispatch the two can disagree, so read step 7's diff knowing that.** Re-dispatching a
 ticket whose branch survived does not branch again - the branch point is whatever the earlier
 dispatch chose - while the base is resolved fresh. If the repository has moved since, by declaring
 an integration branch or changing its default, the recorded base names one tree and the branch was
 cut from another, and step 7's `git log "$base..HEAD"` then lists commits nobody in this ticket
-wrote. A widened diff on a re-dispatched ticket is that, not the worker's doing.
+wrote. Passing a different `-Base` the second time does the same with no repository change at all.
+A widened diff on a re-dispatched ticket is that, not the worker's doing.
 
 **Relay any warning that call prints.** Base resolution warns when it could not honour a
 repository's declared integration branch, or honoured it only as a local copy nothing has
 confirmed is current - and either one means the landing diff in step 7 is measured against the
 wrong tree. On a `+yolo` project nothing else stops to show it, so an unrelayed warning is work
 landed against a stale base. One line to the user naming the branch and what was used instead.
+
+**A dispatch that names its own base warns every time, and that one is not about resolution at
+all.** Naming a base skips the resolver, and with it the only thing that says out loud when the
+branch point and the pull request target have come apart - so the dispatch most likely to have them
+apart would otherwise be the quietest one. The warning fires whatever the repository declares,
+because the target is decided from `pr.base_branch` on the default branch, or from that default
+branch itself, and neither is the ref you named unless somebody has already pointed it there. Relay
+it the same way, and say which branch the pull request has to target before step 7 lands anything.
 
 The dispatcher passes the brief by path, not by value. Keep it that way. Long text does now
 survive the trip intact - a 3,374-character prompt arrived whole - but a path is one line, it does
@@ -986,10 +1327,308 @@ prompt box when a turn ends, so a worker that has said everything it is going to
 - exactly like a worker that has just started and been given nothing, and exactly like one holding
 a menu open that herdr failed to classify. Read the three facts above, never the word on its own.
 
-With all three confirmed, **set its stage to `gating`** - the implementation is done and the work
-is waiting on the landing gate at Step 7. Say so in chat as an update: what finished, that the landing gate is now theirs,
-and the one next action. Keep it short because there is little to say, not because a line count
-says so:
+**A worker parked on a decision passes all three and is not finished either.** Its turn ended
+cleanly, so it has settled; nothing is drawn on its screen, so it is not awaiting input; and its
+brief made it write the file, so the report exists. What separates it from a delivery is not in
+that file at all - **it is `waiting_on` on the worker's own record:**
+
+```powershell
+$rec = Get-CrewWorker -State $s -WorkerId "<id>"
+$rec.waiting_on        # the key of the hold carrying its decision, or $null
+```
+
+**Inside this step the worker's record is `$rec` and never `$w`.** `$w` is this step's wake object
+from Step 4 - the three facts above read `$w.settled` and `$w.awaitingInput` off it - and it is
+re-read here rather than trusted, so binding the record over it leaves the re-read returning
+`$null` under normal mode and throwing under `Set-StrictMode`. Two objects, two names. The rule is
+this step's alone: Step 7 and Step 8 bind the record to `$w` with no wake object in scope, and
+neither is a collision to go and tidy.
+
+**The field is set or it is not, and there is no third value. A null means no park has been
+recorded on this record, and never that there is nothing to answer; set means it parked, and the
+field names the hold carrying what it parked on.**
+`Import-CrewState` gives every record the field whether or not it was saved with one, so absent
+and null are one case rather than two. **It is written on the turn the worker parks and never
+cleared**, so it keeps naming that hold for the rest of the worker's life - a worker that was
+answered and carried on still carries the key of the decision it was answered on.
+
+**Whether that decision is still outstanding is not this field's to say, and nothing here restates
+it.** The hold answers it, and the hold is the source of truth: open and the worker is waiting,
+closed and it is answered, with the `answered:` or `declined:` note `decree` requires on the close
+saying what was decided. Two sources, each owning its own half. `decree` owns the hold's lifecycle
+and `petition` owns who may answer it:
+
+```powershell
+$key = $rec.waiting_on
+if ($key) {
+    Set-Location $env:KINGSHAND_HOME
+    tasks-axi show $key --full
+    Select-String -Path data\done-archive.md -ErrorAction SilentlyContinue `
+      -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($key))\s+-"
+}
+```
+
+**The `if ($key)` is the same guard the other two copies of this lookup carry, and it is not
+decoration.** A null pointer hands `show` an empty argument, and that is not a lookup that came back
+empty - it is a command that never ran: `error: Missing id`, `code: VALIDATION_ERROR`. Read past the
+guard it looks like a failed read of a key, when there was no key to read. A worker that has simply
+never parked would send the Hand chasing a record that never existed, and the archive line beside it
+matches nothing either, so nothing on screen says which of the two it was.
+
+**`NOT_FOUND` from `show` is not an answer on its own - a closed hold gets pruned out of the
+backlog.** `tasks-axi done` moves everything past `done_keep` into `data\done-archive.md`, which
+the tool itself never reads back, so a decision answered long enough ago is missing from every
+`tasks-axi` command while its record and its `answered:` note sit in that file. The archive is the
+second line of the lookup for exactly that, and only a closed hold is ever archived - so a key
+found there is answered, and a key in neither place is a record that has gone missing rather than
+a decision nobody made.
+
+**Every archive read is anchored to the whole key on its own entry, never a bare substring.** The
+archive renders one entry per line, and a key the route looks up was a hold, so its entry carries
+the hold suffixes too: `- [x] <key> - <title> (done <date>) (hold: <reason>) (hold-kind: <kind>)`,
+with the `answered:` note on the continuation line below it. The anchor reaches none of that, and
+a bare match for `t-100-copy` finds `t-100-copy-length` in it - so an unregistered decision reads
+as answered, and at the teardown a record that has gone missing reads as one that is fine. That is
+the same delimiter mistake the work-id enumeration below already refuses, and the anchor is what
+refuses it here. `[regex]::Escape` is not decoration either: a key may carry a `.`, which is a
+wildcard unescaped.
+
+**So the order is fixed. After the three facts, read the pointer - and unless it names a hold that
+is still open, read `$env:KINGSHAND_HOME\data\<id>\report.md` before you may treat that worker as
+a delivery:**
+
+```powershell
+Get-Content "$env:KINGSHAND_HOME\data\<id>\report.md" -Raw
+```
+
+**A null says no park has been recorded on this record, and nothing more.** It does not say the
+report names no decision - the field is only ever written by a Hand who read that report, so on a
+first park it stays null until somebody looks. Skip that read and a parked worker passes the three
+facts, takes `gating`, and is landed and torn down with its question answered nowhere.
+
+**A pointer naming a closed hold does not excuse the read either.** It says the decision it names
+was answered; it does not say this wake is a delivery, because a steered worker goes back to work
+and can reach a second decision its brief does not settle just as easily as the first. The report
+is what tells those apart. **The one wake that needs no report read is a pointer naming a hold
+still open** - that worker is waiting rather than delivering, and the rest of this step is about
+it.
+
+**This replaced a heading the Hand used to read out of `report.md`, and the replacement was
+deliberate.** `docs\2026-09-04-parked-decision-route.md` carries the evidence and what a future
+change must not undo. The report still carries the question and the reasoning, which is what prose
+is good for; it stopped being where the system reads whether.
+
+**Where the report names a decision the worker's brief did not settle and no hold of this worker's
+covers it, that is `decree`'s trigger and nobody has pulled it yet.** A first park reaches it with
+a null pointer and a second with a pointer naming the closed hold of the decision before it; both
+are the same trigger, and both end with the pointer naming the new hold. `decree` owns what never
+becomes a hold at all, and a call the worker settled for itself inside `petition`'s reversibility
+test is among them - filing that one asks the King about a choice nobody needed him for.
+
+**Look up every hold this work already has before registering anything - the closed ones as much as
+an open one.** Registering the hold and writing the pointer are two commands and a session can end
+between them, so a null pointer over a report naming a decision has two causes: nobody registered
+it, or somebody did and the pass ended before the pointer went in. And the pointer is a link to the
+current decision rather than a log of them, so a worker parked twice names only its second while
+the first stays durable as its own closed hold carrying the answer it was given. `decree` prefixes
+every key with the work id precisely so the queue answers both, and the queue is the only place
+they are answered - do not go back to the report for a key:
+
+```powershell
+Set-Location $env:KINGSHAND_HOME
+$work = "<work id>"
+$keep = "^tasks\[|^\s*$([regex]::Escape($work))-"
+
+$held = tasks-axi list --state held --fields 'hold_kind,hold_reason'
+if ($LASTEXITCODE -ne 0) {
+  $held; throw "held lookup failed - establish why before registering anything"
+}
+$held | Select-String -Pattern $keep
+
+$done = tasks-axi list --state done --fields 'closed'
+if ($LASTEXITCODE -ne 0) {
+  $done; throw "done lookup failed - establish why before registering anything"
+}
+$done | Select-String -Pattern $keep
+
+Select-String -Path data\done-archive.md -ErrorAction SilentlyContinue `
+  -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($work))-"
+```
+
+**Quote the field list, and every field list.** PowerShell reads a bare `hold_kind,hold_reason` as
+a two-element array and hands the native command one space-joined token, which `tasks-axi` refuses
+with `VALIDATION_ERROR` and no rows at all - so the lookup returns nothing and the Hand reads it as
+no hold covering the decision, then files a second one. `hold_reason` is the whole point of this
+line, because `decree` makes that reason the thing that says whose question an open hold is.
+
+**Capture each read and check its exit code before filtering, because a failed lookup must never
+read as an empty one.** `tasks-axi` prints its error block on stdout, not stderr, and exits
+non-zero, so a filter applied straight to the pipeline swallows the failure and leaves output
+byte-identical to a queue that genuinely holds nothing. The paragraph above is then exactly what
+happens: the Hand reads no hold covering the decision and files a second one, against a queue that
+never answered. Surface the tool's own output and stop the lookup - a read that could not get its
+evidence names the failure rather than passing for an answer.
+
+**Let the `tasks[` header through with the matched rows.** The row is seven values - `id`, `state`,
+`kind`, `repo`, `title`, `hold_kind`, `hold_reason` - and `kind` sits beside `hold_kind` while
+`title` sits beside `hold_reason`, so a headerless row can only be read by counting commas.
+Miscount once and `task` reads as the hold kind, so a captain hold looks like something else and the
+open branch below is skipped, or `title` reads as the reason and `decree`'s test for whose question
+the hold is cannot be applied at all.
+
+**The `N` in that header counts the whole listing for that state, not the rows matching this work
+id.** It is computed before the filter runs, so a header with no rows beneath it means no hold under
+this work whatever number it carries - `tasks[2]` over nothing is two holds in the queue and none of
+them this work's. A state holding nothing at all prints no `tasks[` line either, so both an empty
+listing and a filtered-out one are the same conclusion reached two ways, and neither is a hold.
+
+**The archive line is not optional, for the reason the pointer read-back names**: a hold pruned out
+of the backlog is invisible to `list` and still answered, and skipping it is how a decision the
+King settled last month reads as one nobody ever made.
+
+**Match on the work id followed by its delimiter - `<work-id>-`, never a bare prefix.** Keys are
+composed `<work-id>-<slug>`, so a bare prefix match for `T-100` also returns every `T-1001-` hold,
+which on the open branch below would point this worker at another work's live decision and steer it
+on an answer that was never about it. The delimiter is already guaranteed by the composition
+`decree` requires, so matching on it costs one character.
+
+**Read from each hold what it covers.** A decision the report names that no hold under this work
+covers is the trigger above. **A decision a closed hold already covers is answered** - however long
+ago, and whoever gave it - so it is neither registered again nor read as a question the worker
+answered itself. Filing it a second time puts it to the King twice and writes a second `answered:`
+note asserting an authorisation nobody gave.
+
+**Where an open `--kind captain` hold covers the decision the report names, point the record at that
+same key rather than filing a second one.** What selects it is coverage and never its merely
+existing under this work id: an open hold belonging to another of this work's decisions is not this
+worker's, and pointing at it leaves this decision unregistered while steering an answer into a
+worker that asked something else. `decree` owns that test and what to do where coverage cannot be
+established. `add` under an existing key changes nothing, so replaying it is safe and the pointer
+ends up naming the hold that already exists. File a second key and the King is asked the same
+question twice, while the first is orphaned with no pointer naming it and nothing that will ever
+close it.
+
+**Do not replay `hold` on a hold that is already open.** It is a write, not a no-op - `decree`'s
+mechanical facts say what it does - and it overwrites the reason with whatever the replay passes.
+That reason is the only thing recording whose question the hold is, so a boilerplate replacement
+leaves a correctly escalated decision looking like a pass nobody can classify, and it freezes until
+somebody establishes why. The hold is open and its reason is already right: leave it alone. Where
+something does have to be re-run on it, pass back both the reason and the `--kind` it already
+carries rather than a new reason and no kind - an omitted kind is written as `-` rather than left
+alone, and a captain hold that stops being one drops off the surface built to show him what needs
+him.
+
+Register the decision there, and record the key it was registered under in the same turn:
+
+```powershell
+Set-CrewWaitingOn -State $s -WorkerId "<id>" -HoldKey "<the key decree registered it under>"
+Save-CrewState -State $s -Path $env:KINGSHAND_HOME\state\crew.json
+```
+
+**That read is a person reading a question rather than a check parsing a file, and it is the same
+read the fixed order above requires - not a second one.** It is not counted, and it is not "once
+per worker": a worker steered past one decision can reach another, so the rule is the condition the
+order already states, which is every wake where the pointer does not name a hold still open. From
+there the pointer and its hold carry the state between them, so a restart, a compaction or a
+session that dispatched nothing reads two recorded values instead of re-deriving one from prose.
+
+**Proceeding on a stated assumption is not a worker answering its own question - every brief grants
+that hatch and tells it to record the assumption in `report.md` and carry on rather than stopping.**
+So a report naming a decision the brief did not settle is not on its own a breach, and reading it
+as one stalls delivered work by a worker that followed its instructions exactly. What decides it is
+which side of `petition`'s reversibility test the call sat on. **That test is stated there and not
+restated here**: a call whose being wrong is cheap to undo was the worker's to take on a stated
+assumption, and one that was not - a delete, a cost, something security-sensitive, a material
+widening of what the work was accepted to deliver - was never an assumption to make. That is a
+park, and the worker should have stopped for it.
+
+**A worker that resolved a call on the far side of that test, with no hold ever registered for it,
+answered its own question - and its brief forbids that outright.** Establish that first, from what
+the report actually claims: the two read identically on the page until the test is applied to the
+call itself, so the test is the work rather than a formality. Then load `rally`, and read
+everything else it claims with the same suspicion a missing report earns. Do not register that
+answer afterwards to make the record tidy: filing it durably asserts that somebody with the
+authority gave it.
+
+**A worker waiting on an open hold is idle rather than hung**, and costs nothing where it is - the
+review-gate run it left parked keeps the branch and every fix commit already made. **Do not set
+`gating`, do not close the backlog item, and above all do not tear it down.** Teardown ends the
+process holding that parked run, and the answer then has nowhere to go.
+
+**Load `petition` before answering it - whatever the posture, and whether or not the King is at
+the machine.** It owns who may decide this and by what test, including the test that applies when
+he is away, and it is the only place that test is stated.
+
+**`decree` owns the hold from its reason to its closing note, and nothing here restates any of
+it.** Read the hold under the key the pointer names, and take it as that skill describes: what an
+open hold with no note means and how its reason tells the two causes apart, what the closing note
+has to carry, and that the dependent work is blocked before the hold closes. Both branches are
+registered there - an answer he still owes and an answer you gave in his stead - because neither
+survives this session in chat or in a return digest.
+
+**Where you are answering it, the block and the closing note go in before the send, not after.**
+An interruption is not a rare case here - the session can end at any point - and the order decides
+what a later session finds. Close first and it finds a closed hold the worker has not been told
+about, which sends the answer on once. Send first and it finds an open hold the worker has already
+acted on, which puts the same question to the King a second time. `decree` owns the sequence
+itself, block before close.
+
+With the answer in hand and recorded, send it to the worker as one prompt, read the screen back,
+and wait for the worker to actually pick the answer up:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
+Send-HerdrPrompt -Name "<worker id>" -Text "<the decision, and the reason for it>"
+Read-HerdrAgent -Name "<worker id>" -Lines 20
+Wait-HerdrAgent -Name "<worker id>" -Until 'working' -TimeoutMs 120000
+```
+
+`rally` owns the steer itself and says why an unchecked one is not a steer at all. Three things
+about this one in particular. The send is refused outright when that worker's input box already
+holds text this session did not write - the wake reported `promptBox`, so you already know, and
+`rally` owns what to do about it rather than `-AllowNonEmptyBox` being reached for here. And **the
+worker is working again the moment the answer lands, so re-arm the Step 4 wait** - the wait that
+woke you is spent, and a worker resumed with nothing watching it is the silence this whole layer
+exists to prevent.
+
+**Arm it after that `-Until 'working'` line and never straight after the send.** Step 4's
+`Never arm the wait immediately after submitting a prompt without accounting for stale state`
+bullet owns why, and this steer is the case it names: the worker still reads `idle` for a moment,
+so a wait armed on the send comes back at once claiming a completion over a worker that has not
+started on the answer yet. Naming `working` is the one wait that is allowed to be the raw one,
+because it is asking for a state the worker has to reach rather than trusting herdr's word for one
+it has stopped in. Where
+`working` never arrives inside those two minutes, the wait came back `$null` and that is two
+things at once: the answer never landed, or herdr stopped answering while the worker took it
+anyway. **Do not report either one - the null does not say which.** Read the screen and check what
+the worker is actually doing, and load `rally` where the screen cannot tell you, rather than arming
+a wait over a worker that may never have taken the answer.
+
+**The pointer is not cleared here, or anywhere, ever - there is no verb for it.** It named this
+decision before the answer and it names it afterwards; the hold's own close is what records that
+the answer was given, and that record outlives the worker. Clearing it would put two opposite
+meanings on one null - a worker that never parked, and a worker that parked, was answered and
+carried on - and those need opposite handling, so a route that cannot tell them apart either loses
+a question nobody registered or refuses finished work and asks the King the same thing twice.
+
+**A closed hold does not by itself say the worker was told.** The close goes in before the send, so
+an interruption between the two leaves an answered decision the worker never heard - and the
+report is what tells that from a steer that landed. Where it does not show the worker acting on
+the decision, take the worker's condition from `rally` and send that note's answer once. Do not
+decide it again: it is answered, and a worker told to decide the same thing twice does the work
+twice.
+
+**This pass ends at that re-armed wait, and nothing below it runs on this one.** The stage stays
+exactly where it is - waiting was never a stage, so there is nothing to put back - you go quiet as
+Step 5 describes, and the next wake re-enters this step from the top against the state as it is
+then. Reading on from here would carry facts gathered before the answer was sent into a `gating`
+the worker has not earned - it started working again seconds ago - and on a `+yolo` project Step 7
+would then diff and land a worktree that is still being written to.
+
+With all three confirmed and no hold of this worker's still open, **set its stage to `gating`** -
+the implementation is done and the work is waiting on the landing gate at Step 7. Say so in chat as
+an update: what finished, that the landing gate is now theirs, and the one next action. Keep it
+short because there is little to say, not because a line count says so:
 
 ```powershell
 Set-CrewStage -State $s -WorkerId "<id>" -Stage 'gating'
@@ -1160,9 +1799,52 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
 - Never land work that materially expands the product or engineering contract beyond what the
   brief accepted. That goes back to the user.
 - Destructive, irreversible and security-sensitive actions always go to the user.
-- Never merge on the forge. `direct-PR` and `no-mistakes` work ends at a pull request the user
-  merges.
+- Merge on the forge only where this project's registry entry declares `+merge`, and never
+  otherwise. The rest of this step owns that rule.
 - Never push a project that is not registered with a push-capable posture.
+- **Never land a worker whose pointer names a hold that is still open.** It is mid-run rather than
+  delivered, whatever its branch shows, and Step 6 owns what to do with it. **Read the pointer, and
+  where it names a key read that hold**: the field says which decision, and the hold says whether
+  it is still owed. A closed one is answered rather than outstanding, and it is not on its own a
+  reason to refuse a landing. **Nothing here is a delivery on the pointer alone** - a pointer that
+  names nothing, and one naming a hold already closed, are both only as current as the last read of
+  that worker's report, so the worker goes through Step 6's read first. Step 0 sends
+  "land / merge / ship a worker" straight to this step, so a worker arriving that way has had no
+  such read at all. **Do not try to work out whether one has already happened.** Neither the stage
+  nor anything you remember can tell you - Step 6's parked path runs to completion and deliberately
+  leaves the stage where it was, so `dispatched` and `implementing` are what a worker steered an
+  hour ago still reads. The read is cheap and the mistake it prevents cannot be taken back.
+
+**Merging on the forge is a per-repository permission, and it is off unless declared.**
+`$proj.merge` is `'on'` only when that project's entry in `data\projects.md` carries the `+merge`
+token, and `'off'` everywhere else - including on an entry the parser could not read in full,
+whichever way it failed. The two failures are not the same shape: an unknown mode drops the whole
+annotation, while an unrecognised token keeps the mode and the `yolo` it did read and forces merge
+off on its own. **`$proj.merge` reads `'off'` either way**, which is the only part of that this
+step acts on. Where the registry cannot be read there is no value at all, because
+`Get-ProjectEntry` throws rather than guessing. **Every one of
+those means do not merge, and none of them ever means the other way.** Test it as
+`$proj.merge -eq 'on'`, the same string comparison `yolo` takes and for the same reason.
+
+**It is not a mode and not a fourth posture.** The four modes decide how work ships and `yolo`
+decides whether you ask first; this decides one thing only, whether you may merge that
+repository's own green pull request. It is read per repository and never inferred from either of
+the others - a `+yolo` project you may not merge is an ordinary combination, not a contradiction.
+A project that says nothing is a project you do not merge, and `emgeelabs-site` is the worked
+example of why the default runs that way: its `main` is what Cloudflare Pages publishes, so a
+merge there is a live production release.
+
+**The permission changes who may merge, never what may be merged.** Every floor above still holds
+in full, and a run that meets none of them is not merged however the entry reads: never merge red,
+never merge work that materially widens the brief, never merge anything destructive, irreversible
+or security-sensitive, and on a `no-mistakes` project never merge a run whose gate did not
+complete every step through `pr` with a clean attribution scan.
+
+**This step decides whether, and Step 8a does it.** Read `$proj.merge` here and judge it against
+the floors here, because this is the gate; the merge itself happens at Step 8a, once the push is
+confirmed and the pull request exists. Never at this step - with `yolo` off this gate is held
+before the push, so at this moment there is no pull request to merge, no gate outcome to call
+green and nothing on the forge at all.
 
 **Verify the base ref resolves before gathering anything.** This check is not optional and
 nothing below it runs until it passes:
@@ -1199,9 +1881,10 @@ git -C $w.worktree --no-pager log --oneline "$base..HEAD"
 dispatched, which is usually a remote-tracking one and is not always the default branch. When a
 local branch is behind - which is normal - diffing against it folds every upstream commit in that
 gap into what looks like the worker's work. In the first real run this made a 1-file change appear
-as 6 files across 3 commits. On a re-dispatched ticket the recorded base can itself predate a
-repository change, as Step 4 says - so a diff that carries commits this worker never made is a bad
-base, not a finding about the worker.
+as 6 files across 3 commits. On a re-dispatched ticket it is the other way round, as Step 4 says:
+the base is resolved fresh and the branch point is the older of the two, so re-resolving the base
+finds it current and tells you nothing. A diff that carries commits this worker never made is a
+bad base, not a finding about the worker.
 
 Check the commits for attribution before showing anything:
 
@@ -1226,6 +1909,8 @@ into chat and ask for a yes. This is a decision, and hard rule 5 says every deci
 however short the summary looks:
 
 ```powershell
+$gate = "$env:KINGSHAND_HOME\data\<id>\$(Get-Date -Format 'yyyyMMdd-HHmmssfff')-land.html"
+
 $sections = @(
   @{ heading = 'What changed'; items = @(
       @{ id='F-001'; text='<file> - <what changed and why it matters>'; detail='<+n/-n>'; badges=@(); flag=$false }
@@ -1238,24 +1923,94 @@ $sections = @(
   )}
 )
 & $env:KINGSHAND_HOME\bin\Render-Review.ps1 -Title "Land: <id>" -Subtitle "<repo> - <mode>" `
-    -Sections $sections -OutputPath $env:KINGSHAND_HOME\data\<id>\review.html
+    -Sections $sections -OutputPath $gate
 
 $env:LAVISH_AXI_PORT = '4388'
-lavish-axi $env:KINGSHAND_HOME\data\<id>\review.html
-lavish-axi poll $env:KINGSHAND_HOME\data\<id>\review.html
+lavish-axi $gate
+lavish-axi poll $gate
 ```
 
 The parameter is `-OutputPath`. An earlier draft of this block abbreviated it, which would have
 thrown the first time anyone reached the landing gate - a documented command nothing exercises. A
 test pins the spelling for that reason.
 
+**One name per decision, not one per unit of work** - the rule is `## The review surface` above,
+and this gate is where it is easiest to miss. A rejected landing comes back here after the worker
+fixes it, and **a fresh `$gate` name is for a landing whose session they have ended, and only
+then**; while that session is still open the fixed work is rendered again over the same file and
+Lavish reloads it in place. A new name beside a live one leaves them two gates for one landing,
+and an approval sent in the stale window - still showing the diff from before the fix - comes back
+as consent to land a version that no longer exists. The directory stays `data\<id>\`.
+
 Sections carry what they need to judge it: the changed files, the diff, the check results, the base
 ref the diff was taken against, and anything the worker's `report.md` left unresolved. Then say one
 line in chat naming what is waiting and stop - the surface holds the detail, chat holds the pointer.
 
-`lavish-axi poll` long-polls and stays silent until they answer. Keep it in the foreground, or run
-it as a harness-tracked background job whose completion wakes you. Never leave it detached with
-nothing to wake on - that is the same silence this whole layer exists to prevent.
+`lavish-axi poll` long-polls and stays silent until they answer, and the instant it delivers their
+rejection they are locked out of sending until you reply or re-arm - `## The review surface` above
+owns the foreground rule, the reply and the re-arm, and this gate changes none of it.
+
+**On a push-capable project with `yolo` off, this gate is held before the push, and approving it
+is the user's word for the outward step.** The worker stopped at the last local step because Step
+2 told it to, so nothing has left the machine yet. Say that on the surface and name exactly what
+the approval authorises: the branch pushed to `origin`, a pull request opened against the base
+ref, and nothing else. An approval is never read as covering a comment, a work item or a merge
+that was not on the surface they answered.
+
+**On a project whose entry carries `+merge`, the merge is part of what this approval sets in
+motion, so the surface names it.** Say the three things it ends in rather than two: the branch
+pushed to `origin`, a pull request opened against the base ref, and that pull request merged to
+the default branch at Step 8a once it is green. The permission is the user's own standing grant
+and asking again is not the fix - understating the sequence is the defect, because a surface
+promising a pull request and nothing more is answered by someone who does not know a merge
+follows. Naming it is what keeps the sentence above true rather than worked around.
+
+The worker is still alive at this point, so steer it to finish rather than doing the outward step
+yourself - it holds the worktree and it ran the gate. **There are two steers and the resolved mode
+picks which**, because the two modes finish by different routes and sending the wrong one is not a
+wording slip.
+
+For a `direct-PR` worker, which pushes and opens the pull request itself:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
+Send-HerdrPrompt -Name "<worker id>" -Text "Approved. Push the branch and open the pull request against <base>, then report its full https:// URL. Change nothing else."
+```
+
+For a `no-mistakes` worker, which must re-enter the pipeline rather than push by hand:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
+Send-HerdrPrompt -Name "<worker id>" -Text "Approved. Run the gate line from the push-approved bullet in your brief, exactly as it is written there, so the pipeline pushes and opens the pull request, then report its full https:// URL. Change nothing else."
+```
+
+**The steer names the brief's own line rather than telling the worker to drop `--skip`.** On a
+repository where nothing reports a check that line carries `--skip ci`, and "run it again without
+`--skip`" would take that away with the push hold and put the worker back inside the wait Step 1b
+removed. The brief already holds the right line for this repository; the steer's job is to say
+which bullet it is.
+
+**Sending the `direct-PR` steer to a `no-mistakes` worker pushes around the gate**, skipping its
+own `push` and `pr` steps and everything they carry - the attribution scan, the pull request body
+and the CI hand-off - on a project registered specifically to have them. That is the failure this
+split prevents, and it looks like a delivered pull request either way.
+
+The re-run walks the local steps again against commits that have not changed, then pushes.
+**That re-run is the price of holding the push back, and it is the intended one** - do not drop the
+flags at dispatch to avoid it. Read the screen back afterwards to confirm the steer landed, and
+where the worker is gone or will not take it, `rally` owns the recovery.
+
+**A steered worker is a working worker again, so arm a fresh `Wait-HerdrAgentProgress` on it the
+way Step 4 does before going quiet.** The push is not done when the prompt is sent, and the wait
+that watched the first run settled when that run ended.
+
+**When the steered run finishes, it goes back through Step 6 exactly as the first run did** - the
+same three completion facts, the same parked-decision check - and only then to Step 8a, which
+confirms the branch really is on the remote and records the URL exactly as it does on a `+yolo`
+project. **The approved run is a full run, so it can park**: it reaches the review step, a finding
+there can be `ask-user`, and the brief tells the worker to write that question into `report.md` and
+stop. Step 6 is the only place a parked worker is seen, so a re-run routed straight to Step 8a
+reads a decision owed to the user as a pull request that never got pushed.
 
 When `$proj.yolo -eq 'on'`, the waiting is skipped and nothing else is: the evidence is
 still gathered and still checked, and a red check, an attribution hit, a scope expansion or
@@ -1278,9 +2033,9 @@ worker would never reach a terminal stage or a teardown.
 ## Step 8 - Land
 
 Only for a `local-only` project, and only as a local merge. `direct-PR` and `no-mistakes` work
-ends at a pull request that the user merges on the forge; `muster` never merges there. For those
-modes, do not run this step at all - report the pull request's full https:// URL and go to
-Step 8a.
+ends at a pull request instead, and whether that may then be merged on the forge is Step 7's
+per-repository permission rather than anything this step does. For those modes, do not run this
+step at all - report the pull request's full https:// URL and go to Step 8a.
 
 ```powershell
 git -C "<repo path>" merge --ff-only "<branch>"
@@ -1325,7 +2080,9 @@ is not registered at all.
 ## Step 8a - Close out push-capable work
 
 Only for `direct-PR` and `no-mistakes` (including `no-mistakes-prod-only` resolved to either).
-There is nothing to merge here - the pull request is the deliverable, and the user merges it.
+The pull request is the deliverable here. Whether it may then be merged on the forge is Step 7's
+per-repository permission - this step neither grants it nor decides it - but where Step 7 said you
+may, this is where it happens, because this is the first point at which a pull request exists.
 
 **Load `decree` before closing this work out.** Close-out advances a stage and
 records a pull request; it never closes a decision the user has not answered. A hold opened from
@@ -1354,8 +2111,12 @@ describes.
 **`dispatched` or `implementing` means Step 6 was skipped, which is normal here.** Step 0 routes
 "land / merge / ship a worker" straight to Step 7, and Step 6 is the only place `gating` is ever
 set - so a user returning in a fresh session and saying "land T-1001" arrives with the stage never
-advanced. That is the direct-entry path working as designed, not a reason to refuse. Set the stage
-to `gating` and carry on with the rest of this step:
+advanced. That is the direct-entry path working as designed, not a reason to refuse. **It does
+mean the one check Step 6 owns has not run, so run it here: a worker whose pointer names a hold
+that is still open is mid-run, and so is one whose report names a decision no hold covers.** Leave
+the stage where it is, take it to Step 6, and close nothing out - a decision still owed is not a
+delivery, however good the branch looks. Otherwise set the stage to `gating` and carry on with the
+rest of this step:
 
 ```powershell
 Set-CrewStage -State $s -WorkerId "<id>" -Stage 'gating'
@@ -1393,8 +2154,158 @@ tasks-axi update "<id>" --pr "<full https:// URL>"
 Leave the item open at `ready`. Nothing has landed yet, and an item closed here would report a
 merge the user has not made.
 
-Move to `landed` only when the user tells you the pull request was merged on the forge, and close
-the backlog item in the same breath:
+### Merging it, where Step 7 said you may
+
+**Only where `$proj.merge -eq 'on'`.** On every other project there is nothing to do here: the
+item stays open at `ready`, the pull request waits for the user, and you say so and stop.
+
+**Confirm green before anything else, and green is the whole of it** - and what it is made of
+depends on the task's resolved mode, because a `direct-PR` task runs no review gate and Step 1b
+never executed for it:
+
+- **Resolved `no-mistakes`** - the gate completed every step through `pr` and the attribution scan
+  came back clean, **and the run's own `ci` step came back green**. `ci` is the step *after* `pr`,
+  so "every step through `pr`" says nothing about it: a run whose `pr` step opened the pull request
+  and whose `ci` step was still waiting on pending checks satisfies that phrase entirely. Require
+  the `ci` outcome from the run itself, and read the checks off the pull request the same way the
+  limb below does, with every check passing:
+
+  ```powershell
+  gh pr checks "<full https:// URL>"
+  ```
+
+  Or Step 1b answered `no-ci`, in which case that brief's gate line carried `--skip ci` and the run
+  has no `ci` outcome at all. **A skipped step has no outcome, and here that absence is the settled
+  absent-check case rather than a missing green** - it is the only absence that counts as green, and
+  demanding an outcome from a step nobody ran would strand every `no-ci` project on this line.
+  **Read the pull request itself once before merging on that answer**, the same read the limb above
+  and the `direct-PR` limb below already do:
+
+  ```powershell
+  gh pr checks "<full https:// URL>"
+  ```
+
+  **If that read reports checks, every one of them must pass.** A red or a pending check is not
+  green and goes to the user, exactly as everywhere else in this step. **If it reports no checks at
+  all, that is the settled absent-check case and the merge proceeds.** `gh pr checks` exits non-zero
+  and prints that no checks were reported when a pull request has none, so **that exit code is not a
+  failing check - tell the two apart by what it printed, never by the exit status alone.** Read as a
+  failure it refuses every legitimate `no-ci` merge; read the other way round, a genuine red is
+  merged as though nothing had reported.
+
+  **This is one read of what the forge already knows: not a wait, not a poll, and not the `ci` step
+  coming back.** Nothing here waits for a check to arrive - it asks only what has arrived already.
+  It is here because **detection is never the last word on whether anything looked at CI.**
+  `Get-RepoCiStatus` samples the default branch, so a provider that posts checks only on
+  pull-request head commits settles `no-ci` wrongly, and on a `+merge` project that would merge with
+  nothing having looked at CI at all. One read of the actual pull request closes that.
+
+  **An `unknown` from that preflight is not the absent-check case**: its gate line carries no skip,
+  so its run does have a `ci` step and that step's outcome is required like any other - and the
+  answer itself says nothing was established, so it goes to the user like any other unestablished
+  green.
+- **Resolved `direct-PR`** - there is no gate to complete, so green is the attribution scan Step 7
+  already ran coming back clean, plus CI green on the pull request. Step 1b never ran for this
+  mode, so nothing has established whether anything reports a check here. Read it now rather than
+  assuming either way:
+
+  ```powershell
+  Import-Module $env:KINGSHAND_HOME\bin\Ci.psm1 -Force
+  $ci = Get-RepoCiStatus -RepoPath "<absolute repo path>"
+  "$($ci.status) - $($ci.detail)"
+  ```
+
+  **All three answers mean something different here, and none of them may be collapsed:**
+
+  - `has-ci` - checks exist, so they must actually be green before the merge. Read them off the
+    pull request itself, and every check must pass:
+
+    ```powershell
+    gh pr checks "<full https:// URL>"
+    ```
+
+  - `no-ci` - **read the pull request once before merging on that answer**, the same read the
+    `has-ci` bullet above and the `no-mistakes` limb already require:
+
+    ```powershell
+    gh pr checks "<full https:// URL>"
+    ```
+
+    **If that read reports checks, every one of them must pass.** A red or a pending check is not
+    green and goes to the user. **If it reports no checks at all, that is the settled absent-check
+    case and the merge proceeds** - the only absence that counts as green. `gh pr checks` exits
+    non-zero and prints that no checks were reported when a pull request has none, so **that exit
+    code is not a failing check - tell the two apart by what it printed, never by the exit status
+    alone.** **This is one read of what the forge already knows: not a wait and not a poll.**
+
+    **Both limbs carry this read, and they must agree.** Two limbs disagreeing about whether
+    detection can be trusted is worse than either answer on its own, because a reader cannot tell
+    which is the intended rule. This limb needs it at least as much as the other one does: Step 1b
+    never runs for `direct-PR`, so the `Get-RepoCiStatus` call above is the only CI evidence
+    anywhere in this flow.
+  - `unknown` - **not green.** The lookup failed or the remote could not be read, so nothing was
+    established. It goes to the user rather than being merged.
+
+**`unknown` and `no-ci` both stop a worker at the pull request, and only one of them is green
+here.** At Step 1b they end in the same place - the work delivered, nobody waiting on a check -
+because stopping under uncertainty is safe. Merging under uncertainty is not, so the resemblance
+ends at exactly this step. They already differ before it, in how they get there: `no-ci` skips the
+`ci` step outright and `unknown` runs it with the wait bounded by a sentence. What must not travel
+across is the one thing they still share, which is where the worker stops.
+
+Anything red, anything that widened the brief, anything destructive, irreversible or
+security-sensitive goes to the user instead, exactly as Step 7's floors say. This is the moment
+those floors are spent, so re-read them rather than remembering them.
+
+Then merge it, taking the strategy that repository already uses rather than a default invented
+here - squash, merge commit or rebase is the repository's settled choice and not yours. Ask the
+tool that owns that fact rather than guessing at it or eyeballing the forge:
+
+```powershell
+Push-Location "<absolute repo path>"
+gh repo view --json mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed
+Pop-Location
+```
+
+**The `Push-Location` is what makes that the right repository's answer.** The `tasks-axi` block
+above leaves the working directory at `KINGSHAND_HOME`, and `gh repo view` with no repository named
+resolves from the current directory's remotes - so run bare it reports kingshand's own merge
+settings and the Hand takes them for the project's. `gh pr merge` below is unaffected either way: a
+full `https://` URL names its own repository.
+
+**Where exactly one is allowed, that is the repository's answer** - use it, and pass it
+explicitly:
+
+```powershell
+gh pr merge "<full https:// URL>" --squash    # or --merge, or --rebase
+```
+
+**Where more than one is allowed, the strategy is a standing per-project fact rather than a
+per-merge decision** - GitHub enables all three by default, so asking every time would turn a
+standing grant into a question every time. It belongs in `data\rules-<project>.md`: read it there
+first, and only where that file does not answer it, put it to the user once and record their answer
+there so the next merge does not ask again. `+merge` still answers whether you may merge and never
+how, which is why the answer is the user's either way - it is just asked once per repository rather
+than once per merge.
+
+**Never invent a default strategy.** Squash, merge commit and rebase shape history differently, and
+picking one here would override every repository's own choice at once.
+
+**Never run `gh pr merge` with no strategy flag.** It goes interactive, and a background prompt
+nothing can answer is not a merge that failed safely.
+
+**This whole procedure is GitHub-only.** `gh repo view` and `gh pr merge` are what it has, and
+nothing restricts `+merge` to a GitHub-hosted project - an Azure DevOps or other origin registers
+`[direct-PR +merge]` perfectly well. So it is bounded here rather than at registration: **where
+`gh` cannot resolve the repository, the merge is the user's** - stop and report that. Do not
+improvise another route, and in particular do not fall back to a web API or a raw git push to the
+default branch.
+
+Then set the stage and close the item exactly as the user-merged path below does.
+
+Move to `landed` when the pull request has actually been merged on the forge - either the user
+tells you so, or you merged it yourself just now under Step 7's `+merge` permission - and close the
+backlog item in the same breath:
 
 ```powershell
 Set-CrewStage -State $s -WorkerId "<id>" -Stage 'landed'
@@ -1406,9 +2317,13 @@ Set-Location $env:KINGSHAND_HOME
 tasks-axi done "<id>" --pr "<full https:// URL>"
 ```
 
-Never check the forge and decide that yourself, and never merge it to make it true. The stages
-are exactly `dispatched`, `implementing`, `gating`, `ready`, `landed`, `failed` - `Set-CrewStage`
-throws on anything else, so do not invent one for this path.
+Never check the forge and decide that yourself, and never merge it to make it true. **That is
+about deciding a merge has happened, never about reading a repository's own settings** - the
+strategy probe above is a read of configuration, not a judgement about forge state, and the two do
+not collide. A merge under `+merge` is one the block above performed against Step 7's floors and
+reported; a stage waiting to advance is never the reason for one. The stages are exactly `dispatched`, `implementing`,
+`gating`, `ready`, `landed`, `failed` - `Set-CrewStage` throws on anything else, so do not invent
+one for this path.
 
 Then go to Step 8b. The confirmed push is what makes teardown safe here - waiting for the merge
 would leave the worktree and the live worker process sitting around until the user gets to it.
@@ -1431,6 +2346,37 @@ half-deleted directory and a stale git worktree registration.
 the branch is not on the remote, the worktree is the only copy of the work and removing it
 destroys it. Confirm one or the other first - teardown removes the worktree, and nothing puts it
 back.
+
+**A worker whose pointer names a hold that is still open is never torn down either, and a confirmed
+push does not release that.** Teardown ends the live process, and that process is what the answer is
+coming back to: kill it and the decision it is parked on can never be applied, while the gate run it
+left parked keeps its fix commits somewhere nobody will look again. Read the field before you stop
+anything, and where it names a key read that hold - still open, take the worker to Step 6 instead:
+
+```powershell
+$key = (Get-CrewWorker -State $s -WorkerId "<id>").waiting_on
+if ($key) {
+    Set-Location $env:KINGSHAND_HOME
+    tasks-axi show $key --full
+    Select-String -Path data\done-archive.md -ErrorAction SilentlyContinue `
+      -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($key))\s+-"
+}
+```
+
+**`NOT_FOUND` from `show` is not permission to tear down.** Only a closed hold is ever archived, so
+a key the archive holds **on its own entry** is answered and this worker may be stopped. A key in
+neither place is a record that has gone missing - a mistyped key, a queue file that moved - and at
+the one guard that cannot be taken back that is a cause to establish, never a pass. Step 6's rules
+are what read a missing record; nothing here decides it. The anchor in that pattern is doing that
+work: matched as a bare substring, a longer key sharing this one's opening reads as this one's
+answer, and the guard passes on a record nobody has actually found.
+
+**Read those two and nothing else.** This is the one place where a wrong read cannot be taken
+back, and neither of them can be malformed - which is exactly why the route stopped keeping this
+state in the worker's own prose. Do not go looking through `report.md` for a heading, a marker or
+a question that reads as unanswered: that read is Step 6's, and it is what did or did not put a
+key in this field. This is the same shape as the floor above - both refuse an irreversible cleanup
+over work that is not finished.
 
 **`report.md` survives teardown, and must never be deleted as part of cleanup.** It lives at
 `$env:KINGSHAND_HOME\data\<id>\report.md`, beside the brief and outside the worktree, so teardown

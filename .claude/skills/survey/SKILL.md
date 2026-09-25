@@ -165,14 +165,19 @@ Map the snapshot onto the four buckets like this, and nowhere else:
     this also means that brief was not followed.
   - `idle` means the worker's turn ended. Usually it finished. It may instead have stopped by
     design, having reached a decision its brief did not settle, written the question into
-    `data\<id>\report.md` and stopped as instructed. Point at the report - an `idle` worker has
-    already said what it needed to, and describing it as hung sends the user chasing a decision
-    that is written down.
+    `data\<id>\report.md` and stopped as instructed. **`waitingOn` names a decision that worker
+    stopped on at some point; it never says the worker is still stopped on it.** It is not cleared
+    when the answer lands, so a key here may be a decision answered hours ago, and whether it is
+    still open is the hold's own state in the backlog - the `captain` hold bullet above is where
+    an open one renders. **Null never means the worker finished** either: the field is only
+    written by a Hand who has read that report, so a worker that parked overnight and has not been
+    woken since is still null, and the question is still only in the report. Point at the report -
+    an `idle` worker has already said what it needed to, and describing it as hung sends the user
+    chasing a decision that is written down.
 
   Never describe an `idle` worker as hung, and never describe a `blocked` one as having finished.
 - A worker at stage `ready` - it is waiting at the landing gate for the user's approval.
-- An open PR waiting on the user's merge. Muster never merges on the forge, so a PR sits here until
-  the user merges it. Full `https://...` URL.
+- An open PR waiting on a merge. Full `https://...` URL.
 - A brief written but not yet dispatched - `$snap.data.undispatched`. The dispatch gate is the
   user's, so an un-dispatched brief is work waiting on them, not queued work.
 - A backlog item held with a hold kind of `captain` - an open decision waiting on the user's own
@@ -223,7 +228,9 @@ true of an absent `crew.json`: nothing has been dispatched yet.
 
 `rawMode` is the registered posture and the one to quote; `mode` is the mechanical resolution and
 the two differ only for `no-mistakes-prod-only`. `yolo` is the string `'on'` or `'off'` - report
-it by comparing with `-eq 'on'`, never by testing it for truthiness.
+it by comparing with `-eq 'on'`, never by testing it for truthiness. `merge` reads the same way
+and is reported alongside the posture where it is `'on'`, because standing authority to merge that
+project's own pull requests is part of what the King is owed when a posture is quoted.
 
 ## Operationally read-only
 

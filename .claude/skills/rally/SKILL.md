@@ -52,9 +52,12 @@ herdr refuses a prompt outright there with `agent_blocked`, and `Send-HerdrPromp
 as a result rather than an error.
 
 **Steering is still not a conversation.** The worker cannot reply to you, its brief still forbids
-it from asking anything, and a steer that needs a decision from the user is still the user's to
-make first. Do not write text into the worktree hoping the worker reads it, and do not describe a
-steer as done without checking `Read-HerdrAgent` afterwards to see that it landed.
+it from asking anything, and a steer that would answer a prompt a worker is blocked on is still
+the King's to make first. A decision the worker *wrote into its `report.md`* is the other case and
+not this one: `petition` owns whether you may answer that and by what test, and it is the only
+place that test is stated, with `muster` Step 6 owning the route the answer takes back. Do not
+write text into the worktree hoping the worker reads it, and do not describe a steer as done
+without checking `Read-HerdrAgent` afterwards to see that it landed.
 
 ## herdr's own state is wrong in both directions, and the screen is the authority
 
@@ -107,7 +110,7 @@ pane too narrow to render - the same width defect that inverts herdr's own class
 not know that worker's state rather than knowing it is stuck, and the cure is a herdr server restart
 once the workers have finished.
 
-Three things a stall commonly turns out to be, and only the first is the worker's fault:
+Four things a stall commonly turns out to be, and only the first is the worker's fault:
 
 - **Waiting for something that cannot arrive.** A review gate's `ci` step on a repository with no
   CI is the case that produced this. Confirm it with `Get-RepoCiStatus` from `bin\Ci.psm1`; where
@@ -118,12 +121,20 @@ Three things a stall commonly turns out to be, and only the first is the worker'
   user's decision rather than a stall.
 - **Genuinely slow work.** A review pass on kingshand has taken 38 minutes. Read the screen before
   concluding anything: a step that is slow prints as it goes, and its screen changes.
+- **Parked on a decision.** A worker that reached something its brief did not settle wrote the
+  question into its `report.md` and ended its turn, so it is alive, idle, and its screen will not
+  change again until an answer arrives. That is the state working exactly as designed rather than a
+  stall, it is expected to last hours, and `muster` Step 6 is what tells the two apart. Establish
+  that before anything else here, as `A parked worker is waiting, not wedged` below requires.
 
 ## Removing the worktree destroys any unlanded work
 
 Kingshand creates each worker's worktree itself, so kingshand is what removes it, and nothing
 else does. Stopping a worker never touches it: `Stop-HerdrAgent` exits the process and leaves the
-directory exactly where it was, which is why stopping is always safe and removing never is.
+directory exactly where it was, which is why stopping is safe for everything on disk and removing
+never is. **Stopping is not free in every direction, though.** A worker parked on a decision loses
+the run the answer was coming back to, and `A parked worker is waiting, not wedged` below owns that
+one.
 Running `git worktree remove` on a stuck worker that holds uncommitted changes or unpushed commits
 destroys that work, and hard rule 1's protection of unlanded work is what it breaks.
 
@@ -212,7 +223,58 @@ the task failed or blocked with the conflicting evidence. Set the stage with
 `Set-CrewStage -Stage 'failed'`; the valid stages are exactly `dispatched`, `implementing`,
 `gating`, `ready`, `landed`, `failed`, and `Set-CrewStage` throws on anything else.
 
+## A parked worker is waiting, not wedged
+
+A worker parked on a decision its brief did not settle is alive, reads `idle`, has nothing drawn on
+its screen and will not move again until an answer reaches it - the same signature as a worker that
+has stopped getting anywhere. Reading the screen harder cannot separate them, because there is
+nothing on it to read.
+
+**Whether the worker in front of you is parked is `muster` Step 6's determination, and this
+playbook does not carry its own.** Establish it there before triaging a stall and before steering,
+relaunching or stopping anything. Step 6 owns the pointer, the hold, the archive line, the report
+read and every qualifier on them, and nothing here repeats any part of that - a second copy is one
+that drifts, and three rounds of this file carrying its own version each dropped a different
+qualifier and reached a different wrong answer.
+
+**A worker Step 6 finds parked is not touched by this playbook while its process is alive.** Do not
+steer it, do not relaunch it, do not stop it, and do not remove its worktree. There is no fault
+here to find: it is waiting on a person, and the delay belongs to the answer rather than to the
+worker.
+
+**Relaunching or stopping one destroys what the answer was coming back to.** That live process is
+holding a review gate parked mid-run, with every fix commit it has already made sitting on the
+branch. End the process and the run can never be resumed, so the decision - once somebody makes it
+- has nowhere to go, and the branch is left part-finished with nothing watching it. The worktree
+surviving does not soften that, which is why the safe order above is not the whole guard here.
+
+**A parked worker whose process is gone is not something this playbook unblocks.** Getting it
+moving again means either discarding the unlanded work in its worktree or answering the decision it
+parked on, and both of those belong to the King rather than to a recovery step. So it is reported to
+him as a blocker, with the worktree, the branch and every unlanded commit preserved untouched while
+he decides.
+
+**Reporting it is all that happens to it, and the stage is not stamped.** None of the five steps
+below is run against one - step 5 sets the stage to `failed`, and that would be both untrue and
+destructive here. Untrue because the worker did not fail to build or fail to run the gate; its
+process was lost while a decision it parked on was still open. Destructive because the stage is the
+one record of what it was doing when it parked, which is exactly the fact the pointer was made a
+field rather than a seventh stage to preserve. Leave the record as it stands.
+
+**Losing the process does not answer the decision.** The hold stays open and `report.md` stays
+where it is, both outliving the worker by design, so the question is still owed and a dead worker
+is not a decided one. `decree` owns that hold until it closes and `petition` owns who may answer
+it - there is no second route to an answer here.
+
+`muster` Step 6 owns the route an answer takes back into the worker, and `petition` owns who may
+answer it and by what test. Neither is restated here.
+
 ## Escalation, in order
+
+**The parked-worker check above comes before step 1.** A worker `muster` Step 6 finds parked is not
+escalated at all while its process is alive, and none of the five steps below is run against one.
+Neither is a parked worker whose process is gone: no rung here can unblock one, so it is reported as
+the rule above describes and its stage is left alone.
 
 1. **Peek.** `Read-HerdrAgent -Name <worker id>`, and `Get-HerdrAgentState -Name <worker id>` for
    the state to act on. Read what it is actually doing before doing anything to it, and do not

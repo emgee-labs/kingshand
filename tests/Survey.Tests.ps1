@@ -127,6 +127,33 @@ Describe 'every registry entry is named with its posture' {
         foreach ($entry in $e) { $entry.yolo | Should -BeOfType [string] }
     }
 
+    # merge is the per-repository permission to merge that project's own green pull requests. It is
+    # returned by Read-Registry on every entry, and was dropped by this projection - so /survey,
+    # whose only permitted data source is this snapshot, could not see it at all.
+    It 'carries merge as the string on or off, never a boolean' {
+        $f = New-Fixture 'registry-merge'
+        foreach ($n in @('alpha', 'beta', 'gamma')) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $f.Root "repos\$n") | Out-Null
+        }
+        Add-RegistryEntry $f '- alpha [no-mistakes +merge] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        Add-RegistryEntry $f '- beta [no-mistakes +yolo] - beta repo (added 2026-01-02)' (Join-Path $f.Root 'repos\beta')
+        Add-RegistryEntry $f '- gamma [local-only] - gamma repo (added 2026-01-03)' (Join-Path $f.Root 'repos\gamma')
+        $e = @((Get-Snapshot $f).registry.entries)
+        $e[0].merge | Should -Be 'on'
+        $e[1].merge | Should -Be 'off'
+        $e[2].merge | Should -Be 'off'
+        foreach ($entry in $e) { $entry.merge | Should -BeOfType [string] }
+    }
+
+    # The permission never comes from an annotation the parser could not read in full, and the
+    # snapshot must not manufacture one where Read-Registry refused to.
+    It 'reports merge off where the annotation could not be read in full' {
+        $f = New-Fixture 'registry-merge-unreadable'
+        New-Item -ItemType Directory -Force -Path (Join-Path $f.Root 'repos\alpha') | Out-Null
+        Add-RegistryEntry $f '- alpha [no-mistakes garbage +merge] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        @((Get-Snapshot $f).registry.entries)[0].merge | Should -Be 'off'
+    }
+
     It 'records each entry''s path as present on disk' {
         foreach ($entry in @($script:RegSnap.registry.entries)) {
             $entry.pathExists | Should -BeTrue -Because "$($entry.name) was created under the fixture"
@@ -260,7 +287,7 @@ Describe 'a worker is joined with its durable report' {
 
         $crew = @{
             workers = @{
-                'w-reported' = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-web'; stage = 'ready';       brief = 'data\w-reported\brief.md' }
+                'w-reported' = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-web'; stage = 'ready';       brief = 'data\w-reported\brief.md'; waiting_on = 'T-1001-shorter-hero-copy' }
                 'w-silent'   = @{ ticket = 'T-1002'; kind = 'ticket'; repo = 'acme-api'; stage = 'implementing'; brief = 'data\w-silent\brief.md' }
             }
         }
@@ -286,6 +313,16 @@ Describe 'a worker is joined with its durable report' {
     It 'marks the worker with no report.md as having none' {
         $silent = @($script:FleetSnap.crew.workers | Where-Object { $_.id -eq 'w-silent' })[0]
         $silent.hasReport | Should -BeFalse
+    }
+
+    # A worker parked on the King's own decision settles, so liveness reports it exactly as it
+    # reports a finished one. The pointer is the only thing that separates them, so the snapshot
+    # has to carry it or the digest is left guessing between finished and waiting on an answer.
+    It 'carries the parked-decision pointer, which liveness cannot answer' {
+        $parked = @($script:FleetSnap.crew.workers | Where-Object { $_.id -eq 'w-reported' })[0]
+        $silent = @($script:FleetSnap.crew.workers | Where-Object { $_.id -eq 'w-silent' })[0]
+        $parked.waitingOn | Should -Be 'T-1001-shorter-hero-copy'
+        $silent.waitingOn | Should -Be '' -Because 'a worker that has never parked has no key, not a missing field'
     }
 
     It 'does not call a dispatched brief un-dispatched work' {

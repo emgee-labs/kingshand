@@ -23,6 +23,20 @@
   old supervisor vocabulary: herdr's `idle` means "not mid-turn", which a worker also is in the
   seconds after it starts, so it never means finished on its own.
 
+  `.crew.workers[].waitingOn` is crew.json's `waiting_on` pointer: the tasks-axi hold key the
+  worker parked on, or the empty string when no park has been recorded on this record - which never
+  means there is nothing to answer, since only a Hand who has read the report ever writes it. It is
+  never cleared, so it says which decision that worker stopped on and not whether the decision is
+  still outstanding - that is the hold's own state, and this snapshot does not read the queue.
+  Liveness cannot answer either half, since a parked worker and a finished one both read `idle`.
+  It is intent, so it comes from crew.json and never from herdr.
+
+  `.registry.entries[]` carries name, rawMode, mode, yolo, merge, path, pathExists and indexable.
+  `yolo` and `merge` are both the string 'on' or 'off' and never booleans - compare with -eq 'on',
+  because 'off' is a non-empty string that reads as true. `merge` is the per-repository permission
+  to merge that project's own green pull requests on the forge; it is reported here so a reader can
+  see which projects hold it, and it decides nothing on its own - `muster` Step 7 owns that.
+
   An empty registry and an absent crew.json are states, not errors: nothing can be dispatched
   until /annex runs, and nothing is dispatched until `muster` dispatches it.
 
@@ -159,6 +173,10 @@ if ($registryPresent) {
                 # yolo is the string 'on' or 'off'. Never test it for truthiness - 'off' is a
                 # non-empty string and would read as true.
                 yolo    = $(if ((Get-Field $p 'yolo') -eq 'on') { 'on' } else { 'off' })
+                # merge is the per-repository permission to merge that project's own green pull
+                # requests, and it is read the same way and for the same reason: 'off' is a
+                # non-empty string, so a truthiness test would report every project as permitted.
+                merge   = $(if ((Get-Field $p 'merge') -eq 'on') { 'on' } else { 'off' })
                 path    = $path
                 # No path line recorded is as missing as a path that is gone.
                 pathExists = $(if ($path) { Test-PathQuiet $path } else { $false })
@@ -216,6 +234,10 @@ if ($crewReadable -and $crewIds.Count -gt 0) {
             agentState  = (Get-Field $row 'agentState')
             agentStatus = (Get-Field $row 'agentStatus')
             briefPath   = (Get-Field $w 'brief')
+            # Read from crew.json rather than from the liveness row: this is intent, and a parked
+            # worker reads `idle` exactly like a finished one. Which decision, never whether it is
+            # still owed - see the header.
+            waitingOn   = (Get-Field $w 'waiting_on')
             # report.md survives teardown, so a dead worker with a report is still readable work.
             hasReport   = (Test-PathQuiet $reportPath)
             reportPath  = $reportPath
