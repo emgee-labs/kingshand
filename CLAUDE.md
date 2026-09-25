@@ -146,6 +146,8 @@ name the environment variable or the credential-store entry that holds it, and n
   fresh session can pick the work up. Never delete it as part of cleanup.
 - `data\<id>\<stamp>-land.html` - rendered for lavish at a landing gate, one file per decision.
   `muster` owns the name and when a gate takes a new one.
+- `data\away\<stamp>.jsonl` - one away period's journal: a record per outcome, written as it
+  happens, and the one source the return digest is rendered from. `regency` owns it.
 - `data\king.md` - what you have observed about how the King works and what they prefer. Absent
   until there is something to store, and curated by `chronicle` rather than appended to.
 - `data\learnings.md` - kingshand's own operational facts and gotchas, dated and evidence-backed.
@@ -202,6 +204,7 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Index.psm1` | the data index: write a file and index it in one call, add an entry for a file another tool wrote, read a project's index, count the drift, drop an entry whose file is gone |
 | `bin\BrowserVerify.psm1` | the three answers a browser check must not give from memory: whether the browser tools all loaded, where a login is set without ever writing it down, and what a run of checks verified, failed or could not check |
 | `bin\Usage.psm1` | how much of the current usage window is spent, and the one-line pulse: three answers where a percentage that could not be read is never a number, a baseline held in memory and written nowhere, and the pulse on its timer |
+| `bin\AwayJournal.psm1` | the away journal: the away flag's `since:` read in one place, one journal opened per away period, one record written as each outcome happens, and a return digest that reads that file or says plainly it could not |
 
 ## Skills
 

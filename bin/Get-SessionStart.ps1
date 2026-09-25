@@ -416,17 +416,31 @@ Add-Line 'FLEET'
 # would sit on disk while a fresh session behaved as though the King were present, narrating at an
 # empty chair and treating a blocked worker as somebody else's problem. So it is the first line of
 # the fleet, not a footnote.
+#
+# The flag's shape is read in ONE place, `AwayJournal.psm1`, because that module turns its `since:`
+# into the away journal's file name. A second reader here would be the copy that drifts, and the
+# two disagreeing means a digest naming one away period and a journal holding another.
 $afkFlag = Join-Path (Split-Path $StatePath -Parent) '.afk'
-if (Test-PathQuiet $afkFlag) {
-    $since = ''
-    try {
-        $line = @(Get-Content -LiteralPath $afkFlag -ErrorAction Stop | Where-Object { $_ -match '^since:' }) |
-                Select-Object -First 1
-        if ($line) { $since = ' (' + $line.Trim() + ')' }
-    } catch { }
-    Add-Line "  AWAY: a regency is in force$since - load ``regency``. The King is not at the machine."
-    Add-Line ('        Batch everything that does not need them, never answer a prompt a worker ' +
-              'is blocked on, and a decision a worker wrote into its report is decided under `petition`.')
+try {
+    Import-Module (Join-Path $PSScriptRoot 'AwayJournal.psm1') -Force -ErrorAction Stop
+    $afk = Get-AwayFlag -FlagPath $afkFlag -DataPath $DataPath
+    if ($afk.present) {
+        $since = if ($afk.since) { ' (since: ' + $afk.since + ')' } else { '' }
+        Add-Line "  AWAY: a regency is in force$since - load ``regency``. The King is not at the machine."
+        Add-Line ('        Batch everything that does not need them, never answer a prompt a worker ' +
+                  'is blocked on, and a decision a worker wrote into its report is decided under `petition`.')
+        if ($afk.problem) {
+            Add-Line ('        NO JOURNAL: ' + (Format-Fault $afk.problem) +
+                      ' Nothing can be recorded for this away period until that is fixed.')
+        }
+    }
+} catch {
+    # The flag is durable state nothing else surfaces, so a reader that fell over has to say so
+    # rather than leave the section silent - silence here reads as a King who is at the machine.
+    if (Test-PathQuiet $afkFlag) {
+        Add-Line ("  AWAY: a regency flag exists at $afkFlag and could not be read - " +
+                  (Format-Fault $_.Exception.Message) + " Load ``regency`` and treat the King as away.")
+    }
 }
 
 try {

@@ -182,8 +182,9 @@ position is; this is where the record lands, and it is registered and closed in 
 because nobody is being waited for. **It is an `answered:` note like any other, so the block still
 happens** - the steered worker's own item is the dependent one, exactly as the bullet above says,
 and skipping it leaves a closed note claiming an authorisation the queue never recorded. Nothing
-else durably holds it - a regency's return digest is built inside one session, so a restart before
-he is back means he is never told a call was made in his name at all.
+else durably holds it - the away journal does record the call in his return digest and does survive
+a restart, but it is a record and never an authority, so the note is still the only place the queue
+says the work was allowed.
 
 Both carry the decision itself, not a pointer to where it was said. Chat does not survive a
 session; the note does. **A hold closed with no note leaves no durable answer**, so a later session
