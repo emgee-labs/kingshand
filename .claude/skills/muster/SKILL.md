@@ -2177,6 +2177,28 @@ never executed for it:
   has no `ci` outcome at all. **A skipped step has no outcome, and here that absence is the settled
   absent-check case rather than a missing green** - it is the only absence that counts as green, and
   demanding an outcome from a step nobody ran would strand every `no-ci` project on this line.
+  **Read the pull request itself once before merging on that answer**, the same read the limb above
+  and the `direct-PR` limb below already do:
+
+  ```powershell
+  gh pr checks "<full https:// URL>"
+  ```
+
+  **If that read reports checks, every one of them must pass.** A red or a pending check is not
+  green and goes to the user, exactly as everywhere else in this step. **If it reports no checks at
+  all, that is the settled absent-check case and the merge proceeds.** `gh pr checks` exits non-zero
+  and prints that no checks were reported when a pull request has none, so **that exit code is not a
+  failing check - tell the two apart by what it printed, never by the exit status alone.** Read as a
+  failure it refuses every legitimate `no-ci` merge; read the other way round, a genuine red is
+  merged as though nothing had reported.
+
+  **This is one read of what the forge already knows: not a wait, not a poll, and not the `ci` step
+  coming back.** Nothing here waits for a check to arrive - it asks only what has arrived already.
+  It is here because **detection is never the last word on whether anything looked at CI.**
+  `Get-RepoCiStatus` samples the default branch, so a provider that posts checks only on
+  pull-request head commits settles `no-ci` wrongly, and on a `+merge` project that would merge with
+  nothing having looked at CI at all. One read of the actual pull request closes that.
+
   **An `unknown` from that preflight is not the absent-check case**: its gate line carries no skip,
   so its run does have a `ci` step and that step's outcome is required like any other - and the
   answer itself says nothing was established, so it goes to the user like any other unestablished

@@ -463,6 +463,27 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
                      'step''s outcome is required like any other')
     }
 
+    # Detection samples the default branch, so a provider that posts checks only on pull-request
+    # head commits settles `no-ci` wrongly - and with the `ci` step skipped, nothing else would look
+    # at CI before a `+merge` merge. One read of the pull request itself closes that, and it is a
+    # read rather than a wait, so it reinstates nothing the skip removed.
+    It 'the no-ci limb reads the pull request itself before merging on that answer' {
+        $step = Get-MusterStep 'Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**Read the pull request itself once before merging on that answer**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**If that read reports checks, every one of them must pass.**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**If it reports no checks at all, that is the settled absent-check case and ' +
+                     'the merge proceeds.**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**that exit code is not a failing check - tell the two apart by what it ' +
+                     'printed, never by the exit status alone.**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**This is one read of what the forge already knows: not a wait, not a poll, ' +
+                     'and not the `ci` step coming back.**')
+    }
+
     # "CI green on the pull request" had no command, while every other evidence read in the step
     # has one - and Get-RepoCiStatus answers about the repository, never about this pull request.
     It 'Step 8a supplies the read for a has-ci pull request' {
