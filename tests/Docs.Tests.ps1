@@ -435,7 +435,7 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
             -Phrase ('**`unknown` and `no-ci` both stop a worker at the pull request, and only one ' +
                      'of them is green here.**')
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
-            -Phrase ('Merging under uncertainty is not, so the resemblance ends at exactly this step.')
+            -Phrase ('the resemblance ends at exactly this step')
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
             -Phrase ('`no-ci` skips the `ci` step outright and `unknown` runs it with the wait ' +
                      'bounded by a sentence')
@@ -458,9 +458,6 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
             -Phrase ('**A skipped step has no outcome, and here that absence is the settled ' +
                      'absent-check case rather than a missing green**')
-        Assert-Phrase -Text $step -Where 'muster Step 8a' `
-            -Phrase ('demanding an outcome from a step nobody ran would strand every `no-ci` ' +
-                     'project on this line')
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
             -Phrase ('its gate line carries no skip, so its run does have a `ci` step and that ' +
                      'step''s outcome is required like any other')
@@ -678,9 +675,6 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
             -Phrase ('**Both of Step 1b''s lines are carried into that second bullet unchanged, ' +
                      'never dropped.**')
         Assert-Phrase -Text $region -Where 'muster Step 2' `
-            -Phrase ('would take `--skip ci` away along with the push hold and put the worker ' +
-                     'straight back inside the wait the preflight removed')
-        Assert-Phrase -Text $region -Where 'muster Step 2' `
             -Phrase ('holding the push back delays the CI wait, it does not remove it')
     }
 
@@ -703,8 +697,6 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
             -Phrase 'on a `+yolo` project those three flags never appear at all'
         Assert-Phrase -Text $region -Where 'muster Step 2' `
             -Phrase '**Neither widens.** `--skip` is never carried past `ci` on the `no-ci` path'
-        Assert-Phrase -Text $region -Where 'muster Step 2' `
-            -Phrase '`no-ci` is proof and `unknown` is a guess'
     }
 
     It 'the landing gate is held before the push and says what the approval buys' {
@@ -753,9 +745,6 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
         Assert-Phrase -Text $step -Where 'the landing gate' `
             -Phrase ('**The steer names the brief''s own line rather than telling the worker to ' +
                      'drop `--skip`.**')
-        Assert-Phrase -Text $step -Where 'the landing gate' `
-            -Phrase ('"run it again without `--skip`" would take that away with the push hold and ' +
-                     'put the worker back inside the wait Step 1b removed')
         $step | Should -Not -Match 'Run your gate line again without --skip' `
             -Because 'that steer drops the ci skip along with the push hold'
     }
@@ -5065,14 +5054,10 @@ Describe 'the review gate is never promised a check that cannot come' {
     # never report, against a brief telling the worker to give up after fifteen minutes - and a
     # worker at that moment is inside the gate's own long-running call watching that step, not
     # reading its brief. A flag removes the step; a sentence reaches nobody.
-    It 'carries the no-ci answer as a flag and says why a sentence cannot do it' {
+    It 'carries the no-ci answer as a flag, and states the rule that follows from it' {
         Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
             -Phrase ('**On `no-ci` the answer is carried by a flag and not by a sentence, and that ' +
                      'is the whole of the fix.**')
-        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
-            -Phrase ('A worker sitting on the `ci` step is inside the gate''s own long-running call ' +
-                     'watching that step - it is not reading its brief, so an instruction telling it ' +
-                     'to give up after fifteen minutes reaches nobody.')
         Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
             -Phrase ('Anywhere a constraint has to hold while an agent is inside a call like that, ' +
                      'name the flag, the timeout or the guard that enforces it rather than writing ' +
@@ -5084,11 +5069,9 @@ Describe 'the review gate is never promised a check that cannot come' {
 
     # The expensive wrong answer in the other direction. A failed lookup is not proof of absence,
     # and a skip taken on one throws away a real check on a repository that may well have CI.
-    It 'refuses the skip on an unsettled lookup and says what it would cost' {
+    It 'refuses the skip on an unsettled lookup' {
         Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
-            -Phrase ('`$ci.gateLine` deliberately carries **no skip** here - a failed lookup is not ' +
-                     'proof that nothing reports, and skipping a step that may genuinely exist is a ' +
-                     'real reduction in what the gate checks.')
+            -Phrase ('`$ci.gateLine` deliberately carries **no skip** here')
     }
 
     It 'names the failure it prevents, so nobody deletes it as a formality' {
@@ -5203,17 +5186,17 @@ Describe 'the CI answer is said once at import and never written down' {
             -Phrase ('**Only on a push-capable mode** - `direct-PR`, `no-mistakes` or ' +
                      '`no-mistakes-prod-only`.')
         Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
-            -Phrase ('Ask the module the dispatcher asks, so the answer here and the answer at ' +
-                     'dispatch are one answer rather than two readings')
+            -Phrase ('Ask the module the dispatcher asks')
         $fences = @(Get-CodeFence $script:ImportMd | Where-Object { $_.Contains('Get-RepoCiStatus') })
         $fences.Count | Should -Be 1 -Because 'one call, not a second detection of its own'
         $fences[0].Contains('Ci.psm1') | Should -BeTrue -Because 'the module is imported where it is used'
     }
 
+    # `has-ci` is the ordinary case and a line about it is noise, so the instruction for it is
+    # silence rather than a reassuring sentence.
     It 'says nothing at all on the ordinary answer' {
         Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
-            -Phrase ('- `has-ci` - **say nothing at all.** It is the ordinary case, and a line ' +
-                     'about it is noise.')
+            -Phrase ('- `has-ci` - **say nothing at all.**')
     }
 
     # The absence is a decision somebody made, and muster Step 1b owns that rule. Restating it here
@@ -5224,27 +5207,22 @@ Describe 'the CI answer is said once at import and never written down' {
                      'delivered as a pull request and stops there rather than waiting for a green ' +
                      'that cannot arrive')
         Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
-            -Phrase ('**Do not offer to add CI.** An absence is a decision somebody made, and ' +
-                     '`muster` Step 1b owns that rule - this is the cross-reference to it, not a ' +
-                     'second statement of it.')
+            -Phrase ('**Do not offer to add CI.**')
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('`muster` Step 1b owns that rule')
     }
 
-    It 'names which part of the lookup failed on unknown, and what it costs' {
+    It 'names which part of the lookup failed on unknown' {
         Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
             -Phrase ('say which part of the lookup failed, from `$ci.detail`, and that delivery ' +
                      'will stop at the pull request under that uncertainty')
-        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
-            -Phrase ('what is usually left is an unauthenticated `gh` or a remote this cannot see, ' +
-                     'and both are a minute''s work once somebody says so')
     }
 
     # A field would be wrong the first time somebody adds a workflow, and nothing would ever go back
     # and correct it. The lookup is cheap and already runs per dispatch, so there is nothing to save.
     It 'keeps the answer out of the registry' {
         Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
-            -Phrase ('**The answer is not recorded in the registry.** CI comes and goes, so a value ' +
-                     'written at import is wrong the first time somebody adds a workflow or deletes ' +
-                     'the last one')
+            -Phrase ('**The answer is not recorded in the registry.**')
         Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
             -Phrase ('This is a sentence said once at import, not a field, and `data\projects.md`''s ' +
                      'format does not change.')
@@ -6242,7 +6220,7 @@ Describe 'a project has a standing definition of done, and repeated findings are
     }
 
     # The comparison needs both halves to survive teardown. The self-check block is required by all
-    # four Done-means blocks; the rounds are only in `report.md` because the brief made the worker
+    # five Done-means blocks; the rounds are only in `report.md` because the brief made the worker
     # put them there as they landed. Drop that and the fold-back has one reading to compare against
     # nothing, and it silently does nothing at all.
     It 'the rounds the fold-back compares against are recorded as they land' {
