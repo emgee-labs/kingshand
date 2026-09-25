@@ -1804,8 +1804,10 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
 - Never push a project that is not registered with a push-capable posture.
 - **Never merge on the forge a run whose brief or `report.md` carries the line
   `PARLEY DISPATCH - NO REVIEW GATE RAN.`**, on any posture and whatever that project's entry
-  declares with `+merge`. **Either file carrying it is enough - never both.** **Read both before
-  deciding a merge**, because nothing earlier in this skill opens the brief:
+  declares with `+merge`. **Read both files, and refuse the merge the moment the line appears in
+  one of them** - one hit is the whole trigger, and finding it in both is the ordinary case rather
+  than a different one. **Read both before deciding a merge**, because nothing earlier in this
+  skill opens the brief:
 
   ```powershell
   Select-String -SimpleMatch 'PARLEY DISPATCH - NO REVIEW GATE RAN.' `

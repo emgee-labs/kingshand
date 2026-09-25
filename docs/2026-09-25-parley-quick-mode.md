@@ -104,10 +104,17 @@ to merge.
 The marker is written only where the task resolved to `no-mistakes`, which is the only place parley
 takes a gate away. A task resolved to `direct-PR` or `local-only` runs no review gate outside
 parley either, so marking it would revoke a `+merge` the King granted over the absence of something
-that was never going to happen. Resting
-the rule on Step 7's older gate check instead would have left it absent exactly where it read as
-protection: that check lives on the `no-mistakes` limb alone, and the `direct-PR` limb requires no
-gate at all. The King's own word is what moves it.
+that was never going to happen.
+
+Step 7 already carried a gate check that reaches much the same set of tasks, so the argument for
+the marker is not about where it reaches - it is about what it rests on. The old check infers that
+a run is unsafe from a gate outcome belonging to another mechanism, so it goes quiet whenever that
+mechanism moves: it is worded "on a `no-mistakes` **project**", which does not plainly cover a
+`no-mistakes-prod-only` project whose task resolved to `no-mistakes`, and a parley brief carries
+the `direct-PR` Done-means block, which can route the Hand down Step 8a's `direct-PR` limb where
+no gate outcome is asked for at all. The marker infers nothing. It is a fact the dispatch records
+about itself at the moment it is written, read back literally, and it stays true however Step 7's
+limbs are rearranged later. The King's own word is what moves such a run.
 
 ## What is enforced, and what is not
 

@@ -334,9 +334,15 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
                      '`PARLEY DISPATCH - NO REVIEW GATE RAN.`**, on any posture and whatever that ' +
                      'project''s entry declares with `+merge`.')
         # Two inputs, either sufficient. A single report.md input made the floor depend on worker
-        # compliance; brief.md is written by the Hand before any worker exists.
+        # compliance; brief.md is written by the Hand before any worker exists. Stated as a recipe
+        # rather than as a prohibition: a negation here reads as a condition on the trigger, and
+        # the compliant case has the line in both files - exactly where a misread lets it merge.
         Assert-Phrase -Text $step -Where 'the landing gate floors' `
-            -Phrase '**Either file carrying it is enough - never both.**'
+            -Phrase ('**Read both files, and refuse the merge the moment the line appears in one of ' +
+                     'them** - one hit is the whole trigger, and finding it in both is the ordinary ' +
+                     'case rather than a different one.')
+        $step.Contains('never both') |
+            Should -BeFalse -Because 'a negation here is readable as narrowing when the floor fires'
         # The read has to be instructed here, because nothing earlier in muster opens a brief.
         Assert-Phrase -Text $step -Where 'the landing gate floors' `
             -Phrase '**Read both before deciding a merge**, because nothing earlier in this skill opens the brief'
