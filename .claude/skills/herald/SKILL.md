@@ -101,6 +101,13 @@ only the shape changes.
 Back on when they ask - "adhd mode", "focus mode", "keep it short again", `/herald`. Confirm in one
 line and start immediately; a preamble about how you will now avoid preamble writes its own joke.
 
+**While `parley` is loaded, "normal mode" is parley's phrase and not this one.** The innermost
+active mode claims it: there it ends the quick-exchange mode and this shape is left exactly as it
+was. Someone capped at one-line replies who asks for normal mode wants the ordinary Hand back
+rather than this discipline taken away, and where they want that too the phrase reaches here the
+next time they say it. With parley off, it turns the shape off exactly as above. `parley` owns its
+own rules; this is only which skill the phrase belongs to.
+
 Neither survives the session. Every new session starts shaped, because that is the default.
 Someone who wants it off permanently should say so in `instructions.md`, which is read every
 session and is theirs to write - the Hand cannot put it there for them.

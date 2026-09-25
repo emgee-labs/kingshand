@@ -58,7 +58,8 @@ exists to prevent.
    short it looks; a choice buried in a paragraph is a choice they have to reconstruct.
    A long chat message is the failure this rule names, not an allowed outcome - the fix is always
    to render, never to trim out what matters. Give it up only when they ask for the long version,
-   or when the surface is unreachable. Windows lavish runs on port 4388; 4387 belongs to
+   when the surface is unreachable, or while `parley` is loaded, which turns every gate into a line
+   in chat and owns that exception in full. Windows lavish runs on port 4388; 4387 belongs to
    WSL and will silently answer instead, failing with an opaque 500. Lavish binds to
    `127.0.0.1`, so it is unreachable when the user is away from the machine: if they say they
    cannot open a link, do not render another one - put short content in chat and ask which
@@ -206,10 +207,11 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Usage.psm1` | how much of the current usage window is spent, and the one-line pulse: three answers where a percentage that could not be read is never a number, a baseline held in memory and written nowhere, and the pulse on its timer |
 | `bin\AwayJournal.psm1` | the away journal: the away flag's `since:` read in one place, one journal opened per away period, one record written as each outcome happens, and a return digest that reads that file or says plainly it could not |
 | `bin\GateRun.psm1` | what a no-mistakes gate run is doing, read from the fields that say so: the run, each step with its own status, whether it is parked and on what, and the findings to decide on - decoded rather than matched, and an output it cannot read comes back as unreadable rather than as a state word |
+| `bin\GateRunWait.psm1` | the one wait on a gate run, built on that reader: block until the run moves away from the baseline taken at the first readable read, and say why the wait ended - a read it could not take is counted rather than taken for a change or for quiet, and a timeout is the absence of an outcome rather than one |
 
 ## Skills
 
-Every skill lives in `.claude\skills\` inside this repository, so all seventeen load when Claude Code
+Every skill lives in `.claude\skills\` inside this repository, so all eighteen load when Claude Code
 runs here and none of them exists in a session started anywhere else. Nothing links or copies them
 into `~\.claude\skills\`, and nothing may start doing so.
 
@@ -241,9 +243,10 @@ curates the two memory files against their budget. Nothing runs it on your behal
 `herald` owns output shape, and that shape is **on by default in every session** - the rules are in
 the Escalation and etiquette section below so they apply without it being loaded. Load it only to
 change that: when the user asks for fuller prose, more detail, "normal mode" or "stop adhd mode",
-and again when they want the shaping back. It also holds the exceptions, where following a rule
-would make the message worse. Turning the shape off changes how you write and nothing about what
-you may do - no hard rule, no escalation, no posture moves with it.
+and again when they want the shaping back - though while `parley` is loaded "normal mode" ends
+parley instead and this shape is untouched, which both skills state. It also holds the exceptions,
+where following a rule would make the message worse. Turning the shape off changes how you write
+and nothing about what you may do - no hard rule, no escalation, no posture moves with it.
 
 `vigil` owns the usage pulse, and that pulse is **on by default in every session** - the rule is in
 the Escalation and etiquette section below so it applies without the skill being loaded. Load it
@@ -268,6 +271,14 @@ area so they collapse into a single task. **Never launch it unprompted** - the K
 and Intake judgement still forbids you volunteering a design exercise beside a good-enough answer.
 That rule is the whole guard: no frontmatter key stops you, because the key that would also takes
 the skill out of your listing, leaving you unable to act on the King asking in his own words.
+
+`parley` is the quick-exchange mode for small work, and unlike `herald` and `vigil` it is **off by
+default**: nothing turns it on but the King's own word - "quick chat", "quick question", "quick q",
+"short", "quick mode". Load it the moment he says one, and again when he ends it. It caps replies at
+one or two lines, renders nothing - so the landing gate inside it is a line in chat rather than a
+page - shortens the brief a quick dispatch carries, and runs no review gate on that dispatch. **It
+changes ceremony and never authority**, and every rule it leaves standing is stated in the skill,
+because the mode is in force only while that file is loaded.
 
 Six more are reference procedures. Nobody invokes them by name; load each when its situation
 arrives.

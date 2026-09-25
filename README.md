@@ -2,7 +2,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
-[![Tests](https://img.shields.io/badge/tests-1971%20passing-3fb950)](tests)
+[![Tests](https://img.shields.io/badge/tests-2007%20passing-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 # You rule. It executes.
@@ -56,10 +56,12 @@ reads.
   numbered steps, lists capped at five, no preamble. Anything you have to decide on opens as a
   review surface in your browser rather than a wall of chat, because a choice buried in a paragraph
   is a choice you have to dig back out. Ask for the long version any time; `herald` owns the shape
-  and is the switch.
+  and is the switch. Say **`quick question`** and replies drop to a line or two with nothing
+  rendered at all - `parley` owns that mode, it is off until you ask for it, and it changes how
+  much gets written rather than what you get asked before anything ships.
 - **Your preferences stay yours.** `instructions.md` is read every session and never written by the
   tool - enforced by the permission layer, not just asked for in prose.
-- **Your other projects are untouched.** All seventeen skills live in this repository's own
+- **Your other projects are untouched.** All eighteen skills live in this repository's own
   `.claude\skills\`. Nothing is written into `~\.claude\`, so a session anywhere else on the machine
   behaves exactly as it did before.
 
@@ -195,7 +197,7 @@ astray - neither of which a detached background session allows.
 
 ## Built-in skills
 
-Seventeen, all project-local. Eleven you invoke; six the Hand loads for itself.
+Eighteen, all project-local. Twelve you invoke; six the Hand loads for itself.
 
 | Skill | What it is for |
 |---|---|
@@ -206,6 +208,7 @@ Seventeen, all project-local. Eleven you invoke; six the Hand loads for itself.
 | `survey` | Where everything stands - the catch-up digest |
 | `herald` | Owns reply shape, which is on by default. Load it to turn it off |
 | `vigil` | Owns the usage pulse, which is on by default. Load it to turn it off |
+| `parley` | Quick mode for small work - one or two line replies, nothing rendered, no review gate on the dispatch. Off until you say `quick question` |
 | `regency` | Hold the fleet while you are away, and batch what does not need you - `petition` below says what may be decided in your stead. Also `/afk` |
 | `audience` | What happened while you were away from this session |
 | `chronicle` | Curate durable memory before a context reset |
@@ -253,7 +256,7 @@ VERSION                 this installation's version, and the only place it is wr
 bin\                    dispatch, worker state, registry, snapshot, digest, herdr, workspace prep,
                         version, self-update, browser verification, the away journal, the usage
                         window, a gate run's state and the wait on it
-.claude\skills\         seventeen project-local skills. They load only in this directory
+.claude\skills\         eighteen project-local skills. They load only in this directory
 tests\                  the Pester suite
 tools\herdr\            herdr, fetched and SHA-256 verified by the installer - gitignored,
                         and deliberately not on PATH

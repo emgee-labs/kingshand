@@ -463,9 +463,9 @@ by memory: there is one block per answer and they appear in the order `has-ci`, 
 - When you reach a decision your brief does not settle, write the question into
   `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
   would need in order to choose - then say so in your final message and end your turn. **Write it
-  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
-  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
-  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses the question
+  you write here, so there is no heading to match exactly, no slug to keep and no marker to get
+  wrong: the Hand reads what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
   The answer comes back to you as an ordinary prompt and you carry on from there, so leave
   everything where it is: do not undo what you have done, do not pick a different task, and do not
   report the work as failed. When the answer reaches you, write down what was decided and what you
@@ -498,9 +498,9 @@ by memory: there is one block per answer and they appear in the order `has-ci`, 
 - When you reach a decision your brief does not settle, write the question into
   `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
   would need in order to choose - then say so in your final message and end your turn. **Write it
-  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
-  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
-  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses the question
+  you write here, so there is no heading to match exactly, no slug to keep and no marker to get
+  wrong: the Hand reads what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
   The answer comes back to you as an ordinary prompt and you carry on from there, so leave
   everything where it is: do not undo what you have done, do not pick a different task, and do not
   report the work as failed. When the answer reaches you, write down what was decided and what you
@@ -548,9 +548,9 @@ by memory: there is one block per answer and they appear in the order `has-ci`, 
 - When you reach a decision your brief does not settle, write the question into
   `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
   would need in order to choose - then say so in your final message and end your turn. **Write it
-  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
-  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
-  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses the question
+  you write here, so there is no heading to match exactly, no slug to keep and no marker to get
+  wrong: the Hand reads what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
   The answer comes back to you as an ordinary prompt and you carry on from there, so leave
   everything where it is: do not undo what you have done, do not pick a different task, and do not
   report the work as failed. When the answer reaches you, write down what was decided and what you
@@ -608,9 +608,9 @@ above them, and an ordinal that has gone stale points a Hand at the wrong one:
 - When you reach a decision your brief does not settle, write the question into
   `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
   would need in order to choose - then say so in your final message and end your turn. **Write it
-  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
-  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
-  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses the question
+  you write here, so there is no heading to match exactly, no slug to keep and no marker to get
+  wrong: the Hand reads what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
   The answer comes back to you as an ordinary prompt and you carry on from there, so leave
   everything where it is: do not undo what you have done, do not pick a different task, and do not
   report the work as failed. When the answer reaches you, write down what was decided and what you
@@ -668,9 +668,9 @@ and it is the fallback wherever a skip cannot be passed at all:
 - When you reach a decision your brief does not settle, write the question into
   `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
   would need in order to choose - then say so in your final message and end your turn. **Write it
-  as prose, the way you would put it to a colleague at their desk.** Nothing parses this file, so
-  there is no heading to match exactly, no slug to keep and no marker to get wrong: the Hand reads
-  what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses the question
+  you write here, so there is no heading to match exactly, no slug to keep and no marker to get
+  wrong: the Hand reads what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
   The answer comes back to you as an ordinary prompt and you carry on from there, so leave
   everything where it is: do not undo what you have done, do not pick a different task, and do not
   report the work as failed. When the answer reaches you, write down what was decided and what you
@@ -993,6 +993,13 @@ which is the default, render the gate and wait.
 **The test is `$proj.yolo -eq 'on'`, and nothing else.** `yolo` is the string `'on'` or `'off'`.
 `if ($proj.yolo)` is true for `'off'` as well, because a non-empty string is truthy in
 PowerShell - it would skip this gate on every project and dispatch work no one approved.
+
+**While `parley` is loaded, this gate is asked as a line in chat rather than rendered.** That is
+hard rule 5's own exception and `parley` owns it in full: the line names the project, the change
+and what the worker will do, and only the user's answer to it is consent to dispatch. The gate is
+not skipped and the approval is not assumed - what changes is the surface. A dispatch that cannot
+be judged from one line is not quick, and `parley` says to end the mode and render under the rest
+of this step rather than shrink the decision to fit.
 
 Build one section per unit of work, one item per requirement, then render:
 
@@ -1675,7 +1682,11 @@ round-one findings are two readings of the same change, so compare them. **That 
 gate, and most projects have none.** On a `local-only` or `direct-PR` project - including a
 `no-mistakes-prod-only` project whose task resolved to `direct-PR` - there is no gate and no round
 to compare against, so this loop does not fire, and a report with no rounds in it is the record
-that brief asked for rather than one to query. Where this task did run the review gate, both
+that brief asked for rather than one to query. **What settles it is whether this task ran a review
+gate, never how the project is registered**, so a task whose brief carried no gate line is in that
+same case in full - it has no round to compare against whatever its entry says, the loop does not
+fire, and its report having no rounds is right rather than a gap. Where this task did run the
+review gate, both
 readings are in `report.md`: the `Repeated findings` section of the brief made the worker record
 every round there as it landed, and the first pass as `round 1: no findings` where it raised none,
 so a report carrying a self-check block and no rounds at all is one to ask about rather than one
@@ -1802,6 +1813,45 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
 - Merge on the forge only where this project's registry entry declares `+merge`, and never
   otherwise. The rest of this step owns that rule.
 - Never push a project that is not registered with a push-capable posture.
+- **Never merge on the forge a run whose brief or `report.md` carries the line
+  `PARLEY DISPATCH - NO REVIEW GATE RAN.`**, on any posture and whatever that project's entry
+  declares with `+merge`. **Read both files, and refuse the merge the moment the line appears in
+  one of them** - one hit is the whole trigger, and finding it in both is the ordinary case rather
+  than a different one. **Read both before deciding a merge**, because nothing earlier in this
+  skill opens the brief:
+
+  ```powershell
+  $token = 'PARLEY DISPATCH - NO REVIEW GATE RAN.'
+  $files = "$env:KINGSHAND_HOME\data\<id>\brief.md", "$env:KINGSHAND_HOME\data\<id>\report.md"
+
+  foreach ($f in $files) {
+      if (-not (Test-Path -LiteralPath $f)) { "UNREADABLE $f - not there"; continue }
+      try   { $hits = @(Select-String -SimpleMatch $token -LiteralPath $f -ErrorAction Stop) }
+      catch { "UNREADABLE $f - $($_.Exception.Message)"; continue }
+      if ($hits.Count -gt 0) { "MARKER $f" } else { "CLEAN $f" }
+  }
+  ```
+
+  **Three answers, and only `CLEAN` on both files clears this floor.** `MARKER` refuses the merge.
+  **`UNREADABLE` refuses it too** - a file that is missing or that could not be opened has not been
+  checked, so it says nothing about the marker and must never be read as the marker being absent.
+  Say which path it was and say that the marker could not be checked, rather than reporting a run
+  as unmarked, and the merge waits until both files have actually been read. That is why the loop
+  tests each path before matching: a bare `Select-String` over two paths writes its error to stderr
+  and returns nothing for a missing one, so no-hit and could-not-read arrive as the same empty
+  output - and this floor only ever fired on a hit. It is the same direction `$proj.merge` takes on
+  a registry it cannot read and the same one **Empty evidence is never clean evidence** takes
+  below.
+
+  **`brief.md` is the copy that does not depend on the worker**: the Hand wrote it before any
+  worker existed and nothing the worker does can change it, so **this floor survives a restart and
+  does not depend on knowing how the work was dispatched.** `report.md` is corroboration, and Step
+  6 has already read it. **Match that exact line and nothing else** - not a sentence that means the
+  same thing - because an ordinary gateless brief mentions having no review gate in passing all the
+  time, and a floor firing on those would refuse merges nobody restricted. **Say why rather than
+  only refusing**: this run had no review gate, so nothing has established it is safe to merge, and
+  that is what goes to the user. **It blocks the forge merge only**: landing on a branch and
+  opening a pull request are unaffected.
 - **Never land a worker whose pointer names a hold that is still open.** It is mid-run rather than
   delivered, whatever its branch shows, and Step 6 owns what to do with it. **Read the pointer, and
   where it names a key read that hold**: the field says which decision, and the hold says whether
@@ -1934,6 +1984,16 @@ The parameter is `-OutputPath`. An earlier draft of this block abbreviated it, w
 thrown the first time anyone reached the landing gate - a documented command nothing exercises. A
 test pins the spelling for that reason.
 
+**The one exception to rendering is `parley`, and it is hard rule 5's own.** While that skill is
+loaded nothing renders, so this gate is put as a line in chat instead: what changed, what the
+checks say, and exactly what the approval authorises. "Do not summarise a diff into chat and ask
+for a yes" forbids a chat summary standing in for a gate nobody rendered; it does not forbid the
+gate itself being asked in chat while that mode is on. Everything else here is unchanged - the
+evidence is still gathered and checked, the gate is still held before the push, every floor above
+still holds, and only the user's own answer lands the work. A landing too big to judge from one
+line is not quick: `parley` says to end the mode and render this block as written rather than
+shrink the decision to fit.
+
 **One name per decision, not one per unit of work** - the rule is `## The review surface` above,
 and this gate is where it is easiest to miss. A rejected landing comes back here after the worker
 fixes it, and **a fresh `$gate` name is for a landing whose session they have ended, and only
@@ -1966,18 +2026,31 @@ promising a pull request and nothing more is answered by someone who does not kn
 follows. Naming it is what keeps the sentence above true rather than worked around.
 
 The worker is still alive at this point, so steer it to finish rather than doing the outward step
-yourself - it holds the worktree and it ran the gate. **There are two steers and the resolved mode
-picks which**, because the two modes finish by different routes and sending the wrong one is not a
-wording slip.
+yourself - it holds the worktree, and where a gate ran it is the one that ran it. **There are two
+steers and the brief's own Done-means block picks which, never the resolved mode**, because the
+steer has to name a bullet that exists in the brief the worker is actually holding. Read that
+block: **a brief carrying the push-approved bullet that names a gate line takes the `no-mistakes`
+steer, and a brief with no such bullet took Step 2's `direct-PR` block and takes the `direct-PR`
+steer**, whatever mode the task resolved to. The two blocks finish by different routes and sending
+the wrong steer is not a wording slip.
 
-For a `direct-PR` worker, which pushes and opens the pull request itself:
+**The two come apart on a quick dispatch.** A `parley` brief takes Step 2's `direct-PR` Done-means
+block on a task resolved to `no-mistakes` and carries no gate line at all, so a steer picked by the
+mode would send that worker after a bullet its brief does not contain - and a worker improvising a
+gate line reinstates the review gate that dispatch was authorised to leave out. Keying on the block
+is the same re-keying Step 6's fold-back takes, and it leaves every ordinary dispatch exactly where
+it was, because there the block and the mode agree.
+
+For a `direct-PR` worker - a brief with no push-approved bullet - which pushes and opens the pull
+request itself:
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
 Send-HerdrPrompt -Name "<worker id>" -Text "Approved. Push the branch and open the pull request against <base>, then report its full https:// URL. Change nothing else."
 ```
 
-For a `no-mistakes` worker, which must re-enter the pipeline rather than push by hand:
+For a `no-mistakes` worker, which must re-enter the pipeline rather than push by hand - the brief
+carrying the push-approved bullet:
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
@@ -1993,7 +2066,10 @@ which bullet it is.
 **Sending the `direct-PR` steer to a `no-mistakes` worker pushes around the gate**, skipping its
 own `push` and `pr` steps and everything they carry - the attribution scan, the pull request body
 and the CI hand-off - on a project registered specifically to have them. That is the failure this
-split prevents, and it looks like a delivered pull request either way.
+split prevents, and it looks like a delivered pull request either way. **The worker that failure
+describes is one holding a brief with the gate line in it**, which is what the block test above
+reads: a brief that never carried one has no pipeline to re-enter, so the `direct-PR` steer is the
+only one it can take and nothing is being pushed around.
 
 The re-run walks the local steps again against commits that have not changed, then pushes.
 **That re-run is the price of holding the push back, and it is the intended one** - do not drop the
