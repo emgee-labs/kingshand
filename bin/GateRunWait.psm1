@@ -168,6 +168,33 @@ function Get-StateFlagText {
     'in a shape this wait cannot take'
 }
 
+# An elapsed time the tool wrote onto the end of a state word, and nothing else.
+#
+# ONE SIGNATURE FIELD CARRIES A CLOCK INSIDE ITS VALUE, and it is the one field where that does the
+# most damage. `awaiting_agent` is written as the state word followed by how long it has held -
+# the real captures read `parked 0s` and `parked 12m`, which are one run waiting on one thing at two
+# moments. Carried verbatim that is a duration in the signature, which the rule above rules out for
+# exactly the reason this field proves: `awaiting agent` is also a park key, so a wait armed on a
+# run that was ALREADY parked would find it "changed" on its second read and report the park it was
+# armed on as a decision that had just arrived. That is the condition-read-as-a-transition defect
+# this whole module exists to remove, arriving inside the module that removes it.
+#
+# The wording is kept and only the clock is dropped, because the two carry different facts: a park
+# whose wording changes is the tool saying something different and is worth waking for, while
+# `waiting` only ever says whether a park exists at all. A value that is nothing but a clock strips
+# to '' and rides on `waiting` instead, which is a park stated with no wording rather than no park.
+#
+# Only a number bearing a time unit is taken, so a wording ending in a bare count - `fix 2`, `round
+# 3` - keeps every character it has.
+$script:ElapsedSuffix = '(\s*\d+(\.\d+)?\s*(ms|s|m|h|d))+$'
+
+function Remove-ElapsedTime {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+
+    ($Text -replace $script:ElapsedSuffix, '').Trim()
+}
+
 # WHAT COUNTS AS THE RUN'S STATE, FOR THE PURPOSE OF NOTICING IT CHANGED.
 #
 # One ordered map of label to text, built from the fields that decide something. Two readings are
@@ -176,8 +203,8 @@ function Get-StateFlagText {
 # the answer to "what changed?" are the same computation rather than two that can disagree.
 #
 # WHAT IS IN IT: the reader's own status and signal, the run id, the run's status word, the outcome,
-# whether it is parked and on what, the `awaiting_agent` wording, the gate and its status, EACH
-# STEP'S STATUS UNDER ITS OWN NAME, and the findings.
+# whether it is parked and on what, the `awaiting_agent` wording WITHOUT THE ELAPSED TIME THE TOOL
+# WRITES AFTER IT, the gate and its status, EACH STEP'S STATUS UNDER ITS OWN NAME, and the findings.
 #
 # WHAT IS DELIBERATELY OUT OF IT, each for a reason that has been paid for:
 #
@@ -189,7 +216,9 @@ function Get-StateFlagText {
 #     and computing anything at all from it is what this family of bugs is made of.
 #   - Durations, `active_for`, `last_activity`, `agent_pid`, `takenAt`, `exitCode`, `json`. Every
 #     one of them differs on every read. A signature carrying any of them makes each read a change,
-#     so the wait returns immediately every time - and a wait that always returns is no wait.
+#     so the wait returns immediately every time - and a wait that always returns is no wait. That
+#     covers a duration written INSIDE another field's value too, which `awaiting_agent` is and
+#     `Remove-ElapsedTime` below deals with; keeping a field whole is not a reason to keep a clock.
 #
 # Steps are compared BY NAME rather than as one joined string, so what comes back is
 # `step review: running -> awaiting_approval` and not a diff of two long lines. A step whose name is
@@ -207,7 +236,8 @@ function Get-GateRunSignature {
     $sig['outcome']        = Get-StateText -State $State -Name 'outcome'
     $sig['waiting']        = Get-StateFlagText -State $State -Name 'isParked'
     $sig['waiting on']     = Get-StateText -State $State -Name 'parkedOn'
-    $sig['awaiting agent'] = Get-StateText -State $State -Name 'awaitingAgent'
+    $sig['awaiting agent'] = Remove-ElapsedTime `
+        -Text (Get-StateText -State $State -Name 'awaitingAgent')
     $sig['gate']           = Get-StateText -State $State -Name 'gate'
     $sig['gate status']    = Get-StateText -State $State -Name 'gateStatus'
 

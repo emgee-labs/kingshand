@@ -111,6 +111,53 @@ gate:
     w1,warning,bin/GateRunWait.psm1,ask-user,One decision waiting
 '@
 
+    # The SAME park, read later. Every character matches the document above except `awaiting_agent`,
+    # which the tool writes as the state word followed by how long it has held - `parked 0s` and
+    # `parked 14m30s` are one run waiting on one thing at two moments. A signature carrying that
+    # value whole finds a change here, and because `awaiting agent` is also a park key it calls that
+    # change a park, so a wait armed on an already-parked run reports the park it was armed on as a
+    # decision that just arrived.
+    $script:ParkedLaterToon = @'
+run:
+  id: "01M4WAITEXAMPLE00000000000"
+  branch: feature-x
+  status: running
+  awaiting_agent: parked 14m30s
+  head: abc1234d
+  findings: "1 awaiting"
+  steps[3]{step,status,findings,duration_ms}:
+    intent,completed,0,6
+    review,awaiting_approval,1,406657
+    test,pending,0,0
+gate:
+  step: review
+  status: awaiting_approval
+  findings[1]{id,severity,file,action,description}:
+    w1,warning,bin/GateRunWait.psm1,ask-user,One decision waiting
+'@
+
+    # The same park, in a wording this wait has never seen. Dropping the clock must not cost the
+    # words beside it: the tool saying something different about what it is waiting for IS the run
+    # changing, and `waiting` only ever carries that a park exists at all.
+    $script:ParkedReworededToon = @'
+run:
+  id: "01M4WAITEXAMPLE00000000000"
+  branch: feature-x
+  status: running
+  awaiting_agent: awaiting review decision 14m30s
+  head: abc1234d
+  findings: "1 awaiting"
+  steps[3]{step,status,findings,duration_ms}:
+    intent,completed,0,6
+    review,awaiting_approval,1,406657
+    test,pending,0,0
+gate:
+  step: review
+  status: awaiting_approval
+  findings[1]{id,severity,file,action,description}:
+    w1,warning,bin/GateRunWait.psm1,ask-user,One decision waiting
+'@
+
     # Parked again, on a second decision. The run was already parked when this arrived, so a wait
     # that only asked "was it parked before?" would report this as ordinary progress and bury a
     # decision somebody is waiting on.
@@ -227,6 +274,8 @@ run:
     $script:HeadMoved       = ConvertFrom-GateRunOutput -Text $script:HeadMovedToon
     $script:SummaryMoved    = ConvertFrom-GateRunOutput -Text $script:SummaryMovedToon
     $script:Parked          = ConvertFrom-GateRunOutput -Text $script:ParkedToon
+    $script:ParkedLater     = ConvertFrom-GateRunOutput -Text $script:ParkedLaterToon
+    $script:ParkedReworded  = ConvertFrom-GateRunOutput -Text $script:ParkedReworededToon
     $script:ParkedAgain     = ConvertFrom-GateRunOutput -Text $script:ParkedAgainToon
     $script:ParkedStepMoved = ConvertFrom-GateRunOutput -Text $script:ParkedStepMovedToon
     $script:Passed          = ConvertFrom-GateRunOutput -Text $script:PassedToon
@@ -284,6 +333,32 @@ Describe 'What counts as the run changing' {
         $diff = @(Compare-GateRunSignature -From (Get-GateRunSignature -State $script:Running) `
                                            -To   (Get-GateRunSignature -State $script:SummaryMoved))
         $diff.Count | Should -Be 0
+    }
+
+    It 'takes a park whose elapsed time ticked as the same state' {
+        # The tool writes `awaiting_agent` as the state word plus how long it has held, so these two
+        # readings are one run waiting on one thing fourteen and a half minutes apart. A signature
+        # carrying that value whole reports a difference here, and `awaiting agent` is a park key,
+        # so that difference is reported as a park.
+        $script:ParkedLater.awaitingAgent | Should -Not -Be $script:Parked.awaitingAgent -Because '
+            the fixtures must actually differ, or this proves nothing'
+
+        $diff = @(Compare-GateRunSignature -From (Get-GateRunSignature -State $script:Parked) `
+                                           -To   (Get-GateRunSignature -State $script:ParkedLater))
+        $diff.Count | Should -Be 0
+    }
+
+    It 'keeps the park wording when it drops the elapsed time' {
+        # Dropping the clock must not cost the words beside it. Both of these have held for the same
+        # fourteen and a half minutes and the tool is saying two different things about why.
+        (Get-GateRunSignature -State $script:ParkedLater)['awaiting agent'] |
+            Should -Be 'parked'
+
+        $diff = @(Compare-GateRunSignature -From (Get-GateRunSignature -State $script:ParkedLater) `
+                                           -To (Get-GateRunSignature -State $script:ParkedReworded))
+        @($diff | ForEach-Object { $_.key }) | Should -Contain 'awaiting agent'
+        @($diff | ForEach-Object { $_.text }) |
+            Should -Contain 'awaiting agent: parked -> awaiting review decision'
     }
 
     It 'keeps two steps that share a name rather than collapsing them into one' {
@@ -345,6 +420,35 @@ Describe 'Waiting for a change' {
         $w.reason  | Should -Be 'timeout'
         $w.reads   | Should -BeGreaterThan 1 -Because 'it must actually have read again'
         $w.changes.Count | Should -Be 0
+    }
+
+    It 'does not report the park it was armed on as new when only its clock moved' {
+        # FAILURE 2 AGAIN, BY THE DOOR THE CASE ABOVE CANNOT WATCH. That one re-reads one decoded
+        # reading, so its `awaiting_agent` never advances and a ticking clock inside the signature
+        # survives it. Here the second reading is the same park fourteen and a half minutes older,
+        # which is what a real second poll returns - and a wait carrying that value whole answers
+        # `parked` on its first poll, telling a caller a decision arrived when none did.
+        Set-ReadQueue @($script:Parked, $script:ParkedLater)
+
+        $w = Wait-GateRunChange -TimeoutSeconds 1 -PollSeconds 1
+
+        $w.changed       | Should -BeFalse
+        $w.reason        | Should -Be 'timeout'
+        $w.changes.Count | Should -Be 0
+        $w.reads         | Should -BeGreaterThan 1 -Because 'it must actually have read again'
+    }
+
+    It 'still returns parked when the tool changes what it says it is waiting for' {
+        # The other side of the same fix: stripping the clock must not strip the words, or a park
+        # whose wording changed would read as nothing happening.
+        Mock -ModuleName GateRunWait Start-Sleep { }
+        Set-ReadQueue @($script:ParkedLater, $script:ParkedReworded)
+
+        $w = Wait-GateRunChange -PollSeconds 1
+
+        $w.changed       | Should -BeTrue
+        $w.reason        | Should -Be 'parked'
+        $w.changedFields | Should -Contain 'awaiting agent'
     }
 
     It 'returns when the run finishes, carrying the tool''s own outcome word' {

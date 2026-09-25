@@ -73,6 +73,13 @@ is the difference between "the run is quiet" and "I could not always tell".
 - **Never put a field that moves on every read into the signature.** Durations, `active_for`,
   `last_activity`, `agent_pid` and the reading's own timestamp all do. A signature carrying any of
   them makes every read a change, and a wait that always returns is no wait.
+- **And that covers a clock written inside another field's value.** `awaiting_agent` is the state
+  word followed by how long it has held - `parked 0s`, `parked 12m` - so it is one run waiting on
+  one thing at two moments, and it is also a park key. Carried whole it made a wait armed on an
+  already-parked run answer `parked` on its second read, which is the park-read-as-an-answer defect
+  arriving inside the module written to remove it. The elapsed time is stripped and the wording
+  kept, because a park whose wording changes is the tool saying something different and `isParked`
+  only ever carries that a park exists at all.
 - **Never report a timeout as an outcome.** `changed` being false is the absence of an outcome, not
   one of its own - the same distinction `Wait-HerdrAgentProgress` makes with `settled` for a worker.
   The two things that end a wait without the run moving are the clock running out and the read
