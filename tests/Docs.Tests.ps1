@@ -330,9 +330,16 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
     It 'refuses a forge merge on a run whose own record says it had no review gate' {
         $step = Get-MusterStep 'Step 7 - Gate two'
         Assert-Phrase -Text $step -Where 'the landing gate floors' `
-            -Phrase ('**Never merge on the forge a run whose brief or `report.md` says it ran no ' +
-                     'review gate**, on any posture and whatever that project''s entry declares ' +
-                     'with `+merge`.')
+            -Phrase ('**Never merge on the forge a run whose brief or `report.md` carries the line ' +
+                     '`PARLEY DISPATCH - NO REVIEW GATE RAN.`**, on any posture and whatever that ' +
+                     'project''s entry declares with `+merge`.')
+        # Keyed on one closed token, never on meaning. muster's own Step 2 template has every
+        # gateless worker writing about the absent gate in passing, so a floor that matched the
+        # sense of it would refuse ordinary direct-PR merges the +merge grant allows.
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**Match that exact line and nothing else** - not a sentence that means the ' +
+                     'same thing - because an ordinary gateless brief mentions having no review ' +
+                     'gate in passing all the time')
         # A bare refusal sends the user a wall they cannot judge. The reason is the deliverable.
         Assert-Phrase -Text $step -Where 'the landing gate floors' `
             -Phrase ('**Say why rather than only refusing**: this run had no review gate, so nothing ' +
@@ -5174,21 +5181,57 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         # that may never have heard of parley.
         It 'writes a durable no-gate marker into the brief and the report' {
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase ('**Write the no-gate marker into the brief, in these words.** It goes ' +
-                         'verbatim into the brief''s `## Requirements` section, and the worker ' +
-                         'reproduces it in its `report.md` before it finishes:')
+                -Phrase ('**Write the no-gate marker into the brief twice, in these words.** This is ' +
+                         'the marker block, and it is copied rather than reinvented:')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase ('This dispatch ran no review gate. Nothing has established that this run is ' +
-                         'safe to merge, so it must not be merged on the forge whatever this ' +
-                         'project''s registry entry declares. Landing on a branch or opening a pull ' +
-                         'request is unaffected.')
+                -Phrase ('## No review gate PARLEY DISPATCH - NO REVIEW GATE RAN. Nothing has ' +
+                         'established that this run is safe to merge, so it must not be merged on ' +
+                         'the forge whatever this project''s registry entry declares. Landing on a ' +
+                         'branch or opening a pull request is unaffected.')
+            # Both placements, because either alone fails. Requirements alone leaves report.md
+            # empty and the landing path reads report.md; the report bullet alone has nothing to
+            # copy from. The second rides muster Step 2's existing report-contents contract rather
+            # than inventing a brief section or a sixth Done-means block.
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase '**A brief without that line is a parley brief written wrong.**'
+                -Phrase ('in the brief''s `## Requirements`, as one atomic requirement carrying that ' +
+                         'block verbatim')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('as one more bullet in the brief''s own list of what the report must ' +
+                         'contain - `muster` Step 2 owns that list and the Hand already writes it ' +
+                         'per brief - instructing the worker to reproduce the marker block verbatim ' +
+                         'in `report.md`, under its own `## No review gate` heading, before it ' +
+                         'finishes.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**A brief without that block is a parley brief written wrong, and so is a ' +
+                         'brief that carries it in `## Requirements` and never asks the worker to ' +
+                         'reproduce it in `report.md`**')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase 'A skipped gate nobody can see afterwards is the failure mode'
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase ('**It says what it means and what it forbids rather than setting a flag**, ' +
                          'because the Hand that reads it next may have never heard of parley')
+            # The floor is a literal match, so a tidy-up of the marker's wording is a silent
+            # disarm. The skill has to say that where the wording is.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Do not reword or respell that first line.** `muster` Step 7''s floor ' +
+                         'matches `PARLEY DISPATCH - NO REVIEW GATE RAN.` literally, so a paraphrase ' +
+                         'disarms the floor silently.')
+        }
+
+        # The mechanism is one literal token crossing a skill boundary: parley writes it, Step 7
+        # matches it. Spelled two ways it fails silently and open, which is the defect this token
+        # replaced an open-ended prose match to avoid. Nothing else would notice them drifting.
+        It 'spells the marker token identically in parley and in muster Step 7' {
+            $token = 'PARLEY DISPATCH - NO REVIEW GATE RAN.'
+            $step  = Get-MusterStep 'Step 7 - Gate two'
+            $script:Parley.Contains($token) |
+                Should -BeTrue -Because 'parley writes the line the floor matches'
+            $step.Contains($token) |
+                Should -BeTrue -Because 'Step 7 must match the same line parley writes'
+            # Anchored to the two places that have to agree: the marker block parley hands the
+            # worker, and parley's own account of what Step 7 matches.
+            ([regex]::Matches($script:Parley, [regex]::Escape($token))).Count |
+                Should -BeGreaterOrEqual 2 -Because 'the marker block and the Step 7 cross-reference both carry it'
         }
 
         # Criterion 5: the refusal is stated in full in Step 7 and parley carries the reason plus a
@@ -5318,8 +5361,9 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             # what it does not cover is the claim that was wrong.
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase ('The no-merge rule on a parley dispatch is enforced by `muster` Step 7''s ' +
-                         'floor, which reads the no-gate marker out of the worker''s `report.md` and ' +
-                         'refuses the merge on any posture.')
+                         'floor, which matches the line `PARLEY DISPATCH - NO REVIEW GATE RAN.` in ' +
+                         'the brief and in the worker''s `report.md` and refuses the merge on any ' +
+                         'posture.')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase '**The marker is durable and the memory of the mode is not**'
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
