@@ -2,7 +2,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
-[![Tests](https://img.shields.io/badge/tests-1935%20passing-3fb950)](tests)
+[![Tests](https://img.shields.io/badge/tests-1971%20passing-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 # You rule. It executes.
@@ -252,7 +252,7 @@ CLAUDE.md               the Hand's always-loaded instructions - identity, hard r
 VERSION                 this installation's version, and the only place it is written down
 bin\                    dispatch, worker state, registry, snapshot, digest, herdr, workspace prep,
                         version, self-update, browser verification, the away journal, the usage
-                        window and a gate run's state
+                        window, a gate run's state and the wait on it
 .claude\skills\         seventeen project-local skills. They load only in this directory
 tests\                  the Pester suite
 tools\herdr\            herdr, fetched and SHA-256 verified by the installer - gitignored,
@@ -290,7 +290,7 @@ the startup-memory estimate all come from there. Where a rule here reads well, i
 it was proven there first.
 
 What differs is the layer underneath. Firstmate supervises workers itself, across six terminal
-backends and roughly 56,000 lines of shell. Kingshand keeps about 1,200 lines of PowerShell over a
+backends and roughly 56,000 lines of shell. Kingshand keeps about 6,000 lines of PowerShell over a
 single terminal runtime, which is why it runs on Windows at all - and why it cannot do some of what
 firstmate does. `docs\` records that trade and what would reverse it.
 
