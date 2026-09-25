@@ -137,9 +137,16 @@ Describe 'Get-CiGateLine skips the step rather than asking a worker to give up o
     # Registering `no-mistakes` is consent to the whole pipeline. The only other sanctioned use of
     # the flag is muster's `yolo`-off push hold, which this function has no part in.
     It 'never widens the skip past ci' {
-        foreach ($status in 'has-ci', 'no-ci', 'unknown') {
-            (Get-CiGateLine -Status $status).Contains('push') | Should -BeFalse
-            (Get-CiGateLine -Status $status).Contains('pr,')  | Should -BeFalse
+        $skipsOf = {
+            param($line)
+            $parts = $line -split '\s+'
+            @(0..($parts.Count - 1) |
+                Where-Object { $parts[$_] -eq '--skip' -and $_ -lt ($parts.Count - 1) } |
+                ForEach-Object { $parts[$_ + 1] -split ',' })
+        }
+        @(& $skipsOf (Get-CiGateLine -Status 'no-ci')) | Should -Be @('ci')
+        foreach ($status in 'has-ci', 'unknown') {
+            @(& $skipsOf (Get-CiGateLine -Status $status)) | Should -BeNullOrEmpty
         }
     }
 

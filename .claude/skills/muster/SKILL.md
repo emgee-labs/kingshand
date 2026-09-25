@@ -779,12 +779,16 @@ back until the user has answered; registering `no-mistakes` consents to the full
 `+yolo` is the consent to run it unattended, so on a `+yolo` project those three flags never appear
 at all. The second is `--skip ci` on the gate line of a `no-ci` brief, where Step 1b established
 that nothing can report a check and the step would otherwise wait for one that cannot arrive -
-which is why it is Step 1b that puts it there and never you. **Neither widens.** `--skip` is never
-carried past `ci` on the `no-ci` path, and adding any skip for any other reason - to shorten a run,
-to get past a slow step, because CI looks unlikely to report - is the misuse this line names. That
-last one is the near miss worth recognising in your own reasoning: `no-ci` is proof and
-`unknown` is a guess, which is exactly why `unknown` keeps a terminating sentence instead of the
-flag. Never remove the push prohibition from the `local-only` variant.
+which is why it is Step 1b that puts it there and never you. **No justification widens past its own
+scope.** The `yolo`-off push hold is one sanctioned use of the flag and the `no-ci` skip is another,
+and neither one licenses adding a step the other needed: a held run takes `--skip push,pr,ci`
+because the user has not yet approved the push, and a `no-ci` gate line takes `--skip ci` because
+nothing can report a check. Neither reason reaches a step beyond the one it is for. Adding any skip
+for any other reason - to shorten a run, to get past a slow step, because CI looks unlikely to
+report - is the misuse this line names. That last one is the near miss worth recognising in your own
+reasoning: `no-ci` is proof and `unknown` is a guess, which is exactly why `unknown` keeps a
+terminating sentence instead of the flag. Never remove the push prohibition from the `local-only`
+variant.
 
 **Say in `--intent` what this task deliberately sets aside.** You write that string, not the worker:
 it is the `Intent` section of the brief, and the three `no-mistakes` blocks hand it to the gate

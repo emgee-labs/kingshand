@@ -696,7 +696,9 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
         Assert-Phrase -Text $region -Where 'muster Step 2' `
             -Phrase 'on a `+yolo` project those three flags never appear at all'
         Assert-Phrase -Text $region -Where 'muster Step 2' `
-            -Phrase '**Neither widens.** `--skip` is never carried past `ci` on the `no-ci` path'
+            -Phrase '**No justification widens past its own scope.**'
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase 'neither one licenses adding a step the other needed'
     }
 
     It 'the landing gate is held before the push and says what the approval buys' {
