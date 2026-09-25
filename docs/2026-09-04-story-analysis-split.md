@@ -118,9 +118,9 @@ change code, so a bug-shaped copy would be a second owner of a rule that has one
 `muster`'s lifecycle is written for work that lands or pushes, and an analysis dispatch produces
 no commits at all, so nothing in it says how such a dispatch ends. Three pieces are missing:
 
-- **A Done-means block for a dispatch that produces no commits.** All four of the blocks
-  `muster` generates open with committing on the worktree's branch, and it forbids inventing a
-  fifth. An analysis brief written today therefore carries a delivery instruction that
+- **A Done-means block for a dispatch that produces no commits.** Every one of the blocks
+  `muster` generates opens with committing on the worktree's branch, and it forbids inventing
+  another. An analysis brief written today therefore carries a delivery instruction that
   contradicts its own read-only scope, in the one section the worker is judged against.
 - **A terminal stage for one.** Step 6 sets `gating`; `ready` needs the branch on the remote and
   `landed` needs a merge, so neither is reachable with zero commits. The worker's record sits at

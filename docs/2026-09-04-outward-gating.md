@@ -132,14 +132,17 @@ The `local-only` blocks are untouched. For `direct-PR` the outward bullet is rep
 For `no-mistakes` the gate runs with `--skip push,pr,ci`, which stops it at the last local step.
 
 Two things about that split are easy to get wrong and are written down for it. **The approved run
-still needs `$ci.briefLine`.** Holding the push back delays the CI wait rather than removing it -
-the approved run is a full run and reaches the `ci` step - so Step 1b's answer is carried verbatim
-into the bullet covering that second run. Dropping it reinstates the unbounded wait the preflight
-exists to end, on exactly the repositories that cannot report a check. And **the steer differs by
-mode.** A `direct-PR` worker pushes and opens the pull request itself; a `no-mistakes` worker has
-to re-enter the pipeline, because a worker steered to push by hand goes around the gate's own
-`push` and `pr` steps and everything they carry, and the result looks like a delivered pull request
-either way.
+still needs both of Step 1b's lines - `$ci.gateLine` as well as `$ci.briefLine`.** Holding the push
+back delays the CI wait rather than removing it - the approved run is a full run and reaches every
+step its gate line leaves in - so both are carried verbatim into the bullet covering that second
+run. That is also why the bullet names the brief's own gate line rather than saying "run it again
+without `--skip`": on a repository proven to have no CI that line carries `--skip ci`, and dropping
+the whole flag takes the skip away with the push hold. Dropping either line reinstates the unbounded
+wait the preflight exists to end, on exactly the repositories that cannot report a check. And **the
+steer differs by mode.** A `direct-PR` worker pushes and opens the pull request itself; a
+`no-mistakes` worker has to re-enter the pipeline, because a worker steered to push by hand goes
+around the gate's own `push` and `pr` steps and everything they carry, and the result looks like a
+delivered pull request either way.
 
 ### The `--skip` prohibition that had to be reopened
 
@@ -148,10 +151,12 @@ either way.
 pipeline. That reasoning stands for the mode; it does not survive the King's new instruction,
 because consent to the pipeline is not consent to run it unattended.
 
-So the prohibition is narrowed rather than dropped: exactly one sanctioned use, `yolo` off, where
-the flags are the stop itself. On a `+yolo` project they never appear. Adding them to shorten a
-run, to get past a slow step, or because CI looks unlikely to report is still the misuse the
-original line existed to prevent, and it is still named.
+So the prohibition is narrowed rather than dropped: this change added the first sanctioned use,
+`yolo` off, where the flags are the stop itself. On a `+yolo` project they never appear. Adding them
+to shorten a run, to get past a slow step, or because CI looks unlikely to report is still the
+misuse the original line existed to prevent, and it is still named. `muster` Step 2 owns the
+current list of sanctioned uses - the CI preflight has since added `--skip ci` on a `no-ci` gate
+line - and nothing widens one use's justification onto the other's step.
 
 The cost is a second gate run on the resumed worker, which re-runs the local steps against commits
 that have not changed before pushing. That is the price of holding the push back and it is the
