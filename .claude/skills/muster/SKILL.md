@@ -855,6 +855,10 @@ taking the newest `*-land.html` in `data\<id>\` for a landing gate, and the newe
 `*-<ids>.html` in `data\_dispatch\` for the ids the backlog says are awaiting dispatch, then
 re-run the poll on that path. Match on the ids rather than on the date alone: nothing clears that
 directory, so with two gates outstanding the newest file is one of them and the other is stranded.
+That search is for the surfaces the session-start digest cannot name. Its `RE-ARM:` section already
+prints the absolute path of every one still holding something nobody collected, so where a surface
+is named there, poll the path it gives rather than hunting for it - `CLAUDE.md`'s Recovery section
+owns which ones it can name and which it cannot.
 
 **A return whose session has ended is the one with nothing to re-arm**, and `Send & End` is only
 the commonest way to reach that state - ending the review without sending anything reaches it too.

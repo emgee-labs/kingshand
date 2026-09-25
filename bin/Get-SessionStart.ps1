@@ -1,9 +1,10 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  The once-per-session digest: this installation's version, toolchain problems, fleet state, the
-  queue, where the data index is and how far it has drifted, the King's own standing instructions,
-  and the two curated memory files, rendered as one block a session can read and trust.
+  The once-per-session digest: this installation's version, toolchain problems, fleet state, what
+  a restart killed and has to be re-armed, the queue, where the data index is and how far it has
+  drifted, the King's own standing instructions, and the two curated memory files, rendered as one
+  block a session can read and trust.
 .DESCRIPTION
   This is operational input, not a report. It runs from a SessionStart hook and its whole purpose
   is to make a restart a non-event: everything a fresh session needs to orient itself is printed
@@ -14,12 +15,19 @@
   startup facts nobody asked for, read once at session open. Neither calls the other, and nothing
   runs survey on the user's behalf.
 
-  Bounded on purpose. The version is one line, the fleet, queue and index sections are counts and
-  one-liners; only `instructions.md` and the two memory files are printed in full, and only the two
-  memory files are accounted against the startup-memory budget. A digest that grew with the fleet
-  would be the session-start bulk this deliberately avoids - the registry line is name, posture and
-  path, never the detail that belongs elsewhere, and the index section is where the index is and
-  how far it has drifted, never what any indexed file says.
+  Bounded on purpose. The version is one line, the fleet, re-arm, queue and index sections are
+  counts and one-liners; only `instructions.md` and the two memory files are printed in full, and
+  only the two memory files are accounted against the startup-memory budget. A digest that grew
+  with the fleet would be the session-start bulk this deliberately avoids - the registry line is
+  name, posture and path, never the detail that belongs elsewhere, and the index section is where
+  the index is and how far it has drifted, never what any indexed file says.
+
+  The RE-ARM section is the one that is about what ISN'T there. A background job belongs to the
+  session that armed it, so a restart takes the usage pulse and every review-surface poll with it
+  while the things they were watching carry on - and both failures are invisible by construction.
+  A changed-only pulse that has stopped reads exactly like a pulse with nothing to say, and a
+  surface whose poll is gone reads exactly like a King who has not answered yet. Nothing about
+  either is visible in the fleet, which is why they are printed rather than left to be remembered.
 
   `instructions.md` is the King's own standing instructions, written by hand and never edited by
   the Hand. It is deliberately NOT one of the memory files: `king.md` and `learnings.md` are what
@@ -53,6 +61,13 @@
   instructions.md at the repo root - the King's own standing instructions. Read, never written.
 .PARAMETER VersionPath
   the VERSION file at the repo root - this installation's version. One line of the digest.
+.PARAMETER LavishStatePath
+  lavish-axi's own session store - `state.json` under `LAVISH_AXI_STATE_DIR`, or `~\.lavish-axi`
+  where that is unset, which is the tool's own documented pair. Read, never written, and the only
+  thing taken out of it is which review surfaces under DataPath are holding feedback nobody has
+  collected. The tool has no command that lists its sessions, so this file is the one place that
+  answer exists; it is JSON the tool writes to its own schema, which is why reading it is a parse
+  of a bounded format rather than a scan of an open-ended one.
 .PARAMETER PrereqScript
   the toolchain check. Detect-only: a clean run prints nothing at all.
 .PARAMETER QueueRoot
@@ -72,6 +87,7 @@ param(
     [string]$BudgetPath,
     [string]$InstructionsPath,
     [string]$VersionPath,
+    [string]$LavishStatePath,
     [string]$PrereqScript = (Join-Path $PSScriptRoot 'Test-CrewPrereqs.ps1'),
     [string]$QueueRoot,
     [switch]$Json
@@ -89,6 +105,26 @@ if (-not $RegistryPath)     { $RegistryPath     = Join-Path $script:Root 'data\p
 if (-not $BudgetPath)       { $BudgetPath       = Join-Path $script:Root 'config\startup-memory-budget' }
 if (-not $InstructionsPath) { $InstructionsPath = Join-Path $script:Root 'instructions.md' }
 if (-not $QueueRoot)        { $QueueRoot        = $script:Root }
+
+# lavish-axi's own store, resolved exactly the way the tool resolves it: LAVISH_AXI_STATE_DIR when
+# it is set, and the home directory otherwise. Both are the tool's own documented pair rather than
+# a guess, so a machine that moves the store keeps being read correctly.
+#
+# THIS IS THE THIRD THING IN THIS REPOSITORY TO REACH INTO THE USER PROFILE, and the exception is
+# named here as the other two are. The store has no per-project alternative and the tool ships no
+# command that lists its sessions, so this file is where "which surfaces are still holding an
+# answer" exists at all. It is opened read-only and nothing else in that directory is touched.
+#
+# Empty rather than guessed at when there is no home to resolve against. A store path invented here
+# would be a path that reliably holds nothing, which reads as "no surface is waiting" - the one
+# answer this section must never give without having looked.
+if (-not $LavishStatePath) {
+    $lavishStateDir = $env:LAVISH_AXI_STATE_DIR
+    if (-not $lavishStateDir -and $env:USERPROFILE) {
+        $lavishStateDir = Join-Path $env:USERPROFILE '.lavish-axi'
+    }
+    if ($lavishStateDir) { $LavishStatePath = Join-Path $lavishStateDir 'state.json' }
+}
 
 $script:Lines    = [System.Collections.Generic.List[string]]::new()
 $script:ListCap  = 25
@@ -130,6 +166,112 @@ function Get-Field {
     } catch {
         return $Fallback
     }
+}
+
+# Whether one path sits inside another, compared as paths rather than as text. Both sides are
+# normalised first, because the session store holds whatever absolute path was passed to the tool
+# and this installation's data\ arrives from a parameter - the same directory can be spelled two
+# ways and still be the same directory. A path that will not normalise is not inside anything.
+function Test-PathUnder {
+    param([string]$Path, [string]$Root)
+    try {
+        if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($Root)) { return $false }
+        $p = [System.IO.Path]::GetFullPath($Path)
+        $r = [System.IO.Path]::GetFullPath($Root).TrimEnd('\', '/') +
+             [System.IO.Path]::DirectorySeparatorChar
+        return $p.StartsWith($r, [System.StringComparison]::OrdinalIgnoreCase)
+    } catch {
+        return $false
+    }
+}
+
+# How many prompts are queued on one session - or -1 for a count that could not be read.
+#
+# THE NEGATIVE IS THE POINT AND IT IS NOT A COUNT. Zero is the tool saying nobody has sent
+# anything, which is a settled fact this section is allowed to be quiet about. A field that is
+# absent, or holds something that is not a whole number, is the tool not answering - and reading
+# that as zero would drop a surface holding the King's own reply out of the digest entirely, with
+# nothing said to anybody. The caller lists both and tells them apart in the line it prints.
+function Get-QueuedPromptCount {
+    param($Row)
+    $n = 0
+    if ([int]::TryParse((Get-Field $Row 'pending_prompts'), [ref]$n) -and $n -ge 0) { return $n }
+    -1
+}
+
+# How many artifact failures one session is holding - or -1 for a list that could not be read.
+#
+# The second half of the tool's own condition, and it is read here for the same reason the first
+# half is: `takeFeedback` returns `ended` only where the queued prompts AND the artifact failures
+# are both empty, and returns the feedback otherwise. A row with a failure on it and nothing queued
+# still has something a single poll would deliver, so it is not "nothing to collect".
+#
+# Read as defensively as the count above. The tool writes a JSON array; anything else - a field
+# that is absent, null, or some other shape - is the tool not answering, which keeps the row.
+function Get-ArtifactFailureCount {
+    param($Row)
+    try {
+        if ($null -eq $Row) { return -1 }
+        $p = $Row.PSObject.Properties['artifact_failures']
+        if (-not $p) { return -1 }
+        $v = $p.Value
+        if ($null -eq $v -or $v -is [string]) { return -1 }
+        if ($v -is [System.Collections.IEnumerable]) { return @($v).Count }
+        return -1
+    } catch {
+        return -1
+    }
+}
+
+# When the tool last touched one session, as an instant anybody can read the same way.
+#
+# ConvertFrom-Json turns the store's timestamps into DateTime objects, and stringifying one of
+# those renders it in whatever date format the machine is set to - 09/02/2026 is two different days
+# depending on who is reading it. Rendered here to a single unambiguous shape instead, and a value
+# that is not a time at all is passed through as the tool wrote it rather than reformatted into
+# something this cannot stand behind.
+function Get-SessionStamp {
+    param($Row)
+    $v = $null
+    try {
+        $p = $Row.PSObject.Properties['updated_at']
+        if ($p) { $v = $p.Value }
+    } catch { }
+
+    if ($v -is [datetime])       { return ([datetimeoffset]$v).ToUniversalTime().ToString('u') }
+    if ($v -is [datetimeoffset]) { return $v.ToUniversalTime().ToString('u') }
+    $t = "$v".Trim()
+    if ($t) { return $t }
+    'last touched not given'
+}
+
+# One review surface as one line: what is on it, the tool's own status word, when it was last
+# touched, and the absolute path a poll takes. Shared by both surface lists, because the two differ
+# in what the reader should do next and in nothing about the row itself.
+function Format-SurfaceLine {
+    param($Row)
+    # An unreadable count is said as unreadable. It is listed either way, because the one thing
+    # that cannot be concluded from a count nobody could read is that there is nothing there.
+    $n      = Get-QueuedPromptCount $Row
+    $queued = if ($n -lt 0) { 'queued count unreadable' } else { "$n queued" }
+
+    # Silent when the tool says there are none, because that is the ordinary row and saying "0
+    # artifact failures" on every line buries the one that has some.
+    $a = Get-ArtifactFailureCount $Row
+    $failed = if ($a -lt 0)     { ', artifact failures unreadable' }
+              elseif ($a -eq 1) { ', 1 artifact failure' }
+              elseif ($a -gt 0) { ", $a artifact failures" }
+              else              { '' }
+
+    # The tool's own status word, passed through rather than translated. This digest does not own
+    # that vocabulary and must not invent a meaning for it.
+    $status = Get-Field $Row 'status' 'status not given'
+
+    # The path is never a fallback. A row reaches a list only by having a file that resolves inside
+    # DataPath, so there is always one to print, and a row naming no file at all could not have
+    # been matched to this installation in the first place - it is not counted rather than counted
+    # without a path.
+    "- $queued$failed, status $status, $(Get-SessionStamp $Row) - $(Get-Field $Row 'file')"
 }
 
 # A list in this digest is a set of one-liners, and a fleet of forty must not turn session start
@@ -382,6 +524,135 @@ try {
     }
 } catch {
     Add-Line ("  FLEET: could not read the fleet - " + (Format-Fault $_.Exception.Message))
+}
+
+# --------------------------------------------------------------------------------
+# 2b. Re-arm - the background jobs the last session took with it.
+#
+#     A background job belongs to the session that armed it. A restart kills the
+#     usage pulse and every review-surface poll along with the worker waits, and
+#     unlike a dead worker neither leaves a mark: the pulse is changed-only, so one
+#     that has stopped is indistinguishable from one with nothing to say, and a
+#     surface whose poll is gone is indistinguishable from a King who has not
+#     answered yet. The King has twice reported the first as "no tokens, no
+#     updates", which is what an invisible failure looks like from his side.
+#
+#     The worker waits are the third of the three and are deliberately NOT repeated
+#     here. FLEET above already names every live worker, and CLAUDE.md's Recovery
+#     section owns what to do with them - saying it twice is two places to correct.
+#
+#     NOTHING HERE DECIDES WHETHER THE PULSE SHOULD RUN. The King turns it off by
+#     writing a line in his own standing instructions, which this digest prints
+#     whole further down, and the Hand honours it by having read them. A script
+#     matching a phrase in free prose somebody wrote by hand is the open-ended
+#     scanner the standing criteria forbid, so the command is printed unconditionally
+#     and the judgement stays with the reader.
+# --------------------------------------------------------------------------------
+Add-Line ''
+Add-Line 'RE-ARM  (a restart kills every background job the last session armed)'
+Add-Line '  Pulse: arm it once, as a harness-tracked background job:'
+# Quoted, because this block is printed to be copied and run and an installation root is allowed to
+# have a space in it - `C:\Users\John Smith\kingshand` is an ordinary place to keep a clone, and
+# unquoted it binds as two arguments and fails on a positional parameter. The failure is the one
+# this whole section exists against: the command errors at session open, the pulse is never armed,
+# and the silence that follows is indistinguishable from a changed-only pulse with nothing to say.
+# A quote inside the path is doubled for the same reason - it is the only other character that
+# could end the string early.
+Add-Line ("      Import-Module '" + (Join-Path $script:Root 'bin\Usage.psm1').Replace("'", "''") + "'")
+Add-Line '      Watch-UsagePulse'
+Add-Line '    It runs until the session ends rather than for a set number of ticks, and it speaks'
+Add-Line '    only when something has changed - so say in one line that it is on, because a quiet'
+Add-Line '    pulse and a dead one look the same from the outside.'
+Add-Line '    Whether to arm it at all is yours, from having read instructions.md below. Nothing'
+Add-Line '    here reads that file and nothing here decides it.'
+
+# WHICH SURFACES ARE STILL HOLDING AN ANSWER, TAKEN FROM THE TOOL'S OWN STORE.
+#
+# lavish-axi ships no command that lists its sessions, so its store is the one place this answer
+# exists. It is JSON the tool writes to its own schema and it is parsed as JSON, which is what
+# keeps this a read of a bounded format rather than a scan of an open-ended one.
+#
+# SOMETHING UNCOLLECTED IS THE SIGNAL, NOT AN OPEN SESSION, and the difference is the whole design.
+# Nothing ends a session once its decision is settled, so `open` accumulates for good - dozens of
+# them on this machine, every one of them looking identical to a decision raised this morning.
+# A prompt queued and uncollected is the opposite: it is the exact failure this section exists for,
+# it is the King's own answer sitting where nobody is listening, and it clears the moment it is
+# collected.
+#
+# THE TOOL'S OWN CONDITION IS MIRRORED RATHER THAN SUMMARISED. `takeFeedback` reports `ended` only
+# where the queued prompts and the artifact failures are BOTH empty; with either of them holding
+# something it returns that feedback instead, carrying `session_ended` alongside, and the poll
+# route calls it at once rather than waiting. So a session that has ended while still holding a
+# queued prompt is not a dead end - it is a Send & End whose final answer was never delivered,
+# which is precisely the killed poll this whole section exists for. Dropping it on the status word
+# alone would discard the one case a single poll still recovers, and send the reader back to ask
+# for a decision the King already made.
+#
+# THE STATUS WORD BELONGS IN THE WORDING, NOT IN THE SELECTION. A row is listed when it is holding
+# anything, and which list it lands in says what to do with it: a session still open is polled and
+# left armed, and one that has already ended is polled once to collect what is on it and not
+# re-armed, which is what `muster`'s `## The review surface` says happens after that return.
+# Matched as the exact word and nothing else - a status the store did not give, one spelled any
+# other way, one this could not read, all take the ordinary re-arming path, because re-arming a
+# surface that did not need it costs a moment and not re-arming one that did costs the answer.
+#
+# What is NOT here is stated in the section itself rather than left implied: a session that is open
+# with nothing queued on it is not named. The store records no field saying a poll was armed, so
+# one that was being waited on cannot be told from the dozens nobody ever closed.
+try {
+    if (-not $LavishStatePath) {
+        Add-Line '  Surfaces: no home directory to resolve lavish-axi''s session store against, so no'
+        Add-Line '            review surface could be checked.'
+    } elseif (-not (Test-PathQuiet $LavishStatePath)) {
+        Add-Line "  Surfaces: no session store at $LavishStatePath, so none has been opened on this"
+        Add-Line '            machine yet and there is nothing to re-arm.'
+    } else {
+        $store    = Get-Content -LiteralPath $LavishStatePath -Raw -ErrorAction Stop | ConvertFrom-Json
+        $sessions = $null
+        if ($store -and $store.PSObject.Properties['sessions']) { $sessions = $store.sessions }
+
+        if ($null -eq $sessions) {
+            # The tool did not say, which is not the same as the tool saying there are none. Read
+            # as "none" it would answer "nothing is waiting" to a question nobody asked it.
+            Add-Line "  Surfaces: the session store at $LavishStatePath named no sessions at all, so"
+            Add-Line '            which surfaces are open was not established.'
+        } else {
+            $rows    = @($sessions.PSObject.Properties | ForEach-Object { $_.Value })
+            $mine    = @($rows | Where-Object { Test-PathUnder -Path (Get-Field $_ 'file') -Root $DataPath })
+            $holding = @($mine | Where-Object {
+                (Get-QueuedPromptCount $_) -ne 0 -or (Get-ArtifactFailureCount $_) -ne 0
+            })
+            $ended = @($holding | Where-Object { (Get-Field $_ 'status') -ceq 'ended' })
+            $live  = @($holding | Where-Object { (Get-Field $_ 'status') -cne 'ended' })
+
+            if ($holding.Count -eq 0) {
+                Add-Line "  Surfaces: none of the $($mine.Count) under $DataPath is holding anything nobody"
+                Add-Line '            has collected.'
+            } else {
+                Add-Line "  Surfaces: $($holding.Count) of $($mine.Count) under $DataPath hold something nobody"
+                Add-Line '            has collected. `muster`''s `## The review surface` owns what a return'
+                Add-Line '            means, and each is named with the absolute path its poll takes.'
+            }
+            Add-Line '            Not named here: a session still open with nothing queued on it. The store'
+            Add-Line '            records no field saying a poll was armed, so one that was being waited on'
+            Add-Line '            cannot be told from the dozens nobody ever closed.'
+
+            if ($live.Count -gt 0) {
+                Add-Line '    Still open - re-run the poll and leave it armed:'
+                Add-BoundedList -Items @($live | ForEach-Object { Format-SurfaceLine $_ }) -Indent '      '
+            }
+            # Listed, not counted, and this is the row the earlier shape lost. The tool hands the
+            # queued feedback over on the next poll whether or not the session has ended, so the
+            # path is what the reader needs; what changes is only that nothing is re-armed after.
+            if ($ended.Count -gt 0) {
+                Add-Line '    Already ended - run the poll once to collect it, then do not re-arm:'
+                Add-BoundedList -Items @($ended | ForEach-Object { Format-SurfaceLine $_ }) -Indent '      '
+            }
+        }
+    }
+} catch {
+    Add-Line ("  Surfaces: the session store at $LavishStatePath could not be read - " +
+              (Format-Fault $_.Exception.Message))
 }
 
 # --------------------------------------------------------------------------------

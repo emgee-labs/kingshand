@@ -1869,6 +1869,74 @@ Describe 'recovery reconciles records against reality before taking new work' {
         Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
             -Phrase '`survey` is the on-demand way to see where everything stands'
     }
+
+    # The same defect as the worker wait, twice more and both silent. A pulse that stopped and a
+    # pulse with nothing to say produce identical output - nothing - and a surface whose poll died
+    # looks exactly like a King who has not answered. Neither is visible in the fleet, so the rule
+    # has to name them or a restart quietly ends both. Reported twice in one day as "no tokens, no
+    # updates", which is what an invisible failure sounds like from the other side.
+    It 'requires the pulse and any waiting review surface to be re-armed too' {
+        $s = Get-HandSection 'Recovery'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase ('**The usage pulse and any review surface holding an answer need re-arming in ' +
+                     'the same breath, and both fail where nobody can see them.**')
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase 'The digest''s `RE-ARM:` section carries'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase 'names every surface still worth re-polling'
+    }
+
+    # The half that is polled but not re-armed, and it has to be said here or the rule reads as
+    # "an ended session is finished with". It is not: the tool hands queued feedback over on the
+    # next poll whatever the session's state, so a Send & End whose poll was killed is the one case
+    # a single poll still recovers. Dropping it sends the Hand back to ask for a decision already
+    # made. What changes for it is only that nothing is re-armed afterwards.
+    It 'still names an ended session that is holding something, and stops at one poll' {
+        $s = Get-HandSection 'Recovery'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase ('**A session that has already ended is named too wherever something is still ' +
+                     'uncollected on it**')
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase 'polled once to collect it and then not re-armed'
+    }
+
+    # The limitation, stated rather than left to be inferred from what the list happens to contain.
+    # A reader told which surfaces are named needs telling which are not, or they will read silence
+    # as "nothing else was waiting".
+    It 'says what the surface list cannot cover' {
+        Assert-Phrase -Text (Get-HandSection 'Recovery') -Where 'CLAUDE.md recovery' `
+            -Phrase ('What the list cannot cover is a session open with nothing queued: the store ' +
+                     'records no field saying a poll was armed, so the digest says so rather than guessing.')
+    }
+
+    # R-002 in one sentence. The window is the fix, not an implementation detail: three ticks at the
+    # default cadence is half an hour, and the silence after the third is the same silence a working
+    # pulse produces, so a finite count reinstates the bug on a delay.
+    It 'pins the pulse to one job for the whole session rather than a set number of ticks' {
+        $s = Get-HandSection 'Recovery'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase ('arm the pulse as **one job for the whole session, never a set number of ' +
+                     'ticks** - three at ten minutes buys half an hour and then stops')
+    }
+
+    # R-006, bounded deliberately. One line at arming time, because silence is the pulse working and
+    # a reader who never saw it start cannot tell that from a pulse that never did.
+    It 'requires one line saying the pulse is on' {
+        Assert-Phrase -Text (Get-HandSection 'Recovery') -Where 'CLAUDE.md recovery' `
+            -Phrase '**Say in one line that the pulse is on when you arm it.**'
+    }
+
+    # R-005. The off switch is the King's own prose and no script may go near it, so the digest is
+    # unconditional and the decision is the Hand's - stated here as a cross-reference rather than as
+    # a second copy of the rule, which Escalation and etiquette owns.
+    It 'keeps the off switch with the Hand and out of the digest' {
+        $s = Get-HandSection 'Recovery'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase ('**The digest prints that command whatever the King''s own instructions ' +
+                     'say**, because nothing in `bin\` reads them.')
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase 'the off switch stays exactly where Escalation and etiquette puts it'
+    }
 }
 
 Describe 'escalation talks in outcomes and leads with evidence' {
@@ -4575,6 +4643,39 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Vigil | Should -Match 'Ten minutes between pulses by default'
         }
 
+        # The arming used to depend on somebody remembering, and it was not remembered - the pulse
+        # stopped at every restart and the stopping was invisible, because a changed-only pulse
+        # says nothing when nothing has changed. The digest carries the command now, and the skill
+        # says so rather than leaving the reader to discover where it comes from.
+        It 'says the digest carries the arming command so nobody has to remember it' {
+            $script:Vigil | Should -Match 'One background job per session, armed once at session start'
+            $script:Vigil | Should -Match ('\*\*The session-start digest carries that command in its ' +
+                                           '`RE-ARM:` section, so arming it is not\s+something anybody ' +
+                                           'has to remember\.\*\*')
+            $script:Vigil | Should -Match '`CLAUDE\.md`''s Recovery section owns the rule'
+        }
+
+        # R-002. A finite count is the bug on a delay: the ticks run out mid-session and what
+        # follows is the same silence a healthy pulse produces.
+        It 'refuses a finite count and says why half an hour is not a session' {
+            $script:Vigil | Should -Match '\*\*No count, ever - it runs until the session ends\.\*\*'
+            $script:Vigil | Should -Match ('`-Count 3` at the default cadence is thirty\s+minutes')
+            $script:Vigil | Should -Match ('Any\s+finite count is a promise to go quiet at a moment ' +
+                                           'nobody will notice')
+        }
+
+        # R-006, and the boundary on it. One line at arming time is in scope; making a quiet pulse
+        # legible in general is its own piece of work and the skill says so rather than drifting
+        # into it.
+        It 'asks for one line at arming time and stops there' {
+            $script:Vigil | Should -Match '\*\*Say in one line that it is on when you arm it\.\*\*'
+            $script:Vigil | Should -Match ('a reader\s+who was never told the pulse started has no ' +
+                                           'way to tell the quiet that follows from a pulse that\s+' +
+                                           'never ran')
+            $script:Vigil | Should -Match ('making a quiet pulse legible in general\s+is somebody ' +
+                                           'else''s piece of work and deliberately not this one')
+        }
+
         It 'pins the line to one line, with the tail as a count' {
             $script:Vigil | Should -Match 'One line, hard cap, however many workers are live'
             $script:Vigil | Should -Match 'the tail becomes a count'
@@ -4702,19 +4803,43 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     }
 
     # Asserted as an absence of overlap rather than of a literal path: a script that cannot reach
-    # the profile cannot install a skill into it, whatever it says about skills, and a script that
-    # can reach the profile must have no business with skills at all.
+    # the profile cannot install a skill into it, whatever it says about skills.
+    #
+    # THE OVERLAP IS CHECKED LINE BY LINE AND NOT FILE BY FILE, and the difference showed up the
+    # first time a script had honest business at both ends. The digest reaches the profile for
+    # lavish-axi's session store and, forty lines away in a comment, says where the skills load
+    # from - two facts with nothing to do with each other, which at file scope read as one script
+    # putting skills in the profile. A path that joins the two is one statement, so that is the
+    # scope this is asserted at.
+    #
+    # WHAT THAT LEAVES UNCOVERED IS WORTH STATING RATHER THAN IMPLYING. CLAUDE.md forbids linking
+    # OR COPYING the skills into `~\.claude\skills\`, and the junction and symlink check above bans
+    # exactly two item types - so a `Copy-Item` into a profile path passes it, and so does any path
+    # assembled over two lines, which passes this one too. Neither test is a proof that nothing can
+    # reach that directory. This asserts the narrower thing it can actually assert: no single
+    # statement in this repository names the profile and the skills together.
+    #
+    # Every offender is collected first and asserted once. Line scope with an assertion per line is
+    # thousands of them for one test, and the message could only name the file - which is the file
+    # scope this narrowing moved away from, handed back at the moment somebody has to act on it.
+    # Collected, the failure names the file AND the line of each statement that tripped it.
     It 'no script writes to the user profile skills directory' {
-        foreach ($f in $script:AllSource) {
-            $text = Get-Content -Path $f.FullName -Raw
-            ($text.Contains('USERPROFILE') -and $text -match '(?i)skills') |
-                Should -BeFalse -Because "$($f.Name) must leave ~\.claude\skills\ alone entirely"
-        }
+        $offenders = @(
+            foreach ($f in $script:AllSource) {
+                $n = 0
+                foreach ($line in @(Get-Content -Path $f.FullName)) {
+                    $n++
+                    if ($line.Contains('USERPROFILE') -and $line -match '(?i)skills') { "$($f.Name):$n" }
+                }
+            }
+        )
+        ($offenders -join ', ') |
+            Should -BeNullOrEmpty -Because 'every script must leave ~\.claude\skills\ alone entirely'
     }
 
     # The blanket ban on touching the profile at all was the right proxy while nothing needed to.
-    # TWO things do now, and each is named with its own file, because an unnamed exception is how a
-    # guard like this stops meaning anything.
+    # THREE things do now, and each is named with its own file, because an unnamed exception is how
+    # a guard like this stops meaning anything.
     #
     # Folder trust was the first: herdr launches a worker in a worktree Claude Code has never seen,
     # and the trust registry is a single file in the profile with no per-project alternative.
@@ -4724,13 +4849,18 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     # measures - and that name lives in one file in the profile. The test below pins the scope hard,
     # because the directory it sits in also holds the credential blobs: one file, read, never
     # written, and nothing whatever from a credential file.
-    It 'only the trust module and the usage reader touch the profile, each for one named file' {
+    #
+    # lavish-axi's session store is the third, and it is READ-ONLY too. A review surface holding
+    # feedback nobody collected is invisible from anywhere inside this repository - the tool ships
+    # no command that lists its sessions, so its own store is the one place that answer exists, and
+    # the tool documents the pair of locations it keeps it in. One file, read, never written.
+    It 'only the trust module, the usage reader and the digest touch the profile, each for one named file' {
         $reaching = @($script:AllSource | Where-Object {
             (Get-Content -Path $_.FullName -Raw).Contains('USERPROFILE')
         })
         (@($reaching | ForEach-Object { $_.Name } | Sort-Object) -join ', ') |
-            Should -Be 'ClaudeWorkspace.psm1, Usage.psm1' `
-            -Because 'folder trust and the active account name are the two with nowhere else to live'
+            Should -Be 'ClaudeWorkspace.psm1, Get-SessionStart.ps1, Usage.psm1' `
+            -Because 'folder trust, the account name and the session store have nowhere else to live'
 
         $trust = Get-Content -Path (Join-Path $script:Root 'bin\ClaudeWorkspace.psm1') -Raw
         $trust.Contains('.claude.json') |
@@ -4739,6 +4869,11 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         $usage = Get-Content -Path (Join-Path $script:Root 'bin\Usage.psm1') -Raw
         $usage.Contains('.claude\accounts\.active') |
             Should -BeTrue -Because 'the account name is one file, named exactly'
+
+        # The digest's half of this is not asserted from its source. Which file it opens, and that
+        # it honours the tool's own override variable, are both driven end to end in
+        # SessionStart.Tests.ps1 - `the store path resolves the way lavish-axi resolves it` - and
+        # that it never writes to that file is observed there too, from the file's own bytes.
     }
 
     # The hard half of that exception. The accounts directory holds the credential blobs the King's
@@ -6170,7 +6305,7 @@ Describe 'the installation has a version, and one command moves it to a release'
 
     It 'names the version as one line of the session-start digest' {
         Assert-Phrase -Text (Get-HandSection 'Session start') -Where 'CLAUDE.md Session start' `
-            -Phrase 'The digest carries six things: this installation''s version on one `VERSION:` line'
+            -Phrase 'The digest carries seven things: this installation''s version on one `VERSION:` line'
     }
 
     It 'declares the update skill trigger inline, with its refusals' {

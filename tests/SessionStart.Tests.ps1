@@ -62,7 +62,52 @@ BeforeAll {
             Instructions = Join-Path $root 'instructions.md'
             Version      = Join-Path $root 'VERSION'
             Prereq       = $prereq
+            # Absent unless a case writes one, which is the ordinary state on a machine where no
+            # review surface has ever been opened. Passed explicitly by Get-Digest for the same
+            # reason every other path is: unset, it would resolve to the live store belonging to
+            # whoever is running the suite, and their own open surfaces would decide these cases.
+            LavishState  = Join-Path $root 'lavish\state.json'
         }
+    }
+
+    # One session row in lavish-axi's own shape. Only the fields the digest reads are written, and
+    # each is omittable, because the cases below need to drive an absent one as well as a present.
+    function New-LavishStore {
+        param(
+            [Parameter(Mandatory)]$Fixture,
+            [Parameter(Mandatory)][AllowEmptyCollection()][array]$Sessions,
+            [switch]$NoSessionsField,
+            [string]$RawText
+        )
+        New-Item -ItemType Directory -Force -Path (Split-Path $Fixture.LavishState -Parent) | Out-Null
+        if ($PSBoundParameters.ContainsKey('RawText')) {
+            Set-Content -LiteralPath $Fixture.LavishState -Value $RawText -Encoding utf8
+            return $Fixture.LavishState
+        }
+
+        $map = [ordered]@{}
+        $i = 0
+        foreach ($s in $Sessions) {
+            $map["key$i"] = $s
+            $i++
+        }
+        $store = if ($NoSessionsField) { [ordered]@{ version = 1 } } else { [ordered]@{ sessions = $map } }
+        $store | ConvertTo-Json -Depth 6 |
+            Set-Content -LiteralPath $Fixture.LavishState -Encoding utf8
+        $Fixture.LavishState
+    }
+
+    # `artifact_failures` is the second half of lavish-axi's own "nothing to collect" condition, so
+    # it is drivable here the same way `pending_prompts` is - present and empty, present and
+    # holding something, or absent altogether.
+    function New-LavishSession {
+        param([string]$File, $Pending, $Failures, [string]$Status = 'open',
+              [string]$Updated = '2026-09-16T11:34:32Z')
+        $row = [ordered]@{ file = $File; status = $Status; updated_at = $Updated }
+        if ($PSBoundParameters.ContainsKey('Pending'))  { $row['pending_prompts']   = $Pending }
+        if ($PSBoundParameters.ContainsKey('Failures')) { $row['artifact_failures'] = $Failures }
+        else                                            { $row['artifact_failures'] = @() }
+        $row
     }
 
     # Every path is passed explicitly, including Instructions and Version. An omitted parameter
@@ -70,7 +115,9 @@ BeforeAll {
     # whoever is running the suite - their own standing preferences, printed into test output - and
     # the live VERSION, which would make the version line pass whatever the fixture holds.
     function Get-Digest {
-        param([Parameter(Mandatory)]$Fixture, [switch]$Json)
+        param([Parameter(Mandatory)]$Fixture, [switch]$Json, [switch]$ResolveLavishStatePath)
+        $lavish = @{}
+        if (-not $ResolveLavishStatePath) { $lavish['LavishStatePath'] = $Fixture.LavishState }
         & $script:DigestScript `
             -DataPath         $Fixture.Data `
             -StatePath        $Fixture.State `
@@ -80,6 +127,7 @@ BeforeAll {
             -VersionPath      $Fixture.Version `
             -PrereqScript     $Fixture.Prereq `
             -QueueRoot        $Fixture.Root `
+            @lavish `
             -Json:$Json
     }
 
@@ -802,5 +850,480 @@ Describe 'the digest says which version this installation is' {
             (Get-Digest $f).Contains($section) |
                 Should -BeTrue -Because "one unreadable file must cost one line, not the digest: $section"
         }
+    }
+}
+
+# --------------------------------------------------------------------------------------------
+# RE-ARM. A background job belongs to the session that armed it, so a restart takes the usage
+# pulse and every review-surface poll with it. Both failures are silent by construction: a
+# changed-only pulse that has stopped produces the same output as one with nothing to say -
+# nothing - and a surface whose poll is gone looks exactly like a King who has not answered yet.
+# Neither is visible in the fleet, which is why the digest has to carry them.
+# --------------------------------------------------------------------------------------------
+Describe 'the digest says how to re-arm the usage pulse' {
+    BeforeAll { $script:Pulse = Get-Digest (New-Fixture 're-arm-pulse') }
+
+    It 'carries a runnable arming command rather than a reminder to remember one' {
+        $script:Pulse.Contains('RE-ARM') | Should -BeTrue
+        $script:Pulse | Should -Match 'Import-Module .*bin\\Usage\.psm1'
+        $script:Pulse.Contains('Watch-UsagePulse') |
+            Should -BeTrue -Because 'the Hand copies the block, so it has to be runnable'
+    }
+
+    # R-002. Three ticks at the default cadence is thirty minutes against a session lasting hours,
+    # and the silence after the last tick is the same silence a working pulse produces - so a
+    # finite count reinstates the bug on a delay rather than fixing it.
+    It 'arms it for the whole session rather than for a set number of ticks' {
+        $script:Pulse | Should -Match 'It runs until the session ends rather than for a set number of ticks'
+        $script:Pulse | Should -Not -Match 'Watch-UsagePulse\s+-Count' `
+            -Because 'a count is a promise to go quiet at a moment nobody will notice'
+    }
+
+    # R-006, bounded. One line at arming time, because silence is the pulse working and a reader
+    # who never saw it start cannot tell that from a pulse that never did.
+    It 'asks for one line saying the pulse is on' {
+        $script:Pulse | Should -Match 'say in one line that it is on'
+        $script:Pulse | Should -Match 'a quiet\s+pulse and a dead one look the same from the outside'
+    }
+
+    # R-005, and it is the reason this is a printed command rather than a decision. instructions.md
+    # is open-ended prose somebody wrote by hand; nothing in bin\ may match a phrase out of it, so
+    # the digest prints the command unconditionally and the Hand decides from having read the file.
+    It 'prints the command unchanged when the King has switched the pulse off' {
+        $f = New-Fixture 're-arm-off'
+        Set-Content -Path $f.Instructions -Encoding utf8 `
+            -Value @('# Standing instructions', '', '- No usage pulse. Keep it off.')
+        $text = Get-Digest $f
+
+        $text.Contains('Watch-UsagePulse') |
+            Should -BeTrue -Because 'nothing in bin\ reads that file, so nothing in bin\ can act on it'
+        $text | Should -Match 'Whether to arm it at all is yours'
+        $text.Contains('No usage pulse. Keep it off.') |
+            Should -BeTrue -Because 'the Hand decides it from the file, which is printed whole'
+    }
+
+    # `C:\Users\John Smith\kingshand` is an ordinary place to keep a clone, and unquoted the printed
+    # path binds as two arguments - `Import-Module` fails on a positional parameter and names the
+    # second half of the path. That error arrives at session open, the pulse is never armed, and
+    # because the pulse is changed-only the silence that follows is exactly what a working one
+    # produces. Driven by running the emitted line rather than by reading it: the block exists to be
+    # copied and run, so whether it runs is the only thing worth asserting about it.
+    It 'emits a command that still runs when the installation root has a space in it' {
+        $saved = $env:KINGSHAND_HOME
+        try {
+            $spaced = Join-Path $TestDrive 'My Tools\kings hand'
+            New-Item -ItemType Directory -Force -Path (Join-Path $spaced 'bin') | Out-Null
+            $module = Join-Path $spaced 'bin\Usage.psm1'
+            Set-Content -LiteralPath $module -Encoding utf8 `
+                -Value 'function Watch-UsagePulse { ''armed'' }'
+
+            $env:KINGSHAND_HOME = $spaced
+            $emitted = @((Get-Digest (New-Fixture 'pulse-spaced')) -split "`r?`n" |
+                         Where-Object { $_.Contains('Import-Module') })
+            $emitted.Count | Should -Be 1 -Because 'the arming block is one Import-Module line'
+
+            # A separate runspace, so the stub never lands in the session running the suite.
+            $ps = [powershell]::Create()
+            try {
+                $null = $ps.AddScript($emitted[0].Trim() + "`n(Get-Module Usage).Path")
+                $loaded = @($ps.Invoke())
+                (@($ps.Streams.Error) -join '; ') |
+                    Should -BeNullOrEmpty -Because 'the Hand copies this line and runs it unchanged'
+                $loaded[-1] | Should -Be $module `
+                    -Because 'the whole path has to bind as one argument, spaces and all'
+            } finally {
+                $ps.Dispose()
+            }
+        } finally {
+            if ($null -eq $saved) { Remove-Item Env:\KINGSHAND_HOME -ErrorAction SilentlyContinue }
+            else                 { $env:KINGSHAND_HOME = $saved }
+        }
+    }
+}
+
+# The other half, and the one the King loses something to. lavish-axi ships no command that lists
+# its sessions, so its own store is the one place the answer exists. Something uncollected is the
+# signal rather than an open session: nothing ends a session when its decision is settled, so `open`
+# accumulates for good, while a queued prompt is his answer sitting where nobody is listening.
+Describe 'the digest names review surfaces holding something nobody collected' {
+    It 'names a surface with queued feedback, with the path a poll needs' {
+        $f = New-Fixture 'surface-queued'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File (Join-Path $f.Data 'kh-thing\gate.html') -Pending 2 -Status 'feedback')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match '1 of 1 .* hold something nobody'
+        $text | Should -Match 'Still open - re-run the poll and leave it armed'
+        $text.Contains('2 queued, status feedback') | Should -BeTrue
+        $text.Contains((Join-Path $f.Data 'kh-thing\gate.html')) |
+            Should -BeTrue -Because 'the poll takes an absolute path and nothing else has told the Hand it'
+        $text | Should -Match '`muster`''s `## The review surface` owns what a return'
+    }
+
+    # THE ROW A STATUS-ONLY FILTER LOSES, and it is the one this whole section exists for.
+    # lavish-axi's `takeFeedback` reports `ended` only where the queued prompts and the artifact
+    # failures are both empty; with a prompt still queued it hands that feedback over instead,
+    # carrying `session_ended` alongside. So `ended` plus a queued prompt is a Send & End whose
+    # final answer was never delivered, and one poll still collects it. Dropping it sends the Hand
+    # back to ask for a decision the King already made - two such rows sat in the live store.
+    It 'names an ended session that still has a queued prompt, as a poll to run once' {
+        $f = New-Fixture 'surface-ended'
+        $gone = Join-Path $f.Data 'kh-ended\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $gone -Pending 1 -Status 'ended')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match '1 of 1 .* hold something nobody'
+        $text.Contains($gone) |
+            Should -BeTrue -Because 'one poll still delivers it, and the poll takes that path'
+        $text | Should -Match 'Already ended - run the poll once to collect it, then do not re-arm'
+        $text | Should -Not -Match 'Still open - re-run the poll' `
+            -Because 'an ended session is collected once, never left armed'
+    }
+
+    # The other half of the tool's condition, and on its own it is enough to keep a row: a session
+    # with nothing queued but a failure recorded still has something the next poll hands over.
+    It 'names an ended session whose only uncollected thing is an artifact failure' {
+        $f = New-Fixture 'surface-ended-artifact'
+        $gate = Join-Path $f.Data 'kh-artifact\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $gate -Pending 0 -Failures @('render failed') -Status 'ended')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text.Contains($gate) |
+            Should -BeTrue -Because 'the tool reports ended only when the failures are empty too'
+        $text.Contains('0 queued, 1 artifact failure, status ended') |
+            Should -BeTrue -Because 'the reason the row was kept has to be visible on the row'
+        $text | Should -Match 'Already ended - run the poll once to collect it'
+    }
+
+    # The one an ended session is genuinely dropped for: the tool's condition satisfied on both
+    # halves, which is the state that actually returns `ended` and delivers nothing.
+    It 'leaves out an ended session with nothing queued and no failures' {
+        $f = New-Fixture 'surface-ended-empty'
+        $gate = Join-Path $f.Data 'kh-settled\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $gate -Pending 0 -Failures @() -Status 'ended')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match 'none of the 1 .* is holding anything nobody'
+        $text.Contains($gate) |
+            Should -BeFalse -Because 'there is nothing on it for a poll to collect'
+    }
+
+    # Both states on one store, so the split is shown telling them apart rather than each branch
+    # being shown alone. Both are named; only what to do afterwards differs.
+    It 'names an open surface and an ended one under their own headings' {
+        $f = New-Fixture 'surface-ended-and-open'
+        $live = Join-Path $f.Data 'kh-live\gate.html'
+        $gone = Join-Path $f.Data 'kh-gone\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $live -Pending 1 -Status 'open'),
+            (New-LavishSession -File $gone -Pending 1 -Status 'ended')
+        ) | Out-Null
+        $lines = @((Get-Digest $f) -split "`r?`n")
+
+        (@($lines) -join "`n") | Should -Match '2 of 2 .* hold something nobody'
+        $openAt  = [array]::FindIndex([string[]]$lines, [Predicate[string]]{ $args[0].Contains('Still open - re-run') })
+        $endedAt = [array]::FindIndex([string[]]$lines, [Predicate[string]]{ $args[0].Contains('Already ended - run the poll once') })
+        $liveAt  = [array]::FindIndex([string[]]$lines, [Predicate[string]]{ $args[0].Contains('kh-live') })
+        $goneAt  = [array]::FindIndex([string[]]$lines, [Predicate[string]]{ $args[0].Contains('kh-gone') })
+
+        @($openAt, $endedAt, $liveAt, $goneAt) | Should -Not -Contain -1
+        $liveAt | Should -BeGreaterThan $openAt
+        $liveAt | Should -BeLessThan $endedAt -Because 'each surface sits under the heading that tells its reader what to do'
+        $goneAt | Should -BeGreaterThan $endedAt
+    }
+
+    # The direction the doubt is resolved in, and it is deliberate: re-arming a surface that did not
+    # need it costs a moment, failing to re-arm one that did costs the King's answer. So only the
+    # tool's own exact word takes the collect-once path - a status it did not give, and one spelled
+    # any other way, are re-armed the ordinary way.
+    It 'treats a status that is missing or is not exactly ended as a surface to re-arm' {
+        $f = New-Fixture 'surface-not-ended'
+        $none  = Join-Path $f.Data 'kh-nostatus\gate.html'
+        $cased = Join-Path $f.Data 'kh-cased\gate.html'
+        $row = New-LavishSession -File $none -Pending 1
+        $row.Remove('status')
+        New-LavishStore -Fixture $f -Sessions @(
+            $row,
+            (New-LavishSession -File $cased -Pending 1 -Status 'Ended')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match '2 of 2 .* hold something nobody'
+        $text.Contains($none) |
+            Should -BeTrue -Because 'a status the store did not give is not the store saying ended'
+        $text.Contains($cased) |
+            Should -BeTrue -Because 'the exact word is the match, and anything else is not it'
+        $text | Should -Not -Match 'Already ended - run the poll once' `
+            -Because 'neither row is the tool saying ended, so neither takes the collect-once path'
+    }
+
+    # Both halves of the condition read the same defensive way. A list that is absent, null or not
+    # a list at all is the tool not answering, and "nothing is waiting" is the one answer this
+    # section must never give without having looked.
+    It 'keeps a surface whose artifact failures could not be read' {
+        $f = New-Fixture 'surface-artifact-unreadable'
+        $absent = Join-Path $f.Data 'kh-af-absent\gate.html'
+        $junk   = Join-Path $f.Data 'kh-af-junk\gate.html'
+        $row = New-LavishSession -File $absent -Pending 0
+        $row.Remove('artifact_failures')
+        New-LavishStore -Fixture $f -Sessions @(
+            $row,
+            (New-LavishSession -File $junk -Pending 0 -Failures 17)
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match '2 of 2 .* hold something nobody'
+        @($text -split "`r?`n" | Where-Object { $_.Contains('artifact failures unreadable') }).Count |
+            Should -Be 2 -Because 'an absent list and one that is not a list are both the tool not answering'
+        $text.Contains($absent) | Should -BeTrue
+        $text.Contains($junk)   | Should -BeTrue
+    }
+
+    # Stated rather than left to be inferred from what the list happens to contain. A reader told
+    # which surfaces are named needs telling which are not, or silence reads as "nothing else".
+    It 'says what it cannot see, so the list is not read as everything that was being waited on' {
+        $f = New-Fixture 'surface-limits'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File (Join-Path $f.Data 'kh-limits\gate.html') -Pending 0 -Status 'open')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match 'Not named here: a session still open with nothing queued on it'
+        $text | Should -Match 'records no field saying a poll was armed'
+    }
+
+    # The store belongs to lavish-axi. The digest reads it for one fact and must leave it exactly
+    # as it found it - a hook that corrupted another tool's own record before the session had even
+    # started would be a failure nobody could trace back here. Observed from the file rather than
+    # argued from the source: same bytes, same modification time, and the surface named proves the
+    # run actually opened it.
+    It 'leaves the session store exactly as it found it' {
+        $f = New-Fixture 'surface-readonly'
+        $gate = Join-Path $f.Data 'kh-ro\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $gate -Pending 1 -Status 'feedback')
+        ) | Out-Null
+
+        $stat = {
+            $i = Get-Item -LiteralPath $f.LavishState
+            "$((Get-FileHash -LiteralPath $f.LavishState -Algorithm SHA256).Hash)|$($i.LastWriteTimeUtc.Ticks)|$($i.Length)"
+        }
+        $before = & $stat
+        $text = Get-Digest $f
+        $after = & $stat
+
+        $text.Contains($gate) |
+            Should -BeTrue -Because 'a store the run never opened would be unchanged for the wrong reason'
+        $after | Should -Be $before -Because 'the digest reads another tool''s record and never writes it'
+    }
+
+    # An open session is not evidence anyone is waiting. Counting them keeps the digest honest
+    # about what it looked at without turning dozens of settled decisions into a to-do list.
+    It 'counts a surface with nothing queued rather than naming it' {
+        $f = New-Fixture 'surface-quiet'
+        $quiet = Join-Path $f.Data 'kh-quiet\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $quiet -Pending 0 -Status 'open')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match 'none of the 1 .* is holding anything nobody'
+        $text.Contains($quiet) |
+            Should -BeFalse -Because 'a settled decision named at every session start is noise, not work'
+    }
+
+    It 'leaves alone a session whose file is outside this installation''s data directory' {
+        $f = New-Fixture 'surface-elsewhere'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File (Join-Path $TestDrive 'somewhere-else\gate.html') -Pending 4)
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match 'none of the 0 '
+        $text.Contains('4 queued') |
+            Should -BeFalse -Because 'another tool''s review surfaces are not this fleet''s work'
+    }
+
+    # Criterion 7, and the failure it is for: zero means nobody sent anything, which is a settled
+    # fact this section may be quiet about. A field that is absent or is not a whole number is the
+    # tool not answering, and reading that as zero drops the King's own reply out of the digest.
+    It 'lists a surface whose queued count could not be read, and says so' {
+        $f = New-Fixture 'surface-unreadable-count'
+        $a = Join-Path $f.Data 'kh-a\gate.html'
+        $b = Join-Path $f.Data 'kh-b\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $a -Status 'open'),
+            (New-LavishSession -File $b -Pending 'lots' -Status 'open')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match '2 of 2 .* hold something nobody'
+        @($text -split "`n" | Where-Object { $_.Contains('queued count unreadable') }).Count |
+            Should -Be 2 -Because 'an absent count and an unparseable one are both the tool not answering'
+        $text.Contains($a) | Should -BeTrue
+        $text.Contains($b) | Should -BeTrue
+    }
+
+    It 'says the status the tool gave it, and says so plainly when it gave none' {
+        $f = New-Fixture 'surface-no-status'
+        $row = New-LavishSession -File (Join-Path $f.Data 'kh-c\gate.html') -Pending 1
+        $row.Remove('status')
+        New-LavishStore -Fixture $f -Sessions @($row) | Out-Null
+
+        (Get-Digest $f).Contains('1 queued, status status not given') |
+            Should -BeTrue -Because 'the digest does not own that vocabulary and never invents a word for it'
+    }
+
+    It 'says so when the tool gave no time, rather than printing a made-up one' {
+        $f = New-Fixture 'surface-no-stamp'
+        $row = New-LavishSession -File (Join-Path $f.Data 'kh-e\gate.html') -Pending 1
+        $row.Remove('updated_at')
+        New-LavishStore -Fixture $f -Sessions @($row) | Out-Null
+
+        (Get-Digest $f).Contains('status open, last touched not given') |
+            Should -BeTrue -Because 'a time nobody gave is not a time to fill in'
+    }
+
+    It 'does not count a session that names no file as one of this installation''s' {
+        $f = New-Fixture 'surface-no-file'
+        $row = New-LavishSession -File (Join-Path $f.Data 'kh-f\gate.html') -Pending 1
+        $row['file'] = ''
+        New-LavishStore -Fixture $f -Sessions @($row) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match 'none of the 0 ' `
+            -Because 'a session with no path cannot be shown to be ours, and a poll could not take it'
+        $text.Contains('1 queued') | Should -BeFalse
+    }
+
+    It 'renders the timestamp one unambiguous way rather than in the machine''s date format' {
+        $f = New-Fixture 'surface-stamp'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File (Join-Path $f.Data 'kh-d\gate.html') -Pending 1 `
+                               -Updated '2026-09-16T11:34:32.101Z')
+        ) | Out-Null
+
+        (Get-Digest $f).Contains('2026-09-16 11:34:32Z') |
+            Should -BeTrue -Because '09/16/2026 is two different days depending on who reads it'
+    }
+
+    It 'stays bounded when a machine has more surfaces than the digest may print' {
+        $f = New-Fixture 'surface-many'
+        New-LavishStore -Fixture $f -Sessions @(
+            0..29 | ForEach-Object {
+                New-LavishSession -File (Join-Path $f.Data "kh-$_\gate.html") -Pending 1
+            }
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match '30 of 30 .* hold something nobody'
+        $text.Contains('... and 5 more') |
+            Should -BeTrue -Because 'the tail is counted rather than printed, as every other list here is'
+    }
+}
+
+# Every one of these is an answer the digest must not give confidently. "No surface is waiting" is
+# the one sentence a broken reader would produce by accident, and it is indistinguishable from the
+# truth - so each failure says what could not be read instead.
+Describe 'a session store that cannot be read says so rather than saying nothing is waiting' {
+    It 'says no store exists rather than that nothing is waiting' {
+        $f = New-Fixture 'store-absent'
+        $text = Get-Digest $f
+        $text.Contains('no session store at') | Should -BeTrue
+        $text | Should -Match 'there is nothing to re-arm'
+        $text | Should -Not -Match 'hold something nobody'
+    }
+
+    It 'names the failure when the store is not the JSON it reads' {
+        $f = New-Fixture 'store-garbage'
+        New-LavishStore -Fixture $f -Sessions @() -RawText 'this is not json {{{' | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match 'could not be read'
+        $text | Should -Not -Match 'none of the \d+ ' `
+            -Because 'a store nobody could parse is not a store saying nothing is waiting'
+    }
+
+    It 'tells a store that named no sessions from a store that said there are none' {
+        $f = New-Fixture 'store-no-field'
+        New-LavishStore -Fixture $f -Sessions @() -NoSessionsField | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match 'named no sessions at all'
+        $text | Should -Match 'which surfaces are open was not established'
+
+        $g = New-Fixture 'store-empty-map'
+        New-LavishStore -Fixture $g -Sessions @() | Out-Null
+        (Get-Digest $g) | Should -Match 'none of the 0 ' `
+            -Because 'an empty map is the tool affirmatively saying there are none'
+    }
+
+    It 'renders every other section when the store cannot be read' {
+        $f = New-Fixture 'store-garbage-rest'
+        New-LavishStore -Fixture $f -Sessions @() -RawText '[[[' | Out-Null
+        { Get-Digest $f } | Should -Not -Throw
+        foreach ($section in @('FLEET', 'RE-ARM', 'QUEUE', 'CONTEXT')) {
+            (Get-Digest $f).Contains($section) |
+                Should -BeTrue -Because "one unreadable file must cost one line, not the digest: $section"
+        }
+    }
+}
+
+# The default nobody passes is the one the hook uses, so it is the one that has to work. Both
+# branches of it are the tool's own documented pair - its override variable first, the home
+# directory second - and neither is exercised by any other case, because every other case passes
+# the path explicitly to keep the suite off the live store.
+Describe 'the store path resolves the way lavish-axi resolves it' {
+    BeforeAll {
+        $script:SavedStateDir = $env:LAVISH_AXI_STATE_DIR
+        $script:SavedProfile  = $env:USERPROFILE
+    }
+    AfterAll {
+        $env:LAVISH_AXI_STATE_DIR = $script:SavedStateDir
+        $env:USERPROFILE          = $script:SavedProfile
+    }
+
+    It 'takes LAVISH_AXI_STATE_DIR when it is set' {
+        $f = New-Fixture 'resolve-statedir'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File (Join-Path $f.Data 'kh-env\gate.html') -Pending 1)
+        ) | Out-Null
+
+        $env:LAVISH_AXI_STATE_DIR = Split-Path $f.LavishState -Parent
+        $env:USERPROFILE          = Join-Path $TestDrive 'no-such-profile'
+        (Get-Digest $f -ResolveLavishStatePath).Contains((Join-Path $f.Data 'kh-env\gate.html')) |
+            Should -BeTrue -Because 'the tool honours that variable, so this has to honour it too'
+    }
+
+    It 'falls back to the home directory when it is not' {
+        $f = New-Fixture 'resolve-profile'
+        $fakeHome = Join-Path $f.Root 'profile'
+        New-Item -ItemType Directory -Force -Path (Join-Path $fakeHome '.lavish-axi') | Out-Null
+        ([ordered]@{ sessions = [ordered]@{ k = (New-LavishSession `
+            -File (Join-Path $f.Data 'kh-home\gate.html') -Pending 1) } } | ConvertTo-Json -Depth 6) |
+            Set-Content -LiteralPath (Join-Path $fakeHome '.lavish-axi\state.json') -Encoding utf8
+
+        Remove-Item Env:\LAVISH_AXI_STATE_DIR -ErrorAction SilentlyContinue
+        $env:USERPROFILE = $fakeHome
+        (Get-Digest $f -ResolveLavishStatePath).Contains((Join-Path $f.Data 'kh-home\gate.html')) |
+            Should -BeTrue -Because 'that is where the tool keeps it when nothing overrides the location'
+    }
+
+    It 'says there is nowhere to look rather than inventing a path' {
+        $f = New-Fixture 'resolve-nothing'
+        Remove-Item Env:\LAVISH_AXI_STATE_DIR -ErrorAction SilentlyContinue
+        $env:USERPROFILE = ''
+        $text = Get-Digest $f -ResolveLavishStatePath
+
+        $text | Should -Match 'no home directory to resolve lavish-axi''s session store against'
+        $text | Should -Not -Match 'none of the \d+ ' `
+            -Because 'a path invented here holds nothing, which reads as nothing being waited on'
     }
 }

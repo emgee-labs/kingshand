@@ -11,7 +11,8 @@ A vigil watches through the night and speaks only when something happens.
 The rule lives in `CLAUDE.md`'s Escalation and etiquette section so it applies whether or not anyone
 reads this file - a rule that only exists in an unloaded skill is not in force. Nothing here
 auto-invokes at session start and nothing can: a skill loads when the Hand loads it, which is why
-the standing behaviour is stated where it is rather than here.
+the standing behaviour is stated where it is rather than here. What does arrive unasked is the
+session-start digest, which carries the arming command itself - see `## Arming it` below.
 
 This skill exists for four things: what the line means, the switch that turns it off, the refusal
 that fires near the limit, and why an unreadable reading never blocks work.
@@ -61,8 +62,8 @@ narration hard rule 6 forbids, arriving by the back door.
 
 ## Arming it
 
-One background job per session, armed once, in the shape `muster` Step 4 already uses for worker
-waits:
+One background job per session, armed once at session start, in the shape `muster` Step 4 already
+uses for worker waits:
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Usage.psm1
@@ -72,8 +73,25 @@ Watch-UsagePulse
 **A harness-tracked background job, never with `&` and never as a detached process.** An untracked
 process reaches nobody, which is the same failure as a wait nothing is watching.
 
+**The session-start digest carries that command in its `RE-ARM:` section, so arming it is not
+something anybody has to remember.** `CLAUDE.md`'s Recovery section owns the rule; this owns what
+the job itself does. A restart kills the job along with every other one the last session armed, and
+because the pulse is changed-only there is nothing to notice - which is how "no tokens, no updates"
+was reported twice in one day.
+
+**No count, ever - it runs until the session ends.** That is the default, and the reason is that
+a session runs for hours: `-Count 3` at the default cadence is thirty minutes, and
+what follows the third tick is silence indistinguishable from a pulse with nothing to say. Any
+finite count is a promise to go quiet at a moment nobody will notice.
+
 Ten minutes between pulses by default. `-IntervalMinutes` changes it for a session that wants a
 different cadence, and `bin\Usage.psm1` owns every other parameter and what it does.
+
+**Say in one line that it is on when you arm it.** The first tick speaks whatever the reading is,
+because there is nothing yet to compare it against, so that line arrives on its own - but a reader
+who was never told the pulse started has no way to tell the quiet that follows from a pulse that
+never ran. One line, at arming time, and nothing further: making a quiet pulse legible in general
+is somebody else's piece of work and deliberately not this one.
 
 This one polls on a timer, and that is not the worker-wait rule being broken. A wait on a worker is
 an event and must never be a loop - `muster` Step 4 owns that. "Nothing has changed for ten minutes"

@@ -2,7 +2,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
-[![Tests](https://img.shields.io/badge/tests-1701%20passing-3fb950)](tests)
+[![Tests](https://img.shields.io/badge/tests-1769%20passing-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 # You rule. It executes.
@@ -41,9 +41,10 @@ reads.
   rather than inferred.
 - **A durable queue.** Work items, dependencies and held decisions survive a restart, because a
   decision that lives only in the conversation is a decision you will lose.
-- **A session-start digest.** The version you are on, registered projects, live workers, the queue,
-  the index of everything the tool holds for you, your standing instructions and the curated
-  memory, printed once at session open. A restart is meant to be a non-event.
+- **A session-start digest.** The version you are on, registered projects, live workers, what the
+  last restart quietly killed and has to be picked back up, the queue, the index of everything the
+  tool holds for you, your standing instructions and the curated memory, printed once at session
+  open. A restart is meant to be a non-event.
 - **A version, and one command to move it.** `/update` fast-forwards this installation to the
   latest tagged release, re-runs the installer, and tells you what you moved from, what you moved
   to, and what changed. It updates to a release rather than to whatever was pushed last, and it
