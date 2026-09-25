@@ -80,7 +80,9 @@ Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
 # instead of arriving here as a short table that looks complete.
 #
 # WHAT THIS DOES NOT DO. It does not wait, poll, or notice a change - being woken when a run moves
-# is a separate problem and building it on top of a reader is the only order that works. It does
+# is a separate problem and building it on top of a reader is the only order that works.
+# `bin\GateRunWait.psm1` is that wait, and it owns every question about baselines, transitions and
+# what a failed read means to a clock. It does
 # not drive a run: no flag that responds, approves, aborts or starts anything is ever passed from
 # here, and the arguments come from this module rather than from a caller's input.
 #
