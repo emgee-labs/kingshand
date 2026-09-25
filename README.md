@@ -251,8 +251,8 @@ great many prompts.
 CLAUDE.md               the Hand's always-loaded instructions - identity, hard rules, contracts
 VERSION                 this installation's version, and the only place it is written down
 bin\                    dispatch, worker state, registry, snapshot, digest, herdr, workspace prep,
-                        version, self-update, browser verification, the away journal and the
-                        usage window
+                        version, self-update, browser verification, the away journal, the usage
+                        window and a gate run's state
 .claude\skills\         seventeen project-local skills. They load only in this directory
 tests\                  the Pester suite
 tools\herdr\            herdr, fetched and SHA-256 verified by the installer - gitignored,

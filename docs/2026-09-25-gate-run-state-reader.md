@@ -100,9 +100,8 @@ word it resembles.
   **Every one of those fixes was correct and every one held. The rounds kept coming anyway**,
   because each fix was about a field and the defect was never in a field. It is in any read that
   decides something through an accessor whose answers cannot tell "absent" from "present but not
-  understood" - `Get-ToonText` returns `''` for both, `Get-ToonNumber` returns `$null` for both,
-  `Get-ToonRows` returns no rows for both. Counting instances is what turns that from a series of
-  bugs into one rule.
+  understood" - `Get-ToonText` returns `''` for both and `Get-ToonNumber` returns `$null` for
+  both. Counting instances is what turns that from a series of bugs into one rule.
 
   So every key goes through `Read-ToonField`, `Read-ToonList`, `Read-ToonTable` or
   `Read-ToonCells`, which answer three ways rather than two, and anything of the third kind is
