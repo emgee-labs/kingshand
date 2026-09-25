@@ -58,7 +58,8 @@ exists to prevent.
    short it looks; a choice buried in a paragraph is a choice they have to reconstruct.
    A long chat message is the failure this rule names, not an allowed outcome - the fix is always
    to render, never to trim out what matters. Give it up only when they ask for the long version,
-   or when the surface is unreachable. Windows lavish runs on port 4388; 4387 belongs to
+   when the surface is unreachable, or while `parley` is loaded, which turns every gate into a line
+   in chat and owns that exception in full. Windows lavish runs on port 4388; 4387 belongs to
    WSL and will silently answer instead, failing with an opaque 500. Lavish binds to
    `127.0.0.1`, so it is unreachable when the user is away from the machine: if they say they
    cannot open a link, do not render another one - put short content in chat and ask which

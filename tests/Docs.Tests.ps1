@@ -330,13 +330,21 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
     It 'refuses a forge merge on a run whose own record says it had no review gate' {
         $step = Get-MusterStep 'Step 7 - Gate two'
         Assert-Phrase -Text $step -Where 'the landing gate floors' `
-            -Phrase ('**Never merge on the forge a run whose `report.md` carries the line ' +
+            -Phrase ('**Never merge on the forge a run whose brief or `report.md` carries the line ' +
                      '`PARLEY DISPATCH - NO REVIEW GATE RAN.`**, on any posture and whatever that ' +
                      'project''s entry declares with `+merge`.')
-        # report.md only. The floor once named the brief too, but nothing from Step 6 onward ever
-        # opens a brief, so that limb promised a read no step performs.
+        # Two inputs, either sufficient. A single report.md input made the floor depend on worker
+        # compliance; brief.md is written by the Hand before any worker exists.
         Assert-Phrase -Text $step -Where 'the landing gate floors' `
-            -Phrase '**`report.md` is the one file this floor reads**, and Step 6 has already read it'
+            -Phrase '**Either file carrying it is enough - never both.**'
+        # The read has to be instructed here, because nothing earlier in muster opens a brief.
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase '**Read both before deciding a merge**, because nothing earlier in this skill opens the brief'
+        $step.Contains('"$env:KINGSHAND_HOME\data\<id>\brief.md", "$env:KINGSHAND_HOME\data\<id>\report.md"') |
+            Should -BeTrue -Because 'the floor names both files it reads, so the read is runnable'
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**`brief.md` is the copy that does not depend on the worker**: the Hand wrote ' +
+                     'it before any worker existed and nothing the worker does can change it')
         # Keyed on one closed token, never on meaning. muster's own Step 2 template has every
         # gateless worker writing about the absent gate in passing, so a floor that matched the
         # sense of it would refuse ordinary direct-PR merges the +merge grant allows.
@@ -5198,40 +5206,45 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         # exact sentence, because it is copied verbatim into every parley brief and read by a Hand
         # that may never have heard of parley.
         It 'writes a durable no-gate marker into the brief and the report' {
+            # Scoped to where a gate was actually given up. Written unconditionally it revoked a
+            # +merge the King granted on direct-PR and local-only work, which runs no review gate
+            # outside parley either - a safety reduction reported where none occurred.
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase ('**Write the no-gate marker into the brief twice, in these words.** This is ' +
-                         'the marker block, and it is copied rather than reinvented:')
+                -Phrase ('**Where the task resolves to `no-mistakes`, and only there, write the ' +
+                         'no-gate marker.**')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase ('## No review gate PARLEY DISPATCH - NO REVIEW GATE RAN. Nothing has ' +
-                         'established that this run is safe to merge, so it must not be merged on ' +
-                         'the forge whatever this project''s registry entry declares. Landing on a ' +
-                         'branch or opening a pull request is unaffected.')
-            # Both placements, because either alone fails. Requirements alone leaves report.md
-            # empty and the landing path reads report.md; the report bullet alone has nothing to
-            # copy from. The second rides muster Step 2's existing report-contents contract rather
-            # than inventing a brief section or a sixth Done-means block.
+                -Phrase ('**On a task resolved to `direct-PR` or to `local-only`, write no marker at ' +
+                         'all**: those modes run no review gate in normal mode either, so parley ' +
+                         'subtracted nothing and a `+merge` the King granted stands exactly as he ' +
+                         'granted it.')
+            # One shape per file. The report's copy keeps its heading; the brief's cannot have one,
+            # because ## Requirements is a bullet list and a heading ends the section early.
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase ('in the brief''s `## Requirements`, as one atomic requirement carrying that ' +
-                         'block verbatim')
+                -Phrase ('**In the brief''s `## Requirements`, as one `-` bullet and no heading** - ' +
+                         'that section is a bullet list, and a heading dropped into it ends the ' +
+                         'section early')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase ('as one more bullet in the brief''s own list of what the report must ' +
-                         'contain - `muster` Step 2 owns that list and the Hand already writes it ' +
-                         'per brief - instructing the worker to reproduce the marker block verbatim ' +
-                         'in `report.md`, under its own `## No review gate` heading, before it ' +
-                         'finishes.')
+                -Phrase ('**In `report.md`, the same prose under its own `## No review gate` ' +
+                         'heading.**')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase ('**A brief without that block is a parley brief written wrong, and so is a ' +
+                -Phrase ('PARLEY DISPATCH - NO REVIEW GATE RAN. Nothing has established that this ' +
+                         'run is safe to merge, so it must not be merged on the forge whatever this ' +
+                         'project''s registry entry declares. Landing on a branch or opening a pull ' +
+                         'request is unaffected.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**A brief without that bullet is a parley brief written wrong, and so is a ' +
                          'brief that carries it in `## Requirements` and never asks the worker to ' +
                          'reproduce it in `report.md`.**')
-            # The two copies do different jobs and neither substitutes for the other. Read as a
-            # conjunction, a Hand could merge a run whose brief has the line and whose report does
-            # not - which is every run where the worker simply did not comply.
+            # Which copy carries the weight. The brief's is beyond the worker's reach, so the floor
+            # still fires on a run whose worker never wrote its own.
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase ('**The brief''s copy is the instruction that puts the line into ' +
-                         '`report.md`, and `report.md` is the only file the landing path actually ' +
-                         'reads** - nothing in Step 6, Step 7 or Step 8a ever opens a brief.')
-            # The honest half: no mechanism makes a worker comply, so the skill says what to do
-            # when one has not rather than implying the floor covers it.
+                -Phrase ('**The brief''s copy is the durable one** - the Hand writes it before any ' +
+                         'worker exists and nothing a worker does can touch it - **and the report''s ' +
+                         'copy is corroboration**')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'Step 7''s floor reads both and refuses on either.'
+            # The honest half: nothing makes a worker comply, so the skill says what to do when one
+            # has not rather than implying the report is the only evidence.
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase '**The gap that remains, named rather than papered over.**'
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
@@ -5247,7 +5260,8 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase ('**Do not reword or respell that first line.** `muster` Step 7''s floor ' +
                          'matches `PARLEY DISPATCH - NO REVIEW GATE RAN.` literally, so a paraphrase ' +
-                         'disarms the floor silently.')
+                         'disarms the floor silently, and it must be spelled identically in both ' +
+                         'shapes.')
         }
 
         # The mechanism is one literal token crossing a skill boundary: parley writes it, Step 7
@@ -5270,12 +5284,17 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         # pointer. Pin both halves - a rule restated in two places drifts, and a rule stated only
         # here would be lost the moment the mode is forgotten.
         It 'never merges a parley dispatch, and leaves the refusal to Step 7 to own' {
+            # Scoped to the marker, because the marker is scoped to where a gate was skipped.
+            # Stated absolutely it foreclosed merges on work parley took nothing away from.
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase ('**A parley dispatch is never merged on the forge, on any posture and ' +
-                         'whatever `+merge` declares** - it ran no review gate, so nothing has ' +
-                         'established that the run is safe to merge.')
+                -Phrase ('**A parley dispatch that carries the marker is never merged on the forge, ' +
+                         'whatever `+merge` declares** - a gate that would have run did not, so ' +
+                         'nothing has established that the run is safe to merge.')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase '`muster` Step 7 owns that refusal and states it in full, reading the marker above'
+                -Phrase ('a dispatch resolved to `direct-PR` or `local-only` carries none, gave up ' +
+                         'nothing, and merges exactly as it would outside parley')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '`muster` Step 7 owns the refusal and states it in full'
         }
 
         # Rendering a gate becomes a line in chat; a gate never becomes no gate. The dispatch gate
@@ -5394,7 +5413,11 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase ('The no-merge rule on a parley dispatch is enforced by `muster` Step 7''s ' +
                          'floor, which matches the line `PARLEY DISPATCH - NO REVIEW GATE RAN.` in ' +
-                         'the worker''s `report.md` and refuses the merge on any posture.')
+                         'the brief or in the worker''s `report.md` - **either one is enough** - and ' +
+                         'refuses the merge wherever it finds it.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('It bites only where a gate was actually given up, because that is the only ' +
+                         'place the marker is written.')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase '**The marker is durable and the memory of the mode is not**'
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
@@ -5418,6 +5441,16 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         It 'keeps the warm worker explicitly out of scope' {
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase 'It is deliberately not built here and not designed for.'
+        }
+
+        # Rule 5's exception list is closed and always loaded, so a mode that renders nothing has
+        # to appear in it. Without the clause a Hand meets a hard rule and a loaded skill telling
+        # it opposite things about the one action parley most changes.
+        It 'is admitted by CLAUDE.md rule 5 rather than contradicting it' {
+            Assert-Phrase -Text (Get-HandSection 'Hard rules') -Where 'CLAUDE.md rule 5' `
+                -Phrase ('Give it up only when they ask for the long version, when the surface is ' +
+                         'unreachable, or while `parley` is loaded, which turns every gate into a ' +
+                         'line in chat and owns that exception in full.')
         }
 
         It 'is reachable from CLAUDE.md by a stated condition, and named off by default there' {

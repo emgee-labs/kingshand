@@ -131,50 +131,62 @@ Where one is needed:
   project's registered posture is unchanged - what changes is this dispatch. Step 6's fold-back
   does not fire either, for the same reason it does not on a project with no gate: there is no
   round to compare the self-check against.
-- **Write the no-gate marker into the brief twice, in these words.** This is the marker block, and
-  it is copied rather than reinvented:
+- **Where the task resolves to `no-mistakes`, and only there, write the no-gate marker.** The
+  marker means one thing: *a review gate that would otherwise have run did not.* So it attaches
+  exactly where parley actually took a gate away. Key that on the task's resolved mode from
+  `muster` Step 1, never on how the project is registered - a `no-mistakes-prod-only` project
+  resolves to `no-mistakes` on product-facing work and gets the marker there. **On a task resolved
+  to `direct-PR` or to `local-only`, write no marker at all**: those modes run no review gate in
+  normal mode either, so parley subtracted nothing and a `+merge` the King granted stands exactly
+  as he granted it. Claiming a safety reduction that did not happen is as wrong as hiding one that
+  did.
 
-  > ## No review gate
-  >
-  > PARLEY DISPATCH - NO REVIEW GATE RAN. Nothing has established that this run is safe to merge, so
-  > it must not be merged on the forge whatever this project's registry entry declares. Landing on a
-  > branch or opening a pull request is unaffected.
+  Where it is written, it goes in **two shapes, one per file**, and one without the other does not
+  work:
 
-  It goes in **both** of these places, and one without the other does not work:
+  - **In the brief's `## Requirements`, as one `-` bullet and no heading** - that section is a
+    bullet list, and a heading dropped into it ends the section early:
 
-  - in the brief's `## Requirements`, as one atomic requirement carrying that block verbatim; and
-  - as one more bullet in the brief's own list of what the report must contain - `muster` Step 2
-    owns that list and the Hand already writes it per brief - instructing the worker to reproduce
-    the marker block verbatim in `report.md`, under its own `## No review gate` heading, before it
-    finishes. No new brief section and no sixth Done-means block: this rides the contract Step 2
-    already has.
+    ```markdown
+    - PARLEY DISPATCH - NO REVIEW GATE RAN. Nothing has established that this run is safe to
+      merge, so it must not be merged on the forge whatever this project's registry entry
+      declares. Landing on a branch or opening a pull request is unaffected.
+    ```
 
-  **A brief without that block is a parley brief written wrong, and so is a brief that carries it
+  - **In `report.md`, the same prose under its own `## No review gate` heading.** Ask for it as
+    one more bullet in the brief's own list of what the report must contain - `muster` Step 2 owns
+    that list and the Hand already writes it per brief. No new brief section and no sixth
+    Done-means block: this rides the contract Step 2 already has.
+
+  **A brief without that bullet is a parley brief written wrong, and so is a brief that carries it
   in `## Requirements` and never asks the worker to reproduce it in `report.md`.** The two copies
-  are not redundant halves of one check. **The brief's copy is the instruction that puts the line
-  into `report.md`, and `report.md` is the only file the landing path actually reads** - nothing in
-  Step 6, Step 7 or Step 8a ever opens a brief. A skipped gate nobody can see afterwards is the
-  failure mode, and the marker is what makes it visible: `report.md` is on disk, so it survives a
-  restart, a compaction and a fresh session picking the work up. **It says what it means and what
-  it forbids rather than setting a flag**, because the Hand that reads it next may have never heard
-  of parley and must still be unable to misread it.
+  do different jobs. **The brief's copy is the durable one** - the Hand writes it before any worker
+  exists and nothing a worker does can touch it - **and the report's copy is corroboration**, which
+  is also what a Hand reading Step 6 meets first. Step 7's floor reads both and refuses on either.
+  A skipped gate nobody can see afterwards is the failure mode, and the marker is what makes it
+  visible: both files are on disk, so they survive a restart, a compaction and a fresh session
+  picking the work up. **It says what it means and what it forbids rather than setting a flag**,
+  because the Hand that reads it next may have never heard of parley and must still be unable to
+  misread it.
 
   **Do not reword or respell that first line.** `muster` Step 7's floor matches
-  `PARLEY DISPATCH - NO REVIEW GATE RAN.` literally, so a paraphrase disarms the floor silently.
+  `PARLEY DISPATCH - NO REVIEW GATE RAN.` literally, so a paraphrase disarms the floor silently,
+  and it must be spelled identically in both shapes.
 
   **The gap that remains, named rather than papered over.** A worker that does not reproduce the
-  line leaves the floor blind, and nothing makes it comply - which is why the brief's requirement
-  is mandatory rather than a nicety. **A parley dispatch whose `report.md` lacks the line is a
-  report to query, never a run to merge**: ask the worker, or treat the run as carrying the marker,
-  because the one thing that is certain is that no review gate ran.
+  line leaves the report silent about it, which is why the brief's copy is the one the floor can
+  rely on. **A parley dispatch whose `report.md` lacks the line is a report to query, never a run
+  to merge**: ask the worker, because the brief already settles that no review gate ran.
 - **Do not wait.** Arm the worker's wait exactly as `muster` Step 4 requires - a worker nobody is
   watching is the failure `CLAUDE.md`'s Recovery section exists to prevent, and that is a safety
   rule rather than ceremony - then answer in one line and end the turn. Parley does not hold an
   exchange open on a worker.
-- **A parley dispatch is never merged on the forge, on any posture and whatever `+merge`
-  declares** - it ran no review gate, so nothing has established that the run is safe to merge.
-  `muster` Step 7 owns that refusal and states it in full, reading the marker above; this is the
-  reason and the cross-reference. So the work stops where its posture stops, and the merge is the
+- **A parley dispatch that carries the marker is never merged on the forge, whatever `+merge`
+  declares** - a gate that would have run did not, so nothing has established that the run is safe
+  to merge. That is the same scope as the marker: a dispatch resolved to `direct-PR` or
+  `local-only` carries none, gave up nothing, and merges exactly as it would outside parley.
+  `muster` Step 7 owns the refusal and states it in full; this is the reason and the
+  cross-reference. Where it bites, the work stops where its posture stops and the merge is the
   King's own next step in his own words.
 
 ## The gate a parley dispatch does not run
@@ -248,11 +260,11 @@ is supposed to honour - so each one is answered rather than assumed.
   so no agent is ever inside a run and told to stop. That is the `--skip ci` shape rather than the
   fifteen-minutes-in-a-brief shape.
 - The no-merge rule on a parley dispatch is enforced by `muster` Step 7's floor, which matches the
-  line `PARLEY DISPATCH - NO REVIEW GATE RAN.` in the worker's `report.md` and refuses the merge on
-  any posture. **The marker is durable and the memory of the mode is not**, so that floor holds
-  through a restart and holds on a `direct-PR` posture, which has no gate outcome for an older
-  reading of Step 7 to miss. What it cannot do is make a worker write the line, which is the gap
-  the dispatch section names.
+  line `PARLEY DISPATCH - NO REVIEW GATE RAN.` in the brief or in the worker's `report.md` -
+  **either one is enough** - and refuses the merge wherever it finds it. **The marker is durable
+  and the memory of the mode is not**, so that floor holds through a restart, and the brief's copy
+  holds even where the worker never wrote its own. It bites only where a gate was actually given
+  up, because that is the only place the marker is written.
 - **The exit conditions are enforced by nothing at all.** A Hand that has forgotten it is in parley
   will not announce the exit. That is accepted rather than fixed, because the failure runs the safe
   way for ceremony - a forgotten mode is the default ceremony returning - and because the

@@ -1802,16 +1802,25 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
 - Merge on the forge only where this project's registry entry declares `+merge`, and never
   otherwise. The rest of this step owns that rule.
 - Never push a project that is not registered with a push-capable posture.
-- **Never merge on the forge a run whose `report.md` carries the line
+- **Never merge on the forge a run whose brief or `report.md` carries the line
   `PARLEY DISPATCH - NO REVIEW GATE RAN.`**, on any posture and whatever that project's entry
-  declares with `+merge`. **Match that exact line and nothing else** - not a sentence that means
-  the same thing - because an ordinary gateless brief mentions having no review gate in passing all
-  the time, and a floor firing on those would refuse merges nobody restricted. **Say why rather
-  than only refusing**: this run had no review gate, so nothing has established it is safe to
-  merge, and that is what goes to the user. **`report.md` is the one file this floor reads**, and
-  Step 6 has already read it - it is on disk rather than in anyone's memory, so **this floor
-  survives a restart and does not depend on knowing how the work was dispatched.** **It blocks the
-  forge merge only**: landing on a branch and opening a pull request are unaffected.
+  declares with `+merge`. **Either file carrying it is enough - never both.** **Read both before
+  deciding a merge**, because nothing earlier in this skill opens the brief:
+
+  ```powershell
+  Select-String -SimpleMatch 'PARLEY DISPATCH - NO REVIEW GATE RAN.' `
+      "$env:KINGSHAND_HOME\data\<id>\brief.md", "$env:KINGSHAND_HOME\data\<id>\report.md"
+  ```
+
+  **`brief.md` is the copy that does not depend on the worker**: the Hand wrote it before any
+  worker existed and nothing the worker does can change it, so **this floor survives a restart and
+  does not depend on knowing how the work was dispatched.** `report.md` is corroboration, and Step
+  6 has already read it. **Match that exact line and nothing else** - not a sentence that means the
+  same thing - because an ordinary gateless brief mentions having no review gate in passing all the
+  time, and a floor firing on those would refuse merges nobody restricted. **Say why rather than
+  only refusing**: this run had no review gate, so nothing has established it is safe to merge, and
+  that is what goes to the user. **It blocks the forge merge only**: landing on a branch and
+  opening a pull request are unaffected.
 - **Never land a worker whose pointer names a hold that is still open.** It is mid-run rather than
   delivered, whatever its branch shows, and Step 6 owns what to do with it. **Read the pointer, and
   where it names a key read that hold**: the field says which decision, and the hold says whether
