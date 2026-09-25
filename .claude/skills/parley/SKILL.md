@@ -46,6 +46,12 @@ permission.
   instruction to push.
 - **Hard rule 3 holds.** No agent, model or tooling name in anything reaching a git remote or Azure
   DevOps.
+- **The dispatch gate happens.** Wherever `yolo` is off - the default across most of the registry -
+  `muster` Step 3 is still asked and still his to answer, as a line in chat rather than a rendered
+  page, and nothing is dispatched until he answers it. He settled that a rendered surface becomes a
+  chat line; he never settled that a gate disappears, and removing his approval before dispatch is
+  not a reading of anything he said. **Parley shortens how a gate is presented; it never removes
+  one.**
 - **The landing gate happens.** It is a line in chat rather than a rendered page, and it is still
   asked and still his to answer. `muster` Step 7 owns that gate and every floor in it, unchanged.
 - **The public-repository boundary holds.** `data\rules-<project>.md` owns it and parley does not
@@ -101,6 +107,12 @@ project's own files, because hard rule 1 says so.
 
 Where one is needed:
 
+- **Gate the dispatch wherever `yolo` is off, before anything is dispatched.** `muster` Step 3 is
+  not skipped in parley - it becomes one line in chat naming the project, the change and what the
+  worker will do, and only his answer to that line is consent to dispatch. `yolo` off is the
+  default across most of the registry, so this is the ordinary case rather than the exception.
+  **Where a dispatch cannot be judged from a line in chat it is not quick**: say so, and let it
+  render under the normal rules per `## How it ends`.
 - **Write the brief through `muster` Step 2, short.** Step 2 owns what a brief must contain and
   this mode adds no second contract: every mandatory section is present, the `Read first` line
   about the index is there, the standing criteria are pasted, and the Done-means block is one of
@@ -117,10 +129,17 @@ Where one is needed:
   watching is the failure `CLAUDE.md`'s Recovery section exists to prevent, and that is a safety
   rule rather than ceremony - then answer in one line and end the turn. Parley does not hold an
   exchange open on a worker.
-- **A parley dispatch is never merged on the forge.** `muster` Step 7 refuses to merge a
-  `no-mistakes` run whose gate did not complete every step through `pr`, and a parley dispatch has
-  no gate run at all. So it stops where its posture stops, and the merge is the King's own next
-  step in his own words.
+- **A parley dispatch is never merged on the forge, on any posture.** This is parley's own rule and
+  it rests on parley's own reason: the dispatch ran no review gate, so nothing has established that
+  the run is safe to merge. That is as true on `direct-PR`, and on a `no-mistakes-prod-only` task
+  resolved to `direct-PR`, as it is anywhere else, and it holds on a project registered `+merge`.
+  `muster` Step 7 agrees on its `no-mistakes` limb, where it refuses a run whose gate did not
+  complete every step through `pr` - but the rule does not rest on that floor, because Step 7's
+  `direct-PR` limb requires no gate at all and a rule leaning on Step 7 would have been false
+  exactly where it read as a safety floor. **A stated safety property that nothing enforces is
+  worse than claiming nothing at all, because the claim is what stops the next reader checking.**
+  So the work stops where its posture stops, and the merge is the King's own next step in his own
+  words.
 
 ## The gate a parley dispatch does not run
 
@@ -185,8 +204,10 @@ is supposed to honour - so each one is answered rather than assumed.
 - The absent review gate is enforced mechanically: the gate line is never written into the brief,
   so no agent is ever inside a run and told to stop. That is the `--skip ci` shape rather than the
   fifteen-minutes-in-a-brief shape.
-- The no-merge rule on a parley dispatch is enforced by `muster` Step 7's existing floor, which
-  looks for a gate outcome that does not exist and refuses.
+- The no-merge rule on a parley dispatch is obeyed by the Hand at the same turn boundary. `muster`
+  Step 7's existing floor backs it on a `no-mistakes` run, where it looks for a gate outcome that
+  does not exist and refuses; on a `direct-PR` posture there is no such floor and nothing
+  mechanical stops the merge, which is exactly why the rule is written to stand on its own.
 - **The exit conditions are enforced by nothing at all.** A Hand that has forgotten it is in parley
   will not announce the exit. That is accepted rather than fixed, because the failure runs the safe
   way - a forgotten mode is the default ceremony returning - and because the alternative is a

@@ -81,10 +81,12 @@ of a few lines - the size parley is for. The King was told that plainly and answ
 in quick mode".
 
 Two things keep the absence visible rather than silent. A parley dispatch says in its brief that the
-gate is deliberately not run, and its worker records that in `report.md`. And the merge floor does
-the rest by itself: `muster` Step 7 refuses to merge a `no-mistakes` run whose gate did not complete
-through `pr`, so a parley dispatch is never merged on the forge and the King's own word is what
-moves it.
+gate is deliberately not run, and its worker records that in `report.md`. And parley carries its own
+rule that such a dispatch is never merged on the forge, on any posture and including `+merge`,
+because nothing has established that a run with no review gate is safe to merge. `muster` Step 7
+agrees on its `no-mistakes` limb, refusing a run whose gate did not complete through `pr`, but the
+rule cannot rest there: Step 7's `direct-PR` limb requires no gate at all, so the floor is absent
+exactly where the claim would otherwise be read as one. The King's own word is what moves it.
 
 ## What is enforced, and what is not
 
@@ -95,8 +97,10 @@ only alternative - a durable flag - fails the other way.
 Everything else has something. The absent review gate is an absence in the brief rather than an
 instruction to abandon a run, which is the same shape as `--skip ci`: a constraint that has to hold
 while an agent sits inside a long call is carried by a flag, never by a sentence the agent is not
-reading. The no-merge rule is Step 7's existing floor. The reply ceiling and the step boundary are
-obeyed at a turn boundary, where prose is the only mechanism there is.
+reading. The no-merge rule has Step 7's existing floor behind it on a `no-mistakes` run and nothing
+mechanical behind it on a `direct-PR` one, which is why it is written as parley's own rule rather
+than as a restatement of Step 7. The reply ceiling and the step boundary are obeyed at a turn
+boundary, where prose is the only mechanism there is.
 
 ## Out of scope, deliberately: one warm worker for a burst
 

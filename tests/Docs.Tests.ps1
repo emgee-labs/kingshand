@@ -5056,8 +5056,19 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase ('**Parley is a length ceiling on top of those rules and replaces none of ' +
                          'them.**')
-            $script:ParleyRaw |
-                Should -Not -Match '(?i)herald is off' -Because 'the correction settled it the other way'
+            # The Assert-Phrase checks above carry the real weight - they fail the moment the
+            # sentence is deleted. This negative guard is only here to catch a rewrite that says
+            # the same wrong thing in different words, so it covers the phrasings a suspension
+            # would actually be written in rather than the single one that was corrected.
+            foreach ($suspension in @(
+                '(?i)herald[^.\n]{0,12}\bis (turned off|off|suspended|disabled|paused|dropped)\b'
+                '(?i)herald[^.\n]{0,12}\b(does not|doesn''t|no longer) (apply|applies|hold|holds)\b'
+                '(?i)herald[^.\n]{0,12}\bis (not in force|set aside|waived|lifted)\b'
+                '(?i)(suspends|turns off|disables|waives|sets aside|lifts) `?herald'
+            )) {
+                $script:ParleyRaw |
+                    Should -Not -Match $suspension -Because 'the correction settled it the other way'
+            }
         }
 
         It 'caps the reply and turns rendering off without letting either eat a decision' {
@@ -5125,13 +5136,43 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                          'skip Step 1b.**')
         }
 
+        # The no-merge rule has to be parley's own, because the only floor that could have carried
+        # it - muster Step 7's gate check - exists on the no-mistakes limb alone. A direct-PR or
+        # no-mistakes-prod-only project registered +merge has no such floor, so a rule stated as a
+        # restatement of Step 7 was false exactly where it read as protection.
         It 'makes the skipped gate visible and never merges a dispatch that ran without one' {
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase '**Say in the brief that the review gate is deliberately not run**'
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase 'A skipped gate nobody can see afterwards is the failure mode.'
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase '**A parley dispatch is never merged on the forge.**'
+                -Phrase ('**A parley dispatch is never merged on the forge, on any posture.** This is ' +
+                         'parley''s own rule and it rests on parley''s own reason: the dispatch ran no ' +
+                         'review gate, so nothing has established that the run is safe to merge.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('That is as true on `direct-PR`, and on a `no-mistakes-prod-only` task ' +
+                         'resolved to `direct-PR`, as it is anywhere else, and it holds on a project ' +
+                         'registered `+merge`.')
+        }
+
+        # Rendering a gate becomes a line in chat; a gate never becomes no gate. The dispatch gate
+        # is the one most easily lost - `yolo` off is the default across the registry, and the
+        # mode's own "nothing renders" rule reads like permission to drop it.
+        It 'keeps the dispatch gate, as a line in chat rather than a rendered page' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**The dispatch gate happens.** Wherever `yolo` is off - the default across ' +
+                         'most of the registry - `muster` Step 3 is still asked and still his to ' +
+                         'answer, as a line in chat rather than a rendered page, and nothing is ' +
+                         'dispatched until he answers it.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Parley shortens how a gate is presented; it never removes one.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Gate the dispatch wherever `yolo` is off, before anything is dispatched.** ' +
+                         '`muster` Step 3 is not skipped in parley')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'only his answer to that line is consent to dispatch'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Where a dispatch cannot be judged from a line in chat it is not quick**')
         }
 
         # "waiting for agent off" is about the Hand holding the exchange open, never about leaving a
@@ -5213,6 +5254,9 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                 -Phrase ('That is accepted rather than fixed, because the failure runs the safe way')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase ('That is the `--skip ci` shape rather than the fifteen-minutes-in-a-brief shape.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('on a `direct-PR` posture there is no such floor and nothing mechanical stops ' +
+                         'the merge')
         }
 
         # He was offered a bounded override of hard rule 1 and declined it for simplicity, which is
@@ -5266,6 +5310,20 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             Test-Path -LiteralPath (Join-Path $s.FullName 'SKILL.md') |
                 Should -BeTrue -Because "$($s.Name) must carry a SKILL.md"
         }
+
+        # setup's overview spells out how many skills sit beside it, and that number went stale
+        # twice as skills were added because nothing checked it. Derive it from the directories so
+        # the next skill fails here instead of leaving the prose quietly wrong.
+        $words = @{
+            14 = 'fourteen'; 15 = 'fifteen'; 16 = 'sixteen';   17 = 'seventeen'
+            18 = 'eighteen'; 19 = 'nineteen'; 20 = 'twenty'
+        }
+        $others = $skills.Count - 1
+        $words.ContainsKey($others) |
+            Should -BeTrue -Because "setup writes the count in words, so $others needs one listed here"
+        $setup = Get-Content -Path (Join-Path $script:Root '.claude\skills\setup\SKILL.md') -Raw
+        $setup.Contains("beside the other $($words[$others])") |
+            Should -BeTrue -Because "setup says how many skills sit beside it, and there are $others"
     }
 
     It 'no script creates a junction or a symlink' {
