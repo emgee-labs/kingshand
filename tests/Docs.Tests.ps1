@@ -3856,6 +3856,7 @@ Describe 'no long dash' {
         @{ file = '.claude\skills\vigil\SKILL.md' }
         @{ file = 'docs\2026-09-05-usage-window-watch.md' }
         @{ file = 'docs\2026-09-05-worker-and-gate-model-selection.md' }
+        @{ file = 'docs\2026-09-25-away-journal.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
@@ -4554,11 +4555,13 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Regency | Should -Match 'Register it under `decree` either way - what you decided, or the question the\s+test left standing with him'
         }
 
-        # The digest is session memory and the King's review of what was decided in his name cannot
-        # be. The notes decree closed those decisions with are what a restart leaves behind.
-        It 'rebuilds the decided-in-his-stead part of the digest from the durable notes' {
-            $script:Regency | Should -Match 'Read those back from\s+the notes `decree` closed them with rather than from memory'
-            $script:Regency | Should -Match 'a restart before he returns takes it with it, while the notes are still there'
+        # The digest used to be composed in-session and a restart before he returned took it, which
+        # `regency` admitted in writing and did not fix. It is rendered from the away journal now,
+        # and the sentence that does the work is the one naming `$away` as the only source.
+        It 'rebuilds the digest from the away journal rather than from this session' {
+            $script:Regency | Should -Match '\*\*All of it comes out of `\$away`, never out of this session\.\*\*'
+            $script:Regency | Should -Match 'the journal survives a restart and\s+the session does not'
+            $script:Regency | Should -Match '`decree` is unchanged and still owns each decision''s own lifecycle'
         }
 
         # Two bullets both keyed on a decision in a report, and the broader one is read first: it
@@ -4597,6 +4600,102 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         It 'ends on any ordinary message, and biases ambiguity toward ending' {
             $script:Regency | Should -Match 'Bias every ambiguous case toward ending'
             $script:Regency | Should -Match 'a present King\s+outranks a durable flag'
+        }
+    }
+
+    # The away journal exists because the one failure on this path is silent. Everything else that
+    # can go wrong while the King is out throws, refuses, or leaves text on a screen; a return
+    # digest lost to a restart produces no error at all and simply hands him a thinner account he
+    # cannot tell is thinner. Every case here pins one half of the fix: the record being written as
+    # it happens, and the digest being rendered from that record or not at all.
+    Context 'the away period has a durable journal and the digest is rendered from it' {
+        BeforeAll {
+            $script:Regency  = Get-Content -Path (Join-Path $script:Root '.claude\skills\regency\SKILL.md') -Raw
+            $script:AwayOwned = Get-HandSection 'What you own'
+        }
+
+        It 'opens the journal in the same step that writes the flag' {
+            $script:Regency | Should -Match 'Import-Module \$env:KINGSHAND_HOME\\bin\\AwayJournal\.psm1 -Force'
+            $script:Regency | Should -Match '(?m)^\s*Open-AwayJournal\s*$'
+            $script:Regency | Should -Match 'Opening it here is what lets an away period that produced nothing be told apart'
+        }
+
+        # R-007, both halves, and the reason the file is named from the flag rather than from the
+        # clock: a second period cannot reach the first one's record, and a restart mid-period
+        # lands back on the file already there.
+        It 'gives each away period one file, named from the flag' {
+            $script:Regency | Should -Match 'The journal is `data\\away\\<stamp>\.jsonl`, one file per away period, named from'
+            $script:Regency | Should -Match 'a second regency cannot touch the first one''s record'
+            $script:Regency | Should -Match 'appends to the file already there rather than starting a new one'
+        }
+
+        It 'closes the set of kinds and refuses a decision that does not say what it rested on' {
+            $script:Regency | Should -Match '`-Kind` is one of `dispatched`, `landed`, `failed`, `blocked`, `decided`, `waiting`, `closed-out`'
+            $script:Regency | Should -Match 'A `decided` entry is refused without `-Basis recorded` or `-Basis judgement`'
+        }
+
+        # R-005. A journal assembled at return time is session memory with extra steps, so the
+        # instruction has to say so rather than leaving "record it" open to a batch at the end.
+        It 'insists every record is written as it happens, never at the end' {
+            $script:Regency | Should -Match '\*\*Write it as it happens, never at the end\.\*\*'
+            $script:Regency | Should -Match 'an account composed at the end is session memory with extra steps'
+        }
+
+        # The journal must not become a back door around the limits. Writing an outcome down is a
+        # record of something already decided under the rules that were already in force.
+        It 'keeps the journal a record and never an authority' {
+            $script:Regency | Should -Match '\*\*The journal is a record and never an authority\.\*\*'
+            $script:Regency | Should -Match 'Writing an outcome down grants nothing, moves no\s+posture and settles no decision'
+            $script:Regency | Should -Match 'Every limit in \*What a regency never grants\* stands whatever the'
+        }
+
+        # R-004's second half, argued rather than assumed: the decisions taken in his name become
+        # reviewable after the digest, not during it.
+        It 'keeps the journal on return rather than clearing it' {
+            $script:Regency | Should -Match '\*\*It is kept on return, never cleared\.\*\*'
+            $script:Regency | Should -Match 'deleting the record at the moment it becomes\s+reviewable is the wrong direction'
+        }
+
+        # The file is named from the flag's since:, so removing the flag first leaves the digest
+        # with nothing to resolve. The order is the mechanism, not a courtesy.
+        It 'reads the journal before the flag comes off' {
+            $script:Regency | Should -Match '\*\*Read the journal before you touch the flag\.\*\*'
+            $script:Regency | Should -Match '\$away = Get-AwayDigest'
+            $script:Regency | Should -Match 'removing it first leaves the digest with nothing to render from'
+        }
+
+        # R-003, and the single most important line in the change. A digest that quietly falls back
+        # to session memory when the file cannot be read is the original failure in a new place.
+        It 'says plainly that it could not read the journal rather than rendering from memory' {
+            $script:Regency | Should -Match '\*\*When `\$away\.readable` is `\$false`, give `\$away\.summary` exactly as it stands and stop there\.\*\*'
+            $script:Regency | Should -Match 'Do not fill the gap from what you happen to remember'
+            $script:Regency | Should -Match 'A thinner account nobody can tell is\s+thinner is the precise failure this journal removes'
+        }
+
+        # R-006. An empty journal is a complete report, and it has to be told apart from a missing
+        # one - which is the whole reason the journal is opened when the flag is written.
+        It 'renders an away period that produced nothing as a clean night' {
+            $script:Regency | Should -Match 'so an empty journal reads as a clean\s+night rather than as a missing one'
+        }
+
+        # A refresh is not a new away period. Rewriting the flag with a fresh timestamp would split
+        # one period's journal in two, so the rewrite carries the old value across mechanically.
+        It 'keeps a refresh inside the same away period' {
+            $script:Regency | Should -Match 'Keep the\s+original `since:` when you rewrite the flag, or the journal splits in two mid-period'
+            $script:Regency | Should -Match '\$flag = Get-AwayFlag'
+        }
+
+        It 'CLAUDE.md owns the journal beside the other durable state' {
+            Assert-Phrase -Text $script:AwayOwned -Where 'CLAUDE.md What you own' `
+                -Phrase ('`data\away\<stamp>.jsonl` - one away period''s journal: a record per ' +
+                         'outcome, written as it happens, and the one source the return digest is ' +
+                         'rendered from.')
+        }
+
+        It 'the module is listed in the Tooling table' {
+            Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
+                -Phrase ('| `bin\AwayJournal.psm1` | the away journal: the away flag''s `since:` ' +
+                         'read in one place')
         }
     }
 

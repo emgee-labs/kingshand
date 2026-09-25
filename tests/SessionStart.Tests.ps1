@@ -195,6 +195,24 @@ Describe 'the away block routes a parked decision instead of forbidding an answe
         $bare.Contains('AWAY:') |
             Should -BeFalse -Because 'the block is the flag''s consequence, not a permanent heading'
     }
+
+    # The journal's file name comes from the flag's since:, so a flag nobody can read is a regency
+    # nothing can be recorded for. That is invisible otherwise - the away line would look normal and
+    # every outcome of the period would be lost exactly as it was before the journal existed.
+    It 'says the away period has no journal when the flag carries no readable since' -ForEach @(
+        @{ case = 'no since line';   flag = @('note: overnight') }
+        @{ case = 'unparseable';     flag = @('since: last tuesday') }
+    ) {
+        $f = New-Fixture ('away-bad-' + ($case -replace '\W', '-'))
+        Set-Content -Path (Join-Path $f.Root 'state\.afk') -Encoding utf8 -Value $flag
+        $text = Get-Digest $f
+
+        $text.Contains('AWAY: a regency is in force') |
+            Should -BeTrue -Because 'the King is still away even when the flag is malformed'
+        $text.Contains('NO JOURNAL:') |
+            Should -BeTrue -Because 'a period nothing can be recorded for has to say so'
+        $text | Should -Match 'Nothing can be recorded for this away period until that is fixed'
+    }
 }
 
 Describe 'a session with nothing recorded still gets a digest' {
