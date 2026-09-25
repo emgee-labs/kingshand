@@ -184,6 +184,42 @@ run:
     review,awaiting,3,742000
 '@
 
+    # A run whose `awaiting_agent` carries an object rather than a word. The tool is stating that
+    # the run is waiting; the text reader makes '' of an object, which is what an absent key also
+    # makes, so a reader testing the value reports this waiting run as not waiting.
+    $script:AwaitingObjectRun = @'
+run:
+  id: 01M4AWAITINGOBJECT000000000
+  branch: feature-x
+  status: running
+  awaiting_agent:
+    since: 12m
+    reason: review
+  head: abc1234d
+'@
+
+    # `steps[2]: intent,review` - a valid TOON list of two strings where a table of rows belongs.
+    $script:ScalarStepsRun = @'
+run:
+  id: 01M4SCALARSTEPS00000000000
+  branch: feature-x
+  status: running
+  steps[2]: intent,review
+'@
+
+    # The same shape in the other list, with a real `steps` table beside it so the guard is shown
+    # to be per table rather than a whole-run refusal.
+    $script:ScalarActiveStepsRun = @'
+run:
+  id: 01M4SCALARACTIVE0000000000
+  branch: feature-x
+  status: running
+  steps[2]{step,status,findings,duration_ms}:
+    intent,completed,0,7
+    review,running,0,4200
+  active_steps[2]: review,test
+'@
+
     # A run whose `steps[]` header declares nine rows and carries one. This is what a truncated
     # capture looks like, and reading it as a one-step run is the failure strict decoding prevents.
     $script:TruncatedRun = @'
@@ -505,6 +541,17 @@ Describe 'Reading a gate that arrives as an object rather than a step name' {
         $s.detail   | Should -Match 'does not recognise'
     }
 
+    It 'says a run field it could not take is not the tool reporting no run' {
+        # `run:` holding something that is not an object. Answering "answered without reporting a
+        # run" would be a wrong word about the one thing the caller asked after.
+        $s = ConvertFrom-GateRunOutput -Text "run[2]: one,two`n"
+
+        $s.status | Should -Be 'no-run'
+        $s.detail | Should -Match 'could not take'
+        $s.detail | Should -Match 'run field'
+        $s.detail | Should -Not -Match 'without reporting a run'
+    }
+
     It 'reads a gate object that names no step as a gate all the same' {
         # The park comes from the gate being there, not from its step name being readable. A gate
         # whose step this could not read is still the tool saying the pipeline is waiting.
@@ -559,6 +606,50 @@ Describe 'An awaiting_agent value this reader does not recognise still means wai
 
         $s.isParked | Should -BeFalse
         $s.detail   | Should -Not -Match 'waiting'
+    }
+
+    It 'reads an awaiting_agent carrying an object as waiting, not as absent' {
+        # The same rule as the gate key, in the sibling field, forced with the shape that broke
+        # it: an object comes back from the text reader as the identical '' an absent key does,
+        # so a reader testing the value reports a waiting run as not waiting and says nothing.
+        $s = ConvertFrom-GateRunOutput -Text $script:AwaitingObjectRun
+
+        $s.isParked | Should -BeTrue -Because 'the tool did say the run was waiting on the agent'
+        $s.status   | Should -Be 'has-run'
+        $s.detail   | Should -Match 'awaiting_agent'
+        $s.detail   | Should -Match 'an object'
+        $s.detail   | Should -Match 'does not recognise'
+    }
+}
+
+Describe 'A declared table whose entries are not rows never becomes state' {
+    # `steps[2]: intent,review` is valid TOON - a list of two strings, not two rows of fields.
+    # Read row by row it yields steps whose every column is empty, which is a run described in a
+    # shape nobody sent. Both lists are forced, because a guard on one is a guard on one.
+
+    It 'reports no steps and says the steps table could not be read' {
+        $s = ConvertFrom-GateRunOutput -Text $script:ScalarStepsRun
+
+        $s.steps.Count | Should -Be 0 -Because 'two blank steps would be a run nobody reported'
+        $s.status      | Should -Be 'has-run'
+        $s.detail      | Should -Match 'steps table'
+        $s.detail      | Should -Match 'does not recognise'
+    }
+
+    It 'reports no active steps and says the active_steps table could not be read' {
+        $s = ConvertFrom-GateRunOutput -Text $script:ScalarActiveStepsRun
+
+        $s.activeSteps.Count | Should -Be 0
+        $s.steps.Count       | Should -Be 2 -Because 'the real table beside it still reads'
+        $s.detail            | Should -Match 'active_steps table'
+        $s.detail            | Should -Match 'does not recognise'
+    }
+
+    It 'still reads a table whose entries really are rows' {
+        $s = ConvertFrom-GateRunOutput -Text $script:CompletedRun
+
+        $s.steps.Count | Should -Be 9
+        $s.detail      | Should -Not -Match 'does not recognise'
     }
 }
 
@@ -828,6 +919,32 @@ Describe 'The boundary to the binary' {
         $reachable | Should -Not -Contain 'Invoke-NoMistakesAxi'
         $reachable | Should -Not -Contain 'Start-CapturedProcess'
         $reachable | Should -Contain 'Get-GateRunState' -Because 'reading is what it is for'
+    }
+}
+
+Describe 'Naming a shape and an exit code without inventing either' {
+    It 'gives a non-empty string an honest label rather than calling it empty' {
+        # The shape namer is reached inside the module only where the text reader already came
+        # back empty, so a wrong label for other values would never show there - and would still
+        # be a wrong word coming out of a module whose product is never saying one.
+        Get-ToonShapeName -Value 'review' | Should -Be 'text'
+        Get-ToonShapeName -Value '   '    | Should -Be 'an empty string'
+        Get-ToonShapeName -Value ''       | Should -Be 'an empty string'
+        Get-ToonShapeName -Value $null    | Should -Be 'nothing at all'
+    }
+
+    It 'keeps a negative exit code rather than reading it as none reported' {
+        # A crashed child on Windows exits negative - an access violation arrives as
+        # -1073741819 - so a numeric sentinel for "not supplied" would record a real reading as
+        # $null, which is what every other field here means by "the output did not say".
+        $s = ConvertFrom-GateRunOutput -Text $script:CompletedRun -ExitCode -1073741819
+
+        $s.exitCode | Should -Be -1073741819
+        $s.exitCode | Should -Not -BeNullOrEmpty
+    }
+
+    It 'reports no exit code at all when none was supplied' {
+        (ConvertFrom-GateRunOutput -Text $script:CompletedRun).exitCode | Should -BeNullOrEmpty
     }
 }
 

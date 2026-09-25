@@ -82,10 +82,32 @@ word it resembles.
   survives findings being declined: a real cancelled run on this repository still reads
   `findings: "1 awaiting, 1 auto-fix"` with every step terminal and nothing waiting on anybody. It
   is carried through as `findingsSummary` and nothing computes from it.
-- **Never read a non-empty `awaiting_agent` as not waiting.** The field's name is the tool saying
-  what the run is waiting on. Matching only the documented `parked <duration>` wording and treating
-  every other value as unparked is the same silent default in a safer-looking direction, and it is
-  the direction that cost two hours and twenty-six minutes.
+- **Read every deciding field by whether its key is present, never by the shapes the reader
+  happens to handle.** This is the rule the whole change kept arriving back at, and it is written
+  down because it had to be re-derived four times in four different fields before it was stated
+  once. `awaiting_agent` matched only the documented `parked <duration>` wording, so any other
+  wording read as not waiting. `gate:` was read as a scalar, so the live tool's nested object read
+  as no gate and a response carrying six findings read as none. `gate:` presence was then taken
+  from the value's shape, so a third shape - a list, an empty string, an explicit null - fell
+  through every arm. And `awaiting_agent` fell to that same thing again, because a value carrying
+  an object comes back from `Get-ToonText` as the identical `''` an absent key does.
+
+  The cause under all four is one collapse: **absent and unrecognised are different facts, and a
+  reader that tests the value cannot tell them apart.** So presence is asked directly, of the key,
+  through `Read-ToonField` and `Read-ToonTable` - and a key that is present but whose value is in
+  a shape nothing here handles keeps its state, with `detail` naming what was seen instead. A
+  field that falls silent is the failure; a field that says "I could not take this" is not. Any
+  field added later goes through those two readers for exactly this reason.
+- **Never read a present `awaiting_agent` as not waiting.** The field's name is the tool saying
+  what the run is waiting on. Treating an unrecognised wording, or a value in an unrecognised
+  shape, as unparked is the same silent default in a safer-looking direction, and it is the
+  direction that cost two hours and twenty-six minutes.
+- **Never let a declared table whose entries are not objects become rows.** `steps[2]:
+  intent,review` is valid TOON - a list of two strings rather than two rows of fields - and reading
+  it row by row yields two steps whose every column is empty. That is a run reported confidently in
+  a shape nobody sent, which is the same fault as merging the two step lists, reached from the
+  other side. Dropping those entries in silence is not the fix either; the table is named as
+  unreadable.
 - **Never merge or deduplicate `steps[]` and `active_steps[]`.** They describe different things -
   what each step of the pipeline did, and what one currently running step is doing right now -
   and merging them produces rows with neither shape's columns.
@@ -100,8 +122,11 @@ an object carrying `step`, `status`, `risk`, `note` and its own findings table. 
 written to the documentation lost the whole gate answer - the step name came back empty, so the park
 had nowhere to point, and a response carrying six findings read as none.
 
-The fix was to read the field in both shapes. It was a change to which named fields are read, not to
-how the format is parsed, because the reader works on a decoded document rather than on text it
-matches. A hand-rolled parser would have needed its grammar reopened for the same drift. Where the
-live tool and the documentation disagree, the live tool is the authority - and the reader is built
-so that finding out costs a few lines.
+The first fix read the field in both shapes. That was not enough on its own and is not how the code
+works now - the rule above is, and `gate:` is read by whether its key is there, with the object and
+the scalar being two shapes it knows how to take and anything else named as unreadable. What matters
+as evidence is that each correction was a change to which named fields are read, not to how the
+format is parsed, because the reader works on a decoded document rather than on text it matches. A
+hand-rolled parser would have needed its grammar reopened for the same drift. Where the live tool
+and the documentation disagree, the live tool is the authority - and the reader is built so that
+finding out costs a few lines.
