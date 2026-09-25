@@ -5223,6 +5223,16 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                          'all**: those modes run no review gate in normal mode either, so parley ' +
                          'subtracted nothing and a `+merge` the King granted stands exactly as he ' +
                          'granted it.')
+            # Each shape stands alone, stated positively. The lead-in once said one copy "does not
+            # work" without the other, which told a Hand that a brief-only marker did not count -
+            # and the brief's copy is exactly the one that has to stand alone, because the worker
+            # is the half that may not comply.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('Where it is written, it takes **two shapes, because the two files take ' +
+                         'different shapes** - and **each shape stands on its own**: either file ' +
+                         'carrying the token is enough for Step 7''s floor to refuse.')
+            $script:Parley.Contains('one without the other does not work') |
+                Should -BeFalse -Because 'a brief-only marker still refuses the merge'
             # One shape per file. The report's copy keeps its heading; the brief's cannot have one,
             # because ## Requirements is a bullet list and a heading ends the section early.
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
@@ -6945,6 +6955,17 @@ Describe 'a project has a standing definition of done, and repeated findings are
                      'is no gate and no round to compare against, so this loop does not fire, and ' +
                      'a report with no rounds in it is the record that brief asked for rather than ' +
                      'one to query')
+        # Keyed on the task, not the registration. A gateless dispatch on a project registered
+        # `no-mistakes` falls outside the mode list above, and the only other sentence about a
+        # report with no rounds calls it one to ask about - so the worker gets queried for doing
+        # exactly what its brief asked.
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('**What settles it is whether this task ran a review gate, never how the ' +
+                     'project is registered**, so a task whose brief carried no gate line is in ' +
+                     'that same case in full')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('it has no round to compare against whatever its entry says, the loop does not ' +
+                     'fire, and its report having no rounds is right rather than a gap')
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
             -Phrase 'Read the self-check block either way'
     }

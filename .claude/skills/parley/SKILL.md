@@ -141,8 +141,9 @@ Where one is needed:
   as he granted it. Claiming a safety reduction that did not happen is as wrong as hiding one that
   did.
 
-  Where it is written, it goes in **two shapes, one per file**, and one without the other does not
-  work:
+  Where it is written, it takes **two shapes, because the two files take different shapes** - and
+  **each shape stands on its own**: either file carrying the token is enough for Step 7's floor to
+  refuse. Write both:
 
   - **In the brief's `## Requirements`, as one `-` bullet and no heading** - that section is a
     bullet list, and a heading dropped into it ends the section early:

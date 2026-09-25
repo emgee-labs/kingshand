@@ -1675,7 +1675,11 @@ round-one findings are two readings of the same change, so compare them. **That 
 gate, and most projects have none.** On a `local-only` or `direct-PR` project - including a
 `no-mistakes-prod-only` project whose task resolved to `direct-PR` - there is no gate and no round
 to compare against, so this loop does not fire, and a report with no rounds in it is the record
-that brief asked for rather than one to query. Where this task did run the review gate, both
+that brief asked for rather than one to query. **What settles it is whether this task ran a review
+gate, never how the project is registered**, so a task whose brief carried no gate line is in that
+same case in full - it has no round to compare against whatever its entry says, the loop does not
+fire, and its report having no rounds is right rather than a gap. Where this task did run the
+review gate, both
 readings are in `report.md`: the `Repeated findings` section of the brief made the worker record
 every round there as it landed, and the first pass as `round 1: no findings` where it raised none,
 so a report carrying a self-check block and no rounds at all is one to ask about rather than one
