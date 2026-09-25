@@ -151,6 +151,41 @@ Describe 'Open-AwayJournal opens one journal per away period' {
             Should -BeExactly $firstText -Because 'one away period may never overwrite another'
     }
 
+    # The period check has to compare instants, not bytes. The header's since: goes out as text and
+    # comes back from ConvertFrom-Json as a DateTime that re-renders with seven fraction digits, so
+    # a flag holding any other spelling of the same moment - `2026-09-25T00:59:24Z`, which is what
+    # the session-start digest prints - failed the check and the period recorded exactly one line.
+    It 'keeps appending when the flag spells the same instant with <case>' -ForEach @(
+        @{ case = 'no fractional seconds'; since = '2026-09-25T00:59:24Z' }
+        @{ case = 'three fraction digits'; since = '2026-09-25T00:59:24.100Z' }
+        @{ case = 'a UTC offset';          since = '2026-09-25T02:59:24+02:00' }
+    ) {
+        $f = New-AwayFixture -Since $since
+        Add-FixtureEntry -Fixture $f -Entry @{ Kind = 'landed'; Text = 'T-1' } | Out-Null
+        { Add-FixtureEntry -Fixture $f -Entry @{ Kind = 'landed'; Text = 'T-2' } } |
+            Should -Not -Throw -Because 'one instant spelled two ways is still one away period'
+
+        $d = Get-FixtureDigest $f
+        $d.readable | Should -BeTrue -Because 'an intact journal must never be reported unreadable'
+        $d.count    | Should -Be 2
+        @($d.entries | ForEach-Object { $_.text }) | Should -Be @('T-1', 'T-2')
+    }
+
+    # An index write that failed once would otherwise never be retried, leaving the journal in the
+    # session-start unindexed count for good.
+    It 'puts the journal back in the index when the entry went missing' {
+        $f = New-AwayFixture
+        Open-AwayJournal -FlagPath $f.Flag -DataPath $f.Data | Out-Null
+        Remove-Item -LiteralPath (Join-Path $f.Data 'index.md') -Force
+
+        $second = Open-AwayJournal -FlagPath $f.Flag -DataPath $f.Data
+        $second.created      | Should -BeFalse
+        $second.indexed      | Should -BeTrue
+        $second.indexProblem | Should -BeNullOrEmpty
+        (Get-Content -LiteralPath (Join-Path $f.Data 'index.md') -Raw).Contains("away\$script:StampA.jsonl") |
+            Should -BeTrue
+    }
+
     It 'refuses to open a journal when no regency is in force' {
         $f = New-AwayFixture -NoFlag
         { Open-AwayJournal -FlagPath $f.Flag -DataPath $f.Data } | Should -Throw '*No regency is in force*'

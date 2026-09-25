@@ -90,6 +90,40 @@ function Read-AwaySince {
     $value
 }
 
+# One timestamp string as the instant it names, or $null when it names none. The single parse point
+# for everything in this file that has to decide whether two `since:` values are the same period.
+function ConvertTo-AwayInstant {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Value)
+
+    $parsed = [datetimeoffset]::MinValue
+    $styles = [System.Globalization.DateTimeStyles]::AllowWhiteSpaces -bor
+              [System.Globalization.DateTimeStyles]::AssumeUniversal
+    $ok = [datetimeoffset]::TryParse(
+            $Value, [System.Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$parsed)
+    if (-not $ok) { return $null }
+    $parsed.ToUniversalTime()
+}
+
+# Whether two `since:` values name the same away period. THE INSTANT, NEVER THE BYTES: the header's
+# value has been through ConvertFrom-Json, which recognises an ISO timestamp and hands back a
+# DateTime that re-renders with seven fraction digits, while the flag holds whatever regency wrote -
+# so `2026-09-25T00:59:24Z` on disk came back as `2026-09-25T00:59:24.0000000Z` and a perfectly good
+# journal was refused from its second record on, with the return digest calling it unreadable. Two
+# spellings of one instant are one period, and an offset form is the same period as its UTC form.
+# Where either side does not parse there is no instant to compare, so the literal text decides and a
+# header holding something that is not a timestamp is still refused.
+function Test-SameAwayPeriod {
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Left,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Right
+    )
+
+    $l = ConvertTo-AwayInstant -Value $Left
+    $r = ConvertTo-AwayInstant -Value $Right
+    if ($null -eq $l -or $null -eq $r) { return $Left -eq $Right }
+    $l -eq $r
+}
+
 # The `since:` value re-rendered as the journal's file name. RE-RENDERED, not copied: the value is
 # parsed as a timestamp first and the name is built from the result, so whatever the flag holds, the
 # name is digits, `T` and `Z`. A value that does not parse is refused rather than sanitised, because
@@ -97,16 +131,12 @@ function Read-AwaySince {
 function ConvertTo-AwayStamp {
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Since)
 
-    $parsed = [datetimeoffset]::MinValue
-    $styles = [System.Globalization.DateTimeStyles]::AllowWhiteSpaces -bor
-              [System.Globalization.DateTimeStyles]::AssumeUniversal
-    $ok = [datetimeoffset]::TryParse(
-            $Since, [System.Globalization.CultureInfo]::InvariantCulture, $styles, [ref]$parsed)
-    if (-not $ok) {
+    $parsed = ConvertTo-AwayInstant -Value $Since
+    if ($null -eq $parsed) {
         throw "The away flag's since: value reads '$Since', which is not a timestamp. Regency writes it as (Get-Date).ToUniversalTime().ToString('o')."
     }
 
-    $stamp = $parsed.ToUniversalTime().ToString(
+    $stamp = $parsed.ToString(
                 "yyyyMMdd'T'HHmmss'Z'", [System.Globalization.CultureInfo]::InvariantCulture)
     if ($stamp -notmatch $script:StampPattern) {
         throw "Refusing to build a journal name from '$Since': the stamp '$stamp' is not of the form 20260925T005924Z, and only that form is allowed to become a file name."
@@ -209,7 +239,7 @@ function Assert-JournalHeader {
     }
 
     $itsSince = Get-RecordField -Record $header -Name 'since'
-    if ($itsSince -ne $Since) {
+    if (-not (Test-SameAwayPeriod -Left $itsSince -Right $Since)) {
         throw "$Path is the journal of the away period beginning $itsSince, and the flag says this period began $Since. Refusing to write one period's outcomes into another's record."
     }
 }
@@ -232,6 +262,12 @@ function Add-JournalLine {
 # The file is created BEFORE the index entry, and an index failure is reported rather than thrown.
 # The journal is the thing that must survive; losing a record because a table of contents could not
 # be updated would trade the whole point of the file for a line in another one.
+#
+# The index entry is re-asserted on EVERY open, not only on the one that creates the file. An index
+# write that failed once would otherwise never be retried, and the journal would sit in the
+# session-start unindexed count for good with no path that clears it. Add-IndexEntry rewrites an
+# existing entry in place and keeps the date it first entered the index, so a reopen costs a line
+# rewritten rather than a file that looks newly added.
 function Open-AwayJournal {
     [CmdletBinding()]
     param(
@@ -259,20 +295,19 @@ function Open-AwayJournal {
 
     if (Test-Path -LiteralPath $path -PathType Leaf) {
         Assert-JournalHeader -Path $path -Since $since
-        return $result
-    }
+    } else {
+        if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        }
 
-    if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
-        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        $null = Add-JournalLine -Path $path -Record @{
+            record  = $script:HeaderRecord
+            version = $script:FormatVersion
+            since   = $since
+            opened  = (Get-Date).ToUniversalTime().ToString('o')
+        }
+        $result.created = $true
     }
-
-    $null = Add-JournalLine -Path $path -Record @{
-        record  = $script:HeaderRecord
-        version = $script:FormatVersion
-        since   = $since
-        opened  = (Get-Date).ToUniversalTime().ToString('o')
-    }
-    $result.created = $true
 
     try {
         $null = Add-IndexEntry -Path $path -DataPath $DataPath `
@@ -420,7 +455,7 @@ function Get-AwayDigest {
     }
 
     $headerSince = Get-RecordField -Record $header -Name 'since'
-    if ($result.since -and $headerSince -and $headerSince -ne $result.since) {
+    if ($result.since -and $headerSince -and -not (Test-SameAwayPeriod -Left $headerSince -Right $result.since)) {
         return (& $unreadable "$($result.path) is the journal of the period beginning $headerSince, and the flag says this period began $($result.since).")
     }
     if (-not $result.since) { $result.since = $headerSince }
