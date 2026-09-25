@@ -42,21 +42,33 @@ batch it and stop.
 ## What regency actually does
 
 1. Write the durable flag and open the journal, so both the mode and the account of it survive a
-   restart and a fresh session picks them up:
+   restart and a fresh session picks them up. **Reuse an open period's `since:`, and mint a new
+   timestamp only where no away period is open or the existing `since:` cannot be read:**
 
    ```powershell
-   $afk = Join-Path $env:KINGSHAND_HOME 'state\.afk'
+   Import-Module $env:KINGSHAND_HOME\bin\AwayJournal.psm1 -Force
+   $afk  = Join-Path $env:KINGSHAND_HOME 'state\.afk'
+   $flag = Get-AwayFlag
+   $since = if ($flag.present -and $flag.since) { $flag.since }
+            else { (Get-Date).ToUniversalTime().ToString('o') }
+
    Set-Content -LiteralPath $afk -Encoding utf8 -Value (@(
-     "since: $((Get-Date).ToUniversalTime().ToString('o'))"
+     "since: $since"
      "note: <whatever they said - 'back in an hour', 'overnight'>"
    ) -join "`n")
 
-   Import-Module $env:KINGSHAND_HOME\bin\AwayJournal.psm1 -Force
    Open-AwayJournal
    ```
 
-   Opening it here is what lets an away period that produced nothing be told apart from one whose
-   account was lost. `The away journal` section below owns the rest.
+   This one block covers all three ways you arrive here - entering a regency, picking up a durable
+   flag after a restart, and a `/regency` or `/afk` that refreshes the mode - and only the first of
+   those starts a new journal. The journal is named from the flag's `since:`, so a fresh timestamp
+   on a period already open orphans the record written so far and the return digest reports the
+   remainder as if it were the whole night. Updating the note mid-period is the ordinary thing to
+   do while they are out; it must never be the thing that breaks the record.
+
+   Opening the journal here is what lets an away period that produced nothing be told apart from
+   one whose account was lost. `The away journal` section below owns the rest.
 
 2. **Confirm what you can actually see, and say so if the answer is "not everything".** Regency
    rests entirely on noticing a worker has stopped, and that comes from reading its screen:
@@ -199,17 +211,9 @@ report, and padding it is how the digest stops being read. That is `$away.summar
 an away period whose journal was opened and never written to, so an empty journal reads as a clean
 night rather than as a missing one.
 
-A message that starts with `/regency` or `/afk` refreshes the mode rather than ending it. Keep the
-original `since:` when you rewrite the flag, or the journal splits in two mid-period:
-
-```powershell
-Import-Module $env:KINGSHAND_HOME\bin\AwayJournal.psm1 -Force
-$flag = Get-AwayFlag
-Set-Content -LiteralPath $flag.path -Encoding utf8 -Value (@(
-  "since: $($flag.since)"
-  "note: <what they said this time>"
-) -join "`n")
-```
+A message that starts with `/regency` or `/afk` refreshes the mode rather than ending it. Run step 1
+above unchanged - it already reuses an open period's `since:` and rewrites only the note, which is
+exactly what a refresh is.
 
 ## What this cannot do, stated plainly
 

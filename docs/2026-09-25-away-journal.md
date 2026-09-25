@@ -68,10 +68,15 @@ The header carries the format marker, its version and the period's `since:`, and
 all three. A file that happens to land on the same name, or a journal belonging to another period,
 is named in an error instead of being written over.
 
-**A refresh keeps the original `since:`.** `/regency` while already away refreshes the mode rather
-than starting a new one, so rewriting the flag with a fresh timestamp would split one period's
-journal in two. `regency` spells the rewrite with `Get-AwayFlag` so the old value is carried across
-mechanically.
+**Anything that rewrites the flag keeps the original `since:`.** Naming the file from the flag only
+closes the restart and refresh cases if nothing re-stamps the flag mid-period, and there are two
+ways in: `/regency` while already away refreshes the mode rather than starting a new one, and a
+session restart re-enters `regency` off the durable flag. Either writing a fresh timestamp splits
+one period's journal in two, leaving the earlier half orphaned on disk and the return digest
+reporting the remainder as a complete night. So `regency` has **one** flag-writing block, run on
+entry, restart and refresh alike, and it reads the existing flag with `Get-AwayFlag` and reuses its
+`since:` where a period is open - minting a new timestamp only where none is. The old value is
+carried across mechanically rather than by the Hand remembering to.
 
 ## JSON Lines, not Markdown
 

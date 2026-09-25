@@ -4617,7 +4617,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         It 'opens the journal in the same step that writes the flag' {
             $script:Regency | Should -Match 'Import-Module \$env:KINGSHAND_HOME\\bin\\AwayJournal\.psm1 -Force'
             $script:Regency | Should -Match '(?m)^\s*Open-AwayJournal\s*$'
-            $script:Regency | Should -Match 'Opening it here is what lets an away period that produced nothing be told apart'
+            $script:Regency | Should -Match 'Opening the journal here is what lets an away period that produced nothing be told apart'
         }
 
         # R-007, both halves, and the reason the file is named from the flag rather than from the
@@ -4678,11 +4678,21 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Regency | Should -Match 'so an empty journal reads as a clean\s+night rather than as a missing one'
         }
 
-        # A refresh is not a new away period. Rewriting the flag with a fresh timestamp would split
-        # one period's journal in two, so the rewrite carries the old value across mechanically.
-        It 'keeps a refresh inside the same away period' {
-            $script:Regency | Should -Match 'Keep the\s+original `since:` when you rewrite the flag, or the journal splits in two mid-period'
+        # Neither a refresh nor a restart is a new away period, and both re-enter this skill at
+        # step 1. Re-stamping the flag there would name a new journal and orphan the one on disk,
+        # so the one flag-writing block reuses an open period's since: and only mints a new one
+        # where no period is open.
+        It 'reuses an open away period''s since: rather than re-stamping the flag' {
             $script:Regency | Should -Match '\$flag = Get-AwayFlag'
+            $script:Regency | Should -Match '\$since = if \(\$flag\.present -and \$flag\.since\) \{ \$flag\.since \}'
+            $script:Regency | Should -Match '\*\*Reuse an open period''s `since:`, and mint a new\s+timestamp only where no away period is open'
+            $script:Regency | Should -Match 'entering a regency, picking up a durable\s+flag after a restart, and a `/regency` or `/afk` that refreshes the mode'
+        }
+
+        # One owner for the rule: the refresh path points back at step 1 instead of spelling the
+        # rewrite a second time, so the two spellings cannot drift apart.
+        It 'sends a refresh back to the one flag-writing block instead of repeating it' {
+            $script:Regency | Should -Match 'Run step 1\s+above unchanged - it already reuses an open period''s `since:` and rewrites only the note'
         }
 
         It 'CLAUDE.md owns the journal beside the other durable state' {
@@ -8421,9 +8431,10 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
     }
 
     # The durable home for a decision made in the King's stead. petition requires three things
-    # recorded every time and named no destination that outlives the session, so the record lived
-    # only in a regency digest built from session memory - gone on the restart CLAUDE.md treats as
-    # routine, and he is never told a call was made in his name.
+    # recorded every time and named no destination that outlives the session. The away journal now
+    # carries the same three into his return digest and survives a restart, but it is a record and
+    # never an authority - so the note is still the only place the queue says the work was allowed,
+    # and a closed hold without one asserts an authorisation nothing recorded.
     It 'decree holds the record of a decision answered in the King''s stead' {
         Assert-Phrase -Text $script:RouteHold -Where 'the decree note convention' `
             -Phrase ("**A decision the Hand answered in the King's stead is one of these too, and " +
@@ -8434,8 +8445,10 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase ('it is registered and closed in the same pass because nobody is being waited ' +
                      'for')
         Assert-Phrase -Text $script:RouteHold -Where 'the decree note convention' `
-            -Phrase ('a regency''s return digest is built inside one session, so a restart before ' +
-                     'he is back means he is never told a call was made in his name at all')
+            -Phrase ('Nothing else durably holds it - the away journal does record the call in ' +
+                     'his return digest and does survive a restart, but it is a record and never ' +
+                     'an authority, so the note is still the only place the queue says the work ' +
+                     'was allowed.')
         Assert-Phrase -Text $script:RouteHold -Where 'the decree command table' `
             -Phrase ("| record a decision the Hand answered in the King's stead |")
         # The row skipped the block, which the note convention and step 6 both require: an
@@ -8616,14 +8629,16 @@ Describe "the reversibility test owns what may be answered in the King's stead" 
     }
 
     # petition scoped registration to the wait branch, so the branch it exists for recorded
-    # nothing. decree owns the lifecycle; this is the one-line cross-reference to it.
+    # nothing. decree owns the lifecycle; this is the one-line cross-reference to it. The away
+    # journal survives a restart and carries the same three things into the return digest, but it
+    # is a record and never an authority - so the hold's note is still what durably authorises.
     It 'registers both branches under decree rather than only the wait' {
         Assert-Phrase -Text $script:Away -Where 'petition' `
             -Phrase ('**Either branch is registered under `decree`, and its note is where those ' +
                      'three things live.**')
         Assert-Phrase -Text $script:Away -Where 'petition' `
-            -Phrase ('A regency digest is built inside one session, so a restart or a compaction ' +
-                     'before he is back takes it with it')
+            -Phrase ('it is a record and never an authority - only the note durably says the ' +
+                     'work was allowed')
         Assert-Phrase -Text $script:Away -Where 'petition' `
             -Phrase ('`decree` owns that lifecycle, including the pass that registers a decision ' +
                      'you answered yourself and closes it in the same breath; nothing here ' +
