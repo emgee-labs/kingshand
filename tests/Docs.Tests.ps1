@@ -3857,6 +3857,8 @@ Describe 'no long dash' {
         @{ file = 'docs\2026-09-05-usage-window-watch.md' }
         @{ file = 'docs\2026-09-05-worker-and-gate-model-selection.md' }
         @{ file = 'docs\2026-09-25-away-journal.md' }
+        @{ file = '.claude\skills\parley\SKILL.md' }
+        @{ file = 'docs\2026-09-25-parley-quick-mode.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
@@ -4193,7 +4195,7 @@ Describe 'survey puts an open decision in King''s Call and only there' {
 }
 
 Describe 'the setup skill ships inside the repo so a fresh clone can bootstrap itself' {
-    # Every skill is project-local, under .claude\skills\, so all seventeen are readable the moment
+    # Every skill is project-local, under .claude\skills\, so all eighteen are readable the moment
     # someone opens Claude Code in this directory and none of them is reachable from anywhere
     # else on the machine. That is what lets "set it up" be the first thing anyone types.
     BeforeAll { $script:SetupText = Get-DocText $script:SetupMd }
@@ -4999,9 +5001,266 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         }
     }
 
+    # parley is the inverse of herald and vigil and the tests have to hold that difference: it is
+    # OFF by default, so its rules belong in the skill rather than in CLAUDE.md, and the only thing
+    # CLAUDE.md owes is the trigger that loads it. Everything below pins one of two things - a rule
+    # the mode adds, or a rule it deliberately leaves standing. The second half is the half that
+    # matters: a quick mode whose safety rules quietly go missing is the exact failure it was
+    # written against, and nothing but these assertions would notice the sentence being deleted.
+    Context 'parley shortens the ceremony and leaves every safety rule standing' {
+        BeforeAll {
+            $script:ParleyPath = Join-Path $script:Root '.claude\skills\parley\SKILL.md'
+            $script:Parley     = Get-DocText $script:ParleyPath
+            $script:ParleyRaw  = Get-Content -Path $script:ParleyPath -Raw
+        }
+
+        It 'has frontmatter that parses, with a name and a version' {
+            $fm = Get-Frontmatter $script:ParleyPath
+            $fm['name']    | Should -Be 'parley' -Because 'the frontmatter name must match the skill directory'
+            $fm['version'] | Should -Be '1.0.0'
+            $fm['description'].Length |
+                Should -BeGreaterThan 40 -Because 'the description is the trigger, and it must name the situation'
+        }
+
+        # The whole point of the mode is that two words turn it on, so the King's own words are the
+        # triggers. A skill reached only by typing its name would be reached by nobody: nothing in
+        # the spec ever has him saying "parley".
+        It 'the description carries the natural-language trigger <trigger>' -ForEach @(
+            @{ trigger = '"quick chat"' }
+            @{ trigger = '"quick question"' }
+            @{ trigger = '"quick q"' }
+            @{ trigger = '"short"' }
+            @{ trigger = '"quick mode"' }
+        ) {
+            $description = (Get-Frontmatter $script:ParleyPath)['description']
+            $description.Contains($trigger) |
+                Should -BeTrue -Because "he types two words, so $trigger must fire the skill"
+        }
+
+        It 'says it is off by default, and why its rules need no home in CLAUDE.md' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Parley is off by default, and nothing turns it on but the King''s own word.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('the mode begins when this file is loaded and ends when the exchange does, ' +
+                         'so there is no moment when parley is in force and this file is not in hand')
+        }
+
+        # THE CORRECTION. The Hand described this as herald being off and the King corrected it the
+        # same day. A skill that loses this sentence gets rebuilt as a suspension of the output
+        # rules rather than a ceiling on top of them.
+        It 'states that herald is not turned off, and quotes the correction' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**`herald` is not turned off.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '"no herald still apply to output, its just output is of 1-2 lines max."'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Parley is a length ceiling on top of those rules and replaces none of ' +
+                         'them.**')
+            $script:ParleyRaw |
+                Should -Not -Match '(?i)herald is off' -Because 'the correction settled it the other way'
+        }
+
+        It 'caps the reply and turns rendering off without letting either eat a decision' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Replies are capped at one or two lines.** One line is the target, two sentences the ceiling.'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Nothing renders.** No review surface at all while parley is on. Work that ' +
+                         'genuinely needs one ends the mode instead')
+        }
+
+        # R-004, and the section this whole Context exists for. Each of these is a rule somebody
+        # could read the mode's brevity as permission to drop.
+        It 'names hard rules 1, 2 and 3 as holding inside the mode' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Hard rule 1 holds at any size.** The Hand writes no project code in ' +
+                         'parley - not a typo, not a string, not one character.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Hard rule 2 holds.** Nothing reaches a server without his word.'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Hard rule 3 holds.**'
+        }
+
+        It 'keeps the landing gate, the public-repository boundary and the standing criteria' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**The landing gate happens.** It is a line in chat rather than a rendered ' +
+                         'page, and it is still asked and still his to answer.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**The public-repository boundary holds.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**The standing criteria still apply** to whatever a worker delivers. They ' +
+                         'are self-reported rather than gate-checked')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'Parley changes how much is written, never who decides.'
+        }
+
+        # His instruction is the authorisation under hard rule 2, which is exactly why the step
+        # boundary is load-bearing rather than tidy: reading one instruction as covering the next
+        # step is taking authority he did not give.
+        It 'does the step asked and nothing after it' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Do exactly the step asked, and stop.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('an instruction to commit is not an instruction to push')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('"Commit and push" means commit and push, not also open a pull request.')
+        }
+
+        It 'turns a doubt into a suggestion without letting it swallow the floors' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**say so in a line and carry on with what was asked.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**A floor still stops, and still says why.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'Parley removes hesitation, never a refusal.'
+        }
+
+        # muster Step 2 owns what a brief must contain and this mode adds no second copy of that
+        # contract. What it adds is which of Step 2's own blocks a quick dispatch takes.
+        It 'writes the brief through muster Step 2 rather than a contract of its own' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Write the brief through `muster` Step 2, short.** Step 2 owns what a brief ' +
+                         'must contain and this mode adds no second contract')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**On a `no-mistakes` project, take Step 2''s `direct-PR` Done-means block and ' +
+                         'skip Step 1b.**')
+        }
+
+        It 'makes the skipped gate visible and never merges a dispatch that ran without one' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Say in the brief that the review gate is deliberately not run**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'A skipped gate nobody can see afterwards is the failure mode.'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**A parley dispatch is never merged on the forge.**'
+        }
+
+        # "waiting for agent off" is about the Hand holding the exchange open, never about leaving a
+        # worker unwatched - that would be the restart failure CLAUDE.md's Recovery section exists
+        # to prevent, arriving by a different door.
+        It 'does not hold the exchange open, and still arms the worker''s wait' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Do not wait.** Arm the worker''s wait exactly as `muster` Step 4 requires - ' +
+                         'a worker nobody is watching is the failure `CLAUDE.md`''s Recovery section ' +
+                         'exists to prevent')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'Parley does not hold an exchange open on a worker.'
+        }
+
+        It 'carries his word on the review gate and the cost of taking it' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '"no review gate in quick mode."'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'given after being told plainly that this is a safety reduction on a project registered to have one'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'a fatal-return path that would have blocked a poll forever'
+        }
+
+        It 'keeps the landing gate, the criteria and hard rule 1 apart from the review gate' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**The landing gate is untouched.** The review gate is the automated ' +
+                         'reviewer; the landing gate is the King saying a push may happen.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Hard rule 1 is untouched.** The worker writes the code.'
+        }
+
+        # The shape standing criterion 13 asks for. The gate is absent from the brief rather than
+        # abandoned mid-run, which is the same answer --skip ci gave: a constraint that must hold
+        # while an agent sits inside a long call is carried by a flag, never by a sentence.
+        It 'removes the gate by not asking for it rather than by stopping a running one' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**The gate is removed by never asking for it, never by stopping one that is ' +
+                         'running.**')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('an agent inside that call is watching a step and is not reading anything ' +
+                         'telling it to stop')
+        }
+
+        It 'ends at the first thing that is not quick, on his word, or with the session' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**It ends at the first thing that is not quick**, announced in one line rather than silently.'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**It ends when he says so** - "normal mode", "done", "off", or asking for the long version.'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**It ends with the session.** Parley is held in this session''s own context ' +
+                         'and nothing is written to `state\` to carry it further.')
+        }
+
+        It 'states the test for what counts as not quick' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('Can every mandatory section of the brief be filled honestly in a line or two ' +
+                         'each, and can the King judge the landing from one line in chat?')
+        }
+
+        # Session-scoped was a real choice with a durable flag as the alternative, and the argument
+        # is which way each one fails. Pinning it stops the flag being added later as an obvious
+        # improvement.
+        It 'argues session-scoped against a durable flag, on which way each fails' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Session-scoped is a decision and it fails safe.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('a flag outliving the burst leaves the Hand in reduced ceremony over work ' +
+                         'nobody called quick')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Forgetting parley is the one failure this mode is allowed to have**'
+        }
+
+        # The honest half. Three of the four rules have a mechanism; the exit has none, and saying
+        # so is worth more than a mechanism invented to fill the line.
+        It 'says what enforces each rule, including where the answer is nothing' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**The exit conditions are enforced by nothing at all.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('That is accepted rather than fixed, because the failure runs the safe way')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('That is the `--skip ci` shape rather than the fifteen-minutes-in-a-brief shape.')
+        }
+
+        # He was offered a bounded override of hard rule 1 and declined it for simplicity, which is
+        # the detail that makes it worth recording: a better-guarded version is the same proposal.
+        It 'records the declined override so nobody rebuilds it' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('"we are complicating, agent does the code writing, not you, no to hard rule 1 ' +
+                         'pass.. we will follow it, its just sub agent will be quick to do it rather ' +
+                         'than taking its sweet time."')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**The reason was simplicity rather than an objection to any particular ' +
+                         'safeguard, so a better-guarded version of the same idea is the same idea.** ' +
+                         'Do not rebuild it.')
+        }
+
+        It 'keeps the warm worker explicitly out of scope' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'It is deliberately not built here and not designed for.'
+        }
+
+        It 'is reachable from CLAUDE.md by a stated condition, and named off by default there' {
+            $skills = Get-HandSection 'Skills'
+            Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
+                -Phrase ('`parley` is the quick-exchange mode for small work, and unlike `herald` and ' +
+                         '`vigil` it is **off by default**')
+            Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
+                -Phrase ('nothing turns it on but the King''s own word - "quick chat", "quick ' +
+                         'question", "quick q", "short", "quick mode"')
+            Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
+                -Phrase ('renders nothing - so the landing gate inside it is a line in chat rather ' +
+                         'than a page')
+            Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
+                -Phrase '**It changes ceremony and never authority**'
+        }
+
+        # The design note is where the rejected alternatives live, per statute's placement tree. A
+        # cross-reference that names a file which is not there is worse than none.
+        It 'points at a design note that exists' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '`docs\2026-09-25-parley-quick-mode.md` records both decisions and why.'
+            Test-Path -LiteralPath (Join-Path $script:Root 'docs\2026-09-25-parley-quick-mode.md') |
+                Should -BeTrue -Because 'the skill names it as the record of what was rejected'
+        }
+    }
+
     It 'every skill directory lives under .claude\skills\' {
         $skills = @(Get-ChildItem (Join-Path $script:Root '.claude\skills') -Directory)
-        $skills.Count | Should -Be 17 -Because 'sixteen skills plus setup, all project-local'
+        $skills.Count | Should -Be 18 -Because 'seventeen skills plus setup, all project-local'
         @($skills.Name) | Should -Contain 'herald' -Because 'output shape has an owner the user can turn on'
         foreach ($s in $skills) {
             Test-Path -LiteralPath (Join-Path $s.FullName 'SKILL.md') |
@@ -6661,7 +6920,7 @@ Describe 'the installation has a version, and one command moves it to a release'
 
     It 'counts every skill that now loads' {
         Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'CLAUDE.md Skills' `
-            -Phrase 'so all seventeen load when Claude Code runs here'
+            -Phrase 'so all eighteen load when Claude Code runs here'
     }
 
     It 'gives the version and the update their own owners in the tooling table' {

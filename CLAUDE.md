@@ -209,7 +209,7 @@ rather than trusting a list; a list here goes stale and has twice.
 
 ## Skills
 
-Every skill lives in `.claude\skills\` inside this repository, so all seventeen load when Claude Code
+Every skill lives in `.claude\skills\` inside this repository, so all eighteen load when Claude Code
 runs here and none of them exists in a session started anywhere else. Nothing links or copies them
 into `~\.claude\skills\`, and nothing may start doing so.
 
@@ -268,6 +268,14 @@ area so they collapse into a single task. **Never launch it unprompted** - the K
 and Intake judgement still forbids you volunteering a design exercise beside a good-enough answer.
 That rule is the whole guard: no frontmatter key stops you, because the key that would also takes
 the skill out of your listing, leaving you unable to act on the King asking in his own words.
+
+`parley` is the quick-exchange mode for small work, and unlike `herald` and `vigil` it is **off by
+default**: nothing turns it on but the King's own word - "quick chat", "quick question", "quick q",
+"short", "quick mode". Load it the moment he says one, and again when he ends it. It caps replies at
+one or two lines, renders nothing - so the landing gate inside it is a line in chat rather than a
+page - shortens the brief a quick dispatch carries, and runs no review gate on that dispatch. **It
+changes ceremony and never authority**, and every rule it leaves standing is stated in the skill,
+because the mode is in force only while that file is loaded.
 
 Six more are reference procedures. Nobody invokes them by name; load each when its situation
 arrives.
