@@ -220,6 +220,95 @@ run:
   active_steps[2]: review,test
 '@
 
+    # A gate carrying `findings[2]: r1,r2` - valid TOON, a list of two strings where a table of
+    # rows belongs. Read row by row both entries drop, and the caller is told the pipeline is
+    # parked with nothing to decide while the tool sent two findings.
+    $script:GateFindingsAsList = @'
+gate:
+  step: review
+  status: awaiting_approval
+  findings[2]: r1,r2
+'@
+
+    # `steps:` as a mapping rather than a table. No entries come back at all, so a guard that
+    # counts lost rows sees no loss and reports a run whose pipeline has no steps.
+    $script:StepsAsMappingRun = @'
+run:
+  id: 01M4STEPSMAPPING0000000000
+  branch: feature-x
+  status: running
+  steps:
+    intent: completed
+    review: awaiting
+'@
+
+    # An `outcome:` in a shape the text reader cannot take. Read by value this is a run that has
+    # not ended - which is what the wait helper built on this reader would act on.
+    $script:OutcomeAsObjectRun = @'
+run:
+  id: 01M4OUTCOMEOBJECT000000000
+  branch: feature-x
+  status: completed
+outcome:
+  result: passed
+  at: 12m
+'@
+
+    # Every key this reader knows, each carrying a shape it cannot take. This is the fixture for
+    # the rule rather than for any one field: a key added later without the primitive shows up
+    # here as a key that reads absent, which is the failure the rule exists to prevent.
+    $script:EveryKeyUnreadable = @'
+outcome:
+  x: 1
+error:
+  x: 1
+help:
+  x: 1
+findings:
+  x: 1
+gate:
+  step:
+    x: 1
+  status:
+    x: 1
+  risk:
+    x: 1
+  note:
+    x: 1
+  findings:
+    x: 1
+run:
+  id:
+    x: 1
+  branch:
+    x: 1
+  head:
+    x: 1
+  pr:
+    x: 1
+  status:
+    x: 1
+  awaiting_agent:
+    x: 1
+  outcome:
+    x: 1
+  findings:
+    x: 1
+  steps:
+    x: 1
+  active_steps:
+    x: 1
+'@
+
+    # Every key the fixture above puts in an unreadable shape, as the reader's own key paths.
+    $script:EveryKnownKey = @(
+        'outcome', 'error', 'help', 'findings',
+        'gate.step', 'gate.status', 'gate.risk', 'gate.note', 'gate.findings',
+        'run.id', 'run.branch', 'run.head', 'run.pr', 'run.status',
+        'run.awaiting_agent', 'run.outcome', 'run.findings',
+        'run.steps', 'run.active_steps'
+    )
+
     # A run whose `steps[]` header declares nine rows and carries one. This is what a truncated
     # capture looks like, and reading it as a one-step run is the failure strict decoding prevents.
     $script:TruncatedRun = @'
@@ -648,8 +737,101 @@ Describe 'A declared table whose entries are not rows never becomes state' {
     It 'still reads a table whose entries really are rows' {
         $s = ConvertFrom-GateRunOutput -Text $script:CompletedRun
 
-        $s.steps.Count | Should -Be 9
-        $s.detail      | Should -Not -Match 'does not recognise'
+        $s.steps.Count      | Should -Be 9
+        $s.detail           | Should -Not -Match 'does not recognise'
+        $s.notUnderstood    | Should -BeNullOrEmpty
+    }
+
+    It 'names a table value that is a mapping, where no rows are lost to count' {
+        # The hole the row-counting guard left: a mapping yields no entries at all, so nothing is
+        # lost, so nothing was named - and the reader reported a run whose pipeline has no steps.
+        $s = ConvertFrom-GateRunOutput -Text $script:StepsAsMappingRun
+
+        $s.steps.Count   | Should -Be 0
+        $s.notUnderstood | Should -Contain 'run.steps'
+        $s.detail        | Should -Match 'steps table held an object'
+    }
+
+    It 'keeps a genuinely empty table reading as empty rather than as unreadable' {
+        # The other side of the same rule. A run with no active step really does say so, and
+        # calling that unreadable would be the opposite wrong answer.
+        $s = ConvertFrom-GateRunOutput -Text $script:CompletedRun
+
+        $s.activeSteps.Count | Should -Be 0
+        $s.notUnderstood     | Should -Not -Contain 'run.active_steps'
+    }
+
+    It 'names a findings list where a findings table belongs, rather than reporting none' {
+        # The most damaging wrong answer this module can give: a parked run with findings
+        # waiting, reported as a parked run with nothing to decide.
+        $s = ConvertFrom-GateRunOutput -Text $script:GateFindingsAsList
+
+        $s.isParked      | Should -BeTrue
+        $s.findings.Count| Should -Be 0
+        $s.notUnderstood | Should -Contain 'gate.findings'
+        $s.detail        | Should -Match 'findings table held a list of 2 item'
+        $s.detail        | Should -Not -Match 'no findings'
+    }
+
+    It 'reads an outcome in a shape it cannot take as unknown, not as a run still going' {
+        # What the wait helper this reader exists to be built on would key on. Read by value this
+        # is a run that has not ended, and a watcher would sit on a finished run forever.
+        $s = ConvertFrom-GateRunOutput -Text $script:OutcomeAsObjectRun
+
+        $s.outcome       | Should -BeNullOrEmpty
+        $s.notUnderstood | Should -Contain 'outcome'
+        $s.detail        | Should -Match 'outcome field held an object'
+    }
+
+    It 'names a cell it cannot take without losing the rows around it' {
+        # One level further down, where Get-ToonNumber answers $null for a key that is absent and
+        # for one holding something that is not a number.
+        $s = ConvertFrom-GateRunOutput -Text (
+            "run:`n  id: 01M4CELL`n  branch: feature-x`n  status: running`n" +
+            "  steps[1]{step,status,findings,duration_ms}:`n    review,awaiting,many,0`n")
+
+        $s.steps.Count      | Should -Be 1
+        $s.steps[0].step    | Should -Be 'review' -Because 'the readable cells still read'
+        $s.steps[0].findings| Should -BeNullOrEmpty
+        $s.notUnderstood    | Should -Contain 'run.steps'
+        $s.detail           | Should -Match 'findings'
+    }
+}
+
+Describe 'The rule itself, not the fields that have broken it' {
+    # THIS IS THE CASE THAT IS MEANT TO STOP A SIXTH ROUND. Seven instances of one defect across
+    # five rounds were each fixed correctly and each held, and the next field did it again -
+    # because every fix was about a field and the defect was about reads that bypass the
+    # primitive. So this asserts the rule over every key the reader knows at once: a key present
+    # in a shape it cannot take is named, and never reads as absent.
+
+    It 'names every key it could not take, and lets none of them read as absent' {
+        $s = ConvertFrom-GateRunOutput -Text $script:EveryKeyUnreadable
+
+        foreach ($key in $script:EveryKnownKey) {
+            $s.notUnderstood | Should -Contain $key -Because "$key was present and unreadable"
+        }
+    }
+
+    It 'keeps the state honest about the fields it could not take' {
+        $s = ConvertFrom-GateRunOutput -Text $script:EveryKeyUnreadable
+
+        # Nothing invented a value out of a shape it could not read.
+        $s.gate        | Should -BeNullOrEmpty
+        $s.outcome     | Should -BeNullOrEmpty
+        $s.runId       | Should -BeNullOrEmpty
+        $s.steps.Count | Should -Be 0
+        $s.findings.Count | Should -Be 0
+
+        # And the two facts the tool did state are still read: both keys are there.
+        $s.isParked | Should -BeTrue -Because 'gate and awaiting_agent were both present'
+    }
+
+    It 'says nothing about shapes on output it could take completely' {
+        $s = ConvertFrom-GateRunOutput -Text $script:GateObjectResponse
+
+        $s.notUnderstood | Should -BeNullOrEmpty
+        $s.detail        | Should -Not -Match 'does not recognise'
     }
 }
 

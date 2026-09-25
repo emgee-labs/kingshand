@@ -82,22 +82,35 @@ word it resembles.
   survives findings being declined: a real cancelled run on this repository still reads
   `findings: "1 awaiting, 1 auto-fix"` with every step terminal and nothing waiting on anybody. It
   is carried through as `findingsSummary` and nothing computes from it.
-- **Read every deciding field by whether its key is present, never by the shapes the reader
-  happens to handle.** This is the rule the whole change kept arriving back at, and it is written
-  down because it had to be re-derived four times in four different fields before it was stated
-  once. `awaiting_agent` matched only the documented `parked <duration>` wording, so any other
-  wording read as not waiting. `gate:` was read as a scalar, so the live tool's nested object read
-  as no gate and a response carrying six findings read as none. `gate:` presence was then taken
-  from the value's shape, so a third shape - a list, an empty string, an explicit null - fell
-  through every arm. And `awaiting_agent` fell to that same thing again, because a value carrying
-  an object comes back from `Get-ToonText` as the identical `''` an absent key does.
+- **No read that decides or reports anything bypasses the primitive.** A key is read by
+  presence; a value in a shape the reader cannot take is named rather than collapsed into absent.
+  That is the rule in its final form, and it is stated as a rule about reads rather than about
+  fields because **it took seven instances across five review rounds to get there.**
 
-  The cause under all four is one collapse: **absent and unrecognised are different facts, and a
-  reader that tests the value cannot tell them apart.** So presence is asked directly, of the key,
-  through `Read-ToonField` and `Read-ToonTable` - and a key that is present but whose value is in
-  a shape nothing here handles keeps its state, with `detail` naming what was seen instead. A
-  field that falls silent is the failure; a field that says "I could not take this" is not. Any
-  field added later goes through those two readers for exactly this reason.
+  The seven: `awaiting_agent` matched only the documented `parked <duration>` wording, so any
+  other wording read as not waiting. `gate:` was read as a scalar, so the live tool's nested
+  object read as no gate and a response carrying six findings read as none. `gate:` presence was
+  then taken from the value's shape, so a third shape fell through every arm. `awaiting_agent`
+  fell to the same thing again by truthiness. The findings table was dropped row by row, so a
+  gate carrying `findings[2]: r1,r2` reported a parked run with nothing to decide. `Read-ToonTable`
+  named a shape only when rows were lost, so a `steps:` mapping - which loses none, because none
+  arrive - read as a run with no pipeline. And `outcome` was read by value, so a finished run read
+  as unfinished.
+
+  **Every one of those fixes was correct and every one held. The rounds kept coming anyway**,
+  because each fix was about a field and the defect was never in a field. It is in any read that
+  decides something through an accessor whose answers cannot tell "absent" from "present but not
+  understood" - `Get-ToonText` returns `''` for both, `Get-ToonNumber` returns `$null` for both,
+  `Get-ToonRows` returns no rows for both. Counting instances is what turns that from a series of
+  bugs into one rule.
+
+  So every key goes through `Read-ToonField`, `Read-ToonList`, `Read-ToonTable` or
+  `Read-ToonCells`, which answer three ways rather than two, and anything of the third kind is
+  named on `notUnderstood` and in `detail`. The three accessors still do the taking and are
+  reached only through those four. A field that falls silent is the failure; one that says "I
+  could not take this" is not. **Do not add a read that goes straight to an accessor** - that is
+  the move that produced all seven, and the test over every known key is there to catch the
+  eighth.
 - **Never read a present `awaiting_agent` as not waiting.** The field's name is the tool saying
   what the run is waiting on. Treating an unrecognised wording, or a value in an unrecognised
   shape, as unparked is the same silent default in a safer-looking direction, and it is the

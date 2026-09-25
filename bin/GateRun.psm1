@@ -32,11 +32,18 @@ Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
 # - A value the output does not carry is absent, never defaulted. Absence is a fact about the
 #   output and is reported as one. A value it does carry but this reader does not recognise is
 #   reported as unrecognised, and never quietly folded into whichever state word it resembles.
-# - ABSENT AND UNRECOGNISED ARE DIFFERENT FACTS, and every field that decides anything is read
-#   by whether its KEY is there - `Read-ToonField` and `Read-ToonTable` below - never by whether
-#   the value happened to come back in a shape this handles. Testing the value instead is one
-#   mistake, not four, and it has been made here four times in four different fields; the two
-#   readers exist so the next field added inherits the answer rather than deriving it again.
+# - ABSENT AND UNRECOGNISED ARE DIFFERENT FACTS, and NO READ THAT DECIDES OR REPORTS ANYTHING
+#   BYPASSES THE PRIMITIVE. Every key goes through `Read-ToonField`, `Read-ToonList`,
+#   `Read-ToonTable` or `Read-ToonCells`, which answer three ways - absent, taken, or present in
+#   a shape this cannot take - and every one of the third kind is named on the state's
+#   `notUnderstood` list and in `detail`. Testing a value instead is one mistake, not seven, and
+#   it was made here seven times across five rounds in seven different places before the rule was
+#   stated this way: each fix was correct, each one held, and the next field did it again. That
+#   is the argument for the rule rather than for the fixes.
+#
+#   `Get-ToonText`, `Get-ToonNumber` and `Get-ToonRows` still do the taking, but nothing above
+#   calls them to decide anything any more - they are reached through the four readers, which is
+#   what keeps "present but not understood" from collapsing back into "absent".
 # - `steps[]` and `active_steps[]` stay two separate lists. Flattening them - which is what
 #   `Select-Object -Unique` over a step regex did - produces a composite that reads like a step list
 #   and is not one.
@@ -528,33 +535,132 @@ function Read-ToonField {
 # gives two steps whose every column is '', which is a run reported confidently in a shape nobody
 # sent. Dropping those entries silently is the same fault in a third costume, so what was seen is
 # named and the caller says so rather than emitting rows it cannot describe.
-function Read-ToonTable {
+# One key that should carry a list, answered the same three ways.
+#
+# .present  whether the key is there at all
+# .items    its entries, whatever they are, and none where the value is not a list at all
+# .shape    what was there instead, where the key is present and its value is not a list
+#
+# The list-ness is decided from the VALUE'S OWN SHAPE and never from how many entries came back,
+# because an empty list is a real reading - a run with no active step says exactly that - while a
+# mapping, a string or an explicit null where a list belongs is not a list at all. Deciding from
+# the count collapses those two, which is this module's one defect wearing a fourth costume.
+function Read-ToonList {
     [CmdletBinding()]
     param($Table, [Parameter(Mandatory)][string]$Key)
 
     $present = ($null -ne $Table) -and
                ($Table -is [System.Collections.IDictionary]) -and
                $Table.Contains($Key)
-    if (-not $present) { return [pscustomobject]@{ present = $false; rows = @(); shape = '' } }
+    if (-not $present) { return [pscustomobject]@{ present = $false; items = @(); shape = '' } }
 
-    # ASSIGNED BEFORE IT IS COUNTED, never wrapped at the call. Get-ToonRows returns its empty
-    # case as `, @()` so a caller's `.Count` works, and `@(Get-ToonRows ...)` keeps that wrapper
-    # instead of unwrapping it - one row that is the whole array, which is the composite this
-    # module refuses. The plain assignment is what unrolls it.
-    $rows   = Get-ToonRows -Table $Table -Key $Key
-    $all    = @($rows)
-    $usable = @(foreach ($row in $rows) {
+    $value  = $Table[$Key]
+    $isList = ($null -ne $value) -and
+              ($value -is [System.Collections.IEnumerable]) -and
+              ($value -isnot [string]) -and
+              ($value -isnot [System.Collections.IDictionary])
+    if (-not $isList) {
+        return [pscustomobject]@{
+            present = $true; items = @(); shape = (Get-ToonShapeName -Value $value)
+        }
+    }
+
+    [pscustomobject]@{ present = $true; items = @($value); shape = '' }
+}
+
+function Read-ToonTable {
+    [CmdletBinding()]
+    param($Table, [Parameter(Mandatory)][string]$Key)
+
+    $list = Read-ToonList -Table $Table -Key $Key
+    if (-not $list.present) { return [pscustomobject]@{ present = $false; rows = @(); shape = '' } }
+    if ($list.shape) {
+        return [pscustomobject]@{ present = $true; rows = @(); shape = $list.shape }
+    }
+
+    $usable = @(foreach ($row in $list.items) {
         if ($row -is [System.Collections.IDictionary]) { $row }
     })
-    $lost   = $all.Count - $usable.Count
+    $lost = @($list.items).Count - $usable.Count
 
     $shape = ''
     if ($lost -gt 0) {
         $shape = if ($usable.Count -eq 0) { Get-ToonShapeName -Value $Table[$Key] }
-                 else { "$lost of its $($all.Count) entries in a shape this reader cannot take" }
+                 else { "$lost of its $(@($list.items).Count) entries in a shape it cannot take" }
     }
 
     [pscustomobject]@{ present = $true; rows = $usable; shape = $shape }
+}
+
+# One row's named columns read through the same primitive, so a cell in a shape this cannot take
+# is named by its column rather than handed on as an empty value.
+#
+# `$Columns` is an ordered map of property name to `@(key, kind)`, where kind is 'text' or
+# 'number'. A NUMBER COLUMN IS CHECKED TWICE, because `Get-ToonNumber` answers $null both for a
+# key that is not there and for one holding something that is not a number - the same collapse
+# one level further down, and the one place it could still hide after the fields above were fixed.
+function Read-ToonCells {
+    [CmdletBinding()]
+    param(
+        $Row,
+        [Parameter(Mandatory)]$Columns,
+        [Parameter(Mandatory)][AllowEmptyCollection()]
+        [System.Collections.Generic.List[string]]$Unreadable
+    )
+
+    $out = [ordered]@{}
+    foreach ($name in $Columns.Keys) {
+        $key   = $Columns[$name][0]
+        $kind  = $Columns[$name][1]
+        $field = Read-ToonField -Table $Row -Key $key
+        if ($field.shape) { $Unreadable.Add($key) }
+
+        if ($kind -eq 'number') {
+            $number = Get-ToonNumber -Table $Row -Key $key
+            if ($null -eq $number -and $field.text) { $Unreadable.Add($key) }
+            $out[$name] = $number
+        } else {
+            $out[$name] = $field.text
+        }
+    }
+    [pscustomobject]$out
+}
+
+# The columns a table's cells could not be taken in, as one phrase and with each named once.
+#
+# Bounded on purpose: a hundred rows sharing one bad column is one fact about the table, not a
+# hundred, and a detail line nobody can read to a person is its own kind of unreadable.
+function Get-ToonCellNote {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Columns)
+
+    $named = @($Columns | Select-Object -Unique | Sort-Object)
+    'values it cannot take in ' + ($named -join ', ')
+}
+
+# The columns each table carries, declared rather than spelled out at the loop, so every cell in
+# them goes through Read-ToonCells and a column added here is named by default when it cannot be
+# taken. Adding one to the loop instead is how a field ends up bypassing the primitive.
+$script:StepColumns = [ordered]@{
+    step       = @('step',        'text')
+    status     = @('status',      'text')
+    findings   = @('findings',    'number')
+    durationMs = @('duration_ms', 'number')
+}
+$script:ActiveStepColumns = [ordered]@{
+    step         = @('step',          'text')
+    activeFor    = @('active_for',    'text')
+    lastActivity = @('last_activity', 'text')
+    agentPid     = @('agent_pid',     'number')
+    round        = @('round',         'text')
+}
+$script:FindingColumns = [ordered]@{
+    id          = @('id',          'text')
+    severity    = @('severity',    'text')
+    file        = @('file',        'text')
+    line        = @('line',        'text')
+    action      = @('action',      'text')
+    description = @('description', 'text')
 }
 
 # WHAT THIS READS AND WHAT IT REFUSES TO READ.
@@ -605,6 +711,7 @@ function ConvertFrom-GateRunOutput {
         activeSteps     = @()
         findings        = @()
         help            = @()
+        notUnderstood   = @()
         json            = ''
         exitCode        = $ExitCode
         takenAt         = (Get-Date).ToUniversalTime().ToString('o')
@@ -645,9 +752,44 @@ function ConvertFrom-GateRunOutput {
              'it carries no fields at all - so what the run is doing was not established.')
     }
 
-    $result.help    = Get-ToonRows  -Table $doc -Key 'help'
-    $result.outcome = Get-ToonText  -Table $doc -Key 'outcome'
-    $result.error   = Get-ToonText  -Table $doc -Key 'error'
+    # EVERY SCALAR READ BELOW GOES THROUGH HERE. Naming the field is the default rather than
+    # something each call site has to remember, because a call site that forgets is exactly how
+    # this defect came back five times. `$unread` carries the key path as well as the words, so
+    # the state can list what it could not take without anyone parsing the sentence.
+    $unread = [System.Collections.Generic.List[object]]::new()
+    $note = {
+        param([string]$Path, [string]$Shape, [string]$Kind)
+        $unread.Add([pscustomobject]@{
+            path = $Path
+            text = "its $Path $(if ($Kind) { $Kind } else { 'field' }) held $Shape"
+        })
+    }
+    $take = {
+        param($Table, [string]$Key, [string]$Path)
+        $field = Read-ToonField -Table $Table -Key $Key
+        if ($field.shape) { & $note $Path $field.shape '' }
+        $field
+    }
+    # A table or a list, named the same way and with its rows handed back.
+    $takeTable = {
+        param($Table, [string]$Key, [string]$Path)
+        $read = Read-ToonTable -Table $Table -Key $Key
+        if ($read.shape) { & $note $Path $read.shape 'table' }
+        $read
+    }
+
+    # `help[]` is carried and never looked inside - see this function's header - but a help key in
+    # a shape this cannot take is still named, because "never read" is not "never reported".
+    $helpList    = Read-ToonList -Table $doc -Key 'help'
+    if ($helpList.shape) { & $note 'help' $helpList.shape 'list' }
+    $result.help = $helpList.items
+
+    # `outcome` decides whether the run is over, which is the one thing the wait helper this
+    # reader exists to be built on will key on. Read by value it would read a finished run as
+    # unfinished and wait forever, so it goes through the primitive like everything else.
+    $outcomeField   = & $take $doc 'outcome' 'outcome'
+    $result.outcome = $outcomeField.text
+    $result.error   = (& $take $doc 'error' 'error').text
 
     # `gate:` ARRIVES IN TWO SHAPES AND BOTH ARE READ, because the tool has already changed which
     # one it emits. The shipped documentation shows a scalar step name; v1.57.0 emits an object
@@ -663,34 +805,24 @@ function ConvertFrom-GateRunOutput {
     # same silent default that cost the whole gate answer last time and a missed park before that:
     # three times in this one field, always because presence was inferred from something other
     # than presence. `Contains` is the question actually being asked.
-    # Every field that could not be taken adds its own line here, and one sentence built from them
-    # goes into `detail` on whichever branch answers. One owner, so no field can be named on one
-    # branch and fall silent on another - which is how this kept coming back.
-    $unread = [System.Collections.Generic.List[string]]::new()
-
     $gateField = Read-ToonField -Table $doc -Key 'gate'
     $gateTable = $null
     if ($gateField.present) {
         if ($gateField.value -is [System.Collections.IDictionary]) {
             $gateTable         = $gateField.value
-            $result.gate       = Get-ToonText -Table $gateTable -Key 'step'
-            $result.gateStatus = Get-ToonText -Table $gateTable -Key 'status'
-            $result.gateRisk   = Get-ToonText -Table $gateTable -Key 'risk'
-            $result.gateNote   = Get-ToonText -Table $gateTable -Key 'note'
+            $result.gate       = (& $take $gateTable 'step'   'gate.step').text
+            $result.gateStatus = (& $take $gateTable 'status' 'gate.status').text
+            $result.gateRisk   = (& $take $gateTable 'risk'   'gate.risk').text
+            $result.gateNote   = (& $take $gateTable 'note'   'gate.note').text
         } else {
             $result.gate = $gateField.text
             # Neither of the two known shapes. The gate still counts - the key is the tool saying
             # the pipeline is waiting - and what came instead is named rather than dropped.
-            if ($gateField.shape) { $unread.Add("its gate field held $($gateField.shape)") }
+            if ($gateField.shape) { & $note 'gate' $gateField.shape '' }
         }
     }
 
     $hasGate = $gateField.present
-
-    # The findings table sits inside the `gate:` object on v1.57.0, beside it on the documented
-    # shape, and under the run elsewhere. All three are read, nearest to the gate first.
-    $findingRows = Get-ToonRows -Table $gateTable -Key 'findings'
-    if (@($findingRows).Count -eq 0) { $findingRows = Get-ToonRows -Table $doc -Key 'findings' }
 
     # The run key gets the same treatment. A `run:` this reader cannot take is not the tool saying
     # there is no run, and answering "answered without reporting a run" to one would be a wrong
@@ -700,76 +832,82 @@ function ConvertFrom-GateRunOutput {
     if ($runField.present -and $runField.value -is [System.Collections.IDictionary]) {
         $run = $runField.value
     } elseif ($runField.present) {
-        $unread.Add("its run field held $($runField.shape)")
+        & $note 'run' $runField.shape ''
     }
 
+    $runFindings = $null
     if ($run) {
-        $result.runId           = Get-ToonText -Table $run -Key 'id'
-        $result.branch          = Get-ToonText -Table $run -Key 'branch'
-        $result.head            = Get-ToonText -Table $run -Key 'head'
-        $result.pr              = Get-ToonText -Table $run -Key 'pr'
-        $result.runStatus       = Get-ToonText -Table $run -Key 'status'
+        $result.runId     = (& $take $run 'id'     'run.id').text
+        $result.branch    = (& $take $run 'branch' 'run.branch').text
+        $result.head      = (& $take $run 'head'   'run.head').text
+        $result.pr        = (& $take $run 'pr'     'run.pr').text
+        $result.runStatus = (& $take $run 'status' 'run.status').text
         # READ BY KEY, NOT BY VALUE - the sibling of the gate rule above and the reason this whole
         # field family goes through Read-ToonField. An `awaiting_agent` carrying an object is the
         # tool saying the run is waiting; taking the '' Get-ToonText makes of it as "not waiting"
         # is the exact miss this module was written for.
-        $awaitingField          = Read-ToonField -Table $run -Key 'awaiting_agent'
-        $result.awaitingAgent   = $awaitingField.text
-        if ($awaitingField.shape) {
-            $unread.Add("its awaiting_agent field held $($awaitingField.shape)")
+        $awaitingField        = & $take $run 'awaiting_agent' 'run.awaiting_agent'
+        $result.awaitingAgent = $awaitingField.text
+
+        # `run.findings` is the residual summary STRING and is carried, never counted. Some
+        # versions put the findings table there instead, so a value that is not a string is read
+        # as a table below rather than as a summary - and a string here is the summary rather than
+        # a table this could not take, which is why it is not named as unreadable.
+        $runFindingsField       = Read-ToonField -Table $run -Key 'findings'
+        $result.findingsSummary = $runFindingsField.text
+        if ($runFindingsField.present -and $runFindingsField.value -isnot [string]) {
+            $runFindings = & $takeTable $run 'findings' 'run.findings'
         }
-        # Carried, never counted. See this function's header.
-        $result.findingsSummary = Get-ToonText -Table $run -Key 'findings'
 
-        if (-not $result.outcome) { $result.outcome = Get-ToonText -Table $run -Key 'outcome' }
+        if (-not $result.outcome) {
+            $result.outcome = (& $take $run 'outcome' 'run.outcome').text
+        }
 
-        # ASSIGNED BEFORE IT IS ITERATED, never piped straight out of Get-ToonRows. That function
-        # returns its empty case as `, @()` so a caller's `.Count` works, and piping that wrapper
-        # hands the pipeline one item - the empty array itself - which comes back as a single row
-        # with every column blank. A step list of one empty step is exactly the composite this
-        # module refuses to produce, so the unwrap happens here in an assignment.
-        $stepsTable = Read-ToonTable -Table $run -Key 'steps'
-        if ($stepsTable.shape) { $unread.Add("its steps table held $($stepsTable.shape)") }
+        $stepsTable   = & $takeTable $run 'steps'        'run.steps'
+        $stepCells    = [System.Collections.Generic.List[string]]::new()
         $result.steps = @(foreach ($row in $stepsTable.rows) {
-            [pscustomobject]@{
-                step       = Get-ToonText   -Table $row -Key 'step'
-                status     = Get-ToonText   -Table $row -Key 'status'
-                findings   = Get-ToonNumber -Table $row -Key 'findings'
-                durationMs = Get-ToonNumber -Table $row -Key 'duration_ms'
-            }
+            Read-ToonCells -Row $row -Columns $script:StepColumns -Unreadable $stepCells
         })
+        if ($stepCells.Count -gt 0) {
+            & $note 'run.steps' (Get-ToonCellNote -Columns $stepCells) 'table'
+        }
 
         # A separate list, deliberately. Never folded into `steps` and never deduplicated against
         # it: these rows describe one running step's current activity and carry none of the other
         # list's columns.
-        $activeTable = Read-ToonTable -Table $run -Key 'active_steps'
-        if ($activeTable.shape) {
-            $unread.Add("its active_steps table held $($activeTable.shape)")
-        }
+        $activeTable        = & $takeTable $run 'active_steps' 'run.active_steps'
+        $activeCells        = [System.Collections.Generic.List[string]]::new()
         $result.activeSteps = @(foreach ($row in $activeTable.rows) {
-            [pscustomobject]@{
-                step         = Get-ToonText   -Table $row -Key 'step'
-                activeFor    = Get-ToonText   -Table $row -Key 'active_for'
-                lastActivity = Get-ToonText   -Table $row -Key 'last_activity'
-                agentPid     = Get-ToonNumber -Table $row -Key 'agent_pid'
-                round        = Get-ToonText   -Table $row -Key 'round'
-            }
+            Read-ToonCells -Row $row -Columns $script:ActiveStepColumns -Unreadable $activeCells
         })
-
-        if (@($findingRows).Count -eq 0) { $findingRows = Get-ToonRows -Table $run -Key 'findings' }
+        if ($activeCells.Count -gt 0) {
+            & $note 'run.active_steps' (Get-ToonCellNote -Columns $activeCells) 'table'
+        }
     }
 
+    # THE FINDINGS TABLE SITS IN THREE PLACES and every one of them is read, nearest to the gate
+    # first. Each is named when it cannot be taken, whether or not precedence went on to use it:
+    # which rows are used is a decision, but a location that was present and unreadable is a fact,
+    # and a fact this reader hides is the whole defect. Precedence falls through only on a key
+    # that is ABSENT - never on one that is present and produced no rows, which is how a gate
+    # carrying `findings[2]: r1,r2` came back as nothing to decide on.
+    $findingsRead = @(
+        (& $takeTable $gateTable 'findings' 'gate.findings'),
+        (& $takeTable $doc       'findings' 'findings'),
+        $runFindings
+    )
+    $findingRows = @()
+    foreach ($read in $findingsRead) {
+        if ($null -ne $read -and $read.present) { $findingRows = $read.rows; break }
+    }
+
+    $findingCells    = [System.Collections.Generic.List[string]]::new()
     $result.findings = @(foreach ($row in $findingRows) {
-        if ($row -isnot [System.Collections.IDictionary]) { continue }
-        [pscustomobject]@{
-            id          = Get-ToonText -Table $row -Key 'id'
-            severity    = Get-ToonText -Table $row -Key 'severity'
-            file        = Get-ToonText -Table $row -Key 'file'
-            line        = Get-ToonText -Table $row -Key 'line'
-            action      = Get-ToonText -Table $row -Key 'action'
-            description = Get-ToonText -Table $row -Key 'description'
-        }
+        Read-ToonCells -Row $row -Columns $script:FindingColumns -Unreadable $findingCells
     })
+    if ($findingCells.Count -gt 0) {
+        & $note 'findings' (Get-ToonCellNote -Columns $findingCells) 'table'
+    }
 
     # WHETHER THE RUN IS PARKED, FROM THE TWO FIELDS THAT SAY SO AND FROM NOTHING ELSE.
     #
@@ -794,10 +932,14 @@ function ConvertFrom-GateRunOutput {
     $result.isParked = $awaitingPresent -or $hasGate
     if ($result.gate) { $result.parkedOn = $result.gate }
 
-    # Built here, after every field has had its say, so one sentence carries all of them.
+    # Built here, after every field has had its say, so one sentence carries all of them. The key
+    # paths go onto the state beside it: a caller deciding what to do about an unreadable field
+    # should not have to parse an English sentence to find out which field it was.
+    $result.notUnderstood = @($unread | ForEach-Object { $_.path })
     $shapeNote = if ($unread.Count -gt 0) {
         ' Part of the output was in a shape this reader does not recognise: ' +
-        ($unread -join '; ') + '. Those fields are not in this reading.'
+        (@($unread | ForEach-Object { $_.text }) -join '; ') +
+        '. Those fields are not in this reading.'
     } else { '' }
 
     if (-not $run) {
@@ -943,5 +1085,6 @@ function Get-GateRunState {
 Export-ModuleMember -Function Get-NodeCommandPath, Get-NodeHint, Get-ToonDecoderPath,
                               ConvertFrom-ToonText,
                               Get-ToonText, Get-ToonNumber, Get-ToonRows, Get-ToonShapeName,
-                              Read-ToonField, Read-ToonTable,
+                              Read-ToonField, Read-ToonList, Read-ToonTable, Read-ToonCells,
+                              Get-ToonCellNote,
                               ConvertFrom-GateRunOutput, Get-GateRunState
