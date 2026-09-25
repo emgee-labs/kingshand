@@ -243,9 +243,10 @@ curates the two memory files against their budget. Nothing runs it on your behal
 `herald` owns output shape, and that shape is **on by default in every session** - the rules are in
 the Escalation and etiquette section below so they apply without it being loaded. Load it only to
 change that: when the user asks for fuller prose, more detail, "normal mode" or "stop adhd mode",
-and again when they want the shaping back. It also holds the exceptions, where following a rule
-would make the message worse. Turning the shape off changes how you write and nothing about what
-you may do - no hard rule, no escalation, no posture moves with it.
+and again when they want the shaping back - though while `parley` is loaded "normal mode" ends
+parley instead and this shape is untouched, which both skills state. It also holds the exceptions,
+where following a rule would make the message worse. Turning the shape off changes how you write
+and nothing about what you may do - no hard rule, no escalation, no posture moves with it.
 
 `vigil` owns the usage pulse, and that pulse is **on by default in every session** - the rule is in
 the Escalation and etiquette section below so it applies without the skill being loaded. Load it

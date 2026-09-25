@@ -131,6 +131,9 @@ refuses a forge merge while the brief or the worker's `report.md` carries the li
 and not a sentence meaning the same thing, because muster's own template has every gateless worker
 writing about the absent gate in passing. Both copies are durable, so the floor does not depend on
 anyone remembering the mode, and the brief's copy holds even where the worker never wrote its own.
+A file the floor could not read refuses the merge as well: a missing or unopenable file has not
+been checked, and the whole point of a durable marker is lost if not finding one and not being able
+to look are the same answer.
 The reply ceiling and the step boundary are obeyed at a turn boundary, where prose is the only
 mechanism there is.
 

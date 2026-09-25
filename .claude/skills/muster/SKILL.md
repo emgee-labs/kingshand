@@ -994,6 +994,13 @@ which is the default, render the gate and wait.
 `if ($proj.yolo)` is true for `'off'` as well, because a non-empty string is truthy in
 PowerShell - it would skip this gate on every project and dispatch work no one approved.
 
+**While `parley` is loaded, this gate is asked as a line in chat rather than rendered.** That is
+hard rule 5's own exception and `parley` owns it in full: the line names the project, the change
+and what the worker will do, and only the user's answer to it is consent to dispatch. The gate is
+not skipped and the approval is not assumed - what changes is the surface. A dispatch that cannot
+be judged from one line is not quick, and `parley` says to end the mode and render under the rest
+of this step rather than shrink the decision to fit.
+
 Build one section per unit of work, one item per requirement, then render:
 
 ```powershell
@@ -1814,9 +1821,27 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
   skill opens the brief:
 
   ```powershell
-  Select-String -SimpleMatch 'PARLEY DISPATCH - NO REVIEW GATE RAN.' `
-      "$env:KINGSHAND_HOME\data\<id>\brief.md", "$env:KINGSHAND_HOME\data\<id>\report.md"
+  $token = 'PARLEY DISPATCH - NO REVIEW GATE RAN.'
+  $files = "$env:KINGSHAND_HOME\data\<id>\brief.md", "$env:KINGSHAND_HOME\data\<id>\report.md"
+
+  foreach ($f in $files) {
+      if (-not (Test-Path -LiteralPath $f)) { "UNREADABLE $f - not there"; continue }
+      try   { $hits = @(Select-String -SimpleMatch $token -LiteralPath $f -ErrorAction Stop) }
+      catch { "UNREADABLE $f - $($_.Exception.Message)"; continue }
+      if ($hits.Count -gt 0) { "MARKER $f" } else { "CLEAN $f" }
+  }
   ```
+
+  **Three answers, and only `CLEAN` on both files clears this floor.** `MARKER` refuses the merge.
+  **`UNREADABLE` refuses it too** - a file that is missing or that could not be opened has not been
+  checked, so it says nothing about the marker and must never be read as the marker being absent.
+  Say which path it was and say that the marker could not be checked, rather than reporting a run
+  as unmarked, and the merge waits until both files have actually been read. That is why the loop
+  tests each path before matching: a bare `Select-String` over two paths writes its error to stderr
+  and returns nothing for a missing one, so no-hit and could-not-read arrive as the same empty
+  output - and this floor only ever fired on a hit. It is the same direction `$proj.merge` takes on
+  a registry it cannot read and the same one **Empty evidence is never clean evidence** takes
+  below.
 
   **`brief.md` is the copy that does not depend on the worker**: the Hand wrote it before any
   worker existed and nothing the worker does can change it, so **this floor survives a restart and
@@ -1959,6 +1984,16 @@ The parameter is `-OutputPath`. An earlier draft of this block abbreviated it, w
 thrown the first time anyone reached the landing gate - a documented command nothing exercises. A
 test pins the spelling for that reason.
 
+**The one exception to rendering is `parley`, and it is hard rule 5's own.** While that skill is
+loaded nothing renders, so this gate is put as a line in chat instead: what changed, what the
+checks say, and exactly what the approval authorises. "Do not summarise a diff into chat and ask
+for a yes" forbids a chat summary standing in for a gate nobody rendered; it does not forbid the
+gate itself being asked in chat while that mode is on. Everything else here is unchanged - the
+evidence is still gathered and checked, the gate is still held before the push, every floor above
+still holds, and only the user's own answer lands the work. A landing too big to judge from one
+line is not quick: `parley` says to end the mode and render this block as written rather than
+shrink the decision to fit.
+
 **One name per decision, not one per unit of work** - the rule is `## The review surface` above,
 and this gate is where it is easiest to miss. A rejected landing comes back here after the worker
 fixes it, and **a fresh `$gate` name is for a landing whose session they have ended, and only
@@ -1991,18 +2026,31 @@ promising a pull request and nothing more is answered by someone who does not kn
 follows. Naming it is what keeps the sentence above true rather than worked around.
 
 The worker is still alive at this point, so steer it to finish rather than doing the outward step
-yourself - it holds the worktree and it ran the gate. **There are two steers and the resolved mode
-picks which**, because the two modes finish by different routes and sending the wrong one is not a
-wording slip.
+yourself - it holds the worktree, and where a gate ran it is the one that ran it. **There are two
+steers and the brief's own Done-means block picks which, never the resolved mode**, because the
+steer has to name a bullet that exists in the brief the worker is actually holding. Read that
+block: **a brief carrying the push-approved bullet that names a gate line takes the `no-mistakes`
+steer, and a brief with no such bullet took Step 2's `direct-PR` block and takes the `direct-PR`
+steer**, whatever mode the task resolved to. The two blocks finish by different routes and sending
+the wrong steer is not a wording slip.
 
-For a `direct-PR` worker, which pushes and opens the pull request itself:
+**The two come apart on a quick dispatch.** A `parley` brief takes Step 2's `direct-PR` Done-means
+block on a task resolved to `no-mistakes` and carries no gate line at all, so a steer picked by the
+mode would send that worker after a bullet its brief does not contain - and a worker improvising a
+gate line reinstates the review gate that dispatch was authorised to leave out. Keying on the block
+is the same re-keying Step 6's fold-back takes, and it leaves every ordinary dispatch exactly where
+it was, because there the block and the mode agree.
+
+For a `direct-PR` worker - a brief with no push-approved bullet - which pushes and opens the pull
+request itself:
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
 Send-HerdrPrompt -Name "<worker id>" -Text "Approved. Push the branch and open the pull request against <base>, then report its full https:// URL. Change nothing else."
 ```
 
-For a `no-mistakes` worker, which must re-enter the pipeline rather than push by hand:
+For a `no-mistakes` worker, which must re-enter the pipeline rather than push by hand - the brief
+carrying the push-approved bullet:
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
@@ -2018,7 +2066,10 @@ which bullet it is.
 **Sending the `direct-PR` steer to a `no-mistakes` worker pushes around the gate**, skipping its
 own `push` and `pr` steps and everything they carry - the attribution scan, the pull request body
 and the CI hand-off - on a project registered specifically to have them. That is the failure this
-split prevents, and it looks like a delivered pull request either way.
+split prevents, and it looks like a delivered pull request either way. **The worker that failure
+describes is one holding a brief with the gate line in it**, which is what the block test above
+reads: a brief that never carried one has no pipeline to re-enter, so the `direct-PR` steer is the
+only one it can take and nothing is being pushed around.
 
 The re-run walks the local steps again against commits that have not changed, then pushes.
 **That re-run is the price of holding the push back, and it is the intended one** - do not drop the

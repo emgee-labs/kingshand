@@ -228,6 +228,13 @@ Three ways, and the first is the one that matters.
 3. **It ends with the session.** Parley is held in this session's own context and nothing is
    written to `state\` to carry it further.
 
+**"normal mode" ends parley and leaves `herald` exactly as it was.** That phrase is also `herald`'s
+own off switch, and **the innermost active mode claims it**: while parley is loaded it ends parley
+and herald's shape carries on untouched, and with parley off it reaches `herald` exactly as it does
+today. Someone capped at one-line replies who asks for normal mode wants the ordinary Hand back,
+not herald's discipline taken away - and where they want that too, the phrase reaches `herald` the
+next time they say it. `herald` states the same precedence beside its own trigger list.
+
 **The test for "not quick", because the first condition needs one.** Can every mandatory section of
 the brief be filled honestly in a line or two each, and can the King judge the landing from one
 line in chat? Where either answer is no, the work is not quick: say so in a line and let the normal

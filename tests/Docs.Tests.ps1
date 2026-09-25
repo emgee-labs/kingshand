@@ -348,6 +348,36 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
             -Phrase '**Read both before deciding a merge**, because nothing earlier in this skill opens the brief'
         $step.Contains('"$env:KINGSHAND_HOME\data\<id>\brief.md", "$env:KINGSHAND_HOME\data\<id>\report.md"') |
             Should -BeTrue -Because 'the floor names both files it reads, so the read is runnable'
+        # THE FLOOR'S EVIDENCE IS TWO FILES AND IT USED TO STATE NO MEANING FOR ONE IT COULD NOT
+        # READ. Select-String writes its error to stderr per missing path and returns nothing for
+        # it, so no-hit and could-not-read arrived as the same empty output - and the floor only
+        # ever fired on a hit. A moved data directory therefore failed it OPEN and merged a run
+        # nothing reviewed. An unreadable input reads as unreadable, never as a state word.
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**Three answers, and only `CLEAN` on both files clears this floor.** `MARKER` ' +
+                     'refuses the merge. **`UNREADABLE` refuses it too**')
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('a file that is missing or that could not be opened has not been checked, so ' +
+                     'it says nothing about the marker and must never be read as the marker being ' +
+                     'absent')
+        # The refusal has to name its own failure rather than reporting a clean run.
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('Say which path it was and say that the marker could not be checked, rather ' +
+                     'than reporting a run as unmarked, and the merge waits until both files have ' +
+                     'actually been read.')
+        # The command itself has to distinguish the three answers, or the prose is describing a
+        # read the reader cannot perform.
+        $fence = @(Get-CodeFence $script:MusterMd |
+                   Where-Object { $_.Contains('PARLEY DISPATCH - NO REVIEW GATE RAN.') })
+        $fence.Count | Should -Be 1 -Because 'one runnable block reads the marker'
+        $fence[0].Contains('if (-not (Test-Path -LiteralPath $f))') |
+            Should -BeTrue -Because 'each path is tested before it is matched'
+        foreach ($answer in @('UNREADABLE', 'MARKER', 'CLEAN')) {
+            $fence[0].Contains($answer) |
+                Should -BeTrue -Because "the read must report $answer as its own answer"
+        }
+        $fence[0].Contains('-ErrorAction SilentlyContinue') |
+            Should -BeFalse -Because 'a swallowed error is exactly how could-not-read became no-hit'
         Assert-Phrase -Text $step -Where 'the landing gate floors' `
             -Phrase ('**`brief.md` is the copy that does not depend on the worker**: the Hand wrote ' +
                      'it before any worker existed and nothing the worker does can change it')
@@ -815,18 +845,47 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
     # the direct-PR text to a no-mistakes worker pushes around the gate's own push and pr steps -
     # the attribution scan, the PR body, the CI hand-off - on a project registered to have them,
     # and the result looks like a delivered pull request either way.
-    It 'the steer is split by mode, and the wrong one is named as the failure' {
+    #
+    # THE SELECTOR IS THE BRIEF'S OWN BLOCK AND NOT THE RESOLVED MODE. A parley dispatch takes
+    # Step 2's direct-PR Done-means block on a task resolved to no-mistakes, so a mode-keyed steer
+    # sends that worker after a push-approved bullet its brief never carried - and a worker
+    # improvising a gate line reinstates the review gate the dispatch was authorised to leave out.
+    It 'the steer is split by the brief''s own block, and the wrong one is named as the failure' {
         $step = Get-MusterStep 'Step 7 - Gate two'
         Assert-Phrase -Text $step -Where 'the landing gate' `
-            -Phrase '**There are two steers and the resolved mode picks which**'
+            -Phrase ('**There are two steers and the brief''s own Done-means block picks which, ' +
+                     'never the resolved mode**')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**a brief carrying the push-approved bullet that names a gate line takes the ' +
+                     '`no-mistakes` steer, and a brief with no such bullet took Step 2''s ' +
+                     '`direct-PR` block and takes the `direct-PR` steer**, whatever mode the task ' +
+                     'resolved to.')
+        $step.Contains('There are two steers and the resolved mode picks which') |
+            Should -BeFalse -Because 'the mode is what a parley brief and its block disagree on'
+        # The case that separates the two has to be named, or the next reader keys it back on the
+        # mode as the obvious simplification.
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase '**The two come apart on a quick dispatch.**'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('a worker improvising a gate line reinstates the review gate that dispatch ' +
+                     'was authorised to leave out')
         Assert-Phrase -Text $step -Where 'the landing gate' `
             -Phrase ('For a `no-mistakes` worker, which must re-enter the pipeline rather than ' +
                      'push by hand')
         Assert-Phrase -Text $step -Where 'the landing gate' `
             -Phrase ('**Sending the `direct-PR` steer to a `no-mistakes` worker pushes around ' +
                      'the gate**')
+        # And the failure is scoped to the worker it actually describes, so the sentence above
+        # does not read as forbidding the direct-PR steer on a brief that carries no gate line.
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**The worker that failure describes is one holding a brief with the gate line ' +
+                     'in it**')
         $step | Should -Match 'Run the gate line from the push-approved bullet in your brief' `
             -Because 'the no-mistakes steer must re-enter the pipeline, not push by hand'
+        # The preceding clause claimed every steered worker had run the gate, which is false for
+        # every parley dispatch - the one kind of worker this selector exists for.
+        $step.Contains('it holds the worktree and it ran the gate') |
+            Should -BeFalse -Because 'a parley dispatch ran no gate and is still steered from here'
     }
 
     # "Run it again without --skip" was right while the only skip was the push hold. On a repository
@@ -5467,6 +5526,70 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                 -Phrase ('Give it up only when they ask for the long version, when the surface is ' +
                          'unreachable, or while `parley` is loaded, which turns every gate into a ' +
                          'line in chat and owns that exception in full.')
+        }
+
+        # Rule 5's exception is in CLAUDE.md, but the two steps that actually PRESENT a gate are
+        # what a Hand executes - and Step 7 forbade the chat form in as many words. A rule and the
+        # step implementing it disagreeing sends every yolo-off quick dispatch out of the mode,
+        # which is most of the registry.
+        It 'the two muster gate steps carry the same exception rather than contradicting rule 5' {
+            $three = Get-MusterStep 'Step 3 - Gate one'
+            Assert-Phrase -Text $three -Where 'muster Step 3' `
+                -Phrase ('**While `parley` is loaded, this gate is asked as a line in chat rather ' +
+                         'than rendered.** That is hard rule 5''s own exception and `parley` owns ' +
+                         'it in full')
+            Assert-Phrase -Text $three -Where 'muster Step 3' `
+                -Phrase ('The gate is not skipped and the approval is not assumed - what changes is ' +
+                         'the surface.')
+            $seven = Get-MusterStep 'Step 7 - Gate two'
+            Assert-Phrase -Text $seven -Where 'the landing gate' `
+                -Phrase ('**The one exception to rendering is `parley`, and it is hard rule 5''s ' +
+                         'own.**')
+            # The prohibition is qualified rather than left standing against the mode, and the
+            # authority it guards is named as unmoved.
+            Assert-Phrase -Text $seven -Where 'the landing gate' `
+                -Phrase ('"Do not summarise a diff into chat and ask for a yes" forbids a chat ' +
+                         'summary standing in for a gate nobody rendered; it does not forbid the ' +
+                         'gate itself being asked in chat while that mode is on.')
+            Assert-Phrase -Text $seven -Where 'the landing gate' `
+                -Phrase ('the gate is still held before the push, every floor above still holds, ' +
+                         'and only the user''s own answer lands the work')
+            # Both steps send work that cannot be judged from a line back to the rendered form
+            # rather than shrinking the decision to fit the mode.
+            foreach ($step in @($three, $seven)) {
+                $step.Contains('rather than shrink the decision to fit') |
+                    Should -BeTrue -Because 'work too big for a line ends the mode, it does not shrink the gate'
+            }
+        }
+
+        # "normal mode" was a documented trigger for two skills and neither named the other, so the
+        # same words could be read as ending parley or as turning herald's shape off while the
+        # one-or-two-line ceiling stayed in force - capped replies immediately after asking for
+        # fuller prose. The innermost active mode claims the phrase, and both skills say so.
+        It 'settles "normal mode" between parley and herald, in both files' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**"normal mode" ends parley and leaves `herald` exactly as it was.** That ' +
+                         'phrase is also `herald`''s own off switch, and **the innermost active mode ' +
+                         'claims it**')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('while parley is loaded it ends parley and herald''s shape carries on ' +
+                         'untouched, and with parley off it reaches `herald` exactly as it does today')
+            $herald = Get-DocText (Join-Path $script:Root '.claude\skills\herald\SKILL.md')
+            Assert-Phrase -Text $herald -Where 'the herald skill' `
+                -Phrase ('**While `parley` is loaded, "normal mode" is parley''s phrase and not this ' +
+                         'one.**')
+            Assert-Phrase -Text $herald -Where 'the herald skill' `
+                -Phrase 'With parley off, it turns the shape off exactly as above.'
+            # The reasoning, in both, because a bare precedence rule is the thing a later edit
+            # reverses as an inconsistency.
+            foreach ($text in @($script:Parley, $herald)) {
+                $text.Contains('wants the ordinary Hand back') |
+                    Should -BeTrue -Because 'the phrase means the ordinary Hand, not herald switched off'
+            }
+            # CLAUDE.md sends the reader to herald on that phrase, so it must not now contradict.
+            Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'the CLAUDE.md Skills section' `
+                -Phrase ('while `parley` is loaded "normal mode" ends parley instead and this shape ' +
+                         'is untouched, which both skills state')
         }
 
         It 'is reachable from CLAUDE.md by a stated condition, and named off by default there' {
