@@ -497,7 +497,8 @@ function Get-CiBriefLine {
         return ('- Drive the pipeline through to a pull request and stop there. Nothing reports a check on ' +
                 'this repository, so your gate line carries `--skip ci` and the pipeline ends at its `pr` ' +
                 'step with no `ci` step to wait on. Report the pull request''s full https:// URL as ' +
-                'delivered, say plainly that no checks were reported, and stop. Do not merge it.')
+                'delivered, say plainly that the `ci` step was skipped because this repository has no ' +
+                'CI, and stop. Do not merge it.')
     }
 
     '- Drive the pipeline through to a pull request and stop there. ' +

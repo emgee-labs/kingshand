@@ -87,6 +87,18 @@ Describe 'Get-CiBriefLine puts the answer into the brief rather than leaving it 
             Should -BeFalse -Because 'green can never arrive where nothing reports'
     }
 
+    # With the step skipped, this worker never looks at the pull request's checks, so it may not be
+    # told to report a result it did not observe. The clause belongs to `unknown`, whose worker does
+    # sit inside the `ci` step and watch nothing arrive; carried here it states as fact something
+    # nothing looked at, and on a falsely-detected repository it reports a red check as an absence.
+    It 'never has the no-ci worker report a check result it did not observe' {
+        $line = Get-CiBriefLine -Status 'no-ci'
+        $line.Contains('no checks were reported') |
+            Should -BeFalse -Because 'this worker skipped the step and read nothing'
+        $line.Contains('the `ci` step was skipped because this repository has no CI') |
+            Should -BeTrue -Because 'it reports what actually happened to the step'
+    }
+
     # They shared one line while both told the worker to stop waiting. They cannot share one now:
     # `no-ci` has no `ci` step to describe and `unknown` has one that may wait forever.
     It 'gives an undetermined repository a different line from one proven to have no CI' {

@@ -484,6 +484,26 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
                      'and not the `ci` step coming back.**')
     }
 
+    # Step 1b never runs for `direct-PR`, so this limb's own detection is the only CI evidence in
+    # the whole flow - it needs the read at least as much as the limb that has one. Two limbs
+    # disagreeing about whether detection can be trusted is also worse than either answer alone,
+    # because nothing tells a reader which of the two is the intended rule.
+    It 'the direct-PR limb reads the pull request on no-ci too, rather than merging on detection' {
+        $step = Get-MusterStep 'Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('- `no-ci` - **read the pull request once before merging on that answer**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**If that read reports checks, every one of them must pass.** A red or a ' +
+                     'pending check is not green and goes to the user. **If it reports no checks ' +
+                     'at all, that is the settled absent-check case and the merge proceeds**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**that exit code is not a failing check - tell the two apart by what it ' +
+                     'printed, never by the exit status alone.** **This is one read of what the ' +
+                     'forge already knows: not a wait and not a poll.**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**Both limbs carry this read, and they must agree.**'
+    }
+
     # "CI green on the pull request" had no command, while every other evidence read in the step
     # has one - and Get-RepoCiStatus answers about the repository, never about this pull request.
     It 'Step 8a supplies the read for a has-ci pull request' {

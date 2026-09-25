@@ -598,7 +598,8 @@ above them, and an ordinal that has gone stale points a Hand at the wrong one:
 - Drive the pipeline through to a pull request and stop there. Nothing reports a check on
   this repository, so your gate line carries `--skip ci` and the pipeline ends at its `pr`
   step with no `ci` step to wait on. Report the pull request's full https:// URL as
-  delivered, say plainly that no checks were reported, and stop. Do not merge it.
+  delivered, say plainly that the `ci` step was skipped because this repository has no
+  CI, and stop. Do not merge it.
 - Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
   required every time, including when the work succeeded plainly with nothing surprising in it.
 - Never call `AskUserQuestion`, and never open any interactive prompt, menu or confirmation of
@@ -2223,7 +2224,25 @@ never executed for it:
     gh pr checks "<full https:// URL>"
     ```
 
-  - `no-ci` - the settled absent-check case, and the only absence that counts as green.
+  - `no-ci` - **read the pull request once before merging on that answer**, the same read the
+    `has-ci` bullet above and the `no-mistakes` limb already require:
+
+    ```powershell
+    gh pr checks "<full https:// URL>"
+    ```
+
+    **If that read reports checks, every one of them must pass.** A red or a pending check is not
+    green and goes to the user. **If it reports no checks at all, that is the settled absent-check
+    case and the merge proceeds** - the only absence that counts as green. `gh pr checks` exits
+    non-zero and prints that no checks were reported when a pull request has none, so **that exit
+    code is not a failing check - tell the two apart by what it printed, never by the exit status
+    alone.** **This is one read of what the forge already knows: not a wait and not a poll.**
+
+    **Both limbs carry this read, and they must agree.** Two limbs disagreeing about whether
+    detection can be trusted is worse than either answer on its own, because a reader cannot tell
+    which is the intended rule. This limb needs it at least as much as the other one does: Step 1b
+    never runs for `direct-PR`, so the `Get-RepoCiStatus` call above is the only CI evidence
+    anywhere in this flow.
   - `unknown` - **not green.** The lookup failed or the remote could not be read, so nothing was
     established. It goes to the user rather than being merged.
 
