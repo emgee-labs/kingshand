@@ -4709,6 +4709,18 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         }
     }
 
+    Context 'the gate run reader is findable' {
+        # The Tooling table is the Hand's own index of what exists. A reader nobody knows about
+        # leaves the hand-written parse of `no-mistakes axi status` - the one that has been wrong
+        # every time it was measured - as the path of least resistance.
+        It 'the module is listed in the Tooling table' {
+            Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
+                -Phrase ('| `bin\GateRun.psm1` | what a no-mistakes gate run is doing, read from ' +
+                         'the fields that say so: the run, each step with its own status, whether ' +
+                         'it is parked and on what, and the findings to decide on')
+        }
+    }
+
     Context 'herald owns output shape and nothing else' {
         BeforeAll {
             $script:Herald = Get-Content -Path (Join-Path $script:Root '.claude\skills\herald\SKILL.md') -Raw

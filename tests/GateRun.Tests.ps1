@@ -24,6 +24,16 @@ Set-StrictMode -Version Latest
 #   3. The `help[]` block contains `outcome:`, `approve` and `push`, so a pattern applied to the
 #      whole output matches help rather than state. The fixture's help text contains all three.
 #
+# TWO MORE HAVE THEIR OWN CASES FOR THE SAME REASON, and both are about a field that is present
+# rather than one that is missing:
+#
+#   4. `gate:` arrives as an object on the live tool and as a scalar step name in the shipped
+#      documentation. Reading only the documented shape lost the step, the park's target and every
+#      finding on a real response carrying six. Both shapes are pinned, side by side.
+#   5. An `awaiting_agent` wording this reader has not seen is still the tool saying the run is
+#      waiting. Reading it as not waiting is the failure that left a parked run sitting for two
+#      hours and twenty-six minutes, and the fixture forces exactly that value.
+#
 # And the rule underneath all of them: an output that cannot be read reads as unreadable, never as
 # a state word and never as an empty run. Every failure path below is forced rather than described.
 
@@ -120,6 +130,59 @@ help[6]: Run `no-mistakes axi respond --action approve` to accept this step and 
     $script:NastyDescription =
         'The new --force flag bypasses the confirm prompt, which changes behaviour: ' +
         '"are you sure?" never appears, and the path C:\tmp\x is undocumented.'
+
+    # A real capture from no-mistakes v1.57.0, and the shape the shipped documentation does not
+    # show: `gate:` is an object carrying its own step, status, risk, note and findings table, on a
+    # document that also has a run. Reading `gate:` as a scalar step name left the step empty and
+    # looked for the findings at the top level, where there are none - so this response, which
+    # carries six findings to decide on, read as none at all. Every id, severity, file and action
+    # below is verbatim; only the descriptions are shortened.
+    $script:GateObjectResponse = @'
+run:
+  id: "01M3BE8203JPV572AVT9832923"
+  branch: worktree-kh-gate-state-read-helper
+  status: running
+  awaiting_agent: parked 0s
+  head: 6dae221c
+  findings: "3 awaiting, 2 auto-fix, 1 info"
+  steps[9]{step,status,findings,duration_ms}:
+    intent,completed,0,6
+    rebase,completed,0,2419
+    review,awaiting_approval,6,406657
+    test,pending,0,0
+    document,pending,0,0
+    lint,pending,0,0
+    push,pending,0,0
+    pr,pending,0,0
+    ci,pending,0,0
+gate:
+  step: review
+  status: awaiting_approval
+  risk: medium
+  note: "Review auto-fix is disabled by default (auto_fix.review: 0), so blocking and ask-user review findings park for your decision rather than being silently self-fixed."
+  findings[6]{id,severity,file,action,description}:
+    gr-argv-space,warning,bin/GateRun.psm1,auto-fix,Two filesystem paths reach node as one joined string
+    gr-claudemd-row,warning,CLAUDE.md,ask-user,The Tooling table carries no row for this module
+    gr-design-note,warning,bin/GateRun.psm1,ask-user,No dated design note accompanies this change
+    gr-awaiting-unrecognised,info,bin/GateRun.psm1,ask-user,An unrecognised awaiting_agent value reads as not parked
+    gr-temp-count-flaky,info,tests/GateRun.Tests.ps1,auto-fix,The temp count covers the whole shared directory
+    gr-branch-guard-gate,info,bin/GateRun.psm1,no-op,The branch guard fires on a run answer only
+help[2]: Run `no-mistakes axi respond --action approve` to accept this step and continue,Run `no-mistakes axi logs --step review --full` to read the full step log
+'@
+
+    # A run carrying an `awaiting_agent` wording this reader has not seen. The tool is stating that
+    # the run is waiting on the agent; what it is waiting for is not a form this recognises.
+    $script:UnrecognisedAwaitingRun = @'
+run:
+  id: 01M4UNRECOGNISED000000000000
+  branch: feature-x
+  status: running
+  awaiting_agent: awaiting review decision
+  head: abc1234d
+  steps[2]{step,status,findings,duration_ms}:
+    intent,completed,0,7
+    review,awaiting,3,742000
+'@
 
     # A run whose `steps[]` header declares nine rows and carries one. This is what a truncated
     # capture looks like, and reading it as a one-step run is the failure strict decoding prevents.
@@ -329,6 +392,112 @@ Describe 'Reading a gate response' {
         $s.signal | Should -Be 'gate-response'
         $s.runId  | Should -BeNullOrEmpty
         $s.detail | Should -Match 'parked at its review step'
+    }
+}
+
+Describe 'Reading a gate that arrives as an object rather than a step name' {
+    # Forced with the capture that broke the documented reading. This is the live tool's shape and
+    # the documentation's shape is the other one, so both cases have to pass together.
+
+    It 'names the step from the gate object rather than coming back empty' {
+        $s = ConvertFrom-GateRunOutput -Text $script:GateObjectResponse
+
+        $s.gate     | Should -Be 'review'
+        $s.parkedOn | Should -Be 'review'
+        $s.isParked | Should -BeTrue
+    }
+
+    It 'finds every finding inside the gate object, where a top-level look finds none' {
+        $f = (ConvertFrom-GateRunOutput -Text $script:GateObjectResponse).findings
+
+        $f.Count | Should -Be 6 -Because 'the response really does carry six to decide on'
+        @($f).id | Should -Be @('gr-argv-space', 'gr-claudemd-row', 'gr-design-note',
+                                'gr-awaiting-unrecognised', 'gr-temp-count-flaky',
+                                'gr-branch-guard-gate')
+        @($f).action | Should -Be @('auto-fix', 'ask-user', 'ask-user',
+                                    'ask-user', 'auto-fix', 'no-op')
+    }
+
+    It 'carries the gate''s own status, risk and note' {
+        $s = ConvertFrom-GateRunOutput -Text $script:GateObjectResponse
+
+        $s.gateStatus | Should -Be 'awaiting_approval'
+        $s.gateRisk   | Should -Be 'medium'
+        $s.gateNote   | Should -Match 'Review auto-fix is disabled by default'
+    }
+
+    It 'reports the run beside the gate rather than losing one to the other' {
+        $s = ConvertFrom-GateRunOutput -Text $script:GateObjectResponse
+
+        $s.status     | Should -Be 'has-run'
+        $s.runId      | Should -Be '01M3BE8203JPV572AVT9832923'
+        $s.branch     | Should -Be 'worktree-kh-gate-state-read-helper'
+        $s.steps.Count| Should -Be 9
+        ($s.steps | Where-Object { $_.step -eq 'review' }).status | Should -Be 'awaiting_approval'
+        $s.detail     | Should -Match 'parked at its review step'
+    }
+
+    It 'still reads the documented scalar shape, which is not dropped for the live one' {
+        # Both shapes, side by side in one case, because a version may emit either and fixing the
+        # live one by replacing the documented one would only move the failure.
+        (ConvertFrom-GateRunOutput -Text $script:GateResponse).parkedOn       | Should -Be 'review'
+        (ConvertFrom-GateRunOutput -Text $script:GateObjectResponse).parkedOn | Should -Be 'review'
+    }
+
+    It 'reads a gate object that names no step as a gate all the same' {
+        # The park comes from the gate being there, not from its step name being readable. A gate
+        # whose step this could not read is still the tool saying the pipeline is waiting.
+        $s = ConvertFrom-GateRunOutput -Text "gate:`n  status: awaiting_approval`n"
+
+        $s.isParked | Should -BeTrue
+        $s.gate     | Should -BeNullOrEmpty -Because 'the output did not name a step'
+        $s.signal   | Should -Be 'gate-response'
+        $s.detail   | Should -Match 'did not name'
+    }
+}
+
+Describe 'An awaiting_agent value this reader does not recognise still means waiting' {
+    # The failure this whole module exists for, in the one direction that looks safe: a watch
+    # condition that could not see a park reported none, and a parked run sat for two hours and
+    # twenty-six minutes. A wording the reader has not seen must never read as not waiting.
+
+    It 'reports the run as parked from the presence of the field, not from its wording' {
+        $s = ConvertFrom-GateRunOutput -Text $script:UnrecognisedAwaitingRun
+
+        $s.isParked      | Should -BeTrue
+        $s.awaitingAgent | Should -Be 'awaiting review decision' -Because 'the raw value is kept'
+    }
+
+    It 'names the tool''s own word and says it was not recognised' {
+        $detail = (ConvertFrom-GateRunOutput -Text $script:UnrecognisedAwaitingRun).detail
+
+        $detail | Should -Match 'waiting'
+        $detail | Should -Match 'awaiting review decision'
+        $detail | Should -Match 'does not recognise'
+    }
+
+    It 'invents no state word for it' {
+        $s = ConvertFrom-GateRunOutput -Text $script:UnrecognisedAwaitingRun
+
+        $s.status    | Should -Be 'has-run'
+        $s.parkedOn  | Should -BeNullOrEmpty -Because 'nothing in this output names a gate step'
+        $s.outcome   | Should -BeNullOrEmpty
+        $s.detail    | Should -Not -Match 'parked'
+    }
+
+    It 'leaves the recognised parked wording reading as an ordinary park' {
+        $s = ConvertFrom-GateRunOutput -Text $script:ParkedRun
+
+        $s.isParked | Should -BeTrue
+        $s.detail   | Should -Match 'It is parked'
+        $s.detail   | Should -Not -Match 'does not recognise'
+    }
+
+    It 'leaves a run carrying no awaiting_agent at all reading as not waiting' {
+        $s = ConvertFrom-GateRunOutput -Text $script:CompletedRun
+
+        $s.isParked | Should -BeFalse
+        $s.detail   | Should -Not -Match 'waiting'
     }
 }
 
@@ -602,19 +771,107 @@ Describe 'Decoding one document' {
     }
 }
 
+Describe 'Launching a child process with paths that hold a space' {
+    # Every path this module launches with comes from %TEMP% or from beside the module itself, and
+    # both hold a space the moment an account name or an install directory does - `C:\Users\Ann
+    # Lee\AppData\Local\Temp\` is an ordinary Windows profile. Joining the arguments into one
+    # string splits each of those in half, and every decode on that machine fails for good.
+
+    BeforeAll {
+        $script:SpacedRoot = Join-Path ([System.IO.Path]::GetTempPath()) `
+                                       ("gate run $([guid]::NewGuid().ToString('N'))")
+        $script:SpacedAssets = Join-Path $script:SpacedRoot 'toon decoder'
+        $script:SpacedTemp   = Join-Path $script:SpacedRoot 'temp dir'
+        New-Item -ItemType Directory -Path $script:SpacedAssets -Force | Out-Null
+        New-Item -ItemType Directory -Path $script:SpacedTemp   -Force | Out-Null
+        foreach ($f in @('decode.mjs', 'toon.mjs')) {
+            Copy-Item -LiteralPath "$PSScriptRoot\..\bin\assets\toon\$f" `
+                      -Destination $script:SpacedAssets
+        }
+        $script:SpacedDecoder = Join-Path $script:SpacedAssets 'decode.mjs'
+        $script:NodePath      = (Get-Command 'node' -CommandType Application |
+                                 Where-Object { $_.Source -like '*.exe' } |
+                                 Select-Object -First 1).Source
+
+        # A stand-in for the gate binary that prints back the arguments it was actually handed.
+        # It lives under the spaced directory too, so the launch path is the one in question.
+        $script:ArgvEcho = Join-Path $script:SpacedAssets 'argv echo.mjs'
+        Set-Content -LiteralPath $script:ArgvEcho -Encoding utf8 `
+            -Value 'process.stdout.write(JSON.stringify(process.argv.slice(2)));'
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath $script:SpacedRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'decodes when the decoder and the document both sit under a path with a space' {
+        Mock -ModuleName GateRun Get-ToonDecoderPath { $script:SpacedDecoder }
+
+        $oldTmp  = $env:TMP
+        $oldTemp = $env:TEMP
+        try {
+            # GetTempFileName follows these, so the document this writes lands under a directory
+            # whose name has a space in it - which is the whole point of the case.
+            $env:TMP  = $script:SpacedTemp
+            $env:TEMP = $script:SpacedTemp
+
+            $s = ConvertFrom-GateRunOutput -Text $script:CompletedRun
+        } finally {
+            $env:TMP  = $oldTmp
+            $env:TEMP = $oldTemp
+        }
+
+        $s.status | Should -Be 'has-run'
+        $s.runId  | Should -Be '01M3B8FPAF2P3Y52THCFCX4TX6'
+        $s.detail | Should -Not -Match 'could not be decoded'
+    }
+
+    It 'keeps a value holding a space as one argument to the binary' {
+        # The same joining on the other launch, where it splits a `--run` value rather than a path.
+        # Nothing here needs the gate itself - the child is asked to print back the arguments it
+        # was actually handed, which is the only thing in question.
+        Mock -ModuleName GateRun Get-NoMistakesCommandPath { $script:NodePath }
+
+        $r = Invoke-NoMistakesAxi -Arguments @($script:ArgvEcho, '--run', 'a run with spaces')
+
+        $r.ok       | Should -BeTrue
+        $r.exitCode | Should -Be 0 `
+            -Because 'a joined command line splits the script path at its space and finds nothing'
+        ($r.value | ConvertFrom-Json) | Should -Be @('--run', 'a run with spaces') `
+            -Because 'a joined command line arrives as four arguments, not two'
+    }
+}
+
 Describe 'What this module writes' {
     It 'leaves nothing behind in the temp directory' {
-        # This reader writes no durable file anywhere - it has no state to keep. The only paths it
-        # opens at all are unique temp files the operating system creates for it, and they are
+        # This reader writes no durable file anywhere - it has no state to keep. The only path it
+        # opens at all is a unique temp file the operating system creates for it, and it is
         # deleted on every path out, including the failing ones.
-        $temp   = [System.IO.Path]::GetTempPath()
-        $before = @(Get-ChildItem -LiteralPath $temp -File -ErrorAction SilentlyContinue).Count
+        #
+        # The temp directory is a private one for the duration rather than the shared one.
+        # Counting files in the shared directory goes red whenever any other process on the
+        # machine happens to write one while this runs, which is a failure about somebody else's
+        # work - and a private directory lets this assert nothing at all is left, rather than
+        # merely that the total did not grow.
+        $private = Join-Path ([System.IO.Path]::GetTempPath()) `
+                             ('gate-run-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $private -Force | Out-Null
 
-        $null = ConvertFrom-GateRunOutput -Text $script:CompletedRun
-        $null = ConvertFrom-GateRunOutput -Text $script:TruncatedRun
-        $null = ConvertFrom-GateRunOutput -Text 'hello'
+        $oldTmp  = $env:TMP
+        $oldTemp = $env:TEMP
+        try {
+            $env:TMP  = $private
+            $env:TEMP = $private
 
-        $after = @(Get-ChildItem -LiteralPath $temp -File -ErrorAction SilentlyContinue).Count
-        $after | Should -BeLessOrEqual $before
+            $null = ConvertFrom-GateRunOutput -Text $script:CompletedRun
+            $null = ConvertFrom-GateRunOutput -Text $script:TruncatedRun
+            $null = ConvertFrom-GateRunOutput -Text 'hello'
+
+            @(Get-ChildItem -LiteralPath $private -Force -Recurse).Count | Should -Be 0
+        } finally {
+            $env:TMP  = $oldTmp
+            $env:TEMP = $oldTemp
+            Remove-Item -LiteralPath $private -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }

@@ -30,7 +30,8 @@ Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
 #   places the tool states it, and from nowhere else. Not from a count, not from a step's status,
 #   not from how long something has been running.
 # - A value the output does not carry is absent, never defaulted. Absence is a fact about the
-#   output and is reported as one.
+#   output and is reported as one. A value it does carry but this reader does not recognise is
+#   reported as unrecognised, and never quietly folded into whichever state word it resembles.
 # - `steps[]` and `active_steps[]` stay two separate lists. Flattening them - which is what
 #   `Select-Object -Unique` over a step regex did - produces a composite that reads like a step list
 #   and is not one.
@@ -73,6 +74,11 @@ $script:DefaultTimeoutSeconds = 30
 
 # How long the decoder may take. It is a single local Node process over at most a few dozen lines.
 $script:DefaultDecodeTimeoutSeconds = 30
+
+# How long the two redirected streams may take to reach end of file after the child has already
+# exited. It is a flush rather than a wait for work, so this only stops a handle a grandchild
+# process inherited and never closed from holding a read open forever.
+$script:StreamDrainMilliseconds = 10000
 
 # The launchable `node`, or $null.
 #
@@ -122,6 +128,87 @@ function Get-ToonDecoderPath {
     $null
 }
 
+# One child process launched with each argument passed as its own argument, and what it said.
+#
+# .launched  whether the process started at all
+# .timedOut  whether it was stopped for not answering inside the timeout
+# .stdout    what it wrote to stdout, or ''
+# .stderr    what it wrote to stderr, or ''
+# .exitCode  its exit code, or $null where it never answered
+# .error     one line naming a launch failure, or ''
+#
+# EVERY ARGUMENT GOES THROUGH ArgumentList AND NOTHING IS QUOTED BY HAND, which is why both
+# launches below come through here rather than each calling Start-Process. `Start-Process` joins
+# its -ArgumentList array with spaces and quotes nothing, so a path holding a space arrives at the
+# child split into two arguments - and every path this module launches with comes from %TEMP% or
+# from $PSScriptRoot, either of which holds a space the moment an account name or an install
+# directory does. ProcessStartInfo's own ArgumentList collection quotes each element itself, so the
+# rule is kept by the runtime rather than by a caller remembering to keep it.
+#
+# BOTH STREAMS ARE DRAINED BEFORE THE WAIT, never after it. A redirected pipe nobody is reading
+# fills and blocks the child, which would turn a large document into the hang the timeout exists to
+# catch rather than into the answer it should be.
+#
+# It never throws. A binary that cannot be launched comes back as launched = $false carrying its
+# own message, because each caller's job is to say which failure happened rather than to catch.
+function Start-CapturedProcess {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$Arguments,
+        [string]$WorkingDirectory = '',
+        [Parameter(Mandatory)][int]$TimeoutSeconds
+    )
+
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName               = $FilePath
+    $psi.UseShellExecute        = $false
+    $psi.CreateNoWindow         = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $psi.StandardErrorEncoding  = [System.Text.UTF8Encoding]::new($false)
+    foreach ($a in $Arguments) { $psi.ArgumentList.Add("$a") }
+    if ($WorkingDirectory) { $psi.WorkingDirectory = $WorkingDirectory }
+
+    $p = $null
+    try {
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $outTask = $p.StandardOutput.ReadToEndAsync()
+        $errTask = $p.StandardError.ReadToEndAsync()
+
+        if (-not $p.WaitForExit($TimeoutSeconds * 1000)) {
+            try { $p.Kill($true) } catch { }
+            return [pscustomobject]@{
+                launched = $true; timedOut = $true; stdout = ''; stderr = ''
+                exitCode = $null; error = ''
+            }
+        }
+
+        # The timed wait returns the moment the process ends, which is not the moment the
+        # redirected streams reach end of file. Waiting on the two reads is what makes the last
+        # thing the child wrote part of the answer rather than a race against its own exit.
+        $reads = [System.Threading.Tasks.Task[]]@($outTask, $errTask)
+        $null = [System.Threading.Tasks.Task]::WaitAll($reads, $script:StreamDrainMilliseconds)
+
+        [pscustomobject]@{
+            launched = $true
+            timedOut = $false
+            stdout   = $(if ($outTask.IsCompletedSuccessfully) { "$($outTask.Result)" } else { '' })
+            stderr   = $(if ($errTask.IsCompletedSuccessfully) { "$($errTask.Result)" } else { '' })
+            exitCode = $p.ExitCode
+            error    = ''
+        }
+    } catch {
+        [pscustomobject]@{
+            launched = $false; timedOut = $false; stdout = ''; stderr = ''
+            exitCode = $null; error = "$($_.Exception.Message)"
+        }
+    } finally {
+        if ($p) { $p.Dispose() }
+    }
+}
+
 # One TOON document as JSON text, or a failure naming what went wrong.
 #
 # .ok     whether the document was decoded
@@ -160,29 +247,30 @@ function ConvertFrom-ToonText {
         }
     }
 
-    # Every path is created inside the try, not beside it. A temp directory that is full,
-    # read-only or missing makes GetTempFileName throw, and a line above the try is a line outside
-    # the promise this function makes.
+    # The path is created inside the try, not beside it. A temp directory that is full, read-only
+    # or missing makes GetTempFileName throw, and a line above the try is a line outside the
+    # promise this function makes.
     #
-    # The temp files are the only things this module ever writes, and each one is a fresh unique
-    # path the operating system creates and this function deletes. There is no caller-supplied
-    # path to mistype, so there is no file it does not own that it could land on.
+    # This temp file is the only thing this module ever writes: a fresh unique path the operating
+    # system creates and this function deletes. There is no caller-supplied path to mistype, so
+    # there is no file it does not own that it could land on.
     $doc = $null
-    $out = $null
-    $err = $null
     try {
         $doc = [System.IO.Path]::GetTempFileName()
-        $out = [System.IO.Path]::GetTempFileName()
-        $err = [System.IO.Path]::GetTempFileName()
 
         # UTF-8 with no byte order mark. The decoder strips one if it finds it, but writing one
         # here would put a character into the document that the tool never emitted.
         [System.IO.File]::WriteAllText($doc, $Text, [System.Text.UTF8Encoding]::new($false))
 
-        $p = Start-Process -FilePath $node -ArgumentList @($decoder, $doc) -NoNewWindow -PassThru `
-                           -RedirectStandardOutput $out -RedirectStandardError $err
-        if (-not $p.WaitForExit($TimeoutSeconds * 1000)) {
-            try { $p.Kill($true) } catch { }
+        $r = Start-CapturedProcess -FilePath $node -Arguments @($decoder, $doc) `
+                                   -TimeoutSeconds $TimeoutSeconds
+        if (-not $r.launched) {
+            return [pscustomobject]@{
+                ok = $false; value = ''
+                error = "The gate's output could not be decoded: $($r.error)"
+            }
+        }
+        if ($r.timedOut) {
             return [pscustomobject]@{
                 ok = $false; value = ''
                 error = ("The gate's output could not be decoded: node did not answer within " +
@@ -190,9 +278,9 @@ function ConvertFrom-ToonText {
             }
         }
 
-        $code = $p.ExitCode
-        $json = (Get-Content -LiteralPath $out -Raw -ErrorAction SilentlyContinue)
-        $errs = (Get-Content -LiteralPath $err -Raw -ErrorAction SilentlyContinue)
+        $code = $r.exitCode
+        $json = $r.stdout
+        $errs = $r.stderr
 
         if ($code -ne 0) {
             $one = ("$errs" -replace '\s+', ' ').Trim()
@@ -221,9 +309,7 @@ function ConvertFrom-ToonText {
             error = "The gate's output could not be decoded: $($_.Exception.Message)"
         }
     } finally {
-        foreach ($f in @($doc, $out, $err)) {
-            if ($f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
-        }
+        if ($doc) { Remove-Item -LiteralPath $doc -Force -ErrorAction SilentlyContinue }
     }
 }
 
@@ -273,39 +359,29 @@ function Invoke-NoMistakesAxi {
         }
     }
 
-    $out = $null
-    $err = $null
-    try {
-        $out = [System.IO.Path]::GetTempFileName()
-        $err = [System.IO.Path]::GetTempFileName()
-
-        $p = Start-Process -FilePath $exe -ArgumentList $Arguments -NoNewWindow -PassThru `
-                           -WorkingDirectory $workingDirectory `
-                           -RedirectStandardOutput $out -RedirectStandardError $err
-        if (-not $p.WaitForExit($TimeoutSeconds * 1000)) {
-            try { $p.Kill($true) } catch { }
-            return [pscustomobject]@{
-                ok = $false; value = ''; errorText = ''; exitCode = $null
-                error = "no-mistakes did not answer within $TimeoutSeconds seconds and was stopped."
-            }
-        }
-
-        [pscustomobject]@{
-            ok        = $true
-            value     = "$(Get-Content -LiteralPath $out -Raw -ErrorAction SilentlyContinue)"
-            errorText = "$(Get-Content -LiteralPath $err -Raw -ErrorAction SilentlyContinue)"
-            exitCode  = $p.ExitCode
-            error     = ''
-        }
-    } catch {
-        [pscustomobject]@{
+    # Each argument is passed as its own argument by the launcher above, so a `--run` value holding
+    # a space stays one value rather than becoming two the tool would not recognise.
+    $r = Start-CapturedProcess -FilePath $exe -Arguments $Arguments `
+                               -WorkingDirectory $workingDirectory -TimeoutSeconds $TimeoutSeconds
+    if (-not $r.launched) {
+        return [pscustomobject]@{
             ok = $false; value = ''; errorText = ''; exitCode = $null
-            error = "no-mistakes could not be run: $($_.Exception.Message)"
+            error = "no-mistakes could not be run: $($r.error)"
         }
-    } finally {
-        foreach ($f in @($out, $err)) {
-            if ($f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
+    }
+    if ($r.timedOut) {
+        return [pscustomobject]@{
+            ok = $false; value = ''; errorText = ''; exitCode = $null
+            error = "no-mistakes did not answer within $TimeoutSeconds seconds and was stopped."
         }
+    }
+
+    [pscustomobject]@{
+        ok        = $true
+        value     = $r.stdout
+        errorText = $r.stderr
+        exitCode  = $r.exitCode
+        error     = ''
     }
 }
 
@@ -406,6 +482,9 @@ function ConvertFrom-GateRunOutput {
         isParked        = $false
         parkedOn        = ''
         gate            = ''
+        gateStatus      = ''
+        gateRisk        = ''
+        gateNote        = ''
         steps           = @()
         activeSteps     = @()
         findings        = @()
@@ -453,11 +532,36 @@ function ConvertFrom-GateRunOutput {
     $result.help    = Get-ToonRows  -Table $doc -Key 'help'
     $result.outcome = Get-ToonText  -Table $doc -Key 'outcome'
     $result.error   = Get-ToonText  -Table $doc -Key 'error'
-    $result.gate    = Get-ToonText  -Table $doc -Key 'gate'
 
-    # The findings table sits beside a `gate:` on a gate response and under the run elsewhere, so
-    # both places are read and the gate response wins where it carries one.
-    $findingRows = Get-ToonRows -Table $doc -Key 'findings'
+    # `gate:` ARRIVES IN TWO SHAPES AND BOTH ARE READ, because the tool has already changed which
+    # one it emits. The shipped documentation shows a scalar step name; v1.57.0 emits an object
+    # carrying step, status, risk, note and its own findings table. Reading only the documented
+    # shape cost the whole gate answer - the step name came back empty, so the park had nowhere to
+    # point, and a response carrying six findings read as none. Neither shape is dropped in favour
+    # of the other, because a different version may emit either and a reader that follows the
+    # documentation off a cliff is the failure this module exists to prevent.
+    $gateTable = $null
+    if ($doc.Contains('gate') -and $doc['gate'] -is [System.Collections.IDictionary]) {
+        $gateTable = $doc['gate']
+    }
+    if ($gateTable) {
+        $result.gate       = Get-ToonText -Table $gateTable -Key 'step'
+        $result.gateStatus = Get-ToonText -Table $gateTable -Key 'status'
+        $result.gateRisk   = Get-ToonText -Table $gateTable -Key 'risk'
+        $result.gateNote   = Get-ToonText -Table $gateTable -Key 'note'
+    } else {
+        $result.gate = Get-ToonText -Table $doc -Key 'gate'
+    }
+
+    # THE GATE'S PRESENCE, NOT ITS STEP NAME. A gate object that names no step still states that
+    # the pipeline is waiting, and deriving the park from `$result.gate` alone would read that
+    # unnamed gate as no gate at all - the silent default this module's header rules out.
+    $hasGate = ($null -ne $gateTable) -or [bool]$result.gate
+
+    # The findings table sits inside the `gate:` object on v1.57.0, beside it on the documented
+    # shape, and under the run elsewhere. All three are read, nearest to the gate first.
+    $findingRows = Get-ToonRows -Table $gateTable -Key 'findings'
+    if (@($findingRows).Count -eq 0) { $findingRows = Get-ToonRows -Table $doc -Key 'findings' }
 
     $run = $null
     if ($doc.Contains('run') -and $doc['run'] -is [System.Collections.IDictionary]) {
@@ -522,16 +626,24 @@ function ConvertFrom-GateRunOutput {
 
     # WHETHER THE RUN IS PARKED, FROM THE TWO FIELDS THAT SAY SO AND FROM NOTHING ELSE.
     #
-    # `awaiting_agent: parked <duration>` is the tool stating it on a run object, and a `gate:`
-    # object is the tool stating it on a drive result - "if the output contains a `gate:` object,
-    # the pipeline is waiting on you" is the gate's own documentation. No count, no step status and
-    # no elapsed time contributes, because every one of those has already produced a wrong answer
-    # here.
+    # `awaiting_agent` is the tool stating it on a run object, and a `gate:` is the tool stating it
+    # on a drive result - "if the output contains a `gate:` object, the pipeline is waiting on you"
+    # is the gate's own documentation. No count, no step status and no elapsed time contributes,
+    # because every one of those has already produced a wrong answer here.
+    #
+    # A NON-EMPTY `awaiting_agent` IS A PARK WHATEVER IT SAYS, and the recognised wording only
+    # decides how the detail line reads. The field's name is the tool saying what it is waiting on,
+    # so a value this reader has not seen before - a later version's wording, say - must never come
+    # back as "not waiting". Matching `parked <duration>` and calling everything else unparked
+    # would put the silent default back inside the module written to forbid it, in the one
+    # direction that has already cost two hours and twenty-six minutes of a parked run sitting
+    # unanswered.
     #
     # The absence of both is the documented way of saying a run is not waiting on anybody, so
     # `$false` is a reading rather than a default - but it is only ever reached on output that
     # decoded, which is why an unreadable output returns above with no state at all.
-    $result.isParked = ($result.awaitingAgent -match '^parked\b') -or [bool]$result.gate
+    $awaitingRecognised = [bool]($result.awaitingAgent -match '^parked\b')
+    $result.isParked = [bool]$result.awaitingAgent -or $hasGate
     if ($result.gate) { $result.parkedOn = $result.gate }
 
     if (-not $run) {
@@ -542,13 +654,17 @@ function ConvertFrom-GateRunOutput {
         # lists that step's findings, and every one of those fields is filled in above - it simply
         # has no run object beside them. Calling that "no run state to read" would be the same kind
         # of wrong answer this module exists to stop, so it says what it is.
-        if ($result.gate) {
+        if ($hasGate) {
             $howMany = @($result.findings).Count
             $listed = if ($howMany -gt 0) { " It lists $howMany finding(s) to decide on." }
                       else { '' }
+            # An unnamed gate is still a gate. Saying "parked at its  step" would read as a
+            # missing word rather than as a missing field, so the absence is named out loud.
+            $at = if ($result.gate) { "at its $($result.gate) step" }
+                  else { 'at a step it did not name' }
             return & $finish 'no-run' 'gate-response' `
                 ("no-mistakes answered with a gate response rather than a run: the pipeline is " +
-                 "parked at its $($result.gate) step and waiting to be answered.$listed It carries " +
+                 "parked $at and waiting to be answered.$listed It carries " +
                  'no run object, so the run id, branch, head and step list are not in this output.')
         }
 
@@ -562,8 +678,14 @@ function ConvertFrom-GateRunOutput {
     $on    = if ($result.branch) { " on $($result.branch)" } else { '' }
     $said  = if ($result.runStatus) { "reports status $($result.runStatus)" }
              else { 'reported no status word' }
-    $waiting = if ($result.isParked) {
-        $where = if ($result.parkedOn) { " at its $($result.parkedOn) step" } else { '' }
+    $where = if ($result.parkedOn) { " at its $($result.parkedOn) step" } else { '' }
+    $waiting = if ($result.awaitingAgent -and -not $awaitingRecognised) {
+        # The tool's own word, quoted rather than translated, and named as unrecognised. A caller
+        # reading this knows the run is waiting and knows this reader could not say what for,
+        # which is the honest pair; calling it an ordinary park would state the second half.
+        " It is waiting$where - no-mistakes said ""$($result.awaitingAgent)"", which this reader " +
+        'does not recognise, so what it is waiting for is not established.'
+    } elseif ($result.isParked) {
         " It is parked$where and waiting to be answered."
     } else { '' }
     $ended = if ($result.outcome) { " Its outcome is $($result.outcome)." } else { '' }
