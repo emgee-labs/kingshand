@@ -300,6 +300,34 @@ run:
     x: 1
 '@
 
+    # The mirror of the fixture above: every key carrying a value this reader CAN take, and as
+    # empty as a value gets - `""`, a zero, a scalar with nothing in it. This is what an ordinary
+    # gate response looks like in the places that have nothing to say, which is why naming any of
+    # it as unreadable is not a cosmetic error.
+    $script:EveryKeyEmptyButReadable = @'
+outcome: ""
+error: ""
+gate:
+  step: ""
+  status: ""
+  risk: ""
+  note: ""
+  findings[2]{id,severity,file,line,action,description}:
+    r1,warning,internal/pipeline/executor.go,"",auto-fix,Error from os.Remove is ignored
+    r2,error,cmd/main.go,"",ask-user,A second finding with no line number
+run:
+  id: ""
+  branch: ""
+  head: ""
+  pr: ""
+  status: ""
+  awaiting_agent: ""
+  outcome: ""
+  findings: ""
+  steps[1]{step,status,findings,duration_ms}:
+    "","",0,0
+'@
+
     # Every key the fixture above puts in an unreadable shape, as the reader's own key paths.
     $script:EveryKnownKey = @(
         'outcome', 'error', 'help', 'findings',
@@ -609,12 +637,18 @@ Describe 'Reading a gate that arrives as an object rather than a step name' {
         $s.detail   | Should -Match 'does not recognise'
     }
 
-    It 'names an empty gate value rather than letting it read as no gate' {
+    It 'reads an empty gate value as a gate that named no step, not as one it cannot take' {
+        # An empty string is a value this reader CAN take - the tool stating there is nothing
+        # there - so the key still means parked, and the answer is "it did not name a step"
+        # rather than "I could not read this". Calling it unreadable is the rule broken in the
+        # other direction, and `no-mistakes` emits `""` too often for that to be harmless.
         $s = ConvertFrom-GateRunOutput -Text "gate: `"`"`n"
 
-        $s.isParked | Should -BeTrue
-        $s.signal   | Should -Be 'gate-response'
-        $s.detail   | Should -Match 'an empty string'
+        $s.isParked      | Should -BeTrue -Because 'the gate key was there'
+        $s.signal        | Should -Be 'gate-response'
+        $s.detail        | Should -Match 'did not name'
+        $s.notUnderstood | Should -Not -Contain 'gate'
+        $s.detail        | Should -Not -Match 'does not recognise'
     }
 
     It 'says the gate shape was unrecognised on a run answer too, not only on a gate response' {
@@ -832,6 +866,34 @@ Describe 'The rule itself, not the fields that have broken it' {
 
         $s.notUnderstood | Should -BeNullOrEmpty
         $s.detail        | Should -Not -Match 'does not recognise'
+    }
+
+    It 'names nothing for a value it can take, however empty that value is' {
+        # THE OTHER DIRECTION OF THE SAME RULE, and the one a test that only checked the first
+        # direction let through. Every key here carries a value this reader can take - an empty
+        # string, a zero, a false - and not one of them may be reported as not understood. The
+        # tool emits `""` routinely: `line` is empty on every finding without a line number, so
+        # getting this wrong made the list cry wolf on ordinary output.
+        $s = ConvertFrom-GateRunOutput -Text $script:EveryKeyEmptyButReadable
+
+        $s.notUnderstood | Should -BeNullOrEmpty -Because 'every value here was taken'
+        $s.detail        | Should -Not -Match 'does not recognise'
+
+        # And the values really were read, rather than the key being skipped altogether.
+        $s.status           | Should -Be 'has-run'
+        $s.findings.Count   | Should -Be 2
+        $s.findings[0].id   | Should -Be 'r1'
+        $s.findings[0].line | Should -BeNullOrEmpty
+        $s.steps.Count      | Should -Be 1
+        $s.steps[0].findings| Should -Be 0
+    }
+
+    It 'keeps naming a value it genuinely cannot take, after the empty case was let through' {
+        # The pair to the case above: fixing the false positive must not silence the true one.
+        $s = ConvertFrom-GateRunOutput -Text $script:EveryKeyUnreadable
+
+        $s.notUnderstood | Should -Not -BeNullOrEmpty
+        $s.notUnderstood | Should -Contain 'run.steps'
     }
 }
 

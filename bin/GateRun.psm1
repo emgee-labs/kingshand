@@ -41,9 +41,15 @@ Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
 #   stated this way: each fix was correct, each one held, and the next field did it again. That
 #   is the argument for the rule rather than for the fixes.
 #
-#   `Get-ToonText`, `Get-ToonNumber` and `Get-ToonRows` still do the taking, but nothing above
-#   calls them to decide anything any more - they are reached through the four readers, which is
-#   what keeps "present but not understood" from collapsing back into "absent".
+#   `Get-ToonText` and `Get-ToonNumber` still do the taking, but nothing above calls them to
+#   decide anything any more - they are reached through the four readers, which is what keeps
+#   "present but not understood" from collapsing back into "absent".
+#
+#   THE RULE CUTS BOTH WAYS, which is the part that was learnt last and the easiest to undo.
+#   Each of the four readers answers from the key's presence and the value's TYPE, never from
+#   the text that came out of it - so a value it can take is never named as not understood,
+#   however empty that value is. An empty string is the tool saying there is nothing there, and
+#   reporting it as unreadable made the not-understood list cry wolf on ordinary output.
 # - `steps[]` and `active_steps[]` stay two separate lists. Flattening them - which is what
 #   `Select-Object -Unique` over a step regex did - produces a composite that reads like a step list
 #   and is not one.
@@ -467,25 +473,6 @@ function Get-ToonShapeName {
     "a $($Value.GetType().Name)"
 }
 
-# One decoded table as a list of its rows, with an absent or empty table reading as no rows.
-#
-# The leading comma is the same load-bearing idiom Usage.psm1's ConvertTo-JsonList documents:
-# PowerShell unrolls an array on return, so a bare `@()` would come back as $null and a caller's
-# `.Count` would fail on nothing at all.
-function Get-ToonRows {
-    [CmdletBinding()]
-    param($Table, [Parameter(Mandatory)][string]$Key)
-
-    if ($null -eq $Table) { return , @() }
-    if ($Table -isnot [System.Collections.IDictionary]) { return , @() }
-    if (-not $Table.Contains($Key)) { return , @() }
-    $v = $Table[$Key]
-    if ($null -eq $v) { return , @() }
-    if ($v -is [System.Collections.IDictionary]) { return , @() }
-    if ($v -is [string]) { return , @() }
-    , @($v)
-}
-
 # ONE KEY AS A FACT ABOUT THE DOCUMENT RATHER THAN AS A VALUE, AND THE REASON EVERY FIELD BELOW
 # THAT DECIDES ANYTHING GOES THROUGH IT.
 #
@@ -514,27 +501,35 @@ function Read-ToonField {
         return [pscustomobject]@{ present = $false; text = ''; value = $null; shape = '' }
     }
 
-    $value = $Table[$Key]
-    $text  = Get-ToonText -Table $Table -Key $Key
+    # DECIDED FROM THE VALUE'S TYPE, NEVER FROM THE TEXT THAT CAME OUT OF IT. Asking whether
+    # `.text` is empty answers a different question: an empty string is a value this reader can
+    # take perfectly well - the tool stating there is no value - and `no-mistakes` emits it
+    # routinely, `line` being `""` on every finding that has no line number. Deciding on the
+    # rendered text put those in the not-understood list and told a person the findings table
+    # held values it could not take, next to a sentence counting the findings it had just read.
+    #
+    # That is this module's own defect in the other direction, and the rule cuts both ways: a
+    # readable value must not be reported as not understood any more than an unreadable one may
+    # be reported as absent. A scalar is takeable; a dictionary or a list is not.
+    #
+    # AN EXPLICIT NULL IS LEFT UNRECOGNISED on purpose. TOON has a null literal, but no real
+    # capture of this tool uses one - `""` is what it emits for a field with nothing in it, in
+    # every place checked. So a null here is something new rather than something ordinary, and
+    # naming it errs toward saying too much, which is the safe direction for a reader nobody has
+    # taught to expect it.
+    $value    = $Table[$Key]
+    $takeable = ($null -ne $value) -and
+                (($value -is [string]) -or
+                 (($value -isnot [System.Collections.IDictionary]) -and
+                  ($value -isnot [System.Collections.IEnumerable])))
     [pscustomobject]@{
         present = $true
-        text    = $text
+        text    = $(if ($takeable) { Get-ToonText -Table $Table -Key $Key } else { '' })
         value   = $value
-        shape   = $(if ($text) { '' } else { Get-ToonShapeName -Value $value })
+        shape   = $(if ($takeable) { '' } else { Get-ToonShapeName -Value $value })
     }
 }
 
-# The same question one level down, for a key that should carry a table of rows.
-#
-# .present  whether the key is there at all
-# .rows     the entries that are objects, and only those
-# .shape    what was there instead, where the key is present and some entry is not an object
-#
-# A DECLARED TABLE WHOSE ENTRIES ARE NOT OBJECTS IS NOT A TABLE. `steps[2]: intent,review` is
-# valid TOON - a list of two strings rather than two rows of fields - and reading it row by row
-# gives two steps whose every column is '', which is a run reported confidently in a shape nobody
-# sent. Dropping those entries silently is the same fault in a third costume, so what was seen is
-# named and the caller says so rather than emitting rows it cannot describe.
 # One key that should carry a list, answered the same three ways.
 #
 # .present  whether the key is there at all
@@ -568,6 +563,17 @@ function Read-ToonList {
     [pscustomobject]@{ present = $true; items = @($value); shape = '' }
 }
 
+# The same question one level down, for a key that should carry a table of rows.
+#
+# .present  whether the key is there at all
+# .rows     the entries that are objects, and only those
+# .shape    what was there instead, where the key is present and some entry is not an object
+#
+# A DECLARED TABLE WHOSE ENTRIES ARE NOT OBJECTS IS NOT A TABLE. `steps[2]: intent,review` is
+# valid TOON - a list of two strings rather than two rows of fields - and reading it row by row
+# gives two steps whose every column is '', which is a run reported confidently in a shape nobody
+# sent. Dropping those entries silently is the same fault in a third costume, so what was seen is
+# named and the caller says so rather than emitting rows it cannot describe.
 function Read-ToonTable {
     [CmdletBinding()]
     param($Table, [Parameter(Mandatory)][string]$Key)
@@ -832,7 +838,9 @@ function ConvertFrom-GateRunOutput {
     if ($runField.present -and $runField.value -is [System.Collections.IDictionary]) {
         $run = $runField.value
     } elseif ($runField.present) {
-        & $note 'run' $runField.shape ''
+        # Named from the value rather than from `.shape`, which is blank precisely when the value
+        # was takeable text - and a run that is text is still not a run this can read.
+        & $note 'run' (Get-ToonShapeName -Value $runField.value) ''
     }
 
     $runFindings = $null
@@ -1084,7 +1092,7 @@ function Get-GateRunState {
 # header. Nothing may add it back without answering the argument made there.
 Export-ModuleMember -Function Get-NodeCommandPath, Get-NodeHint, Get-ToonDecoderPath,
                               ConvertFrom-ToonText,
-                              Get-ToonText, Get-ToonNumber, Get-ToonRows, Get-ToonShapeName,
+                              Get-ToonText, Get-ToonNumber, Get-ToonShapeName,
                               Read-ToonField, Read-ToonList, Read-ToonTable, Read-ToonCells,
                               Get-ToonCellNote,
                               ConvertFrom-GateRunOutput, Get-GateRunState

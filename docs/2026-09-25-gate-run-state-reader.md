@@ -106,11 +106,31 @@ word it resembles.
 
   So every key goes through `Read-ToonField`, `Read-ToonList`, `Read-ToonTable` or
   `Read-ToonCells`, which answer three ways rather than two, and anything of the third kind is
-  named on `notUnderstood` and in `detail`. The three accessors still do the taking and are
-  reached only through those four. A field that falls silent is the failure; one that says "I
-  could not take this" is not. **Do not add a read that goes straight to an accessor** - that is
-  the move that produced all seven, and the test over every known key is there to catch the
-  eighth.
+  named on `notUnderstood` and in `detail`. The accessors still do the taking and are reached only
+  through those four. A field that falls silent is the failure; one that says "I could not take
+  this" is not. **Do not add a read that goes straight to an accessor** - that is the move that
+  produced all seven, and the test over every known key is there to catch the eighth.
+- **Decide from the key's presence and the value's type, never from the rendered text - and that
+  cuts both ways.** The eighth instance was the same rule broken in the opposite direction, which
+  is worth stating separately because it is the one nobody was watching for. `Read-ToonField` had
+  been deciding "could I take this?" by asking whether the text it produced came back empty, so an
+  empty string - a value the reader takes perfectly well, the tool stating there is nothing there -
+  landed in the not-understood answer. `no-mistakes` emits `""` constantly: `line` is empty on
+  every finding without a line number, which is most of them. The reader was therefore telling a
+  person that the findings table held values it could not take, in the same sentence that counted
+  the findings it had just read correctly.
+
+  **A readable value must not be reported as not understood any more than an unreadable one may be
+  reported as absent.** A reader that cries wolf on ordinary output is no more use than one that
+  stays quiet on broken output, and a caller keying on an empty `notUnderstood` - the wait helper
+  this reader exists to be built on - would refuse a perfectly good gate response. The
+  rule-pinning test asserts both directions for exactly this reason; asserting only the first is
+  how this got in.
+
+  An explicit TOON `null` is left in the unrecognised answer rather than treated as an empty
+  value. The format has the literal, but no real capture of this tool uses one, so it is something
+  new rather than something ordinary - and naming it errs toward saying too much, which is the
+  safe side for a shape nobody has taught this reader to expect.
 - **Never read a present `awaiting_agent` as not waiting.** The field's name is the tool saying
   what the run is waiting on. Treating an unrecognised wording, or a value in an unrecognised
   shape, as unparked is the same silent default in a safer-looking direction, and it is the
