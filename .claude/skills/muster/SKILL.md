@@ -1802,6 +1802,13 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
 - Merge on the forge only where this project's registry entry declares `+merge`, and never
   otherwise. The rest of this step owns that rule.
 - Never push a project that is not registered with a push-capable posture.
+- **Never merge on the forge a run whose brief or `report.md` says it ran no review gate**, on any
+  posture and whatever that project's entry declares with `+merge`. **Say why rather than only
+  refusing**: this run had no review gate, so nothing has established it is safe to merge, and that
+  is what goes to the user. The marker is a line the worker carried from its brief into its
+  `report.md`, so it is on disk rather than in anyone's memory - **this floor survives a restart
+  and does not depend on knowing how the work was dispatched.** **It blocks the forge merge only**:
+  landing on a branch and opening a pull request are unaffected.
 - **Never land a worker whose pointer names a hold that is still open.** It is mid-run rather than
   delivered, whatever its branch shows, and Step 6 owns what to do with it. **Read the pointer, and
   where it names a key read that hold**: the field says which decision, and the hold says whether

@@ -52,7 +52,16 @@ a burst of quick work, and a flag that outlives the burst recreates exactly the 
 announced exit exists to avoid.
 
 That also settles what a context compaction does to it. Losing parley returns the Hand to the fuller
-default, which is the safe direction, and nothing has to be rebuilt to make that true.
+default, which is the safe direction for ceremony, and nothing has to be rebuilt to make that true.
+
+It is not the safe direction for a dispatch already in flight, and that half needed building. A
+brief written with no review gate outlives the session that wrote it, so a forgotten mode would
+leave an ungated run looking like any other green branch - and on a project registered `+merge` it
+would be merged as though it had been reviewed. So the constraint is attached to the work rather
+than to the session: the brief carries a marker saying this dispatch ran no review gate and must not
+be merged on the forge, the worker copies it into `report.md`, and muster Step 7 refuses the merge
+on reading it. Both files are on disk, so the refusal holds through a restart with nobody
+remembering how the work was dispatched.
 
 ## What was rejected
 
@@ -80,27 +89,30 @@ and a fatal-return path that would have blocked a poll forever. Every one of tho
 of a few lines - the size parley is for. The King was told that plainly and answered "no review gate
 in quick mode".
 
-Two things keep the absence visible rather than silent. A parley dispatch says in its brief that the
-gate is deliberately not run, and its worker records that in `report.md`. And parley carries its own
-rule that such a dispatch is never merged on the forge, on any posture and including `+merge`,
-because nothing has established that a run with no review gate is safe to merge. `muster` Step 7
-agrees on its `no-mistakes` limb, refusing a run whose gate did not complete through `pr`, but the
-rule cannot rest there: Step 7's `direct-PR` limb requires no gate at all, so the floor is absent
-exactly where the claim would otherwise be read as one. The King's own word is what moves it.
+One thing keeps the absence visible rather than silent, and it does the work twice over. A parley
+dispatch writes a marker into its brief saying it ran no review gate and must not be merged on the
+forge, and its worker copies that line into `report.md`. Both files are durable, and muster Step 7
+carries a floor that reads them and refuses the merge - on any posture and whatever `+merge`
+declares, because nothing has established that a run with no review gate is safe to merge. Resting
+the rule on Step 7's older gate check instead would have left it absent exactly where it read as
+protection: that check lives on the `no-mistakes` limb alone, and the `direct-PR` limb requires no
+gate at all. The King's own word is what moves it.
 
 ## What is enforced, and what is not
 
-The one rule with no mechanism behind it is the exit. A Hand that has forgotten it is in parley will
-not announce leaving it. That is accepted, because the failure runs the safe way and because the
-only alternative - a durable flag - fails the other way.
+The one rule with no mechanism behind it is the exit, and it is the only one. A Hand that has
+forgotten it is in parley will not announce leaving it. That is accepted, because for ceremony the
+failure runs the safe way and because the only alternative - a durable flag - fails the other way.
 
 Everything else has something. The absent review gate is an absence in the brief rather than an
 instruction to abandon a run, which is the same shape as `--skip ci`: a constraint that has to hold
 while an agent sits inside a long call is carried by a flag, never by a sentence the agent is not
-reading. The no-merge rule has Step 7's existing floor behind it on a `no-mistakes` run and nothing
-mechanical behind it on a `direct-PR` one, which is why it is written as parley's own rule rather
-than as a restatement of Step 7. The reply ceiling and the step boundary are obeyed at a turn
-boundary, where prose is the only mechanism there is.
+reading. The no-merge rule is enforced rather than merely stated: muster Step 7 carries a floor that
+refuses a forge merge while the brief and `report.md` say the run had no review gate, on any posture
+and whatever `+merge` declares. That marker is durable, so the floor does not depend on anyone
+remembering the mode, and it covers the `direct-PR` limb where Step 7 has no gate outcome to look
+for. The reply ceiling and the step boundary are obeyed at a turn boundary, where prose is the only
+mechanism there is.
 
 ## Out of scope, deliberately: one warm worker for a burst
 

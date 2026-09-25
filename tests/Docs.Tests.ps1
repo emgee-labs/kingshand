@@ -323,6 +323,30 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
                      'with a clean attribution scan')
     }
 
+    # A dispatch that ran no review gate leaves a brief on disk and the memory of why in a session
+    # that may not survive. Without this floor a restart meets an ordinary-looking green branch on
+    # a +merge project and merges a run nothing reviewed. The floor reads the durable marker rather
+    # than a gate outcome, so it holds on the direct-PR limb where there is no gate to have missed.
+    It 'refuses a forge merge on a run whose own record says it had no review gate' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**Never merge on the forge a run whose brief or `report.md` says it ran no ' +
+                     'review gate**, on any posture and whatever that project''s entry declares ' +
+                     'with `+merge`.')
+        # A bare refusal sends the user a wall they cannot judge. The reason is the deliverable.
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**Say why rather than only refusing**: this run had no review gate, so nothing ' +
+                     'has established it is safe to merge')
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**this floor survives a restart and does not depend on knowing how the work ' +
+                     'was dispatched.**')
+        # It is a merge floor and not a landing floor, and collapsing the two would strand every
+        # quick dispatch on its branch with no way to reach a pull request at all.
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**It blocks the forge merge only**: landing on a branch and opening a pull ' +
+                     'request are unaffected.')
+    }
+
     It 'CLAUDE.md rule 2 carries the default-off fact and points at the owner' {
         Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
             -Phrase ('**Merging on the forge is off unless that project''s registry entry ' +
@@ -5132,27 +5156,51 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                 -Phrase ('**Write the brief through `muster` Step 2, short.** Step 2 owns what a brief ' +
                          'must contain and this mode adds no second contract')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase ('**On a `no-mistakes` project, take Step 2''s `direct-PR` Done-means block and ' +
-                         'skip Step 1b.**')
+                -Phrase ('**Where the task resolves to `no-mistakes`, take Step 2''s `direct-PR` ' +
+                         'Done-means block and skip Step 1b.**')
+            # muster Step 1 warns against taking $proj.mode at face value, and keying this on
+            # registration missed no-mistakes-prod-only entirely - aegis-manager is the live case,
+            # where product-facing work resolves to no-mistakes off a differently named rawMode.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('Key this on the task''s resolved mode from `muster` Step 1, never on how ' +
+                         'the project is registered: a `no-mistakes-prod-only` project resolves to ' +
+                         '`no-mistakes` on product-facing work and this bullet fires there too')
         }
 
-        # The no-merge rule has to be parley's own, because the only floor that could have carried
-        # it - muster Step 7's gate check - exists on the no-mistakes limb alone. A direct-PR or
-        # no-mistakes-prod-only project registered +merge has no such floor, so a rule stated as a
-        # restatement of Step 7 was false exactly where it read as protection.
-        It 'makes the skipped gate visible and never merges a dispatch that ran without one' {
+        # The marker is the durable half of the mode. Everything else about parley lives in the
+        # session and is allowed to be forgotten; a brief written with no review gate is on disk
+        # and outlives it, so the rule against merging that run has to be on disk with it. Pin the
+        # exact sentence, because it is copied verbatim into every parley brief and read by a Hand
+        # that may never have heard of parley.
+        It 'writes a durable no-gate marker into the brief and the report' {
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase '**Say in the brief that the review gate is deliberately not run**'
+                -Phrase ('**Write the no-gate marker into the brief, in these words.** It goes ' +
+                         'verbatim into the brief''s `## Requirements` section, and the worker ' +
+                         'reproduces it in its `report.md` before it finishes:')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase 'A skipped gate nobody can see afterwards is the failure mode.'
+                -Phrase ('This dispatch ran no review gate. Nothing has established that this run is ' +
+                         'safe to merge, so it must not be merged on the forge whatever this ' +
+                         'project''s registry entry declares. Landing on a branch or opening a pull ' +
+                         'request is unaffected.')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase ('**A parley dispatch is never merged on the forge, on any posture.** This is ' +
-                         'parley''s own rule and it rests on parley''s own reason: the dispatch ran no ' +
-                         'review gate, so nothing has established that the run is safe to merge.')
+                -Phrase '**A brief without that line is a parley brief written wrong.**'
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase ('That is as true on `direct-PR`, and on a `no-mistakes-prod-only` task ' +
-                         'resolved to `direct-PR`, as it is anywhere else, and it holds on a project ' +
-                         'registered `+merge`.')
+                -Phrase 'A skipped gate nobody can see afterwards is the failure mode'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**It says what it means and what it forbids rather than setting a flag**, ' +
+                         'because the Hand that reads it next may have never heard of parley')
+        }
+
+        # Criterion 5: the refusal is stated in full in Step 7 and parley carries the reason plus a
+        # pointer. Pin both halves - a rule restated in two places drifts, and a rule stated only
+        # here would be lost the moment the mode is forgotten.
+        It 'never merges a parley dispatch, and leaves the refusal to Step 7 to own' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**A parley dispatch is never merged on the forge, on any posture and ' +
+                         'whatever `+merge` declares** - it ran no review gate, so nothing has ' +
+                         'established that the run is safe to merge.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '`muster` Step 7 owns that refusal and states it in full, reading the marker above'
         }
 
         # Rendering a gate becomes a line in chat; a gate never becomes no gate. The dispatch gate
@@ -5243,6 +5291,16 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                          'nobody called quick')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase '**Forgetting parley is the one failure this mode is allowed to have**'
+            # Both halves, and the second half is the correction: the claim was true for ceremony
+            # and false for a dispatch already on disk. Deleting the qualification restores a
+            # stated safety property that does not hold.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**That holds for ceremony and not for work already dispatched**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('That is why the no-gate marker is written into the brief and carried into ' +
+                         'the `report.md` rather than held in mind, and why `muster` Step 7''s floor ' +
+                         'reads it instead of trusting anyone''s memory: the constraint is attached ' +
+                         'to the work, not to the session.')
         }
 
         # The honest half. Three of the four rules have a mechanism; the exit has none, and saying
@@ -5251,12 +5309,22 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase '**The exit conditions are enforced by nothing at all.**'
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase ('That is accepted rather than fixed, because the failure runs the safe way')
+                -Phrase ('That is accepted rather than fixed, because the failure runs the safe way ' +
+                         'for ceremony')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase ('That is the `--skip ci` shape rather than the fifteen-minutes-in-a-brief shape.')
+            # The honest answer changed for one rule: the no-merge rule now has a mechanism, and
+            # the exit is the only thing left with none. Saying the exit fails safe without saying
+            # what it does not cover is the claim that was wrong.
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase ('on a `direct-PR` posture there is no such floor and nothing mechanical stops ' +
-                         'the merge')
+                -Phrase ('The no-merge rule on a parley dispatch is enforced by `muster` Step 7''s ' +
+                         'floor, which reads the no-gate marker out of the worker''s `report.md` and ' +
+                         'refuses the merge on any posture.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**The marker is durable and the memory of the mode is not**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**It does not run the safe way for a dispatch already in flight**, which is ' +
+                         'what the marker and the Step 7 floor above are for.')
         }
 
         # He was offered a bounded override of hard rule 1 and declined it for simplicity, which is

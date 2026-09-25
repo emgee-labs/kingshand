@@ -117,29 +117,35 @@ Where one is needed:
   this mode adds no second contract: every mandatory section is present, the `Read first` line
   about the index is there, the standing criteria are pasted, and the Done-means block is one of
   Step 2's own.
-- **On a `no-mistakes` project, take Step 2's `direct-PR` Done-means block and skip Step 1b.**
-  There is no gate to preflight and no gate line to carry, and `direct-PR` is the existing contract
-  that ends at a pull request without one. The project's registered posture is unchanged - what
-  changes is this dispatch. Step 6's fold-back does not fire either, for the same reason it does
-  not on a project with no gate: there is no round to compare the self-check against.
-- **Say in the brief that the review gate is deliberately not run**, in one line under
-  `Requirements`, and have the worker record that in its `report.md`. A skipped gate nobody can see
-  afterwards is the failure mode.
+- **Where the task resolves to `no-mistakes`, take Step 2's `direct-PR` Done-means block and skip
+  Step 1b.** Key this on the task's resolved mode from `muster` Step 1, never on how the project is
+  registered: a `no-mistakes-prod-only` project resolves to `no-mistakes` on product-facing work
+  and this bullet fires there too, exactly as it does on a project registered `no-mistakes`. There
+  is no gate to preflight and no gate line to carry, and `direct-PR` is the existing contract that
+  ends at a pull request without one. The project's registered posture is unchanged - what changes
+  is this dispatch. Step 6's fold-back does not fire either, for the same reason it does not on a
+  project with no gate: there is no round to compare the self-check against.
+- **Write the no-gate marker into the brief, in these words.** It goes verbatim into the brief's
+  `## Requirements` section, and the worker reproduces it in its `report.md` before it finishes:
+
+  > This dispatch ran no review gate. Nothing has established that this run is safe to merge, so it
+  > must not be merged on the forge whatever this project's registry entry declares. Landing on a
+  > branch or opening a pull request is unaffected.
+
+  **A brief without that line is a parley brief written wrong.** A skipped gate nobody can see
+  afterwards is the failure mode, and the marker is what makes it visible: the brief and the report
+  are on disk, so they survive a restart, a compaction and a fresh session picking the work up.
+  **It says what it means and what it forbids rather than setting a flag**, because the Hand that
+  reads it next may have never heard of parley and must still be unable to misread it.
 - **Do not wait.** Arm the worker's wait exactly as `muster` Step 4 requires - a worker nobody is
   watching is the failure `CLAUDE.md`'s Recovery section exists to prevent, and that is a safety
   rule rather than ceremony - then answer in one line and end the turn. Parley does not hold an
   exchange open on a worker.
-- **A parley dispatch is never merged on the forge, on any posture.** This is parley's own rule and
-  it rests on parley's own reason: the dispatch ran no review gate, so nothing has established that
-  the run is safe to merge. That is as true on `direct-PR`, and on a `no-mistakes-prod-only` task
-  resolved to `direct-PR`, as it is anywhere else, and it holds on a project registered `+merge`.
-  `muster` Step 7 agrees on its `no-mistakes` limb, where it refuses a run whose gate did not
-  complete every step through `pr` - but the rule does not rest on that floor, because Step 7's
-  `direct-PR` limb requires no gate at all and a rule leaning on Step 7 would have been false
-  exactly where it read as a safety floor. **A stated safety property that nothing enforces is
-  worse than claiming nothing at all, because the claim is what stops the next reader checking.**
-  So the work stops where its posture stops, and the merge is the King's own next step in his own
-  words.
+- **A parley dispatch is never merged on the forge, on any posture and whatever `+merge`
+  declares** - it ran no review gate, so nothing has established that the run is safe to merge.
+  `muster` Step 7 owns that refusal and states it in full, reading the marker above; this is the
+  reason and the cross-reference. So the work stops where its posture stops, and the merge is the
+  King's own next step in his own words.
 
 ## The gate a parley dispatch does not run
 
@@ -193,6 +199,13 @@ give up. **Forgetting parley is the one failure this mode is allowed to have** -
 to the fuller default and the King says two words again - and a context compaction that takes it
 runs the same safe way.
 
+**That holds for ceremony and not for work already dispatched**, and the difference matters. A
+brief written with no review gate outlives the session that wrote it, so a forgotten mode would
+otherwise leave an ungated run looking like any other green branch to whoever picks it up. That is
+why the no-gate marker is written into the brief and carried into the `report.md` rather than held
+in mind, and why `muster` Step 7's floor reads it instead of trusting anyone's memory: the
+constraint is attached to the work, not to the session.
+
 ## What enforces each rule here, and where the answer is nothing
 
 The standing criteria are suspicious of exactly this shape - a rule written in prose that an agent
@@ -204,14 +217,16 @@ is supposed to honour - so each one is answered rather than assumed.
 - The absent review gate is enforced mechanically: the gate line is never written into the brief,
   so no agent is ever inside a run and told to stop. That is the `--skip ci` shape rather than the
   fifteen-minutes-in-a-brief shape.
-- The no-merge rule on a parley dispatch is obeyed by the Hand at the same turn boundary. `muster`
-  Step 7's existing floor backs it on a `no-mistakes` run, where it looks for a gate outcome that
-  does not exist and refuses; on a `direct-PR` posture there is no such floor and nothing
-  mechanical stops the merge, which is exactly why the rule is written to stand on its own.
+- The no-merge rule on a parley dispatch is enforced by `muster` Step 7's floor, which reads the
+  no-gate marker out of the worker's `report.md` and refuses the merge on any posture. **The marker
+  is durable and the memory of the mode is not**, so that floor holds through a restart and holds
+  on a `direct-PR` posture, which has no gate outcome for an older reading of Step 7 to miss.
 - **The exit conditions are enforced by nothing at all.** A Hand that has forgotten it is in parley
   will not announce the exit. That is accepted rather than fixed, because the failure runs the safe
-  way - a forgotten mode is the default ceremony returning - and because the alternative is a
-  durable flag, which fails the other way. It is the honest answer and it belongs in the record.
+  way for ceremony - a forgotten mode is the default ceremony returning - and because the
+  alternative is a durable flag, which fails the other way. **It does not run the safe way for a
+  dispatch already in flight**, which is what the marker and the Step 7 floor above are for. It is
+  the honest answer and it belongs in the record.
 
 ## What was offered and declined
 
