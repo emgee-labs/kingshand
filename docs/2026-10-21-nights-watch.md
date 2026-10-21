@@ -72,8 +72,8 @@ was armed before the budget ran out. The procedure that worked by hand is now me
   the reader. That cadence replaces seven and five, which were set against a reader that froze.
 - **A pause on the climb.** On 2026-10-20 the window went from 83 to 88 percent in two minutes, so
   the watch also pauses where the rise since the window's previous reading, carried to the next
-  read, would reach the threshold. Without two readings of the same window it is the plain
-  threshold.
+  read, would reach the threshold. Without an earlier reading of the same window at least as old
+  as the time to the next read, it is the plain threshold.
 - **No reading while no worker is running.** The number barely moves then, and the first dispatch
   takes its own reading before it starts.
 - **At the threshold, in order:** rescue each gate run's head to `refs/gate/<task>-<moment>` - a

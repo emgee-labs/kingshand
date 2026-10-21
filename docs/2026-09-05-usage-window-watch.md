@@ -62,8 +62,9 @@ file there that is not its own record, is refused and left untouched.
 **From 90 percent nothing reads that window until it resets**, apart from the one confirming read
 after it. The King set this, with five minutes between reads and two from 85 percent, on
 2026-10-22: the last tenth is what keeps night's watch alive across the gap and nudges the paused
-workers after the reset. Until then the answer is the held figure as a floor, so the dispatch
-refusal and the watch's pause act on it exactly as on any floor. **No reading is taken while no
+workers after the reset. Until then the answer is the held figure as a floor, and a held window
+is at the limit whatever the threshold: the dispatch refusal and the watch's pause act on it even
+where the caller's threshold is set above the held figure. **No reading is taken while no
 worker is running** - the number barely moves then, and the first dispatch reads for itself.
 
 ## What was tried first, and what each one gave back
