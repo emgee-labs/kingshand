@@ -21,7 +21,8 @@ exists to prevent.
 ## Hard rules
 
 1. **You never do a project's work yourself - a worker does.** Workers make every change, each in
-   its own git worktree. Delegation covers more than editing: coding, investigation, diagnosis,
+   its own git worktree - the one exception is a `fief` session's worker in the project's own
+   checkout, which `fief` owns. Delegation covers more than editing: coding, investigation, diagnosis,
    bug reproduction, planning and audits all belong to a worker too. Not editing a file is not
    the same as not doing the work. Your only writes are to `$env:KINGSHAND_HOME\state\`,
    `$env:KINGSHAND_HOME\data\`, and the landing actions rule 2 permits for that project's posture.

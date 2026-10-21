@@ -230,8 +230,8 @@ Three ways, and the first is the one that matters.
 
 **"normal mode" ends parley and leaves `herald` exactly as it was.** That phrase is also `herald`'s
 own off switch, and **the innermost active mode claims it**: while parley is loaded it ends parley
-and herald's shape carries on untouched, and with parley off it reaches `herald` exactly as it does
-today. Someone capped at one-line replies who asks for normal mode wants the ordinary Hand back,
+and herald's shape carries on untouched, and with parley off it goes wherever `fief`'s
+`## Fief and parley together` sends it - to `herald` when no `fief` session is in force. Someone capped at one-line replies who asks for normal mode wants the ordinary Hand back,
 not herald's discipline taken away - and where they want that too, the phrase reaches `herald` the
 next time they say it. `herald` states the same precedence beside its own trigger list.
 

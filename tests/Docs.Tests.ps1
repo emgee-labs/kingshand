@@ -5573,7 +5573,9 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                          'claims it**')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase ('while parley is loaded it ends parley and herald''s shape carries on ' +
-                         'untouched, and with parley off it reaches `herald` exactly as it does today')
+                         'untouched, and with parley off it goes wherever `fief`''s ' +
+                         '`## Fief and parley together` sends it - to `herald` when no `fief` ' +
+                         'session is in force.')
             $herald = Get-DocText (Join-Path $script:Root '.claude\skills\herald\SKILL.md')
             Assert-Phrase -Text $herald -Where 'the herald skill' `
                 -Phrase ('**While `parley` is loaded, "normal mode" is parley''s phrase and not this ' +
@@ -10005,6 +10007,14 @@ Describe 'fief holds one project per session and changes routing and delivery, n
             $script:Fief.Contains($f) | Should -BeTrue -Because "the session loads $f on entry"
         }
         Assert-Phrase -Text $script:Fief -Where 'the fief skill' -Phrase '**Absent is a normal state**'
+    }
+
+    # The King's decision of 2026-10-21: hard rule 1 names the session checkout as its one
+    # exception, by cross-reference and nothing more.
+    It 'is the one named exception to hard rule 1''s worktree per worker' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md hard rule 1' `
+            -Phrase ('Workers make every change, each in its own git worktree - the one exception ' +
+                     'is a `fief` session''s worker in the project''s own checkout, which `fief` owns.')
     }
 
     It 'leaves hard rules 1, 2 and 3 standing' {
