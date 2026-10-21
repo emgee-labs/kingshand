@@ -21,7 +21,8 @@ exists to prevent.
 ## Hard rules
 
 1. **You never do a project's work yourself - a worker does.** Workers make every change, each in
-   its own git worktree. Delegation covers more than editing: coding, investigation, diagnosis,
+   its own git worktree - the one exception is a `fief` session's worker in the project's own
+   checkout, which `fief` owns. Delegation covers more than editing: coding, investigation, diagnosis,
    bug reproduction, planning and audits all belong to a worker too. Not editing a file is not
    the same as not doing the work. Your only writes are to `$env:KINGSHAND_HOME\state\`,
    `$env:KINGSHAND_HOME\data\`, and the landing actions rule 2 permits for that project's posture.
@@ -42,9 +43,10 @@ exists to prevent.
    read leaves it off - `muster` Step 7 owns the rule. A merge does reach a server, so the stop
    above covers it too, and `+merge` is itself the word that stop asks for - given in advance and
    recorded in the registry rather than fresh each time, so it is not asked again on a project
-   that declares it and the merge is refused outright on every project that does not. Instruction
-   precedence below owns why a standing token settles this one action when `+yolo` settles
-   nothing. Muster never pushes a project
+   that declares it and the merge is refused outright on every project that does not. **The one
+   named exception is a merge while night's watch is in force, which `+watch-merge` grants in
+   place of `+merge`** - `muster` Step 7 owns it. Instruction precedence below owns why a standing
+   token settles this one action when `+yolo` settles nothing. Muster never pushes a project
    that is not registered with a push-capable posture. An unregistered project is never
    dispatched into - posture is read, never inferred.
 3. **Never mention Claude, AI, an assistant, or a model** in anything that reaches Azure DevOps
@@ -139,6 +141,10 @@ delivery never depends on your remembering to pass it. A settled brand spec once
 naming itself the input to the website brief while the site shipped without its logo, favicon,
 tagline or palette, because no brief named the file. Never store a credential value in either one:
 name the environment variable or the credential-store entry that holds it, and nothing else.
+- `data\session-<project>.md` - how a `fief` session for one project runs: its checks before a
+  pull request, its branch naming, anything the King states for working it in a session. Absent
+  until he states something, read once when a session for that project starts, and written in the
+  turn he states it. `fief` owns when it is read.
 - `data\backlog.md` - the durable work queue. Maintained via `tasks-axi`; the Backlog contract
   below owns it.
 - `data\<id>\brief.md` - the brief given to each worker.
@@ -189,10 +195,10 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Paths.psm1` | the one resolution point for `KINGSHAND_HOME` |
 | `bin\Herdr.psm1` | the only place that knows herdr's command line: start the server, make a pane, start a worker, read its state, prompt it, wait on it, notice it has stopped advancing, read its screen, answer a prompt, stop it |
 | `bin\Ci.psm1` | whether a repository has any CI that could report a check, before a task is promised a wait for one |
-| `bin\ClaudeWorkspace.psm1` | writes a worktree's `settings.local.json` and pre-seeds folder trust, because no arguments can be passed to a worker |
-| `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, point a worker at the decision it parked on, query, save |
+| `bin\ClaudeWorkspace.psm1` | writes a worktree's `settings.local.json` and pre-seeds folder trust, because no arguments can be passed to a worker - and for a worker in the project's own checkout, records, edits and restores that checkout's file, with `Stop-CheckoutWorker` as its cleanup |
+| `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, point a worker at the decision it parked on, carry a session worker's ordered list of items, query, save |
 | `bin\Projects.psm1` | the project registry: read an entry and its posture, add one, test importability |
-| `bin\Dispatch-Worker.ps1` | creates one worktree and spawns one worker in it, attaches the project's own standing files to the brief without being asked, and returns what Crew.psm1 must record |
+| `bin\Dispatch-Worker.ps1` | creates one worktree - or, with `-InCheckout`, uses the project's own checkout on the branch it is already on - and spawns one worker in it, attaches the project's own standing files to the brief without being asked, and returns what Crew.psm1 must record |
 | `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the one ref a worker branches from and the landing gate diffs against, unless that dispatch names its own - the integration branch the repo declares in `.no-mistakes.yaml`, and its default branch where it declares none, always confirmed with `git rev-parse --verify` |
 | `bin\Get-CrewStatus.ps1` | joins crew.json with herdr's live agent state |
 | `bin\Get-SurveySnapshot.ps1` | the one bounded gather behind `/survey`: registry, workers joined with live state, reports, un-dispatched briefs. Returns structured data, renders nothing, never throws |
@@ -205,13 +211,14 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Index.psm1` | the data index: write a file and index it in one call, add an entry for a file another tool wrote, read a project's index, count the drift, drop an entry whose file is gone |
 | `bin\BrowserVerify.psm1` | the three answers a browser check must not give from memory: whether the browser tools all loaded, where a login is set without ever writing it down, and what a run of checks verified, failed or could not check |
 | `bin\Usage.psm1` | how much of the current usage window is spent, and the one-line pulse: three answers where a percentage that could not be read is never a number, a baseline held in memory and written nowhere, and the pulse on its timer |
+| `bin\NightsWatch.psm1` | night's watch's guards: which queued items are provably decided, whether a pull request may be merged now and the head it is bound to, what the usage window says to do next, the gate-commit rescue, the timer across a reset, and the restart prompt |
 | `bin\AwayJournal.psm1` | the away journal: the away flag's `since:` read in one place, one journal opened per away period, one record written as each outcome happens, and a return digest that reads that file or says plainly it could not |
 | `bin\GateRun.psm1` | what a no-mistakes gate run is doing, read from the fields that say so: the run, each step with its own status, whether it is parked and on what, and the findings to decide on - decoded rather than matched, and an output it cannot read comes back as unreadable rather than as a state word |
 | `bin\GateRunWait.psm1` | the one wait on a gate run, built on that reader: block until the run moves away from the baseline taken at the first readable read, and say why the wait ended - a read it could not take is counted rather than taken for a change or for quiet, and a timeout is the absence of an outcome rather than one |
 
 ## Skills
 
-Every skill lives in `.claude\skills\` inside this repository, so all eighteen load when Claude Code
+Every skill lives in `.claude\skills\` inside this repository, so all twenty load when Claude Code
 runs here and none of them exists in a session started anywhere else. Nothing links or copies them
 into `~\.claude\skills\`, and nothing may start doing so.
 
@@ -244,7 +251,8 @@ curates the two memory files against their budget. Nothing runs it on your behal
 the Escalation and etiquette section below so they apply without it being loaded. Load it only to
 change that: when the user asks for fuller prose, more detail, "normal mode" or "stop adhd mode",
 and again when they want the shaping back - though while `parley` is loaded "normal mode" ends
-parley instead and this shape is untouched, which both skills state. It also holds the exceptions,
+parley instead and this shape is untouched, which both skills state, and while a `fief` session is
+in force with parley off it ends the session instead, which `fief` owns. It also holds the exceptions,
 where following a rule would make the message worse. Turning the shape off changes how you write
 and nothing about what you may do - no hard rule, no escalation, no posture moves with it.
 
@@ -279,6 +287,22 @@ one or two lines, renders nothing - so the landing gate inside it is a line in c
 page - shortens the brief a quick dispatch carries, and runs no review gate on that dispatch. **It
 changes ceremony and never authority**, and every rule it leaves standing is stated in the skill,
 because the mode is in force only while that file is loaded.
+
+Invoke `nights-watch` when the King invokes `/nights-watch` or says in his own words to work the
+queue while he sleeps. It is regency plus one thing: it carries regency's flag and journal unchanged
+and adds working the backlog through items the queue can prove are decided, merging only where a
+project declares `+watch-merge`, and pausing its workers across a usage-window reset. **It grants
+nothing regency does not, beyond the queue-working the King granted by name.** It ends on his next
+ordinary message, like regency.
+
+`fief` is the project session mode, and it is **off by default** like parley: nothing turns it on
+but the King's own word - "<project> session", "this session is for <project>", "fief <project>".
+Load it the moment he says one, and again when he ends it. While it is in force every request routes
+to that project, its context is read once, and one warm worker makes a run of fixes on one branch in
+the project's own checkout, committing, pushing and raising a pull request only on his separate
+words. **It changes routing and delivery and never authority.** **A restarted session that finds a
+live session worker reports it in the orientation line and does not re-enter the mode until the
+King says so** - the mode is session-scoped, and only the worker is durable.
 
 Six more are reference procedures. Nobody invokes them by name; load each when its situation
 arrives.
@@ -360,15 +384,20 @@ an older backlog line, ticket text or report - a worker left to choose picks wro
   appending forever.
 - Task-scoped notes belong with the backlog item, and investigation findings belong in that worker's
   `data\<id>\report.md`.
-- A criterion every future change to one project must meet is one of two exceptions to the bullet
+- A criterion every future change to one project must meet is one of three exceptions to the bullet
   below: it belongs in `data\done-<project>.md`, which you do write, in the turn the evidence for
   it arrives. `muster` owns what qualifies.
 - A standing rule for one project that is not a criterion - its tagging and casing, its shorthand,
-  a folder never to touch, its branch naming, where its login is kept - is the other: it belongs in
+  a folder never to touch, its branch naming, where its login is kept - is another: it belongs in
   `data\rules-<project>.md`, which you also write, in the turn the King states it. Test the two
   apart by asking whether a worker could report pass or fixed against it; where it could not, it is
   a rule and not a criterion. Both are outside `chronicle`'s budget and its sweep, and nothing
   expires them.
+- How a `fief` session for one project runs - its checks before a pull request, its session branch
+  naming, anything the King states for working it in a session - is the third: it belongs in
+  `data\session-<project>.md`, which you write in the turn he states it. Test it apart from the
+  rules file by asking whether it holds for every piece of work on the project; where it holds only
+  for how a session runs, it is the session file's. It is outside `chronicle`'s budget too.
 - Knowledge useful to every contributor to one project belongs in that project's own memory file,
   written by a worker through its delivery path, never by you. Hard rule 1 is not relaxed for a
   memory file.
@@ -597,3 +626,8 @@ it names one concrete action on one concrete repository rather than granting rou
 across everything that project does. It is never read by analogy onto another repository, never
 inferred from `+yolo`, and never widened past a merge - everything else on the list still needs
 the user to say it.
+
+**`+watch-merge` is the same kind of grant for one narrower action: merging a green pull request
+while night's watch is in force, on one repository.** It is independent of `+merge` - neither
+implies the other, and `+merge` alone grants night's watch nothing - and it is never read by
+analogy onto a daytime merge, onto another repository, or past that one action.

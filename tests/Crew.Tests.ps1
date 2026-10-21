@@ -241,3 +241,144 @@ Describe 'Save and Import round-trip' {
         (Import-CrewState -Path (Join-Path $TestDrive 'missing.json')).workers.Count | Should -Be 0
     }
 }
+
+# A `fief` session's warm worker makes a run of fixes on one branch, so one record carries every id
+# riding that branch, in order - the source for the commit and pull request titles. Every other
+# record keeps the one-ticket shape it always had, untouched on the way in and on the way out.
+Describe 'a session worker carries several items, and nothing else changes shape' {
+    BeforeAll {
+        function Add-SessionWorker {
+            param([Parameter(Mandatory)][hashtable]$State, [switch]$InCheckout)
+            $extra = @{}
+            if ($InCheckout) {
+                $extra = @{ InCheckout = $true
+                            SettingsRecord = 'D:\data\acme-api-session\checkout-settings.json' }
+            }
+            Add-CrewWorker -State $State -WorkerId 'acme-api-session' -Ticket 'T-1001' -Kind 'ticket' `
+                           -Repo 'acme-api' -Worktree 'C:/repos/acme-api' -Branch 'feature-x' `
+                           -Brief 'data/acme-api-session/brief.md' -Session @extra
+        }
+    }
+
+    BeforeEach { $script:s = New-CrewState }
+
+    It 'adds no new key to an ordinary record' {
+        Add-CrewWorker -State $script:s -WorkerId 'T-1001' -Ticket 'T-1001' -Kind 'ticket' `
+                       -Repo 'acme-web' -Worktree 'w' -Branch 'worktree-T-1001' -Brief 'f'
+        @($script:s.workers['T-1001'].Keys | Sort-Object) |
+            Should -Be @('base', 'branch', 'brief', 'dispatched_at', 'kind', 'landed', 'repo', 'stage',
+                         'ticket', 'waiting_on', 'worktree')
+    }
+
+    It 'reads an ordinary record as its one ticket' {
+        Add-CrewWorker -State $script:s -WorkerId 'T-1001' -Ticket 'T-1001' -Kind 'ticket' `
+                       -Repo 'acme-web' -Worktree 'w' -Branch 'worktree-T-1001' -Brief 'f'
+        $items = @(Get-CrewItems -State $script:s -WorkerId 'T-1001')
+        $items.Count   | Should -Be 1
+        $items[0].id   | Should -Be 'T-1001'
+        $items[0].kind | Should -Be 'ticket'
+    }
+
+    It 'starts a session worker with its first ticket as the first item' {
+        Add-SessionWorker -State $script:s
+        $script:s.workers['acme-api-session'].ticket | Should -Be 'T-1001'
+        @(Get-CrewItems -State $script:s -WorkerId 'acme-api-session').id | Should -Be @('T-1001')
+    }
+
+    It 're-records a relaunched worker without losing its items or the hold it parked on' {
+        Add-SessionWorker -State $script:s -InCheckout
+        Add-CrewItem -State $script:s -WorkerId 'acme-api-session' -Item 'fix-header' -Kind 'adhoc'
+        Set-CrewWaitingOn -State $script:s -WorkerId 'acme-api-session' -HoldKey 'T-1001-copy'
+        Set-CrewStage -State $script:s -WorkerId 'acme-api-session' -Stage 'implementing'
+        Set-CrewRelaunch -State $script:s -WorkerId 'acme-api-session' -Worktree 'C:/repos/acme-api' `
+            -Branch 'feature-x' -Base 'origin/main' -SettingsRecord 'D:\data\acme-api-session\checkout-settings-2.json'
+        $rec = $script:s.workers['acme-api-session']
+        @(Get-CrewItems -State $script:s -WorkerId 'acme-api-session').id | Should -Be @('T-1001', 'fix-header')
+        $rec.waiting_on      | Should -Be 'T-1001-copy'
+        $rec.base            | Should -Be 'origin/main'
+        $rec.stage           | Should -Be 'dispatched'
+        $rec.settings_record | Should -Be 'D:\data\acme-api-session\checkout-settings-2.json'
+    }
+
+    It 'refuses a relaunch of a checkout worker with no new settings record, or of an unknown id' {
+        Add-SessionWorker -State $script:s -InCheckout
+        { Set-CrewRelaunch -State $script:s -WorkerId 'acme-api-session' -Worktree 'w' -Branch 'feature-x' `
+              -Base 'main' } | Should -Throw '*needs -SettingsRecord*'
+        { Set-CrewRelaunch -State $script:s -WorkerId 'T-9999' -Worktree 'w' -Branch 'b' -Base 'main' } |
+            Should -Throw '*not found*'
+    }
+
+    It 'refuses a session started on an id that is not slug-shaped, and records nothing' {
+        { Add-CrewWorker -State $script:s -WorkerId 'acme-api-session' -Ticket 'AB#1234' -Kind 'ticket' `
+                         -Repo 'acme-api' -Worktree 'w' -Branch 'feature-x' -Brief 'f' -Session } |
+            Should -Throw '*slug-shaped*'
+        $script:s.workers.ContainsKey('acme-api-session') | Should -BeFalse
+    }
+
+    It 'appends items in the order they joined the branch, and keeps that order through a save' {
+        Add-SessionWorker -State $script:s
+        Add-CrewItem -State $script:s -WorkerId 'acme-api-session' -Item 'fix-header' -Kind 'adhoc'
+        Add-CrewItem -State $script:s -WorkerId 'acme-api-session' -Item 'T-1003' -Kind 'ticket'
+        $p = Join-Path $TestDrive 'session-crew.json'
+        Save-CrewState -State $script:s -Path $p
+        $r = Import-CrewState -Path $p
+        $items = @(Get-CrewItems -State $r -WorkerId 'acme-api-session')
+        $items.id   | Should -Be @('T-1001', 'fix-header', 'T-1003')
+        $items.kind | Should -Be @('ticket', 'adhoc', 'ticket')
+    }
+
+    It 'survives a save with a single item, which JSON could otherwise unwrap' {
+        Add-SessionWorker -State $script:s
+        $p = Join-Path $TestDrive 'session-one.json'
+        Save-CrewState -State $script:s -Path $p
+        $r = Import-CrewState -Path $p
+        Add-CrewItem -State $r -WorkerId 'acme-api-session' -Item 'T-1002' -Kind 'ticket'
+        @(Get-CrewItems -State $r -WorkerId 'acme-api-session').id | Should -Be @('T-1001', 'T-1002')
+    }
+
+    It 'refuses an item joining a worker that is not a session worker' {
+        Add-CrewWorker -State $script:s -WorkerId 'T-1001' -Ticket 'T-1001' -Kind 'ticket' `
+                       -Repo 'acme-web' -Worktree 'w' -Branch 'worktree-T-1001' -Brief 'f'
+        { Add-CrewItem -State $script:s -WorkerId 'T-1001' -Item 'T-1002' -Kind 'ticket' } |
+            Should -Throw '*not a session worker*'
+        $script:s.workers['T-1001'].ContainsKey('items') | Should -BeFalse
+    }
+
+    It 'refuses an id already on the branch' {
+        Add-SessionWorker -State $script:s
+        { Add-CrewItem -State $script:s -WorkerId 'acme-api-session' -Item 'T-1001' -Kind 'ticket' } |
+            Should -Throw '*already on*'
+    }
+
+    It 'refuses an item id that is not slug-shaped, and a kind it does not know' {
+        Add-SessionWorker -State $script:s
+        { Add-CrewItem -State $script:s -WorkerId 'acme-api-session' -Item 'two words' -Kind 'ticket' } |
+            Should -Throw '*Invalid item id*'
+        { Add-CrewItem -State $script:s -WorkerId 'acme-api-session' -Item 'T-1002' -Kind 'story' } |
+            Should -Throw '*Invalid kind*'
+    }
+
+    It 'refuses an item list it cannot read, by name, rather than guessing at one' {
+        Add-SessionWorker -State $script:s
+        $script:s.workers['acme-api-session'].items = @(@{ name = 'T-1001' })
+        { Get-CrewItems -State $script:s -WorkerId 'acme-api-session' } | Should -Throw '*cannot be read*'
+        $script:s.workers['acme-api-session'].items = @()
+        { Get-CrewItems -State $script:s -WorkerId 'acme-api-session' } | Should -Throw '*empty item list*'
+    }
+
+    It 'records a checkout worker with the permission record its cleanup needs' {
+        Add-SessionWorker -State $script:s -InCheckout
+        $rec = $script:s.workers['acme-api-session']
+        $rec.checkout        | Should -BeTrue
+        $rec.settings_record | Should -Be 'D:\data\acme-api-session\checkout-settings.json'
+    }
+
+    It 'refuses a checkout worker with no record, because cleanup could not restore the file' {
+        { Add-CrewWorker -State $script:s -WorkerId 'x' -Ticket 'T-1001' -Kind 'ticket' -Repo 'r' `
+                         -Worktree 'w' -Branch 'feature-x' -Brief 'f' -InCheckout } |
+            Should -Throw '*needs -SettingsRecord*'
+        { Add-CrewWorker -State $script:s -WorkerId 'y' -Ticket 'T-1001' -Kind 'ticket' -Repo 'r' `
+                         -Worktree 'w' -Branch 'feature-x' -Brief 'f' -SettingsRecord 'D:\x.json' } |
+            Should -Throw '*pass -InCheckout*'
+    }
+}

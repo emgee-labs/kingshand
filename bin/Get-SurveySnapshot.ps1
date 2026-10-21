@@ -31,6 +31,11 @@
   Liveness cannot answer either half, since a parked worker and a finished one both read `idle`.
   It is intent, so it comes from crew.json and never from herdr.
 
+  `.crew.workers[].session`, `.items`, `.itemsError`, `.branch` and `.checkout` describe a `fief`
+  session's warm worker: one row carrying every ticket or fix id on its branch in order, read
+  through Crew.psm1's Get-CrewItems. An ordinary worker reads `session` false with its one ticket.
+  `itemsError` is the reason a list could not be read, and an unreadable list is never shown empty.
+
   `.registry.entries[]` carries name, rawMode, mode, yolo, merge, path, pathExists and indexable.
   `yolo` and `merge` are both the string 'on' or 'off' and never booleans - compare with -eq 'on',
   because 'off' is a non-empty string that reads as true. `merge` is the per-repository permission
@@ -136,7 +141,11 @@ try {
     $crewTickets  = @($crewIds | ForEach-Object {
         $t = $crewState.workers[$_]['ticket']
         if ($t) { [string]$t }
-    } | Where-Object { $_ })
+        # Every id riding a session worker's branch is work under way too, and a brief written for
+        # one of them must not read as un-dispatched. A list that cannot be read adds nothing here;
+        # the worker's own row says it is unreadable.
+        try { foreach ($it in (Get-CrewItems -State $crewState -WorkerId $_)) { [string]$it.id } } catch { }
+    } | Where-Object { $_ } | Select-Object -Unique)
     $crewReadable = $true
 } catch {
     Add-Fault 'crew.json' $_.Exception.Message
@@ -177,6 +186,8 @@ if ($registryPresent) {
                 # requests, and it is read the same way and for the same reason: 'off' is a
                 # non-empty string, so a truthiness test would report every project as permitted.
                 merge   = $(if ((Get-Field $p 'merge') -eq 'on') { 'on' } else { 'off' })
+                # Night's watch's own merge permission, independent of merge and read the same way.
+                watchMerge = $(if ((Get-Field $p 'watchMerge') -eq 'on') { 'on' } else { 'off' })
                 path    = $path
                 # No path line recorded is as missing as a path that is gone.
                 pathExists = $(if ($path) { Test-PathQuiet $path } else { $false })
@@ -224,6 +235,11 @@ if ($crewReadable -and $crewIds.Count -gt 0) {
         $live = $null
         if ($null -ne $row) { $live = ((Get-Field $row 'live') -eq 'True') }
 
+        # What rides this worker's branch - see Crew.psm1's Get-CrewItems, which owns both shapes.
+        $items = @(); $itemsError = ''
+        try { $items = @(foreach ($it in (Get-CrewItems -State $crewState -WorkerId $id)) { $it.id }) }
+        catch { $itemsError = $_.Exception.Message }
+
         $reportPath = Join-Path $DataPath (Join-Path $id 'report.md')
         $workers += [pscustomobject]@{
             id          = $id
@@ -241,6 +257,14 @@ if ($crewReadable -and $crewIds.Count -gt 0) {
             # report.md survives teardown, so a dead worker with a report is still readable work.
             hasReport   = (Test-PathQuiet $reportPath)
             reportPath  = $reportPath
+            # A `fief` session's warm worker: one row, every id on its branch in order. Intent, so
+            # read from crew.json. `itemsError` is why the list could not be read, never an empty
+            # list standing in for one.
+            session     = ((Get-Field $w 'session') -eq 'True')
+            items       = @($items)
+            itemsError  = $itemsError
+            branch      = (Get-Field $w 'branch')
+            checkout    = ((Get-Field $w 'checkout') -eq 'True')
         }
     }
 }

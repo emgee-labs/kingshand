@@ -1345,3 +1345,40 @@ Describe 'the store path resolves the way lavish-axi resolves it' {
             -Because 'a path invented here holds nothing, which reads as nothing being waited on'
     }
 }
+
+# A `fief` session's warm worker carries every ticket or fix on its branch. The digest is this
+# session's whole picture of the fleet, so it shows that worker as one line with its list - and an
+# unreadable list as unreadable, never as a session with nothing on it.
+Describe 'a session worker is printed as one worker with its list of items' {
+    BeforeAll {
+        $script:Sess = New-Fixture 'session-worker'
+        @{
+            workers = @{
+                'acme-api-session' = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-api'; stage = 'implementing'
+                                        branch = 'feature-x'; session = $true; checkout = $true
+                                        items = @(@{ id = 'T-1001'; kind = 'ticket' }, @{ id = 'fix-header'; kind = 'adhoc' }) }
+                'acme-web-session' = @{ ticket = 'T-2001'; kind = 'ticket'; repo = 'acme-web'; stage = 'implementing'
+                                        session = $true; items = @(@{ label = 'T-2001' }) }
+                'T-3001'           = @{ ticket = 'T-3001'; kind = 'ticket'; repo = 'acme-docs'; stage = 'ready' }
+            }
+        } | ConvertTo-Json -Depth 10 | Set-Content -Path $script:Sess.State -Encoding utf8
+        $script:SessText = Get-Digest $script:Sess
+    }
+
+    It 'names every id on the session branch, in order, on the worker''s one line' {
+        $lines = @($script:SessText -split "`r?`n" | Where-Object { $_ -match '^\s*- acme-api-session ' })
+        $lines.Count | Should -Be 1
+        $lines[0].Contains('session worker in the checkout on feature-x carrying T-1001, fix-header') |
+            Should -BeTrue
+    }
+
+    It 'says an item list it cannot read is unreadable' {
+        $line = @($script:SessText -split "`r?`n" | Where-Object { $_ -match '^\s*- acme-web-session ' })[0]
+        $line.Contains('items unreadable') | Should -BeTrue
+    }
+
+    It 'prints an ordinary worker exactly as before' {
+        $line = @($script:SessText -split "`r?`n" | Where-Object { $_ -match '^\s*- T-3001 ' })[0]
+        $line.Trim() | Should -Be '- T-3001 T-3001 (acme-docs) stage ready, liveness unknown'
+    }
+}

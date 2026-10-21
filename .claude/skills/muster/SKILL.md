@@ -1066,7 +1066,9 @@ browser procedure counts towards that one, per Step 2, which owns the rule - a b
 it imports, a path that does not exist, a directory where a file was meant, two different files
 whose names would land on top of each other in the staging directory, a standing file that exists
 and cannot be opened, a directory sitting where a standing file belongs, and a brief that cannot be
-opened for writing to be told what was attached to it.
+opened for writing to be told what was attached to it. A dispatch with `-InCheckout` adds the
+checkout's own refusals on top, all of them before anything is created too, and the dispatcher's
+header lists them.
 
 **The usage one is the only refusal here that can be absent rather than raised.** Every one of the
 other eleven is about something this dispatch knows exactly - a path it was handed, or the base ref
@@ -1270,6 +1272,9 @@ because "nothing happened" is not an event anything can push at you.
   tell the user plainly that they will need to ask.
 
 Tell the user one line per worker that dispatch happened, then stop talking.
+
+**A `fief` session's warm worker is dispatched with `-InCheckout -Branch` and recorded with
+`-Session`**, and every later fix reaches it as a prompt rather than a dispatch - `fief` owns that.
 
 ## Step 5 - Quiet, and status on request
 
@@ -1811,7 +1816,8 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
   brief accepted. That goes back to the user.
 - Destructive, irreversible and security-sensitive actions always go to the user.
 - Merge on the forge only where this project's registry entry declares `+merge`, and never
-  otherwise. The rest of this step owns that rule.
+  otherwise. The rest of this step owns that rule. **While night's watch is in force the token is
+  `+watch-merge` instead** - see the paragraph on it below.
 - Never push a project that is not registered with a push-capable posture.
 - **Never merge on the forge a run whose brief or `report.md` carries the line
   `PARLEY DISPATCH - NO REVIEW GATE RAN.`**, on any posture and whatever that project's entry
@@ -1875,6 +1881,14 @@ step acts on. Where the registry cannot be read there is no value at all, becaus
 `Get-ProjectEntry` throws rather than guessing. **Every one of
 those means do not merge, and none of them ever means the other way.** Test it as
 `$proj.merge -eq 'on'`, the same string comparison `yolo` takes and for the same reason.
+
+**Night's watch merges under its own token, `+watch-merge`, and under no other.** While night's
+watch is in force a green pull request is merged only on a project whose entry declares
+`+watch-merge` - `$proj.watchMerge -eq 'on'`, read the same way and forced off by the same
+failures - whether or not it declares `+merge`, and **`+merge` alone grants night's watch
+nothing.** Outside night's watch `+watch-merge` grants nothing at all. Every floor in this step
+still holds, and `Get-WatchMergeVerdict` in `bin\NightsWatch.psm1` checks each one that code can
+hold and binds the merge to the live head; `nights-watch` owns the rest of the run.
 
 **It is not a mode and not a fourth posture.** The four modes decide how work ships and `yolo`
 decides whether you ask first; this decides one thing only, whether you may merge that
@@ -2462,6 +2476,11 @@ findings stay. Leave `data\<id>\` alone.
 
 Teardown is three things in this order, and the order is the safety: stop the worker, discard its
 pane, remove its worktree.
+
+**A worker recorded with `checkout` has no worktree: tear it down with `Stop-CheckoutWorker` from
+`bin\ClaudeWorkspace.psm1`, passing its `settings_record`, and never with the steps below.**
+A close-out passes `-EndSession` as well, which removes the session's baseline; only `fief`'s
+relaunch of a wedged warm worker leaves it off.
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
