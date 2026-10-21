@@ -1029,12 +1029,35 @@ Describe 'a reading carries the earlier reading of its window, for the climb' {
             Should -Be 2
     }
 
-    It 'takes no baseline from a reading less than a minute old' {
+    It 'takes no baseline from a reading younger than the time to the next read' {
         $path = New-GatePath
         Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.5 -SevenDay 0.2 -FiveHourResets $script:Reset) }
         $null = Get-UsageWindow -StatePath $path
-        $script:Clock = $script:Start.AddSeconds(30)
-        (Get-UsageWindow -StatePath $path).previous | Should -BeNullOrEmpty
+        $script:Clock = $script:Start.AddMinutes(4)
+        (Get-UsageWindow -StatePath $path).previous | Should -BeNullOrEmpty -Because 'under 85 the next read is five minutes away'
+    }
+
+    # The pulse, the watch and every dispatch share one history, so a reader out of phase leaves a
+    # reading too young to measure from between two that are not. The older one is still found.
+    It 'skips a too-young reading from another reader for an older one old enough' {
+        $path = New-GatePath
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.83 -SevenDay 0.2 -FiveHourResets $script:Reset
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk $script:ProbeReply }
+        $null = Get-UsageWindow -StatePath $path
+
+        $script:Clock = $script:Start.AddMinutes(1)
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.86 -SevenDay 0.2 -FiveHourResets $script:Reset
+        $null = Get-UsageWindow -StatePath $path
+
+        $script:Clock = $script:Start.AddMinutes(2)
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.88 -SevenDay 0.2 -FiveHourResets $script:Reset
+        $r = Get-UsageWindow -StatePath $path
+        $r.previous.percent | Should -Be 83
+
+        Import-Module "$PSScriptRoot\..\bin\NightsWatch.psm1"
+        $step = Get-WatchUsageStep -Reading $r -Options (New-WatchOptions)
+        $step.projectedPercent | Should -Be 93
+        $step.action           | Should -Be 'pause'
     }
 
     It 'takes no baseline from before the window reset' {

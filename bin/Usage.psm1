@@ -108,11 +108,9 @@ $script:FallbackGateMinutes = 15
 $script:GateFileName        = 'usage-gate.json'
 $script:GateOwner           = 'kingshand-usage-gate'
 $script:GateLockTimeoutMs   = 3000
-# Enough readings to find one at least a minute old behind a burst of dispatches, and no more.
+# Enough readings to find one a full read interval old behind the pulse, the watch and a burst of
+# dispatches all reading the same window, and no more.
 $script:GateHistoryLimit    = 6
-# A climb is measured only against a reading at least this old. The probe reports whole percentage
-# points, so two readings seconds apart turn one point of rounding into a steep climb.
-$script:BaselineMinMinutes  = 1
 
 # How many workers the pulse names before the rest become a count. The line is one line, hard cap,
 # however many workers are live - so the tail is summarised rather than wrapped.
@@ -1183,7 +1181,10 @@ function Get-UsageHeldReading {
 # earlier reading a climb can be measured from.
 #
 # .previous is the newest recorded reading from the SAME window - same account, same window id, the
-# same reset time to within two minutes - taken at least a minute before this one, or $null. The
+# same reset time to within two minutes - taken at least the read interval for this reading's
+# percentage before it, or $null. The probe reports whole percentage points, so a younger baseline
+# turns one point of rounding into a steep climb; and the pulse, the watch and every dispatch share
+# this history, so the newest reading old enough is searched for rather than the newest one. The
 # reset time is what tells one five-hour window from the next, so a reading from before a reset is
 # never a baseline for one after it. A gate file that cannot be written costs the baseline and the
 # hold, never the reading.
@@ -1203,7 +1204,8 @@ function Save-UsageReading {
         takenAt  = "$($Reading.takenAt)"
         source   = "$($Reading.source)"
     }
-    $box = @{ previous = $null; now = $Now; entry = $entry }
+    $box = @{ previous = $null; now = $Now; entry = $entry
+              minAge = (Get-UsageReadIntervalMinutes -Percent $Reading.percent) }
 
     $null = Update-UsageGateState -Path $StatePath -Change {
         param($s)
@@ -1223,7 +1225,7 @@ function Save-UsageReading {
                 if (-not [datetimeoffset]::TryParse($hResetIso, [ref]$hReset)) { continue }
                 if (-not [datetimeoffset]::TryParse($hTakenIso, [ref]$hTaken)) { continue }
                 if ([Math]::Abs(($hReset - $reset).TotalMinutes) -gt 2) { continue }
-                if (($box.now - $hTaken).TotalMinutes -lt $script:BaselineMinMinutes) { continue }
+                if (($box.now - $hTaken).TotalMinutes -lt $box.minAge) { continue }
                 $p = ConvertTo-UsageNumber $h['percent']
                 if ($null -eq $p) { continue }
                 $box.previous = [pscustomobject]@{
