@@ -726,11 +726,48 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             'exit /b 0'
         )
 
-        # How much of the window this dispatch will believe is spent. A percentage produces a real
-        # reading; -Broken makes the tool exit non-zero, which is the unknown the refusal must fail
-        # open on; -NoWindows is the settled "nothing here reports this".
+        # The usage probe is a stand-in too, named through the one variable Usage.psm1 reads for it,
+        # because this script re-imports that module with -Force and no mock survives that - without
+        # it every dispatch below would spend real usage. It types a canned stream-json reply, or
+        # exits 1 with nothing, which is a probe that could not answer.
+        Set-Content -Path (Join-Path $script:ShimDir 'claude-probe.cmd') -Encoding ascii -Value @(
+            '@echo off',
+            'if exist "%KINGSHAND_TEST_HERDR_DIR%\probe.fail" exit /b 1',
+            'type "%KINGSHAND_TEST_HERDR_DIR%\probe.txt"',
+            'exit /b 0'
+        )
+        $script:SavedProbe = $env:KINGSHAND_USAGE_PROBE_COMMAND
+        $env:KINGSHAND_USAGE_PROBE_COMMAND = Join-Path $script:ShimDir 'claude-probe.cmd'
+
+        # The reader's gate file lands under KINGSHAND_HOME\state\, so the whole context runs with
+        # KINGSHAND_HOME on a root of its own. Nothing dispatch reads hangs off it otherwise: every
+        # call passes -DataPath, and herdr is the shim on PATH.
+        $script:SavedHome = $env:KINGSHAND_HOME
+        $script:UsageHome = New-TempFixturePath -Prefix 'dispatch-home-'
+        New-Item -ItemType Directory -Force -Path $script:UsageHome | Out-Null
+        $env:KINGSHAND_HOME = $script:UsageHome
+
+        # How much of the window this dispatch will believe is spent. A percentage is what the probe
+        # answers; -Broken makes the probe and quota-axi both fail, which is the unknown the refusal
+        # must fail open on. -Stale and -NoWindows are quota-axi's answers, so the probe fails first
+        # for those and the fallback gives them. The gate file is removed every time, so a hold or a
+        # fallback stamp one case left behind never decides the next.
         function Set-UsageReply {
             param([double]$Percent = 5, [switch]$Broken, [switch]$NoWindows, [switch]$Stale)
+
+            $gate = Join-Path $script:UsageHome 'state\usage-gate.json'
+            if (Test-Path -LiteralPath $gate) { Remove-Item -LiteralPath $gate -Force }
+
+            $probeFail = Join-Path $script:ShimDir 'probe.fail'
+            if ($Broken -or $Stale -or $NoWindows) { Set-Content -Path $probeFail -Value 'x' -Encoding ascii }
+            elseif (Test-Path -LiteralPath $probeFail) { Remove-Item -LiteralPath $probeFail -Force }
+            $reset = [datetimeoffset]::UtcNow.AddHours(3).ToUnixTimeSeconds()
+            $reply = @{ type = 'rate_limit_event'; rate_limit_info = @{ status = 'allowed'
+                        unifiedWindows = @{ five_hour = @{ utilization = $Percent / 100; resetsAt = $reset }
+                                            seven_day = @{ utilization = 0.01
+                                                           resetsAt = $reset + 86400 } } } }
+            ($reply | ConvertTo-Json -Depth 8 -Compress) |
+                Set-Content -Path (Join-Path $script:ShimDir 'probe.txt') -Encoding utf8
 
             $fail = Join-Path $script:ShimDir 'quota-axi.fail'
             if ($Broken) { Set-Content -Path $fail -Value 'x' -Encoding ascii }
@@ -940,6 +977,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
     AfterAll {
         $env:PATH        = $script:SavedPath
         $env:USERPROFILE = $script:SavedProfile
+        $env:KINGSHAND_HOME = $script:SavedHome
+        $env:KINGSHAND_USAGE_PROBE_COMMAND = $script:SavedProbe
         Remove-Item Env:\KINGSHAND_TEST_HERDR_DIR   -ErrorAction SilentlyContinue
         Remove-Item Env:\KINGSHAND_TEST_HERDR_CALLS -ErrorAction SilentlyContinue
     }
@@ -1733,6 +1772,31 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4105' `
                 -BriefPath $f.BriefPath -DataPath $f.DataPath -UsageThresholdPercent 99
             $r.id | Should -Be 'T-4105'
+        }
+
+        # A HELD WINDOW IS AT THE LIMIT WHATEVER THE THRESHOLD. The first dispatch reads 91 and is
+        # refused, which holds the window; the probe then answers 5, and a dispatch that may go out
+        # up to 99 must still be refused, because nothing reads a held window before its reset.
+        It 'refuses on a held window even when the caller allows up to 99 percent' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 91
+            $f = New-DispatchFixture 'usage-held'
+            { Invoke-Dispatch -Fixture $f -Name 'T-4107' } | Should -Throw '*refused from 90 percent*'
+
+            ($reply = @{ type = 'rate_limit_event'; rate_limit_info = @{ status = 'allowed'
+                unifiedWindows = @{ five_hour = @{ utilization = 0.05
+                    resetsAt = [datetimeoffset]::UtcNow.AddHours(3).ToUnixTimeSeconds() } } } }) | Out-Null
+            ($reply | ConvertTo-Json -Depth 8 -Compress) |
+                Set-Content -Path (Join-Path $script:ShimDir 'probe.txt') -Encoding utf8
+
+            $err = { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4108' `
+                        -BriefPath $f.BriefPath -DataPath $f.DataPath -UsageThresholdPercent 99 } |
+                Should -Throw -PassThru
+            "$($err.Exception.Message)" | Should -BeLike '*held from 90 percent until its reset*'
+            "$($err.Exception.Message)" | Should -BeLike '*at least 91 percent*'
+            "$($err.Exception.Message)" | Should -BeLike '*It resets at*'
+            "$($err.Exception.Message)" | Should -BeLike '*Nothing was created*'
+            (Get-CallLines $f).Count | Should -Be 0
         }
 
         # The prompt-box guards already made this call for an unreadable screen and the reasoning

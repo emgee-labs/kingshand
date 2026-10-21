@@ -24,10 +24,10 @@ would make every afk an authorisation.
 
    ```powershell
    Import-Module $env:KINGSHAND_HOME\bin\NightsWatch.psm1 -Force
-   $opts = New-WatchOptions        # -ThresholdPercent 88  -MaxWorkers 2  -NoMerge
+   $opts = New-WatchOptions        # -ThresholdPercent 90  -MaxWorkers 2  -NoMerge
    ```
 
-   The threshold defaults to 88 percent of the driving window, at most two workers run at once, and
+   The threshold defaults to 90 percent of the driving window, at most two workers run at once, and
    merging is on wherever a project's entry declares `+watch-merge`. `-NoMerge` turns watch merging
    off for this run; **nothing he can say at invocation turns it on where the token is absent.**
 3. **Run regency's steps 2 and 3** - confirm every worker is readable, arm a wait for each one.
@@ -101,13 +101,22 @@ report every threshold. A blocked worker's prompt stays regency's case and is ne
 
 ## The usage window
 
-**Read the quota no more often than `nextReadMinutes`** - every five minutes from 80 percent, every
-seven below - and act on what each reading says:
+**Read the quota no more often than `nextReadMinutes`** - every five minutes, every two from 85
+percent, the King's cadence of 2026-10-22 - and act on what each reading says:
 
 ```powershell
-$step = Get-WatchUsageStep -Reading (Get-UsageWindow) -Options $opts
+$step = Get-WatchUsageStep -Reading (Read-WatchUsage -LiveCount <workers running now>) -Options $opts
 ```
 
+**No reading while no worker is running.** `Read-WatchUsage` takes none at a count of zero and the
+step comes back `idle`; the dispatcher takes its own fresh reading before the first worker starts.
+**The pause comes on the climb as well as the figure**: where the rise since the window's previous
+reading would carry it to the threshold by the next read, the step pauses now. With no earlier
+reading of that window, or none at least as old as the time to the next read, the plain threshold
+decides. **A held window is at the limit whatever the threshold**: from 90 percent nothing reads
+it again before its reset, so the step pauses on the hold even where `-ThresholdPercent` is higher.
+
+- `idle` - nothing is running and nothing was read; dispatch as the pool allows.
 - `continue` - carry on.
 - `blind` - no current reading. It fails open exactly as `vigil`'s `## The refusal near the limit`
   says; record once that the watch could not see the window, and carry on.
@@ -124,8 +133,9 @@ $step = Get-WatchUsageStep -Reading (Get-UsageWindow) -Options $opts
      and never recomputed. Take **zero** quota readings across the gap. If the job dies, re-arm it
      with the same `wakeAt`.
   5. **After it wakes**, decide each reading with
-     `Get-WatchWakeStep -Reading (Get-UsageWindow) -Options $opts -WokeAt <when it woke>`. **A stale
-     reading is read again every five minutes for up to thirty**: `reread` waits
+     `Get-WatchWakeStep -Reading (Read-WatchUsage -Confirming) -Options $opts -WokeAt <when it woke>`
+     - the read is taken with every worker paused, because confirming the reset is why it woke.
+     **A stale reading is read again every five minutes for up to thirty**: `reread` waits
      `nextReadMinutes` and reads once more; `pause` re-arms the timer from that reading's reset
      time, as step 4; `stop-weekly` stops the watch; `restart-unconfirmed` restarts the workers
      anyway and records its `detail` in the away journal. On `restart` or `restart-unconfirmed`,
