@@ -108,9 +108,10 @@ $script:FallbackGateMinutes = 15
 $script:GateFileName        = 'usage-gate.json'
 $script:GateOwner           = 'kingshand-usage-gate'
 $script:GateLockTimeoutMs   = 3000
-# Enough readings to find one a full read interval old behind the pulse, the watch and a burst of
-# dispatches all reading the same window, and no more.
-$script:GateHistoryLimit    = 6
+# Enough readings to find one a full five-minute read interval old behind the pulse, the watch and
+# a dispatch for each of night's watch's most workers, all reading the same window - twice over -
+# and no more.
+$script:GateHistoryLimit    = 20
 
 # How many workers the pulse names before the rest become a count. The line is one line, hard cap,
 # however many workers are live - so the tail is summarised rather than wrapped.

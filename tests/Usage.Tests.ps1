@@ -1060,6 +1060,25 @@ Describe 'a reading carries the earlier reading of its window, for the climb' {
         $step.action           | Should -Be 'pause'
     }
 
+    # Night's watch runs up to eight workers, and each dispatch reads the window too. A burst of
+    # them inside one read interval must not push the one reading old enough out of the history.
+    It 'keeps a baseline a full interval old behind a burst of dispatches' {
+        $path = New-GatePath
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.70 -SevenDay 0.2 -FiveHourResets $script:Reset
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk $script:ProbeReply }
+        $null = Get-UsageWindow -StatePath $path
+
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.72 -SevenDay 0.2 -FiveHourResets $script:Reset
+        foreach ($i in 1..10) {
+            $script:Clock = $script:Start.AddSeconds(25 * $i)
+            $null = Get-UsageWindow -StatePath $path
+        }
+
+        $script:Clock = $script:Start.AddMinutes(5)
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.75 -SevenDay 0.2 -FiveHourResets $script:Reset
+        (Get-UsageWindow -StatePath $path).previous.percent | Should -Be 70
+    }
+
     It 'takes no baseline from before the window reset' {
         $path = New-GatePath
         $script:ProbeReply = New-ProbeOutput -FiveHour 0.5 -SevenDay 0.2 -FiveHourResets $script:Reset
