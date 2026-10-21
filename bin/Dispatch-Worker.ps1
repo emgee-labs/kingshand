@@ -222,6 +222,37 @@
   The two -Base refusals belong to no part of this gate and are not counted among the paths above.
   They are about the ref this dispatch was handed rather than a file it was told to stage, and the
   -Base section near the top of this header owns both of them.
+
+  -InCheckout RUNS THE WORKER IN THE PROJECT'S OWN CHECKOUT, with no worktree, on the branch -Branch
+  names. It is the `fief` skill's warm worker: one worker making a run of small fixes on one branch,
+  where the King may be watching that checkout from a dev server and a worktree per fix would cost
+  more than the fix. Left off - every ordinary dispatch - nothing below applies and the worktree path
+  is exactly what it was.
+
+  It CREATES OR SWITCHES NO BRANCH and cuts no worktree. Steps 3 to 5 of the order above become one:
+  the checkout's own .claude\settings.local.json is edited rather than written, and folder trust is
+  granted for the checkout itself. Before anything is created it refuses four ways, each by name: a
+  -Branch with no -InCheckout, an -InCheckout with no -Branch, a path that is not the top of a git
+  checkout, and a checkout that is not already on the named branch - a detached HEAD included.
+  Two more come from ClaudeWorkspace.psm1's plan, which owns them: a settings file that is there and
+  cannot be read as a JSON object, and a record left by an earlier checkout worker nobody cleaned up.
+
+  The permission file is the part that went wrong by hand, so ClaudeWorkspace.psm1 owns all of it:
+  the backup, whether a file existed, keeping the existing allow list, never building from a failed
+  read, and putting it back. Its record sits beside the brief, is indexed as it is written, and is
+  what Stop-CheckoutWorker reads at cleanup - that function, not a prose copy, is the teardown.
+
+  The brief gets a fixed section, `## Working in the checkout, not a worktree`, appended at its end
+  by this script: not in a worktree, the branch to stay on, the commands never to run, commit and
+  push only on a prompt, and git's own listing of what was already uncommitted and stashed, quoted
+  line for line as not the worker's. A re-dispatch replaces that section only where it differs.
+  The first dispatch keeps git's listing as a baseline beside the brief, never in the checkout, so a
+  relaunch of the same worker on the same branch quotes only the baseline's files as not its own
+  and lists everything else uncommitted as the session's own earlier fixes. A baseline left by a
+  different first dispatch, or one that cannot be read, is refused with nothing created.
+
+  The base is resolved exactly as for a worktree, and it is what the landing gate measures the whole
+  session branch against.
 .EXAMPLE
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md
   $r.id, $r.worktree, $r.branch
@@ -236,6 +267,11 @@
   # a tracked file, because that declaration would be wrong the moment the branch merges.
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1003 `
          -BriefPath $env:KINGSHAND_HOME\data\T-1003\brief.md -Base origin/epic-checkout
+.EXAMPLE
+  # A session's warm worker, in the checkout the King already has on feature-x.
+  $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\acme-api -Name acme-api-session `
+         -BriefPath $env:KINGSHAND_HOME\data\acme-api-session\brief.md -InCheckout -Branch feature-x
+  $r.checkout, $r.settingsRecord
 #>
 [CmdletBinding()]
 param(
@@ -258,7 +294,15 @@ param(
     # that can only ever be exercised against the real installation is a check no test can drive.
     # Resolved in the body rather than here: a parameter default is evaluated before the script's
     # own Import-Module lines run, so Get-DefaultIndexDataPath is not loaded yet at this point.
-    [string]$DataPath = ''
+    [string]$DataPath = '',
+    # Run the worker in the project's OWN checkout, on the branch -Branch names, with no worktree.
+    # OFF IS THE ORDINARY CASE and every dispatch that does not pass it is exactly the worktree
+    # dispatch above; the `fief` skill is the caller that passes it. The header owns what it
+    # refuses and what it writes.
+    [switch]$InCheckout,
+    # The branch the checkout must already be on. Required with -InCheckout and refused without
+    # it, so its empty default is reached only by an ordinary dispatch, which never reads it.
+    [string]$Branch = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -272,12 +316,12 @@ if (-not (Test-Path $RepoPath))  { throw "Repo path not found: $RepoPath" }
 if (-not (Test-Path $BriefPath)) { throw "Brief not found: $BriefPath" }
 
 Import-Module (Join-Path $PSScriptRoot 'Herdr.psm1') -Force
-Import-Module (Join-Path $PSScriptRoot 'ClaudeWorkspace.psm1') -Force
-# Index BEFORE Projects, and both before anything reads them. Projects.psm1 imports Index.psm1 as a
-# nested module without -Force, so forcing Index afterwards would remove the copy Projects is
-# already holding - the failure Test-CrewPrereqs hit, recorded in `statute`'s style rules.
+# Index BEFORE Projects and ClaudeWorkspace, and all before anything reads them. Both import
+# Index.psm1 as a nested module without -Force, so forcing Index afterwards would remove the copy
+# they are already holding - the failure Test-CrewPrereqs hit, recorded in `statute`'s style rules.
 Import-Module (Join-Path $PSScriptRoot 'Index.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Projects.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'ClaudeWorkspace.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Usage.psm1') -Force
 
 # Dot-sourced up here rather than at the call site far below, because the two functions it defines
@@ -383,6 +427,86 @@ if ($baseOverride) {
                "a missing ref write their error to stderr and nothing at all to stdout, so an " +
                "empty diff and an empty attribution scan read as clean. Fetch the branch, or name " +
                "a ref this repository already has. Nothing was created.")
+    }
+}
+
+# THE CHECKOUT THIS DISPATCH WAS TOLD TO WORK IN, checked here for the same reason as -Base: a bad
+# value must cost the caller the message and nothing else. With no -InCheckout this block does
+# nothing at all, and the worktree path below is exactly what it always was.
+#
+# Nothing here creates or switches a branch. The checkout must ALREADY be on the branch the King
+# named, because the warm worker's commits go wherever HEAD points - a checkout left on the wrong
+# branch would put a run of fixes on top of somebody else's work.
+$checkoutPlan   = $null
+$checkoutRecord = ''
+if ($Branch.Trim() -and -not $InCheckout) {
+    throw ("-Branch names $($Branch.Trim()) but -InCheckout was not passed. A worktree dispatch " +
+           "always cuts its own worktree-<name> branch, so -Branch would be ignored silently. " +
+           "Pass -InCheckout as well, or leave -Branch off. Nothing was created.")
+}
+if ($InCheckout) {
+    $Branch = $Branch.Trim()
+    if (-not $Branch) {
+        throw ("-InCheckout needs -Branch: the branch the checkout is already on and the worker " +
+               "must stay on. Nothing was created.")
+    }
+    $topLevel = (& git -C $RepoPath rev-parse --show-toplevel 2>$null | Out-String).Trim()
+    $topOk = $LASTEXITCODE -eq 0
+    $global:LASTEXITCODE = 0
+    $sameRoot = $false
+    if ($topOk -and $topLevel) {
+        $sameRoot = [IO.Path]::GetFullPath(($topLevel -replace '/', '\')).TrimEnd('\').Equals(
+                        [IO.Path]::GetFullPath($RepoPath).TrimEnd('\'),
+                        [System.StringComparison]::OrdinalIgnoreCase)
+    }
+    if (-not $sameRoot) {
+        throw ("-InCheckout needs the top of a git checkout and $RepoPath is not one, so the " +
+               "worker's settings would land in the wrong .claude directory. Pass the checkout's " +
+               "own root. Nothing was created.")
+    }
+    # Asked of git, never read out of .git\HEAD: symbolic-ref answers with the branch name, or
+    # fails on a detached HEAD, and that failure is its own refusal rather than a branch name.
+    $current = (& git -C $RepoPath symbolic-ref --quiet --short HEAD 2>$null | Out-String).Trim()
+    $onBranch = $LASTEXITCODE -eq 0 -and $current
+    $global:LASTEXITCODE = 0
+    if (-not $onBranch) {
+        throw ("$RepoPath is not on any branch (HEAD is detached), and this dispatch was told to " +
+               "work on $Branch. Nothing here switches branches - check out $Branch yourself " +
+               "first. Nothing was created.")
+    }
+    if ($current -cne $Branch) {
+        throw ("$RepoPath is on $current, and this dispatch was told to work on $Branch. Nothing " +
+               "here switches branches, because the checkout is the King's and what it is on is " +
+               "his to decide - check out $Branch first, or dispatch naming $current. " +
+               "Nothing was created.")
+    }
+    # The permission file, planned and not yet written: a settings file that cannot be read, or a
+    # record left by a worker nobody cleaned up, is refused here with nothing created.
+    $checkoutRecord = Get-CheckoutSettingsRecordPath -BriefDirectory $briefDir
+    $checkoutPlan   = New-CheckoutSettingsPlan -CheckoutPath $RepoPath -RecordPath $checkoutRecord `
+                          -AdditionalDirectories @($briefDir)
+
+    # What is uncommitted now, split against the baseline the session's first dispatch took: a
+    # baseline left by a different first dispatch, or one that cannot be read, is refused here.
+    $dirty = @((& git -C $RepoPath status --porcelain 2>$null) | Where-Object { $_ })
+    $global:LASTEXITCODE = 0
+    $baselinePlan = New-CheckoutBaselinePlan -BriefDirectory $briefDir -Name $Name `
+                        -CheckoutPath $RepoPath -Branch $Branch -Dirty $dirty
+
+    # The base, resolved HERE for a checkout rather than just before the spawn, because one answer
+    # the resolver can give is wrong only in this mode and has to be refused with nothing created.
+    # Where the repository records neither a declared integration branch nor origin/HEAD, the
+    # resolver falls back to the branch the checkout is on, or its origin/ copy - which for a
+    # worktree is the default branch, and for a checkout is the session branch itself. A landing
+    # diff of that branch against itself, or against what of it is already pushed, is empty or
+    # partial, and empty reads as clean.
+    $checkoutBase = if ($baseOverride) { $baseOverride } else { Resolve-BaseRef -RepoPath $RepoPath }
+    if ($checkoutBase -ceq $Branch -or $checkoutBase -ceq "origin/$Branch") {
+        throw ("The base for this checkout resolved to $checkoutBase, which is the session branch " +
+               "$Branch itself, so the landing diff would measure the branch against itself and " +
+               "read as clean. This repository records no integration branch or origin/HEAD for " +
+               "the resolver to use instead. Name the branch the work will be proposed against " +
+               "with -Base. Nothing was created.")
     }
 }
 
@@ -598,6 +722,12 @@ $sectionEnd     = -1
 $firstOpen      = $false
 $sectionLines   = [System.Collections.Generic.List[string]]::new()
 $sectionIndexes = [System.Collections.Generic.List[int]]::new()
+# The checkout section this script writes for -InCheckout, found by its own heading so a re-dispatch
+# replaces it rather than adding a second. Its lines are never read for meaning - only compared,
+# whole, against the section this dispatch composes.
+$checkoutHeading = '## Working in the checkout, not a worktree'
+$inCheckoutSec   = $false
+$checkoutIndexes = [System.Collections.Generic.List[int]]::new()
 for ($i = 0; $i -lt $briefLines.Count; $i++) {
     $line = $briefLines[$i]
     if ($line -match '^\s*```') {
@@ -608,6 +738,16 @@ for ($i = 0; $i -lt $briefLines.Count; $i++) {
     if ($inFence) {
         if ($firstOpen) { $sectionEnd = $i }
         continue
+    }
+    if ($line.TrimEnd() -ceq $checkoutHeading) {
+        $inSection = $false; $firstOpen = $false
+        $inCheckoutSec = $true
+        $checkoutIndexes.Add($i)
+        continue
+    }
+    if ($inCheckoutSec) {
+        if ($line -match '^\s*#{1,6}\s') { $inCheckoutSec = $false }
+        else { $checkoutIndexes.Add($i); continue }
     }
     if ($line -match '^\s*##\s+Browser checks\b') { $hasBrowser = $true }
     if ($line -match '^\s*##\s+Read first\s*$') {
@@ -1021,6 +1161,65 @@ if ($autoLines.Count -gt 0 -and $headingIndex -ge 0) {
     }
 }
 
+# THE CHECKOUT WARNINGS, written by this script into every -InCheckout brief so that nobody has to
+# remember them. A worker in the King's own working tree has none of a worktree's protection: it is
+# on his branch, beside his uncommitted work and his stashes, and `git clean` there destroys files
+# that exist nowhere else. So the section says where it is, which branch to stay on, the commands it
+# must never run, and exactly what was already uncommitted and is not its own.
+#
+# What is uncommitted and what is stashed come from git's own listing, quoted line for line rather
+# than read for meaning - the worker is told what is there, and nothing here interprets it.
+#
+# Appended at the END of the brief, under a heading this script owns. A re-dispatch composes it
+# afresh, because the tree may have moved, and replaces the old one only where the two differ.
+$checkoutLines = @()
+$checkoutWrite = $false
+if ($InCheckout) {
+    $stashes = @((& git -C $RepoPath stash list 2>$null) | Where-Object { $_ })
+    $global:LASTEXITCODE = 0
+
+    $checkoutLines = @(
+        $checkoutHeading,
+        ("- **You are not in a worktree.** You are working in the project's own checkout at " +
+         "``$RepoPath``, which is the King's working tree."),
+        ("- **Stay on branch ``$Branch``.** Do not create, switch, rename or delete any branch, " +
+         "and touch no other branch."),
+        ("- **Never stash, reset, checkout, restore or clean anything** - ``git clean`` above all: " +
+         "a file you created is untracked until it is committed, and one clean destroys work that " +
+         "exists nowhere else."),
+        ("- **Do not commit, push or open a pull request until a prompt tells you to.** Each of " +
+         "the three is its own instruction and authorises only itself.")
+    )
+    if ($dirty.Count -eq 0) {
+        $checkoutLines += '- Nothing was uncommitted in this checkout when you were dispatched.'
+    }
+    if ($baselinePlan.notYours.Count -gt 0) {
+        $checkoutLines += ('- Already uncommitted before this session began, and **not yours** - do ' +
+                           'not revert, reformat, stage or commit it:')
+        $checkoutLines += @($baselinePlan.notYours | ForEach-Object { "  - ``$_``" })
+    }
+    if ($baselinePlan.session.Count -gt 0) {
+        $checkoutLines += ('- Uncommitted from **this session''s own earlier fixes**, made before ' +
+                           'you were relaunched - yours to commit when a prompt says so, and never ' +
+                           'to revert:')
+        $checkoutLines += @($baselinePlan.session | ForEach-Object { "  - ``$_``" })
+    }
+    if ($stashes.Count -gt 0) {
+        $checkoutLines += ('- Stashes on this repository, none of them yours - never pop, apply or ' +
+                           'drop one. Read one with `git stash show -p ''stash@{N}''`:')
+        $checkoutLines += @($stashes | ForEach-Object { "  - ``$_``" })
+    }
+
+    $existing = @(foreach ($idx in $checkoutIndexes) { $briefLines[$idx].TrimEnd() })
+    while ($existing.Count -gt 0 -and -not $existing[-1]) {
+        $existing = if ($existing.Count -gt 1) { @($existing[0..($existing.Count - 2)]) } else { @() }
+    }
+    $checkoutWrite = (($existing -join "`n") -cne ($checkoutLines -join "`n"))
+    if ($checkoutWrite) {
+        foreach ($idx in $checkoutIndexes) { $null = $removeIndexes.Add($idx) }
+    }
+}
+
 # Refused BEFORE anything is created, like every other refusal here. A brief that cannot be written
 # to would leave the copies on disk with nothing telling the worker to open them - the failure this
 # attachment exists to close, arrived at through the attachment itself.
@@ -1037,7 +1236,7 @@ if ($autoLines.Count -gt 0 -and $headingIndex -ge 0) {
 #
 # Removing a stale line is a write like any other, and a stale copy is deleted just below it, so this
 # guards that case too rather than only an insertion.
-if ($toAdd.Count -gt 0 -or $removeIndexes.Count -gt 0) {
+if ($toAdd.Count -gt 0 -or $removeIndexes.Count -gt 0 -or $checkoutWrite) {
     try { [System.IO.File]::Open($BriefPath, 'Open', 'ReadWrite', 'None').Dispose() }
     catch {
         $why = $_.Exception.Message
@@ -1049,6 +1248,14 @@ if ($toAdd.Count -gt 0 -or $removeIndexes.Count -gt 0) {
                  else           { "that file could not be opened for writing ($why)" }
         $fix   = if ($readOnly) { 'Clear the read-only flag on the brief.' }
                  else           { 'Close whatever is holding it open, or fix its permissions.' }
+        # The checkout warnings are the other thing written into a brief, and the only one where
+        # no standing file is involved at all - so that case names itself rather than borrowing
+        # a sentence about copies that may not exist.
+        if ($checkoutWrite -and $toAdd.Count -eq 0 -and $staleBullets.Count -eq 0) {
+            throw ("The checkout warnings have to be written into $BriefPath and $cause, so the " +
+                   "worker would go into the King's own checkout without being told it is not in " +
+                   "a worktree. $fix Nothing was created.")
+        }
         throw ("Project $project's standing files have to be named in $BriefPath under 'Read first' " +
                "and $cause, so the worker would be handed copies nothing tells it to read. $fix " +
                "Nothing was created.")
@@ -1077,11 +1284,18 @@ if ($staged.Count -gt 0 -or $autoStaged.Count -gt 0) {
 # And the brief is told, because a copy nothing names reaches nobody. Written AFTER the copies, so
 # the brief never names a file that failed to arrive. What goes in and where it goes were both
 # decided above, so nothing is recomputed here.
-if ($toAdd.Count -gt 0 -or $removeIndexes.Count -gt 0) {
+if ($toAdd.Count -gt 0 -or $removeIndexes.Count -gt 0 -or $checkoutWrite) {
     $rewritten = [System.Collections.Generic.List[string]]::new()
     for ($i = 0; $i -lt $briefLines.Count; $i++) {
         if (-not $removeIndexes.Contains($i)) { $rewritten.Add($briefLines[$i]) }
         if ($plan.ContainsKey($i)) { foreach ($l in $plan[$i]) { $rewritten.Add($l) } }
+    }
+    if ($checkoutWrite) {
+        while ($rewritten.Count -gt 0 -and -not $rewritten[$rewritten.Count - 1].Trim()) {
+            $rewritten.RemoveAt($rewritten.Count - 1)
+        }
+        $rewritten.Add('')
+        foreach ($l in $checkoutLines) { $rewritten.Add($l) }
     }
     Set-Content -LiteralPath $BriefPath -Encoding utf8 -Value $rewritten.ToArray()
 }
@@ -1127,7 +1341,9 @@ foreach ($copy in $staleCopies) { Remove-Item -LiteralPath $copy -Force }
 # this dispatch was verified there, on the resolver's own two grounds and before anything existed,
 # and it replaces the resolver rather than steering it; with none, Resolve-BaseRef is called exactly
 # as it always was. Either way what comes out is a single ref, used for both jobs below.
-$base = if ($baseOverride) { $baseOverride } else { Resolve-BaseRef -RepoPath $RepoPath }
+$base = if ($InCheckout)       { $checkoutBase }
+        elseif ($baseOverride) { $baseOverride }
+        else                   { Resolve-BaseRef -RepoPath $RepoPath }
 
 # SAID OUT LOUD ON EVERY DISPATCH THAT NAMED ITS OWN BASE, and unconditionally: the resolver is the
 # thing that warns when the branch point and the pull request target come apart, and naming a base
@@ -1152,8 +1368,15 @@ if ($baseOverride) {
                    "own work. Check what the pull request targets before landing.")
 }
 
-$branch   = "worktree-$Name"
-$worktree = Join-Path (Join-Path (Join-Path $RepoPath '.claude') 'worktrees') $Name
+# In the checkout there is no worktree and no branch of kingshand's: the worker's directory IS the
+# repo path, and its branch is the one the King named and the checkout was confirmed to be on.
+if ($InCheckout) {
+    $branch   = $Branch
+    $worktree = $RepoPath
+} else {
+    $branch   = "worktree-$Name"
+    $worktree = Join-Path (Join-Path (Join-Path $RepoPath '.claude') 'worktrees') $Name
+}
 
 function Get-GitOutput {
     param([Parameter(Mandatory)][string[]]$Arguments)
@@ -1179,52 +1402,85 @@ function Test-WorktreeRegistered {
     $false
 }
 
-# A worktree whose directory was deleted by hand is still recorded under .git\worktrees, and
-# `git worktree add` at that path then refuses with "already exists" about a directory nobody can
-# see. Pruning first turns that into an ordinary fresh add.
-$null = Get-GitOutput @('worktree', 'prune')
-
-# Re-dispatching the same ticket is ordinary - a worker that stopped at the trust dialog, or one
-# the King sent back to keep going - and `git worktree add -b` cannot be told twice. So the three
-# states are decided here rather than left to a raw git error the Hand would have to interpret.
-if (Test-WorktreeRegistered $worktree) {
-    # Already a checkout of this ticket's branch. Reuse it: whatever the previous attempt committed
-    # is the work in progress, and discarding it to get a clean `add` would throw that away.
-    if (-not (Test-LocalBranch $branch)) {
-        throw ("A worktree is already registered at $worktree but branch $branch does not exist, " +
-               "so this is not a kingshand worker's checkout. Resolve it by hand - dispatch will " +
-               "not repoint someone else's worktree.")
+if ($InCheckout) {
+    # No prune and no worktree add: the King's repository is not touched beyond the one settings
+    # file, and that file is recorded before it is changed. The record is indexed as it is written,
+    # like every durable file under data\, and Stop-CheckoutWorker drops the line with the file.
+    $null = Set-CheckoutWorkerSettings -Plan $checkoutPlan
+    try {
+        $null = Add-IndexEntry -Path $checkoutRecord -Project $project -DataPath $DataPath `
+                    -Summary ("what the checkout's settings file held before worker $Name was " +
+                              'dispatched into it; restored and removed at cleanup')
+    } catch {
+        Write-Warning "The record at $checkoutRecord could not be indexed ($($_.Exception.Message))."
     }
-} elseif (Test-Path -LiteralPath $worktree) {
-    throw ("$worktree already exists and git does not own it, so a worktree cannot be created " +
-           "there. Remove it, or dispatch this ticket under a different name.")
-} elseif (Test-LocalBranch $branch) {
-    # The branch survived its worktree - the usual shape after a teardown that removed the
-    # directory but kept the work. Check it out again rather than branching a second time from a
-    # base that has since moved.
-    $out = Get-GitOutput @('worktree', 'add', $worktree, $branch)
-    if ($LASTEXITCODE -ne 0) { throw "git worktree add $worktree $branch failed: $out" }
+    if (Set-CheckoutBaseline -Plan $baselinePlan) {
+        try {
+            $null = Add-IndexEntry -Path $baselinePlan.path -Project $project -DataPath $DataPath `
+                        -Summary ("what was uncommitted in the checkout before worker $Name's " +
+                                  'session began; kept across a relaunch, removed when it ends')
+        } catch {
+            Write-Warning "The baseline at $($baselinePlan.path) could not be indexed ($($_.Exception.Message))."
+        }
+    }
+    # The checkout is a directory the King works in, so it is almost always trusted already and
+    # this returns 'already'. Where it is not, the worker would stop on the dialog with nobody there.
+    $trust = Grant-ClaudeFolderTrust -Path $RepoPath
 } else {
-    $out = Get-GitOutput @('worktree', 'add', '-b', $branch, $worktree, $base)
-    if ($LASTEXITCODE -ne 0) { throw "git worktree add -b $branch $worktree $base failed: $out" }
+    # A worktree whose directory was deleted by hand is still recorded under .git\worktrees, and
+    # `git worktree add` at that path then refuses with "already exists" about a directory nobody can
+    # see. Pruning first turns that into an ordinary fresh add.
+    $null = Get-GitOutput @('worktree', 'prune')
+
+    # Re-dispatching the same ticket is ordinary - a worker that stopped at the trust dialog, or one
+    # the King sent back to keep going - and `git worktree add -b` cannot be told twice. So the three
+    # states are decided here rather than left to a raw git error the Hand would have to interpret.
+    if (Test-WorktreeRegistered $worktree) {
+        # Already a checkout of this ticket's branch. Reuse it: whatever the previous attempt committed
+        # is the work in progress, and discarding it to get a clean `add` would throw that away.
+        if (-not (Test-LocalBranch $branch)) {
+            throw ("A worktree is already registered at $worktree but branch $branch does not exist, " +
+                   "so this is not a kingshand worker's checkout. Resolve it by hand - dispatch will " +
+                   "not repoint someone else's worktree.")
+        }
+    } elseif (Test-Path -LiteralPath $worktree) {
+        throw ("$worktree already exists and git does not own it, so a worktree cannot be created " +
+               "there. Remove it, or dispatch this ticket under a different name.")
+    } elseif (Test-LocalBranch $branch) {
+        # The branch survived its worktree - the usual shape after a teardown that removed the
+        # directory but kept the work. Check it out again rather than branching a second time from a
+        # base that has since moved.
+        $out = Get-GitOutput @('worktree', 'add', $worktree, $branch)
+        if ($LASTEXITCODE -ne 0) { throw "git worktree add $worktree $branch failed: $out" }
+    } else {
+        $out = Get-GitOutput @('worktree', 'add', '-b', $branch, $worktree, $base)
+        if ($LASTEXITCODE -ne 0) { throw "git worktree add -b $branch $worktree $base failed: $out" }
+    }
+
+    # The two grants that used to be `--permission-mode bypassPermissions --add-dir <briefdir>` on the
+    # command line. Written into the WORKTREE, which is a fresh checkout with no .claude of its own -
+    # nothing carries across from the main checkout, because settings.local.json is untracked.
+    $null = Set-WorkerWorkspaceSettings -WorktreePath $worktree -AdditionalDirectories @($briefDir)
+
+    # Pre-seeded rather than answered afterwards with a synthetic keystroke: this is a written,
+    # inspectable record made before launch, and it cannot race the dialog. Its result is kept because
+    # a worker that comes back blocked is almost always a trust grant that did not land, and saying so
+    # is the difference between an actionable failure and "the agent is blocked".
+    $trust = Grant-ClaudeFolderTrust -Path $worktree
 }
 
-# The two grants that used to be `--permission-mode bypassPermissions --add-dir <briefdir>` on the
-# command line. Written into the WORKTREE, which is a fresh checkout with no .claude of its own -
-# nothing carries across from the main checkout, because settings.local.json is untracked.
-$null = Set-WorkerWorkspaceSettings -WorktreePath $worktree -AdditionalDirectories @($briefDir)
-
-# Pre-seeded rather than answered afterwards with a synthetic keystroke: this is a written,
-# inspectable record made before launch, and it cannot race the dialog. Its result is kept because
-# a worker that comes back blocked is almost always a trust grant that did not land, and saying so
-# is the difference between an actionable failure and "the agent is blocked".
-$trust = Grant-ClaudeFolderTrust -Path $worktree
+# What a failure from here on leaves behind in the checkout, said in the one place it is composed.
+# Nothing was created there but the grants, and those stay until the cleanup puts them back.
+$checkoutLeft = ("The checkout at $RepoPath is on $branch exactly as before. Its settings file " +
+                 "carries this worker's grants until Stop-CheckoutWorker puts it back from " +
+                 "$checkoutRecord.")
 
 Start-HerdrServer
 $paneId = New-HerdrPane -Cwd $worktree
 
 $agent = Start-HerdrAgent -Name $Name -PaneId $paneId -TimeoutMs ($TimeoutSeconds * 1000)
 if (-not $agent) {
+    if ($InCheckout) { throw ("herdr started no agent for $Name in pane $paneId. $checkoutLeft") }
     throw ("herdr started no agent for $Name in pane $paneId. The worktree at $worktree and " +
            "branch $branch were created and are untouched.")
 }
@@ -1241,10 +1497,11 @@ $state = Get-HerdrAgentState -Name $Name
 if ($state -eq 'blocked') {
     $why = if ($trust.granted) { "folder trust was recorded ($($trust.reason))" }
            else { "folder trust was NOT recorded ($($trust.reason))" }
+    $tail = if ($InCheckout) { $checkoutLeft }
+            else { "The worktree at $worktree and branch $branch exist and hold no work yet." }
     throw ("Worker $Name started but is blocked on an interactive prompt in pane $paneId - " +
            "$why. Read it with Read-HerdrAgent and answer it deliberately; nothing here sends " +
-           "keys at a prompt it has not read. The worktree at $worktree and branch $branch exist " +
-           "and hold no work yet.")
+           "keys at a prompt it has not read. $tail")
 }
 
 # One line, so the brief cannot be lost in transit and the worker has to open the file. The worker
@@ -1262,6 +1519,11 @@ $prompt = "Read the file $BriefPath in full - it is your brief and the complete 
 # as progress here, only for the one thing it can say straight away: that the prompt bounced.
 $submitted = Send-HerdrPrompt -Name $Name -Text $prompt
 if ($submitted -and $submitted.PSObject.Properties.Name -contains 'blocked') {
+    if ($InCheckout) {
+        throw ("Worker $Name would not take its brief - it is blocked on an interactive prompt " +
+               "in pane $paneId. Read the pane with Read-HerdrAgent before answering anything. " +
+               "$checkoutLeft")
+    }
     throw ("Worker $Name would not take its brief - it is blocked on an interactive prompt in " +
            "pane $paneId. The worktree at $worktree and branch $branch exist; read the pane with " +
            "Read-HerdrAgent before answering anything.")
@@ -1290,10 +1552,17 @@ if (-not $readable) {
                    "dispatch starts a clean one.")
 }
 
-[hashtable]@{
+$result = [hashtable]@{
     id       = $Name
     worktree = $worktree
     branch   = $branch
     base     = $base
     readable = $readable
 }
+# Two more keys for a checkout worker and none for a worktree one, so an ordinary dispatch returns
+# exactly the shape it always has. The record path is what Stop-CheckoutWorker takes back.
+if ($InCheckout) {
+    $result.checkout       = $true
+    $result.settingsRecord = $checkoutRecord
+}
+$result

@@ -7,7 +7,7 @@ Set-StrictMode -Version Latest
 # A task's mode is resolved at intake and passed explicitly to the brief and the dispatch.
 #
 # Entry format (data\projects.md), byte-compatible with firstmate's line plus a path line:
-#   - <name> [<mode> +yolo +merge] - <desc> (added <date>)
+#   - <name> [<mode> +yolo +merge +watch-merge] - <desc> (added <date>)
 #         path: <absolute path>
 #
 # `+merge` is the per-repository permission to merge that project's own green pull requests on the
@@ -22,6 +22,12 @@ Set-StrictMode -Version Latest
 # unknown mode resets the whole annotation; and an unreadable registry throws out of
 # Get-ProjectEntry rather than returning a value at all, so a caller never receives 'off' as a
 # substitute for "could not tell", and never receives 'on' by accident.
+#
+# `+watch-merge` is night's watch's own permission to merge that project's green pull requests
+# while the King is away, reported as 'on' or 'off' on the entry's `watchMerge` key. It is
+# INDEPENDENT of `+merge`: neither implies the other, and `+merge` alone grants night's watch
+# nothing. It is read exactly as strictly as `+merge` - off unless the token is there, and forced
+# off by every failure that forces `+merge` off. `muster` Step 7 owns what it permits.
 #
 # Merge is the strict one, deliberately: mode and yolo keep their existing leniency, because an
 # unrecognised token has never changed either and this is not the change that makes it.
@@ -65,6 +71,7 @@ function Read-Registry {
         $mode  = 'no-mistakes'
         $yolo  = 'off'
         $merge = 'off'
+        $watchMerge = 'off'
 
         $ann = $m.Groups['ann'].Value.Trim()
         if ($ann) {
@@ -82,6 +89,8 @@ function Read-Registry {
                         $yolo = 'on'
                     } elseif ($tok -eq '+merge') {
                         $merge = 'on'
+                    } elseif ($tok -eq '+watch-merge') {
+                        $watchMerge = 'on'
                     } else {
                         # Says what was ignored and what that costs, never what state resulted.
                         # An earlier wording claimed it left yolo and merge off when it changed
@@ -103,6 +112,7 @@ function Read-Registry {
                         $mode  = 'no-mistakes'
                         $yolo  = 'off'
                         $merge = 'off'
+                        $watchMerge = 'off'
                         break
                     }
                 } else {
@@ -114,7 +124,7 @@ function Read-Registry {
                 }
             }
 
-            if (-not $annReadInFull) { $merge = 'off' }
+            if (-not $annReadInFull) { $merge = 'off'; $watchMerge = 'off' }
         }
 
         $added = ''
@@ -156,6 +166,7 @@ function Read-Registry {
             rawMode     = $rawMode
             yolo        = $yolo
             merge       = $merge
+            watchMerge  = $watchMerge
             description = $desc
             added       = $added
             indexable   = $indexable
@@ -234,6 +245,9 @@ function Add-ProjectEntry {
         [Parameter(Mandatory)][string]$Description,
         [switch]$Yolo,
         [switch]$Merge,
+        # Night's watch's own merge permission, independent of -Merge. Off for every caller that
+        # does not pass it, which is the default the token takes.
+        [switch]$WatchMerge,
         [string]$RegistryPath = (Get-DefaultRegistryPath)
     )
 
@@ -249,6 +263,11 @@ function Add-ProjectEntry {
         throw ("Cannot register '$Name' as local-only with -Merge: a local-only project never " +
                'pushes, so it has no forge and no pull request to merge. Register it with a ' +
                'push-capable mode, or register it without -Merge.')
+    }
+    if ($WatchMerge -and $Mode -eq 'local-only') {
+        throw ("Cannot register '$Name' as local-only with -WatchMerge: a local-only project never " +
+               'pushes, so it has no pull request for night''s watch to merge. Register it with a ' +
+               'push-capable mode, or register it without -WatchMerge.')
     }
 
     # Refused where the name is chosen, not later where it is used. Every durable file written for a
@@ -286,6 +305,7 @@ function Add-ProjectEntry {
     $tokens = @($Mode)
     if ($Yolo)  { $tokens += '+yolo' }
     if ($Merge) { $tokens += '+merge' }
+    if ($WatchMerge) { $tokens += '+watch-merge' }
     $ann   = '[' + ($tokens -join ' ') + ']'
     $added = Get-Date -Format 'yyyy-MM-dd'
 

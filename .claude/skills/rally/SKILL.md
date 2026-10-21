@@ -305,6 +305,13 @@ the rule above describes and its stage is left alone.
 4. **Relaunch.** If the worker is genuinely wedged, relaunch it - stop the worker, reconcile its
    worktree per the section above, then dispatch a fresh one through the normal `muster` path with
    the same brief plus a concise progress note saying what was already done and what remains.
+   **A worker recorded with `checkout` is relaunched as `fief`'s `A wedged warm worker`
+   paragraph says**: plain `Stop-CheckoutWorker`, the same name, brief and branch with
+   `-InCheckout`, then `Set-CrewRelaunch` - never `Add-CrewWorker`, which refuses the id, and
+   never a removed and re-added record, which loses its items and the hold it parked on. **A
+   worker recorded with `session` and no `checkout` is isolated**: it is stopped and relaunched
+   through the worktree path above, and still re-recorded with `Set-CrewRelaunch`, with no
+   `-SettingsRecord`, never `Add-CrewWorker`.
 
    Genuine wedging means looping, unresponsive, repeating the same obstacle, or truly dead. **A
    low context reading is not wedging; modern harnesses auto-compact and keep going.**
