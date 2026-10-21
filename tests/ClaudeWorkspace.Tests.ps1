@@ -487,3 +487,31 @@ Describe 'Stop-CheckoutWorker cleans up a checkout worker and never touches the 
         Should -Invoke -ModuleName ClaudeWorkspace Stop-HerdrAgent -Times 0
     }
 }
+
+# The default -DataPath is the path the real caller takes: fief passes none, so the record's index
+# line is dropped from this installation's own data root. Driven here with KINGSHAND_HOME pointed at
+# a throwaway root, so the default resolves somewhere this suite owns.
+Describe 'Stop-CheckoutWorker drops the record''s index line from the installation''s own data root' {
+    BeforeAll {
+        Import-Module "$PSScriptRoot\..\bin\Index.psm1"
+        $script:SavedHome = $env:KINGSHAND_HOME
+    }
+    AfterAll { $env:KINGSHAND_HOME = $script:SavedHome }
+
+    It 'uses the default data root when no -DataPath is passed' {
+        $homeDir  = New-CaseDir
+        $data     = Join-Path $homeDir 'data'
+        $checkout = New-CaseDir
+        $record   = Join-Path $data 'acme-api-session\checkout-settings.json'
+        $plan = New-CheckoutSettingsPlan -CheckoutPath $checkout -RecordPath $record
+        $null = Set-CheckoutWorkerSettings -Plan $plan
+        $null = Add-IndexEntry -Path $record -Summary 'checkout settings record' -DataPath $data
+        @(Get-IndexEntries -All -DataPath $data).Count | Should -Be 1
+
+        $env:KINGSHAND_HOME = $homeDir
+        Mock -ModuleName ClaudeWorkspace Stop-HerdrAgent { [pscustomobject]@{ stopped = $true; paneId = $null } }
+        $r = Stop-CheckoutWorker -Name 'acme-api-session' -RecordPath $record
+        $r.settings | Should -Be 'deleted'
+        @(Get-IndexEntries -All -DataPath $data).Count | Should -Be 0
+    }
+}
