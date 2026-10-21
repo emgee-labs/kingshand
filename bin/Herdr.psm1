@@ -1152,4 +1152,4 @@ Export-ModuleMember -Function Get-HerdrCommandPath, Get-HerdrCommandHint, Conver
                               Remove-HerdrPane, Test-HerdrAgentAwaitingInput, Get-HerdrAgentState,
                               Wait-HerdrAgentSettled, Test-HerdrAgentReadable,
                               Get-HerdrAgentProgressSignal, Wait-HerdrAgentProgress,
-                              Get-HerdrAgentPromptBox
+                              Get-HerdrAgentPromptBox, Read-HerdrAgentScreen

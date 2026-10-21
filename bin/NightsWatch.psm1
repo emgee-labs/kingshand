@@ -548,8 +548,11 @@ function New-WatchRestartPrompt {
 function Clear-WatchLimitDialog {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Name)
-    $screen = "$(Read-HerdrAgent -Name $Name)"
-    if (-not $screen.Contains($script:LimitDialogText)) {
+    $screen = Read-HerdrAgentScreen -Name $Name
+    if (-not $screen.ok) {
+        return [pscustomobject]@{ dismissed = $false; reason = 'the live screen could not be read' }
+    }
+    if (-not "$($screen.text)".Contains($script:LimitDialogText)) {
         return [pscustomobject]@{ dismissed = $false; reason = 'no limit dialog on the screen' }
     }
     Send-HerdrKeys -Name $Name -Keys @('escape')

@@ -285,6 +285,13 @@ Describe 'a session worker carries several items, and nothing else changes shape
         @(Get-CrewItems -State $script:s -WorkerId 'acme-api-session').id | Should -Be @('T-1001')
     }
 
+    It 'refuses a session started on an id that is not slug-shaped, and records nothing' {
+        { Add-CrewWorker -State $script:s -WorkerId 'acme-api-session' -Ticket 'AB#1234' -Kind 'ticket' `
+                         -Repo 'acme-api' -Worktree 'w' -Branch 'feature-x' -Brief 'f' -Session } |
+            Should -Throw '*slug-shaped*'
+        $script:s.workers.ContainsKey('acme-api-session') | Should -BeFalse
+    }
+
     It 'appends items in the order they joined the branch, and keeps that order through a save' {
         Add-SessionWorker -State $script:s
         Add-CrewItem -State $script:s -WorkerId 'acme-api-session' -Item 'fix-header' -Kind 'adhoc'

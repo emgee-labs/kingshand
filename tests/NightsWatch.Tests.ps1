@@ -409,14 +409,29 @@ Describe 'a pause rescues the gate''s commits first, and a restart carries what 
     }
 
     It 'dismisses the usage-limit dialog with Escape and nothing else' {
-        Mock -ModuleName NightsWatch Read-HerdrAgent { "What do you want to do?`n> 1. Stop and wait for limit to reset`n  2. Ask your admin" }
+        Mock -ModuleName NightsWatch Read-HerdrAgentScreen { [pscustomobject]@{ ok = $true; text = "What do you want to do?`n> 1. Stop and wait for limit to reset`n  2. Ask your admin" } }
         Mock -ModuleName NightsWatch Send-HerdrKeys { }
         (Clear-WatchLimitDialog -Name 'T-1001').dismissed | Should -BeTrue
         Should -Invoke -ModuleName NightsWatch Send-HerdrKeys -Times 1 -ParameterFilter { @($Keys) -join ',' -eq 'escape' }
     }
 
     It 'leaves any other prompt alone' {
-        Mock -ModuleName NightsWatch Read-HerdrAgent { "> 1. Rewrite the parser`n  2. Chat about this`n  Enter to select" }
+        Mock -ModuleName NightsWatch Read-HerdrAgentScreen { [pscustomobject]@{ ok = $true; text = "> 1. Rewrite the parser`n  2. Chat about this`n  Enter to select" } }
+        Mock -ModuleName NightsWatch Send-HerdrKeys { }
+        (Clear-WatchLimitDialog -Name 'T-1001').dismissed | Should -BeFalse
+        Should -Invoke -ModuleName NightsWatch Send-HerdrKeys -Times 0
+    }
+
+    It 'reads only the live screen, so a dialog left in scrollback is not dismissed' {
+        Mock -ModuleName NightsWatch Read-HerdrAgent { "> 1. Stop and wait for limit to reset" }
+        Mock -ModuleName NightsWatch Read-HerdrAgentScreen { [pscustomobject]@{ ok = $true; text = "Working on the parser" } }
+        Mock -ModuleName NightsWatch Send-HerdrKeys { }
+        (Clear-WatchLimitDialog -Name 'T-1001').dismissed | Should -BeFalse
+        Should -Invoke -ModuleName NightsWatch Send-HerdrKeys -Times 0
+    }
+
+    It 'sends nothing when the live screen cannot be read' {
+        Mock -ModuleName NightsWatch Read-HerdrAgentScreen { [pscustomobject]@{ ok = $false; text = '' } }
         Mock -ModuleName NightsWatch Send-HerdrKeys { }
         (Clear-WatchLimitDialog -Name 'T-1001').dismissed | Should -BeFalse
         Should -Invoke -ModuleName NightsWatch Send-HerdrKeys -Times 0

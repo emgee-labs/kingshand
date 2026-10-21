@@ -112,6 +112,10 @@ function Add-CrewWorker {
     if ($SettingsRecord.Trim() -and -not $InCheckout) {
         throw "-SettingsRecord is for a checkout worker; pass -InCheckout as well, or leave it off."
     }
+    if ($Session -and $Ticket -notmatch $script:HoldKeyPattern) {
+        throw ("Invalid item id '$Ticket'. Must be slug-shaped: letters, digits, '.', '_' or '-', " +
+               "and the first character must be a letter or a digit.")
+    }
 
     $State.workers[$WorkerId] = @{
         ticket        = $Ticket
