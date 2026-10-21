@@ -72,8 +72,10 @@ was armed before the budget ran out. The procedure that worked by hand is now me
   then stop it cleanly.
 - **Across the gap:** one tracked timer pinned once from the reset plus a margin, zero quota reads,
   re-armed with the same time if it dies, refusing any wait over six hours.
-- **After the reset:** one reading to confirm the window rolled, the limit dialog dismissed with
-  Escape, and each worker restarted in its existing worktree with a prompt that cannot be built
+- **After the reset:** a reading to confirm the window rolled - a stale one is read again every
+  five minutes for up to thirty, a current one still at the limit re-arms the timer, and a reading
+  stale throughout restarts the workers anyway with that recorded in the journal
+  (`Get-WatchWakeStep`) - the limit dialog dismissed with Escape, and each worker restarted in its existing worktree with a prompt that cannot be built
   without where the commits are, resume or fresh, every standing direction and what is settled.
 - **The weekly window** resets in days. The watch records that and stops rather than sleeping.
 

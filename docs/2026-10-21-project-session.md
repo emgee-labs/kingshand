@@ -33,7 +33,11 @@ a worktree. Making it a mode is mostly making those mechanical.
   A session that wants isolation gets one ordinary worktree for the whole run.
 - **The checkout warnings are a fixed brief section the dispatcher writes**: not in a worktree,
   the branch to stay on, the commands never to run, commit and push only on a prompt, and git's
-  own listing of what was already uncommitted and stashed, quoted as not the worker's.
+  own listing of what was already uncommitted and stashed, quoted as not the worker's. The first
+  dispatch keeps that listing as a baseline beside the brief, never in the checkout, so a relaunch
+  quotes only the baseline's files as not its own and lists the rest as the session's earlier
+  fixes, never to be reverted. `Set-CrewRelaunch` re-records the relaunched worker without losing
+  its items.
 - **One crew record carries many items.** A session worker's record holds every ticket or fix id
   on its branch, in order, each with its kind. It survives a restart and is the source for the
   commit and pull request titles. Every other record keeps the one-ticket shape it always had.
