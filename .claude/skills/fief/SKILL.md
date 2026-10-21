@@ -132,6 +132,13 @@ stopped, as Step 8b says. Clean a checkout worker up with `Stop-CheckoutWorker` 
 `bin\ClaudeWorkspace.psm1`, passing its recorded `settings_record`; it never deletes the branch
 and never removes the checkout. An isolated session worker is cleaned up as Step 8b has it.
 
+**A wedged warm worker is relaunched as the same worker, and keeps its fixes.** Clean it up with
+`Stop-CheckoutWorker`, dispatch it again with the same name, brief and branch, and re-record it with
+`Set-CrewRelaunch`, which keeps its items and `waiting_on`. The first dispatch kept a baseline of
+what was already uncommitted, so the relaunched brief quotes only those files as not its own and
+lists the rest as the session's own earlier fixes. **Pass `-EndSession` to `Stop-CheckoutWorker`
+only when the session ends**, which removes that baseline too.
+
 ## Delivery
 
 **Commit, push and raise a pull request are three separate words, and each authorises only

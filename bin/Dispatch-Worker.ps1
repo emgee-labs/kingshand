@@ -246,6 +246,10 @@
   by this script: not in a worktree, the branch to stay on, the commands never to run, commit and
   push only on a prompt, and git's own listing of what was already uncommitted and stashed, quoted
   line for line as not the worker's. A re-dispatch replaces that section only where it differs.
+  The first dispatch keeps git's listing as a baseline beside the brief, never in the checkout, so a
+  relaunch of the same worker on the same branch quotes only the baseline's files as not its own
+  and lists everything else uncommitted as the session's own earlier fixes. A baseline left by a
+  different first dispatch, or one that cannot be read, is refused with nothing created.
 
   The base is resolved exactly as for a worktree, and it is what the landing gate measures the whole
   session branch against.
@@ -481,6 +485,13 @@ if ($InCheckout) {
     $checkoutRecord = Get-CheckoutSettingsRecordPath -BriefDirectory $briefDir
     $checkoutPlan   = New-CheckoutSettingsPlan -CheckoutPath $RepoPath -RecordPath $checkoutRecord `
                           -AdditionalDirectories @($briefDir)
+
+    # What is uncommitted now, split against the baseline the session's first dispatch took: a
+    # baseline left by a different first dispatch, or one that cannot be read, is refused here.
+    $dirty = @((& git -C $RepoPath status --porcelain 2>$null) | Where-Object { $_ })
+    $global:LASTEXITCODE = 0
+    $baselinePlan = New-CheckoutBaselinePlan -BriefDirectory $briefDir -Name $Name `
+                        -CheckoutPath $RepoPath -Branch $Branch -Dirty $dirty
 
     # The base, resolved HERE for a checkout rather than just before the spawn, because one answer
     # the resolver can give is wrong only in this mode and has to be refused with nothing created.
@@ -1164,8 +1175,6 @@ if ($autoLines.Count -gt 0 -and $headingIndex -ge 0) {
 $checkoutLines = @()
 $checkoutWrite = $false
 if ($InCheckout) {
-    $dirty   = @((& git -C $RepoPath status --porcelain 2>$null) | Where-Object { $_ })
-    $global:LASTEXITCODE = 0
     $stashes = @((& git -C $RepoPath stash list 2>$null) | Where-Object { $_ })
     $global:LASTEXITCODE = 0
 
@@ -1183,10 +1192,17 @@ if ($InCheckout) {
     )
     if ($dirty.Count -eq 0) {
         $checkoutLines += '- Nothing was uncommitted in this checkout when you were dispatched.'
-    } else {
-        $checkoutLines += ('- Already uncommitted when you were dispatched, and **not yours** - do ' +
+    }
+    if ($baselinePlan.notYours.Count -gt 0) {
+        $checkoutLines += ('- Already uncommitted before this session began, and **not yours** - do ' +
                            'not revert, reformat, stage or commit it:')
-        $checkoutLines += @($dirty | ForEach-Object { "  - ``$_``" })
+        $checkoutLines += @($baselinePlan.notYours | ForEach-Object { "  - ``$_``" })
+    }
+    if ($baselinePlan.session.Count -gt 0) {
+        $checkoutLines += ('- Uncommitted from **this session''s own earlier fixes**, made before ' +
+                           'you were relaunched - yours to commit when a prompt says so, and never ' +
+                           'to revert:')
+        $checkoutLines += @($baselinePlan.session | ForEach-Object { "  - ``$_``" })
     }
     if ($stashes.Count -gt 0) {
         $checkoutLines += ('- Stashes on this repository, none of them yours - never pop, apply or ' +
@@ -1397,6 +1413,15 @@ if ($InCheckout) {
                               'dispatched into it; restored and removed at cleanup')
     } catch {
         Write-Warning "The record at $checkoutRecord could not be indexed ($($_.Exception.Message))."
+    }
+    if (Set-CheckoutBaseline -Plan $baselinePlan) {
+        try {
+            $null = Add-IndexEntry -Path $baselinePlan.path -Project $project -DataPath $DataPath `
+                        -Summary ("what was uncommitted in the checkout before worker $Name's " +
+                                  'session began; kept across a relaunch, removed when it ends')
+        } catch {
+            Write-Warning "The baseline at $($baselinePlan.path) could not be indexed ($($_.Exception.Message))."
+        }
     }
     # The checkout is a directory the King works in, so it is almost always trusted already and
     # this returns 'already'. Where it is not, the worker would stop on the dialog with nobody there.

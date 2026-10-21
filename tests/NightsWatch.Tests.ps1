@@ -326,6 +326,37 @@ Describe 'the usage window paces the night' {
         Test-WatchWindowRolled -Reading (New-Reading 95) -Options $script:Opts | Should -BeFalse
         Test-WatchWindowRolled -Reading (New-Reading $null -Floor 3 -Status 'unknown') -Options $script:Opts | Should -BeFalse
     }
+
+    It 'restarts after the wake on a current reading below the threshold' {
+        $woke = [datetime]'2026-10-22T07:05:00Z'
+        (Get-WatchWakeStep -Reading (New-Reading 3) -Options $script:Opts -WokeAt $woke -Now $woke).action |
+            Should -Be 'restart'
+    }
+
+    It 'rereads a stale reading every five minutes while the thirty-minute bound lasts' {
+        $woke = [datetime]'2026-10-22T07:05:00Z'
+        $s = Get-WatchWakeStep -Reading (New-Reading $null -Floor 95 -Status 'unknown') -Options $script:Opts `
+                 -WokeAt $woke -Now $woke.AddMinutes(25)
+        $s.action          | Should -Be 'reread'
+        $s.nextReadMinutes | Should -Be 5
+    }
+
+    It 'restarts anyway once a stale reading has lasted thirty minutes, with a line for the journal' {
+        $woke = [datetime]'2026-10-22T07:05:00Z'
+        $s = Get-WatchWakeStep -Reading (New-Reading $null -Status 'unknown') -Options $script:Opts `
+                 -WokeAt $woke -Now $woke.AddMinutes(30)
+        $s.action | Should -Be 'restart-unconfirmed'
+        $s.detail | Should -BeLike '*without confirming the window rolled*'
+    }
+
+    It 're-arms from a current reading still at the limit, pinned to its reset time' {
+        $woke  = [datetime]::UtcNow
+        $reset = $woke.AddHours(1)
+        $s = Get-WatchWakeStep -Reading (New-Reading 92 -ResetsAt $reset.ToString('o')) -Options $script:Opts `
+                 -WokeAt $woke -Now $woke.AddMinutes(40)
+        $s.action | Should -Be 'pause'
+        ([datetimeoffset]::Parse($s.wakeAt).UtcDateTime - $reset).TotalMinutes | Should -BeGreaterOrEqual 4.9
+    }
 }
 
 Describe 'a pause rescues the gate''s commits first, and a restart carries what survived' {
@@ -355,6 +386,28 @@ Describe 'a pause rescues the gate''s commits first, and a restart carries what 
 
         $r = Save-WatchGateRescue -RepoPath $repo -Head $head -Task 'T-1001' -MirrorRoot $mirrors -At ([datetime]'2026-10-22T02:30:00Z')
         $r.ref  | Should -Be 'refs/gate/T-1001-20261022T0230'
+        (git -C $repo rev-parse $r.ref).Trim() | Should -Be $head
+    }
+
+    It 'looks in the gate''s own mirrors under the profile when no mirror root is named' {
+        $repo = New-Repo
+        $profileDir = New-CaseDir
+        $mirror = Join-Path $profileDir '.no-mistakes\repos\abc123.git'
+        git clone -q --bare $repo $mirror
+        $work = New-CaseDir
+        git clone -q $mirror $work
+        git -C $work config user.name 'Test'; git -C $work config user.email 'test@example.invalid'
+        Set-Content -LiteralPath (Join-Path $work 'b.txt') -Value 'fix'
+        git -C $work add -A; git -C $work commit -q -m 'gate fix'
+        git -C $work push -q origin HEAD:refs/heads/gate-run 2>&1 | Out-Null
+        $head = (git -C $work rev-parse HEAD).Trim()
+
+        $saved = $env:USERPROFILE
+        try {
+            $env:USERPROFILE = $profileDir
+            $r = Save-WatchGateRescue -RepoPath $repo -Head $head -Task 'T-1001'
+        } finally { $env:USERPROFILE = $saved }
+        $r.from | Should -Be $mirror
         (git -C $repo rev-parse $r.ref).Trim() | Should -Be $head
     }
 

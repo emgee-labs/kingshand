@@ -41,6 +41,10 @@ $script:DefaultMarginMinutes = 5
 # The longest sleep a five-hour window can ever need. Anything longer is the weekly window, which
 # is days away: the watch stops rather than sleeping across it.
 $script:MaxSleepHours = 6
+# After the wake, a stale reading is read again every five minutes for up to thirty, and then the
+# workers are restarted anyway - the King's word, 2026-10-22.
+$script:WakeRereadMinutes    = 5
+$script:WakeRereadForMinutes = 30
 
 # The line `muster` Step 7's floor matches, spelled exactly as parley writes it.
 $script:ParleyMarker = 'PARLEY DISPATCH - NO REVIEW GATE RAN.'
@@ -431,6 +435,45 @@ function Test-WatchWindowRolled {
         [double]$Reading.percent -lt $Options.thresholdPercent
 }
 
+# What to do with each reading after the timer wakes. The live fetch is rate limited most of the
+# time, so the first reading is often stale, and a stale reading is not a reason to leave the
+# workers stopped all night.
+#
+# .action  restart              the window rolled: restart the paused workers
+#          pause | stop-weekly  a current reading is still at the limit: re-arm the timer from its
+#                               reset time, or stop, exactly as Get-WatchUsageStep says
+#          reread               stale or unknown: read again in nextReadMinutes
+#          restart-unconfirmed  stale or unknown for the whole bound: restart anyway, and journal it
+function Get-WatchWakeStep {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Reading,
+        [Parameter(Mandatory)]$Options,
+        [Parameter(Mandatory)][datetime]$WokeAt,
+        [datetime]$Now = [datetime]::UtcNow,
+        [int]$MarginMinutes = $script:DefaultMarginMinutes
+    )
+
+    $out = [ordered]@{ action = 'reread'; wakeAt = ''; nextReadMinutes = $script:WakeRereadMinutes; detail = "$($Reading.detail)" }
+    if (Test-WatchWindowRolled -Reading $Reading -Options $Options) {
+        $out.action = 'restart'
+        return [pscustomobject]$out
+    }
+    if ("$($Reading.status)" -eq 'has-usage' -and $null -ne $Reading.percent) {
+        $step = Get-WatchUsageStep -Reading $Reading -Options $Options -MarginMinutes $MarginMinutes
+        $out.action = $step.action
+        $out.wakeAt = $step.wakeAt
+        $out.detail = $step.detail
+        return [pscustomobject]$out
+    }
+    $waited = ($Now.ToUniversalTime() - $WokeAt.ToUniversalTime()).TotalMinutes
+    if ($waited -ge $script:WakeRereadForMinutes) {
+        $out.action = 'restart-unconfirmed'
+        $out.detail = "No current usage reading in the $script:WakeRereadForMinutes minutes after the reset, so the paused workers were restarted without confirming the window rolled. $($Reading.detail)"
+    }
+    [pscustomobject]$out
+}
+
 # ---------------------------------------------------------------------------------------------
 # Pause and restart
 # ---------------------------------------------------------------------------------------------
@@ -601,5 +644,5 @@ function Write-WatchRecordOnce {
 Export-ModuleMember -Function New-WatchOptions, Test-WatchDispatchSlot, Get-WatchReadyItems,
                               Select-WatchPool, Get-WatchMergeVerdict, Invoke-WatchMerge,
                               Get-WatchUsageStep, Get-WatchWakeTime, Wait-WatchReset,
-                              Test-WatchWindowRolled, Save-WatchGateRescue, Get-WatchResumeChoice,
+                              Test-WatchWindowRolled, Get-WatchWakeStep, Save-WatchGateRescue, Get-WatchResumeChoice,
                               New-WatchRestartPrompt, Clear-WatchLimitDialog, Write-WatchRecordOnce

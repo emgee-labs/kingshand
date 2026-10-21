@@ -486,6 +486,64 @@ Describe 'Stop-CheckoutWorker cleans up a checkout worker and never touches the 
             Should -Throw '*could not be read*'
         Should -Invoke -ModuleName ClaudeWorkspace Stop-HerdrAgent -Times 0
     }
+
+    It 'keeps the session''s baseline, because a relaunch needs it, and removes it only at -EndSession' {
+        $plan = New-CheckoutBaselinePlan -BriefDirectory (Split-Path $script:Record -Parent) `
+                    -Name 'acme-api-session' -CheckoutPath $script:Checkout -Branch 'feature-x' -Dirty @('?? wip.txt')
+        Set-CheckoutBaseline -Plan $plan | Should -BeTrue
+        Mock -ModuleName ClaudeWorkspace Stop-HerdrAgent { [pscustomobject]@{ stopped = $true; paneId = $null } }
+
+        $r = Stop-CheckoutWorker -Name 'acme-api-session' -RecordPath $script:Record -DataPath $script:Data
+        $r.baselineRemoved | Should -BeFalse
+        Test-Path -LiteralPath $plan.path | Should -BeTrue
+
+        $again = New-CheckoutSettingsPlan -CheckoutPath $script:Checkout -RecordPath $script:Record
+        $null = Set-CheckoutWorkerSettings -Plan $again
+        $r = Stop-CheckoutWorker -Name 'acme-api-session' -RecordPath $script:Record -DataPath $script:Data -EndSession
+        $r.baselineRemoved | Should -BeTrue
+        Test-Path -LiteralPath $plan.path | Should -BeFalse
+    }
+}
+
+Describe 'the checkout baseline tells the King''s uncommitted files from the session''s own' {
+    BeforeEach {
+        $script:Brief    = New-CaseDir
+        $script:Checkout = New-CaseDir
+        $first = New-CheckoutBaselinePlan -BriefDirectory $script:Brief -Name 'acme-api-session' `
+                     -CheckoutPath $script:Checkout -Branch 'feature-x' -Dirty @('?? wip.txt', ' M base.txt')
+        $null = Set-CheckoutBaseline -Plan $first
+    }
+
+    It 'labels everything not yours at the first dispatch' {
+        $p = New-CheckoutBaselinePlan -BriefDirectory (New-CaseDir) -Name 'acme-api-session' `
+                 -CheckoutPath $script:Checkout -Branch 'feature-x' -Dirty @('?? wip.txt')
+        $p.exists   | Should -BeFalse
+        @($p.notYours) | Should -Be @('?? wip.txt')
+        @($p.session).Count | Should -Be 0
+    }
+
+    It 'on a relaunch, keeps only the baseline''s files as not yours and the rest as the session''s' {
+        $p = New-CheckoutBaselinePlan -BriefDirectory $script:Brief -Name 'acme-api-session' `
+                 -CheckoutPath $script:Checkout -Branch 'feature-x' `
+                 -Dirty @('?? wip.txt', 'M  base.txt', ' M src/fix.ts', '?? src/new.ts')
+        $p.exists | Should -BeTrue
+        @($p.notYours) | Should -Be @('?? wip.txt', 'M  base.txt')
+        @($p.session)  | Should -Be @(' M src/fix.ts', '?? src/new.ts')
+        Set-CheckoutBaseline -Plan $p | Should -BeFalse -Because 'the first dispatch''s baseline is never rewritten'
+    }
+
+    It 'refuses a baseline left by a different first dispatch' {
+        { New-CheckoutBaselinePlan -BriefDirectory $script:Brief -Name 'acme-api-session' `
+              -CheckoutPath $script:Checkout -Branch 'feature-y' -Dirty @() } | Should -Throw '*different first dispatch*'
+        { New-CheckoutBaselinePlan -BriefDirectory $script:Brief -Name 'acme-web-session' `
+              -CheckoutPath $script:Checkout -Branch 'feature-x' -Dirty @() } | Should -Throw '*different first dispatch*'
+    }
+
+    It 'refuses a baseline it cannot read' {
+        Set-Content -LiteralPath (Get-CheckoutBaselinePath -BriefDirectory $script:Brief) -Value 'garbage'
+        { New-CheckoutBaselinePlan -BriefDirectory $script:Brief -Name 'acme-api-session' `
+              -CheckoutPath $script:Checkout -Branch 'feature-x' -Dirty @() } | Should -Throw '*could not be read*'
+    }
 }
 
 # The default -DataPath is the path the real caller takes: fief passes none, so the record's index

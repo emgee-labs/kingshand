@@ -379,6 +379,95 @@ function Restore-CheckoutWorkerSettings {
     [pscustomobject]@{ settingsPath = $r.settingsPath; action = $action }
 }
 
+# ---------------------------------------------------------------------------------------------
+# What was uncommitted in the checkout before the session's first dispatch.
+#
+# A session's fixes stay uncommitted until the King says commit, so a worker relaunched mid-session
+# finds its own earlier fixes in `git status` beside the King's. The baseline is git's listing taken
+# at the FIRST dispatch and kept beside the brief, never in the checkout: on a re-dispatch of the
+# same worker on the same branch, only what it lists is the King's, and everything else uncommitted
+# is the session's own. Cleanup keeps it, because the session is not over; only -EndSession on
+# Stop-CheckoutWorker removes it. One left by a different first dispatch is refused, not reused.
+# ---------------------------------------------------------------------------------------------
+
+$script:CheckoutBaselineLeaf = 'checkout-baseline.json'
+
+function Get-CheckoutBaselinePath {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$BriefDirectory)
+    Join-Path $BriefDirectory $script:CheckoutBaselineLeaf
+}
+
+# Splits what is uncommitted now into the King's and the session's, WITHOUT writing anything. A
+# porcelain line is matched to the baseline on its path, so a file whose status letters moved is
+# still the one that was there before.
+function New-CheckoutBaselinePlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BriefDirectory,
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$CheckoutPath,
+        [Parameter(Mandatory)][string]$Branch,
+        [AllowEmptyCollection()][string[]]$Dirty = @()
+    )
+
+    $path    = Get-CheckoutBaselinePath -BriefDirectory $BriefDirectory
+    $dirty   = @($Dirty | Where-Object { $_ })
+    $outside = [IO.Path]::GetFullPath($CheckoutPath).TrimEnd('\')
+    if (-not (Test-Path -LiteralPath $path)) {
+        return [pscustomobject]@{
+            path = $path; exists = $false; name = $Name; checkout = $outside; branch = $Branch
+            baseline = $dirty; notYours = $dirty; session = @()
+        }
+    }
+
+    try { $b = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop }
+    catch {
+        throw ("The checkout baseline at $path could not be read ($($_.Exception.Message)), so " +
+               "nothing says which uncommitted files are the King's. Nothing was changed.")
+    }
+    $names = @($b.PSObject.Properties.Name)
+    foreach ($k in 'worker', 'checkout', 'branch', 'dirty') {
+        if ($names -notcontains $k) { throw "The checkout baseline at $path has no '$k'. Nothing was changed." }
+    }
+    $same = "$($b.worker)" -ceq $Name -and "$($b.branch)" -ceq $Branch -and
+            "$($b.checkout)".TrimEnd('\').Equals($outside, [System.StringComparison]::OrdinalIgnoreCase)
+    if (-not $same) {
+        throw ("The checkout baseline at $path belongs to worker $($b.worker) on $($b.branch) in " +
+               "$($b.checkout), a different first dispatch, so it says nothing about this one. If " +
+               "that session is over, end it with Stop-CheckoutWorker -EndSession. Nothing was changed.")
+    }
+
+    $baseline = @(@($b.dirty) | Where-Object { $_ } | ForEach-Object { "$_" })
+    $keys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($l in $baseline) { if ($l.Length -gt 3) { $null = $keys.Add($l.Substring(3)) } }
+    [pscustomobject]@{
+        path = $path; exists = $true; name = $Name; checkout = $outside; branch = $Branch
+        baseline = $baseline
+        notYours = @($dirty | Where-Object { $_.Length -gt 3 -and $keys.Contains($_.Substring(3)) })
+        session  = @($dirty | Where-Object { -not ($_.Length -gt 3 -and $keys.Contains($_.Substring(3))) })
+    }
+}
+
+# Writes the baseline at the first dispatch, with CreateNew, and does nothing on a re-dispatch.
+function Set-CheckoutBaseline {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Plan)
+
+    if ($Plan.exists) { return $false }
+    $json = [ordered]@{
+        worker = $Plan.name; checkout = $Plan.checkout; branch = $Plan.branch; dirty = @($Plan.baseline)
+    } | ConvertTo-Json -Depth 3
+    $dir = Split-Path -Parent $Plan.path
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    $fs = [System.IO.File]::Open($Plan.path, 'CreateNew', 'Write', 'None')
+    try {
+        $buf = [System.Text.Encoding]::UTF8.GetBytes($json)
+        $fs.Write($buf, 0, $buf.Length)
+    } finally { $fs.Dispose() }
+    $true
+}
+
 # Cleanup for a worker in the project's own checkout. `muster` Step 8b points here rather than
 # carrying a second copy of the procedure.
 #
@@ -389,6 +478,9 @@ function Restore-CheckoutWorkerSettings {
 # The record is read BEFORE anything is stopped, so a record that cannot be stood behind stops the
 # cleanup at the start instead of half way. A worker that does not stop leaves the settings alone:
 # it is still running under them.
+#
+# The baseline beside the record is KEPT, because a cleanup mid-session is followed by a relaunch
+# that needs it. -EndSession, at the session's end, removes it too.
 function Stop-CheckoutWorker {
     [CmdletBinding()]
     param(
@@ -396,7 +488,8 @@ function Stop-CheckoutWorker {
         [Parameter(Mandatory)][string]$RecordPath,
         # The data root whose index lists the record. Index.psm1's own default unless a caller
         # points it elsewhere, which is what lets a test drive this without the real installation.
-        [string]$DataPath = ''
+        [string]$DataPath = '',
+        [switch]$EndSession
     )
 
     $null = Read-CheckoutSettingsRecord -RecordPath $RecordPath
@@ -413,22 +506,34 @@ function Stop-CheckoutWorker {
 
     # The record was indexed when dispatch wrote it, so its line goes with it. A failure here is
     # drift the next digest reports, never a reason to call the cleanup failed.
-    try {
-        if ($DataPath) { $null = Remove-IndexEntry -Path $RecordPath -DataPath $DataPath }
-        else           { $null = Remove-IndexEntry -Path $RecordPath }
-    } catch {
-        Write-Warning "The index line for $RecordPath could not be dropped ($($_.Exception.Message))."
+    $dropped = @($RecordPath)
+    $baseline = Get-CheckoutBaselinePath -BriefDirectory (Split-Path -Parent $RecordPath)
+    $baselineRemoved = $false
+    if ($EndSession -and (Test-Path -LiteralPath $baseline -PathType Leaf)) {
+        Remove-Item -LiteralPath $baseline -Force
+        $baselineRemoved = $true
+        $dropped += $baseline
+    }
+    foreach ($p in $dropped) {
+        try {
+            if ($DataPath) { $null = Remove-IndexEntry -Path $p -DataPath $DataPath }
+            else           { $null = Remove-IndexEntry -Path $p }
+        } catch {
+            Write-Warning "The index line for $p could not be dropped ($($_.Exception.Message))."
+        }
     }
 
     [pscustomobject]@{
-        stopped      = $true
-        paneRemoved  = $paneRemoved
-        settings     = $restored.action
-        settingsPath = $restored.settingsPath
+        stopped         = $true
+        paneRemoved     = $paneRemoved
+        settings        = $restored.action
+        settingsPath    = $restored.settingsPath
+        baselineRemoved = $baselineRemoved
     }
 }
 
 Export-ModuleMember -Function Set-WorkerWorkspaceSettings, Grant-ClaudeFolderTrust,
                               Get-CheckoutSettingsRecordPath, New-CheckoutSettingsPlan,
                               Set-CheckoutWorkerSettings, Read-CheckoutSettingsRecord,
-                              Restore-CheckoutWorkerSettings, Stop-CheckoutWorker
+                              Restore-CheckoutWorkerSettings, Stop-CheckoutWorker,
+                              Get-CheckoutBaselinePath, New-CheckoutBaselinePlan, Set-CheckoutBaseline

@@ -1052,6 +1052,16 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 }
             }
 
+            # The baseline is indexed and outlives a cleanup, so a re-dispatch meets a listed
+            # file - as a real session brief always does - and says the index was checked.
+            function Set-IndexCheckedBrief {
+                param([Parameter(Mandatory)]$Fixture)
+                $text = [System.IO.File]::ReadAllText($Fixture.BriefPath).Replace(
+                    '- Nothing beyond this brief.',
+                    '- Nothing beyond this brief - the index was checked and nothing in it applies.')
+                [System.IO.File]::WriteAllText($Fixture.BriefPath, $text)
+            }
+
             function Get-LocalBranches {
                 param([Parameter(Mandatory)][string]$Repo)
                 @(& git -C $Repo for-each-ref --format='%(refname:short)' refs/heads | Sort-Object)
@@ -1211,6 +1221,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         It 'replaces its own section on a re-dispatch rather than adding a second' {
             $f = New-DispatchFixture 'checkout-again'
             git -C $f.Repo checkout -q -b 'feature-x'
+            Set-IndexCheckedBrief -Fixture $f
             $r = Invoke-CheckoutDispatch -Fixture $f
             $null = Restore-CheckoutWorkerSettings -RecordPath $r.settingsRecord
             $null = Remove-IndexEntry -Path $r.settingsRecord -DataPath $f.DataPath
@@ -1220,6 +1231,41 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             ([regex]::Matches($text, '(?m)^## Working in the checkout, not a worktree')).Count | Should -Be 1
             $text.Contains('- `?? later.txt`') | Should -BeTrue
             $text.Contains('SECRET-BODY-MARKER') | Should -BeTrue -Because 'the rest of the brief is untouched'
+        }
+
+        # A session's fixes stay uncommitted until the King says commit, so a relaunched warm worker
+        # finds them beside his own work - and must be told which is which.
+        It 'tells a relaunched session worker its own earlier fixes from the King''s uncommitted work' {
+            $f = New-DispatchFixture 'checkout-relaunch'
+            git -C $f.Repo checkout -q -b 'feature-x'
+            Set-IndexCheckedBrief -Fixture $f
+            Set-Content -Path (Join-Path $f.Repo 'wip.txt') -Value 'the owner''s' -Encoding utf8
+            $r = Invoke-CheckoutDispatch -Fixture $f
+            @(Get-IndexEntries -All -DataPath $f.DataPath | ForEach-Object { $_.path }) |
+                Should -Contain 'data\brief\checkout-baseline.json'
+            $null = Restore-CheckoutWorkerSettings -RecordPath $r.settingsRecord
+            $null = Remove-IndexEntry -Path $r.settingsRecord -DataPath $f.DataPath
+            Set-Content -Path (Join-Path $f.Repo 'fix.txt') -Value 'the session''s' -Encoding utf8
+
+            $null = Invoke-CheckoutDispatch -Fixture $f
+            $text = [System.IO.File]::ReadAllText($f.BriefPath)
+            $mine   = $text.IndexOf('**this session''s own earlier fixes**')
+            $theirs = $text.IndexOf('**not yours**')
+            $theirs | Should -BeGreaterThan -1
+            $mine   | Should -BeGreaterThan $theirs
+            $text.IndexOf('- `?? wip.txt`') | Should -BeGreaterThan $theirs
+            $text.IndexOf('- `?? wip.txt`') | Should -BeLessThan $mine
+            $text.IndexOf('- `?? fix.txt`') | Should -BeGreaterThan $mine
+        }
+
+        It 'refuses a baseline a different first dispatch left, before creating anything' {
+            $f = New-DispatchFixture 'checkout-otherbaseline'
+            git -C $f.Repo checkout -q -b 'feature-x'
+            Set-Content -Path (Join-Path $f.BriefDir 'checkout-baseline.json') -Encoding utf8 `
+                -Value '{ "worker": "acme-web-session", "checkout": "C:\\repos\\acme-web", "branch": "feature-x", "dirty": [] }'
+            $before = [System.IO.File]::ReadAllText($f.BriefPath)
+            { Invoke-CheckoutDispatch -Fixture $f } | Should -Throw '*different first dispatch*'
+            Assert-NothingCreated -Fixture $f -BriefBefore $before
         }
 
         It 'never writes the checkout section into an ordinary worktree brief' {

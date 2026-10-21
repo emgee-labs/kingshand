@@ -285,6 +285,29 @@ Describe 'a session worker carries several items, and nothing else changes shape
         @(Get-CrewItems -State $script:s -WorkerId 'acme-api-session').id | Should -Be @('T-1001')
     }
 
+    It 're-records a relaunched worker without losing its items or the hold it parked on' {
+        Add-SessionWorker -State $script:s -InCheckout
+        Add-CrewItem -State $script:s -WorkerId 'acme-api-session' -Item 'fix-header' -Kind 'adhoc'
+        Set-CrewWaitingOn -State $script:s -WorkerId 'acme-api-session' -HoldKey 'T-1001-copy'
+        Set-CrewStage -State $script:s -WorkerId 'acme-api-session' -Stage 'implementing'
+        Set-CrewRelaunch -State $script:s -WorkerId 'acme-api-session' -Worktree 'C:/repos/acme-api' `
+            -Branch 'feature-x' -Base 'origin/main' -SettingsRecord 'D:\data\acme-api-session\checkout-settings-2.json'
+        $rec = $script:s.workers['acme-api-session']
+        @(Get-CrewItems -State $script:s -WorkerId 'acme-api-session').id | Should -Be @('T-1001', 'fix-header')
+        $rec.waiting_on      | Should -Be 'T-1001-copy'
+        $rec.base            | Should -Be 'origin/main'
+        $rec.stage           | Should -Be 'dispatched'
+        $rec.settings_record | Should -Be 'D:\data\acme-api-session\checkout-settings-2.json'
+    }
+
+    It 'refuses a relaunch of a checkout worker with no new settings record, or of an unknown id' {
+        Add-SessionWorker -State $script:s -InCheckout
+        { Set-CrewRelaunch -State $script:s -WorkerId 'acme-api-session' -Worktree 'w' -Branch 'feature-x' `
+              -Base 'main' } | Should -Throw '*needs -SettingsRecord*'
+        { Set-CrewRelaunch -State $script:s -WorkerId 'T-9999' -Worktree 'w' -Branch 'b' -Base 'main' } |
+            Should -Throw '*not found*'
+    }
+
     It 'refuses a session started on an id that is not slug-shaped, and records nothing' {
         { Add-CrewWorker -State $script:s -WorkerId 'acme-api-session' -Ticket 'AB#1234' -Kind 'ticket' `
                          -Repo 'acme-api' -Worktree 'w' -Branch 'feature-x' -Brief 'f' -Session } |

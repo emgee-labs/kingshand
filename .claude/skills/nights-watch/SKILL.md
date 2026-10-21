@@ -123,8 +123,13 @@ $step = Get-WatchUsageStep -Reading (Get-UsageWindow) -Options $opts
      job, never `nohup` and never a detached child. `wakeAt` is pinned once from the last reading
      and never recomputed. Take **zero** quota readings across the gap. If the job dies, re-arm it
      with the same `wakeAt`.
-  5. **After it wakes**, take one reading and confirm with `Test-WatchWindowRolled`. Then for each
-     paused worker: `Clear-WatchLimitDialog` - it dismisses the limit dialog with Escape and
+  5. **After it wakes**, decide each reading with
+     `Get-WatchWakeStep -Reading (Get-UsageWindow) -Options $opts -WokeAt <when it woke>`. **A stale
+     reading is read again every five minutes for up to thirty**: `reread` waits
+     `nextReadMinutes` and reads once more; `pause` re-arms the timer from that reading's reset
+     time, as step 4; `stop-weekly` stops the watch; `restart-unconfirmed` restarts the workers
+     anyway and records its `detail` in the away journal. On `restart` or `restart-unconfirmed`,
+     for each paused worker: `Clear-WatchLimitDialog` - it dismisses the limit dialog with Escape and
      nothing else - restart it in its existing worktree with `New-HerdrPane` and
      `Start-HerdrAgent`, and send `New-WatchRestartPrompt`, which refuses to be built without
      where the commits are, resume or fresh from `Get-WatchResumeChoice`, every standing direction

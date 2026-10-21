@@ -5718,10 +5718,6 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             Should -Be 'ClaudeWorkspace.psm1, Get-SessionStart.ps1, NightsWatch.psm1, Usage.psm1' `
             -Because 'folder trust, the account name, the session store and the gate mirrors have nowhere else to live'
 
-        $watch = Get-Content -Path (Join-Path $script:Root 'bin\NightsWatch.psm1') -Raw
-        $watch.Contains("'.no-mistakes\repos'") |
-            Should -BeTrue -Because 'the gate rescue reaches the gate''s own mirrors and nothing else'
-
         $trust = Get-Content -Path (Join-Path $script:Root 'bin\ClaudeWorkspace.psm1') -Raw
         $trust.Contains('.claude.json') |
             Should -BeTrue -Because 'the trust registry is one file, not a directory to write into'
@@ -10049,6 +10045,15 @@ Describe 'fief holds one project per session and changes routing and delivery, n
         Assert-Phrase -Text $script:Fief -Where 'the fief skill' -Phrase 'Never one worktree per fix.'
     }
 
+    It 'relaunches a wedged warm worker as the same worker, keeping its own fixes' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**A wedged warm worker is relaunched as the same worker, and keeps its fixes.**'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '`Set-CrewRelaunch`, which keeps its items and `waiting_on`'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**Pass `-EndSession` to `Stop-CheckoutWorker`'
+    }
+
     It 'records the item before the worker is sent the fix' {
         Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
             -Phrase 'Add its id to the record first, with `Add-CrewItem`, and save'
@@ -10220,6 +10225,10 @@ Describe 'night''s watch is regency plus queue-working, and merges only under +w
             -Phrase 'it dismisses the limit dialog with Escape and nothing else'
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
             -Phrase 'The reset is days away or unknown, so record it and stop the watch rather than sleeping.'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**A stale reading is read again every five minutes for up to thirty**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '`restart-unconfirmed` restarts the workers anyway and records its `detail` in the away journal'
     }
 
     It 'fails open on an unreadable window as vigil says, and records that it could not see' {

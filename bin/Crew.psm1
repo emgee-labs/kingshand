@@ -205,6 +205,40 @@ function Get-CrewItems {
     , @($out)
 }
 
+# Re-records an existing worker after a relaunch: where it now runs, on which branch, from which
+# base, and the new permission-file record for a checkout worker. Its items, its waiting_on and
+# everything else it carried are kept - a relaunch is the same work, and Add-CrewWorker would refuse
+# the id as a duplicate.
+function Set-CrewRelaunch {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$State,
+        [Parameter(Mandatory)][string]$WorkerId,
+        [Parameter(Mandatory)][string]$Worktree,
+        [Parameter(Mandatory)][string]$Branch,
+        [Parameter(Mandatory)][string]$Base,
+        [string]$SettingsRecord = ''
+    )
+
+    if (-not $State.workers.ContainsKey($WorkerId)) { throw "Worker '$WorkerId' not found." }
+    $rec = $State.workers[$WorkerId]
+    $checkout = $rec.ContainsKey('checkout') -and $rec.checkout -eq $true
+    if ($checkout -and -not $SettingsRecord.Trim()) {
+        throw ("Worker '$WorkerId' runs in the checkout, so its relaunch needs -SettingsRecord - " +
+               "the record Dispatch-Worker returned as settingsRecord.")
+    }
+    if ($SettingsRecord.Trim() -and -not $checkout) {
+        throw "Worker '$WorkerId' is not a checkout worker, so -SettingsRecord has nothing to replace."
+    }
+
+    $rec.worktree      = $Worktree
+    $rec.branch        = $Branch
+    $rec.base          = $Base
+    $rec.stage         = 'dispatched'
+    $rec.dispatched_at = (Get-Date).ToUniversalTime().ToString('o')
+    if ($checkout) { $rec.settings_record = $SettingsRecord.Trim() }
+}
+
 function Set-CrewWaitingOn {
     [CmdletBinding()]
     param(
@@ -307,4 +341,4 @@ function Import-CrewState {
 
 Export-ModuleMember -Function New-CrewState, Add-CrewWorker, Set-CrewStage, Set-CrewWaitingOn,
                               Get-CrewWorker, Get-CrewByStage, Save-CrewState, Import-CrewState,
-                              Add-CrewItem, Get-CrewItems
+                              Add-CrewItem, Get-CrewItems, Set-CrewRelaunch
