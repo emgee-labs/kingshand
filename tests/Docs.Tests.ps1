@@ -5621,7 +5621,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
 
     It 'every skill directory lives under .claude\skills\' {
         $skills = @(Get-ChildItem (Join-Path $script:Root '.claude\skills') -Directory)
-        $skills.Count | Should -Be 19 -Because 'eighteen skills plus setup, all project-local'
+        $skills.Count | Should -Be 20 -Because 'nineteen skills plus setup, all project-local'
         @($skills.Name) | Should -Contain 'herald' -Because 'output shape has an owner the user can turn on'
         foreach ($s in $skills) {
             Test-Path -LiteralPath (Join-Path $s.FullName 'SKILL.md') |
@@ -5705,13 +5705,22 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     # feedback nobody collected is invisible from anywhere inside this repository - the tool ships
     # no command that lists its sessions, so its own store is the one place that answer exists, and
     # the tool documents the pair of locations it keeps it in. One file, read, never written.
-    It 'only the trust module, the usage reader and the digest touch the profile, each for one named file' {
+    #
+    # The review gate's mirrors are the fourth. A gate run fixes in its own mirror under the
+    # profile and moves the real branch only at its push step, so a night's watch pause that has to
+    # rescue a run's fix commits can only find them there. One directory, the gate's own, where a
+    # rescue ref is named into the mirror and fetched out - never a credential, never a skill.
+    It 'only the trust module, the usage reader, the digest and the gate rescue touch the profile' {
         $reaching = @($script:AllSource | Where-Object {
             (Get-Content -Path $_.FullName -Raw).Contains('USERPROFILE')
         })
         (@($reaching | ForEach-Object { $_.Name } | Sort-Object) -join ', ') |
-            Should -Be 'ClaudeWorkspace.psm1, Get-SessionStart.ps1, Usage.psm1' `
-            -Because 'folder trust, the account name and the session store have nowhere else to live'
+            Should -Be 'ClaudeWorkspace.psm1, Get-SessionStart.ps1, NightsWatch.psm1, Usage.psm1' `
+            -Because 'folder trust, the account name, the session store and the gate mirrors have nowhere else to live'
+
+        $watch = Get-Content -Path (Join-Path $script:Root 'bin\NightsWatch.psm1') -Raw
+        $watch.Contains("'.no-mistakes\repos'") |
+            Should -BeTrue -Because 'the gate rescue reaches the gate''s own mirrors and nothing else'
 
         $trust = Get-Content -Path (Join-Path $script:Root 'bin\ClaudeWorkspace.psm1') -Raw
         $trust.Contains('.claude.json') |
@@ -7306,7 +7315,7 @@ Describe 'the installation has a version, and one command moves it to a release'
 
     It 'counts every skill that now loads' {
         Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'CLAUDE.md Skills' `
-            -Phrase 'so all nineteen load when Claude Code runs here'
+            -Phrase 'so all twenty load when Claude Code runs here'
     }
 
     It 'gives the version and the update their own owners in the tooling table' {
@@ -10111,5 +10120,131 @@ Describe 'fief holds one project per session and changes routing and delivery, n
         Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
             -Phrase '`docs\2026-10-21-project-session.md` records the design and the two decisions the King made.'
         Test-Path -LiteralPath $script:FiefNote | Should -BeTrue
+    }
+}
+
+# Night's watch works the queue and merges while the King sleeps. These pin the wording that carries
+# each of its rules; the guards those rules lean on are driven through the code in
+# NightsWatch.Tests.ps1 and Projects.Tests.ps1.
+Describe 'night''s watch is regency plus queue-working, and merges only under +watch-merge' {
+    BeforeAll {
+        $script:NwMd    = Join-Path $script:Root '.claude\skills\nights-watch\SKILL.md'
+        $script:Nw      = Get-DocText $script:NwMd
+        $script:NwHand  = Get-DocText $script:HandMd
+        $script:NwMust  = Get-DocText $script:MusterMd
+        $script:NwNote  = Join-Path $script:Root 'docs\2026-10-21-nights-watch.md'
+    }
+
+    It 'is a separate skill that carries regency rather than widening it' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase ('**It is regency plus one thing.** Entering night''s watch enters `regency` - its ' +
+                     'durable flag, its journal, every limit')
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'never folded into regency, where it would make every afk an authorisation'
+        Assert-Phrase -Text (Get-DocText (Join-Path $script:Root '.claude\skills\regency\SKILL.md')) `
+            -Where 'the regency skill' `
+            -Phrase '**`nights-watch` is regency plus queue-working, and it changes nothing here.**'
+        Assert-Phrase -Text $script:NwHand -Where 'the CLAUDE.md Skills section' `
+            -Phrase ('**It grants nothing regency does not, beyond the queue-working the King granted ' +
+                     'by name.**')
+    }
+
+    It 'works only what the queue can prove is decided, and stops when that is empty' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**Only work the queue can prove is decided, and nothing else, ever.**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**An item that would need a dispatch gate is not provably decided**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**When the pool is empty the watch stops, and records that it stopped and why.**'
+    }
+
+    It 'states its merge token at the owner +merge already has, and admits it into hard rule 2' {
+        Assert-Phrase -Text $script:NwHand -Where 'CLAUDE.md hard rule 2' `
+            -Phrase ('**The one named exception is a merge while night''s watch is in force, which ' +
+                     '`+watch-merge` grants in place of `+merge`** - `muster` Step 7 owns it.')
+        Assert-Phrase -Text $script:NwHand -Where 'CLAUDE.md Instruction precedence' `
+            -Phrase ('**`+watch-merge` is the same kind of grant for one narrower action: merging a ' +
+                     'green pull request while night''s watch is in force, on one repository.**')
+        Assert-Phrase -Text $script:NwHand -Where 'CLAUDE.md Instruction precedence' `
+            -Phrase 'and it is never read by analogy onto a daytime merge'
+        Assert-Phrase -Text $script:NwMust -Where 'muster Step 7' `
+            -Phrase '**Night''s watch merges under its own token, `+watch-merge`, and under no other.**'
+        Assert-Phrase -Text $script:NwMust -Where 'muster Step 7' `
+            -Phrase '**`+merge` alone grants night''s watch nothing.** Outside night''s watch `+watch-merge` grants nothing at all.'
+        Assert-Phrase -Text (Get-DocText (Join-Path $script:Root '.claude\skills\annex\SKILL.md')) `
+            -Where 'the annex skill' `
+            -Phrase '`+watch-merge` is night''s watch''s own token, independent of `+merge`'
+    }
+
+    It 'has no invocation that turns merging on where the token is absent' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**nothing he can say at invocation turns it on where the token is absent.**'
+    }
+
+    It 'keeps every floor, and names the two the Hand judges' {
+        foreach ($f in @('never merge red;', 'green at the live head, and the merge bound to that head;',
+                         'never merge work that materially expands its brief;',
+                         'never anything destructive or security-sensitive;',
+                         'a `local-only` landing is never relocated', 'every existing Step 7 floor.')) {
+            $script:Nw.Contains($f) | Should -BeTrue -Because "the floor '$f' must stay in the skill"
+        }
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**Two floors it cannot check, and you judge them before calling it**'
+    }
+
+    It 'decides on petition''s test by cross-reference and records every decision' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase ('**A decision a worker parked on is decided by `petition`''s `## When the King ' +
+                     'is not there` test, unchanged**')
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '`decided` with its `-Basis`, or `waiting` where the test leaves it with him'
+    }
+
+    It 'records a parked lane once rather than once per wait' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**A worker legitimately parked is not wedged.**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'so a parked lane is one record, not a stall report every threshold'
+    }
+
+    It 'pauses in order at the threshold, sleeps on one pinned timer, and restarts with what survived' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' -Phrase '1. **Rescue first.**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '2. **Tell each working worker to finish its edit, commit and stop** - a prompt, not a stop.'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '3. **Only then stop it cleanly**, with `Stop-HerdrAgent`. Never a kill.'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'never `nohup` and never a detached child'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' -Phrase 'Take **zero** quota readings across the gap.'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'it dismisses the limit dialog with Escape and nothing else'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'The reset is days away or unknown, so record it and stop the watch rather than sleeping.'
+    }
+
+    It 'fails open on an unreadable window as vigil says, and records that it could not see' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase ('It fails open exactly as `vigil`''s `## The refusal near the limit` says; record ' +
+                     'once that the watch could not see the window')
+    }
+
+    It 'runs inside the live session, with no daemon or supervision host' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**No daemon and no supervision host** is the absence of any such thing to start.'
+    }
+
+    It 'ends on the King''s next ordinary message, with the digest from the journal first' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '1. **On the King''s next ordinary message**, exactly as regency ends'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'what merged, what is waiting on him, what failed, what is still running.'
+    }
+
+    It 'records in its design note that it supersedes the September merge default' {
+        $note = Get-DocText $script:NwNote
+        Assert-Phrase -Text $note -Where 'the night''s watch design note' `
+            -Phrase ('**This supersedes the September decision that merging while away is an option ' +
+                     'defaulting to on everywhere, passed at invocation.**')
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' -Phrase '`docs\2026-10-21-nights-watch.md`'
     }
 }

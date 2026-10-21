@@ -1816,7 +1816,8 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
   brief accepted. That goes back to the user.
 - Destructive, irreversible and security-sensitive actions always go to the user.
 - Merge on the forge only where this project's registry entry declares `+merge`, and never
-  otherwise. The rest of this step owns that rule.
+  otherwise. The rest of this step owns that rule. **While night's watch is in force the token is
+  `+watch-merge` instead** - see the paragraph on it below.
 - Never push a project that is not registered with a push-capable posture.
 - **Never merge on the forge a run whose brief or `report.md` carries the line
   `PARLEY DISPATCH - NO REVIEW GATE RAN.`**, on any posture and whatever that project's entry
@@ -1880,6 +1881,14 @@ step acts on. Where the registry cannot be read there is no value at all, becaus
 `Get-ProjectEntry` throws rather than guessing. **Every one of
 those means do not merge, and none of them ever means the other way.** Test it as
 `$proj.merge -eq 'on'`, the same string comparison `yolo` takes and for the same reason.
+
+**Night's watch merges under its own token, `+watch-merge`, and under no other.** While night's
+watch is in force a green pull request is merged only on a project whose entry declares
+`+watch-merge` - `$proj.watchMerge -eq 'on'`, read the same way and forced off by the same
+failures - whether or not it declares `+merge`, and **`+merge` alone grants night's watch
+nothing.** Outside night's watch `+watch-merge` grants nothing at all. Every floor in this step
+still holds, and `Get-WatchMergeVerdict` in `bin\NightsWatch.psm1` checks each one that code can
+hold and binds the merge to the live head; `nights-watch` owns the rest of the run.
 
 **It is not a mode and not a fourth posture.** The four modes decide how work ships and `yolo`
 decides whether you ask first; this decides one thing only, whether you may merge that

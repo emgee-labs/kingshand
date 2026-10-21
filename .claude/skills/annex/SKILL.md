@@ -81,6 +81,12 @@ pushes and so has no forge and no pull request to merge. Do not offer it on a `l
 at all - inviting a choice the writer refuses turns a whole preflight into a failure at the last
 step.
 
+`+watch-merge` is night's watch's own token, independent of `+merge`: whether this repository's
+green pull requests may be merged while night's watch is in force. It is held to the same rules -
+**off by default, never proposed, written only where the user says so in the moment**, push-capable
+postures only - and `+merge` neither implies it nor is implied by it. `muster` Step 7 owns what it
+permits.
+
 Tell the user what these mean in one line each if they have not seen them before, then confirm
 name, path, mode and yolo together - and merge alongside them **where the chosen mode is
 push-capable**. **Merge is read back like the rest, never assumed from the conversation** - it is
@@ -184,7 +190,7 @@ A worker never runs `init` itself. It is environment setup, outside any task's s
 worker that tried would be writing configuration its brief never authorised.
 
 ```powershell
-Add-ProjectEntry -Name "<name>" -Path $path -Mode "<mode>" -Description "<desc>" [-Yolo] [-Merge]
+Add-ProjectEntry -Name "<name>" -Path $path -Mode "<mode>" -Description "<desc>" [-Yolo] [-Merge] [-WatchMerge]
 ```
 
 `-Merge` is available on the push-capable modes only. Passing it with `-Mode local-only` throws
@@ -192,7 +198,7 @@ rather than registering anything, so it is not the freely optional flag the brac
 
 Leave `-Merge` off unless the user asked for it in this conversation. Without it the entry is
 written exactly as it always was and the permission is absent, which is the off state - there is
-no "+merge off" spelling to write instead.
+no "+merge off" spelling to write instead. `-WatchMerge` follows exactly the same rules.
 
 The registry is a durable file under `data\`, so index it in the same step that writes it. It has
 a fixed name and the entry is rewritten in place, so this is safe to run on every import and the

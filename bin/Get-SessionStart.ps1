@@ -474,6 +474,8 @@ try {
             # deploy-on-merge default branch is a live production release. Said only where it is
             # held, so the common case prints exactly as it always has.
             $mergeNote = if ($_.merge -eq 'on') { ' +merge' } else { '' }
+            # Night's watch's own merge permission, said only where it is held, like +merge.
+            if ((Get-Field $_ 'watchMerge') -eq 'on') { $mergeNote += ' +watch-merge' }
             "- $($_.name) [$($_.rawMode)] yolo $($_.yolo)$mergeNote - $pathNote$nameNote"
         })
     }

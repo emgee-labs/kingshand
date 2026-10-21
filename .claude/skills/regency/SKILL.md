@@ -8,6 +8,10 @@ description: Hold the fleet while the King is away from the machine. Use when th
 A regent governs while the monarch is away and holds no new powers by doing so. That is the whole
 contract. Read the limits before the procedure.
 
+**`nights-watch` is regency plus queue-working, and it changes nothing here.** It carries this
+skill's flag and journal unchanged and adds only what the King granted it by name - `nights-watch`
+owns that, and everything below holds inside it.
+
 ## What a regency never grants
 
 Being away is not consent. Every one of these still waits for the King, however long that takes:

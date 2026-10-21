@@ -840,3 +840,71 @@ Describe 'Test-ProjectImportable' {
         $r.reason | Should -BeLike 'Invalid mode*'
     }
 }
+
+# Night's watch's own merge permission, decided by the King 2026-10-21. It is independent of +merge
+# in both directions and read exactly as strictly: off unless written, and forced off by anything
+# that forces +merge off.
+Describe '+watch-merge is its own token, off unless declared' {
+    It 'is off where the token is not written, +merge included' {
+        $reg = New-TestRegistry @"
+- proj [no-mistakes +yolo +merge] - merges by day (added 2026-10-21)
+      path: $script:RealPath
+"@
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg
+        $e.merge      | Should -Be 'on'
+        $e.watchMerge | Should -Be 'off'
+    }
+
+    It 'is on where it is written, and grants no daytime merge' {
+        $reg = New-TestRegistry @"
+- proj [direct-PR +yolo +watch-merge] - merges on watch (added 2026-10-21)
+      path: $script:RealPath
+"@
+        $e = Get-ProjectEntry -Name proj -RegistryPath $reg
+        $e.watchMerge | Should -Be 'on'
+        $e.merge      | Should -Be 'off'
+    }
+
+    It 'is forced off beside a token the parser does not know' {
+        $reg = New-TestRegistry @"
+- proj [direct-PR +watch-merge +mrege] - typo beside it (added 2026-10-21)
+      path: $script:RealPath
+"@
+        (Get-ProjectEntry -Name proj -RegistryPath $reg -WarningAction SilentlyContinue).watchMerge |
+            Should -Be 'off'
+    }
+
+    It 'is forced off by a mode the parser does not know' {
+        $reg = New-TestRegistry @"
+- proj [direct-PRR +watch-merge] - typo in the mode (added 2026-10-21)
+      path: $script:RealPath
+"@
+        (Get-ProjectEntry -Name proj -RegistryPath $reg -WarningAction SilentlyContinue).watchMerge |
+            Should -Be 'off'
+    }
+
+    It 'is written by Add-ProjectEntry only when asked for, and reads back on' {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ("addreg-" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $reg = Join-Path $dir 'projects.md'
+        Add-ProjectEntry -Name proj -Path $script:RealPath -Mode 'direct-PR' -Yolo -Merge -WatchMerge `
+                         -Description 'd' -RegistryPath $reg
+        $today = Get-Date -Format 'yyyy-MM-dd'
+        (Get-EntryBlock -Path $reg -Name 'proj')[0] |
+            Should -Be "- proj [direct-PR +yolo +merge +watch-merge] - d (added $today)"
+        (Get-ProjectEntry -Name proj -RegistryPath $reg).watchMerge | Should -Be 'on'
+        $otherPath = Join-Path $dir 'other'
+        New-Item -ItemType Directory -Path $otherPath -Force | Out-Null
+        Add-ProjectEntry -Name other -Path $otherPath -Mode 'direct-PR' `
+                         -Description 'd' -RegistryPath $reg
+        (Get-ProjectEntry -Name other -RegistryPath $reg).watchMerge | Should -Be 'off'
+    }
+
+    It 'refuses -WatchMerge on a local-only project' {
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ("addreg-" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        { Add-ProjectEntry -Name proj -Path $script:RealPath -Mode 'local-only' -WatchMerge `
+                           -Description 'd' -RegistryPath (Join-Path $dir 'projects.md') } |
+            Should -Throw '*local-only with -WatchMerge*'
+    }
+}

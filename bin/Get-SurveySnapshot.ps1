@@ -186,6 +186,8 @@ if ($registryPresent) {
                 # requests, and it is read the same way and for the same reason: 'off' is a
                 # non-empty string, so a truthiness test would report every project as permitted.
                 merge   = $(if ((Get-Field $p 'merge') -eq 'on') { 'on' } else { 'off' })
+                # Night's watch's own merge permission, independent of merge and read the same way.
+                watchMerge = $(if ((Get-Field $p 'watchMerge') -eq 'on') { 'on' } else { 'off' })
                 path    = $path
                 # No path line recorded is as missing as a path that is gone.
                 pathExists = $(if ($path) { Test-PathQuiet $path } else { $false })

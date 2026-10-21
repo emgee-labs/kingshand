@@ -43,9 +43,10 @@ exists to prevent.
    read leaves it off - `muster` Step 7 owns the rule. A merge does reach a server, so the stop
    above covers it too, and `+merge` is itself the word that stop asks for - given in advance and
    recorded in the registry rather than fresh each time, so it is not asked again on a project
-   that declares it and the merge is refused outright on every project that does not. Instruction
-   precedence below owns why a standing token settles this one action when `+yolo` settles
-   nothing. Muster never pushes a project
+   that declares it and the merge is refused outright on every project that does not. **The one
+   named exception is a merge while night's watch is in force, which `+watch-merge` grants in
+   place of `+merge`** - `muster` Step 7 owns it. Instruction precedence below owns why a standing
+   token settles this one action when `+yolo` settles nothing. Muster never pushes a project
    that is not registered with a push-capable posture. An unregistered project is never
    dispatched into - posture is read, never inferred.
 3. **Never mention Claude, AI, an assistant, or a model** in anything that reaches Azure DevOps
@@ -210,13 +211,14 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Index.psm1` | the data index: write a file and index it in one call, add an entry for a file another tool wrote, read a project's index, count the drift, drop an entry whose file is gone |
 | `bin\BrowserVerify.psm1` | the three answers a browser check must not give from memory: whether the browser tools all loaded, where a login is set without ever writing it down, and what a run of checks verified, failed or could not check |
 | `bin\Usage.psm1` | how much of the current usage window is spent, and the one-line pulse: three answers where a percentage that could not be read is never a number, a baseline held in memory and written nowhere, and the pulse on its timer |
+| `bin\NightsWatch.psm1` | night's watch's guards: which queued items are provably decided, whether a pull request may be merged now and the head it is bound to, what the usage window says to do next, the gate-commit rescue, the timer across a reset, and the restart prompt |
 | `bin\AwayJournal.psm1` | the away journal: the away flag's `since:` read in one place, one journal opened per away period, one record written as each outcome happens, and a return digest that reads that file or says plainly it could not |
 | `bin\GateRun.psm1` | what a no-mistakes gate run is doing, read from the fields that say so: the run, each step with its own status, whether it is parked and on what, and the findings to decide on - decoded rather than matched, and an output it cannot read comes back as unreadable rather than as a state word |
 | `bin\GateRunWait.psm1` | the one wait on a gate run, built on that reader: block until the run moves away from the baseline taken at the first readable read, and say why the wait ended - a read it could not take is counted rather than taken for a change or for quiet, and a timeout is the absence of an outcome rather than one |
 
 ## Skills
 
-Every skill lives in `.claude\skills\` inside this repository, so all nineteen load when Claude Code
+Every skill lives in `.claude\skills\` inside this repository, so all twenty load when Claude Code
 runs here and none of them exists in a session started anywhere else. Nothing links or copies them
 into `~\.claude\skills\`, and nothing may start doing so.
 
@@ -285,6 +287,13 @@ one or two lines, renders nothing - so the landing gate inside it is a line in c
 page - shortens the brief a quick dispatch carries, and runs no review gate on that dispatch. **It
 changes ceremony and never authority**, and every rule it leaves standing is stated in the skill,
 because the mode is in force only while that file is loaded.
+
+Invoke `nights-watch` when the King invokes `/nights-watch` or says in his own words to work the
+queue while he sleeps. It is regency plus one thing: it carries regency's flag and journal unchanged
+and adds working the backlog through items the queue can prove are decided, merging only where a
+project declares `+watch-merge`, and pausing its workers across a usage-window reset. **It grants
+nothing regency does not, beyond the queue-working the King granted by name.** It ends on his next
+ordinary message, like regency.
 
 `fief` is the project session mode, and it is **off by default** like parley: nothing turns it on
 but the King's own word - "<project> session", "this session is for <project>", "fief <project>".
@@ -617,3 +626,8 @@ it names one concrete action on one concrete repository rather than granting rou
 across everything that project does. It is never read by analogy onto another repository, never
 inferred from `+yolo`, and never widened past a merge - everything else on the list still needs
 the user to say it.
+
+**`+watch-merge` is the same kind of grant for one narrower action: merging a green pull request
+while night's watch is in force, on one repository.** It is independent of `+merge` - neither
+implies the other, and `+merge` alone grants night's watch nothing - and it is never read by
+analogy onto a daytime merge, onto another repository, or past that one action.
