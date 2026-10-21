@@ -63,10 +63,19 @@ gate-run wait, which moves only when the run does.
 A night spans more than one five-hour window, and nothing wakes the Hand at a reset unless a timer
 was armed before the budget ran out. The procedure that worked by hand is now mechanism:
 
-- **Threshold 88 percent** of the driving window by default, an invocation argument. The King's 88
-  of 2026-10-21 replaces the 85 and 90 in earlier notes.
-- **Quota reads at most every five minutes from 80 percent, every seven below.** An overloaded
-  reader freezes its cache, and a frozen reading looks fresh.
+- **Threshold 90 percent** of the driving window by default, an invocation argument. The King's 90
+  of 2026-10-22 replaces his 88 of the day before: the last tenth is kept to hold the watch across
+  the gap and nudge the paused workers after the reset, so nothing reads a window from 90 percent
+  until it resets, apart from the one confirming read.
+- **Reads every five minutes, every two from 85 percent**, the King's cadence of 2026-10-22, taken
+  from a headless probe that is not rate limited - `docs\2026-09-05-usage-window-watch.md` records
+  the reader. That cadence replaces seven and five, which were set against a reader that froze.
+- **A pause on the climb.** On 2026-10-20 the window went from 83 to 88 percent in two minutes, so
+  the watch also pauses where the rise since the window's previous reading, carried to the next
+  read, would reach the threshold. Without an earlier reading of the same window at least as old
+  as the time to the next read, it is the plain threshold.
+- **No reading while no worker is running.** The number barely moves then, and the first dispatch
+  takes its own reading before it starts.
 - **At the threshold, in order:** rescue each gate run's head to `refs/gate/<task>-<moment>` - a
   rescue never overwrites another - then tell each worker to finish its edit and commit, and only
   then stop it cleanly.

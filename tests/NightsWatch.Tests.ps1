@@ -55,16 +55,16 @@ BeforeAll {
 }
 
 Describe 'the invocation' {
-    It 'defaults to 88 percent, two workers, and merging on where a project allows it' {
+    It 'defaults to 90 percent, two workers, and merging on where a project allows it' {
         $o = New-WatchOptions
-        $o.thresholdPercent | Should -Be 88
+        $o.thresholdPercent | Should -Be 90
         $o.maxWorkers       | Should -Be 2
         $o.merge            | Should -Be 'on'
     }
 
     It 'takes each of the three as an argument' {
-        $o = New-WatchOptions -ThresholdPercent 90 -MaxWorkers 3 -NoMerge
-        $o.thresholdPercent | Should -Be 90
+        $o = New-WatchOptions -ThresholdPercent 88 -MaxWorkers 3 -NoMerge
+        $o.thresholdPercent | Should -Be 88
         $o.maxWorkers       | Should -Be 3
         $o.merge            | Should -Be 'off'
     }
@@ -265,28 +265,136 @@ Describe 'the usage window paces the night' {
             [pscustomobject]@{ status = $Status; percent = $Percent; floorPercent = $Floor; window = $Window
                                resetsAt = $ResetsAt; detail = 'reading' }
         }
+
+        # A reading carrying the earlier reading of its own window, the shape Usage.psm1 hands back:
+        # taken now, with `previous` taken -MinutesAgo before it at -Before percent.
+        function New-ClimbingReading {
+            param($Percent, $Before, [double]$MinutesAgo = 2, [string]$Window = 'five_hour',
+                  [string]$PreviousWindow = '')
+            $now  = [datetimeoffset]::UtcNow
+            $prev = if ($null -eq $Before) { $null } else {
+                [pscustomobject]@{ percent = $Before
+                                   window = if ($PreviousWindow) { $PreviousWindow } else { $Window }
+                                   takenAt = $now.AddMinutes(-$MinutesAgo).ToString('o') }
+            }
+            [pscustomobject]@{ status = 'has-usage'; percent = $Percent; floorPercent = $null; window = $Window
+                               resetsAt = $now.AddHours(2).ToString('o'); detail = 'reading'
+                               takenAt = $now.ToString('o'); previous = $prev }
+        }
     }
 
-    It 'carries on below the threshold, reading every seven minutes under 80' {
+    It 'carries on below the threshold, reading every five minutes under 85' {
         $s = Get-WatchUsageStep -Reading (New-Reading 40) -Options $script:Opts
         $s.action          | Should -Be 'continue'
-        $s.nextReadMinutes | Should -Be 7
+        $s.nextReadMinutes | Should -Be 5
+        (Get-WatchUsageStep -Reading (New-Reading 84.9) -Options $script:Opts).nextReadMinutes | Should -Be 5
     }
 
-    It 'reads every five minutes from 80 percent' {
-        (Get-WatchUsageStep -Reading (New-Reading 82) -Options $script:Opts).nextReadMinutes | Should -Be 5
+    It 'reads every two minutes from 85 percent' {
+        (Get-WatchUsageStep -Reading (New-Reading 85) -Options $script:Opts).nextReadMinutes | Should -Be 2
+        (Get-WatchUsageStep -Reading (New-Reading $null -Floor 86 -Status 'unknown') -Options $script:Opts).nextReadMinutes |
+            Should -Be 2 -Because 'a floor that high is known to be near the limit too'
     }
 
-    It 'pauses at 88 percent, pinning the wake to the reset plus the margin' {
+    It 'pauses at 90 percent, pinning the wake to the reset plus the margin' {
         $reset = [datetime]::UtcNow.AddHours(2)
-        $s = Get-WatchUsageStep -Reading (New-Reading 88 -ResetsAt $reset.ToString('o')) -Options $script:Opts
+        $s = Get-WatchUsageStep -Reading (New-Reading 90 -ResetsAt $reset.ToString('o')) -Options $script:Opts
         $s.action | Should -Be 'pause'
         ([datetimeoffset]::Parse($s.wakeAt).UtcDateTime - $reset).TotalMinutes | Should -BeGreaterOrEqual 4.9
     }
 
+    It 'carries on at 89 percent when there is no earlier reading to measure a climb from' {
+        (Get-WatchUsageStep -Reading (New-Reading 89) -Options $script:Opts).action | Should -Be 'continue'
+        (Get-WatchUsageStep -Reading (New-ClimbingReading 89 $null) -Options $script:Opts).action |
+            Should -Be 'continue' -Because 'without two readings the plain threshold decides'
+    }
+
+    # Nothing reads a held window again before its reset, so a held floor of 91 never rises to meet
+    # a threshold of 95 - the watch has to pause on the hold itself.
+    It 'pauses on a held window whatever the threshold' {
+        $held = New-Reading $null -Floor 91 -Status 'unknown'
+        $held | Add-Member -NotePropertyName signal -NotePropertyValue 'held-at-limit'
+        $s = Get-WatchUsageStep -Reading $held -Options (New-WatchOptions -ThresholdPercent 95)
+        $s.action | Should -Be 'pause'
+        $s.wakeAt | Should -Not -BeNullOrEmpty
+
+        $weekly = New-Reading $null -Floor 91 -Status 'unknown' -Window 'seven_day'
+        $weekly | Add-Member -NotePropertyName signal -NotePropertyValue 'held-at-limit'
+        (Get-WatchUsageStep -Reading $weekly -Options (New-WatchOptions -ThresholdPercent 95)).action |
+            Should -Be 'stop-weekly'
+    }
+
     It 'honours a different threshold given at invocation' {
-        (Get-WatchUsageStep -Reading (New-Reading 88) -Options (New-WatchOptions -ThresholdPercent 90)).action |
+        (Get-WatchUsageStep -Reading (New-Reading 88) -Options (New-WatchOptions -ThresholdPercent 95)).action |
             Should -Be 'continue'
+        (Get-WatchUsageStep -Reading (New-Reading 88) -Options (New-WatchOptions -ThresholdPercent 88)).action |
+            Should -Be 'pause'
+    }
+
+    # THE KING'S CASE, 2026-10-20: 83 to 88 in two minutes. At 88 the next read is two minutes away,
+    # and the same climb again puts the window at 93 - past the limit before the reading that
+    # would have caught it.
+    It 'pauses below 90 when the climb since the last reading reaches 90 by the next read' {
+        $s = Get-WatchUsageStep -Reading (New-ClimbingReading 88 83 -MinutesAgo 2) -Options $script:Opts
+        $s.action           | Should -Be 'pause'
+        $s.projectedPercent | Should -Be 93
+        $s.wakeAt           | Should -Not -BeNullOrEmpty
+        $s.detail           | Should -BeLike '*climbing fast enough*'
+    }
+
+    # The probe reports whole points, so 87 a minute before 88 may be no climb at all. A baseline
+    # younger than the time to the next read is not one, and the plain threshold decides.
+    It 'measures no climb from a reading younger than the time to the next read' {
+        $s = Get-WatchUsageStep -Reading (New-ClimbingReading 88 87 -MinutesAgo 1) -Options $script:Opts
+        $s.projectedPercent | Should -BeNullOrEmpty
+        $s.action           | Should -Be 'continue'
+    }
+
+    It 'carries on below 90 when the climb would not reach it by the next read' {
+        $s = Get-WatchUsageStep -Reading (New-ClimbingReading 86 85 -MinutesAgo 2) -Options $script:Opts
+        $s.action           | Should -Be 'continue'
+        $s.projectedPercent | Should -Be 87
+    }
+
+    # The climb is measured per minute and carried over the time to the next read, so a previous
+    # reading ten minutes old does not count its whole rise against a read two minutes away.
+    It 'scales the climb to the time until the next read' {
+        $s = Get-WatchUsageStep -Reading (New-ClimbingReading 86 76 -MinutesAgo 10) -Options $script:Opts
+        $s.projectedPercent | Should -Be 88
+        $s.action           | Should -Be 'continue'
+    }
+
+    It 'measures no climb across two different windows' {
+        $s = Get-WatchUsageStep -Reading (New-ClimbingReading 88 40 -PreviousWindow 'seven_day') -Options $script:Opts
+        $s.projectedPercent | Should -BeNullOrEmpty
+        $s.action           | Should -Be 'continue'
+    }
+
+    It 'stops rather than sleeping when the weekly window is climbing to the limit' {
+        $s = Get-WatchUsageStep -Reading (New-ClimbingReading 88 83 -Window 'seven_day') -Options $script:Opts
+        $s.action | Should -Be 'stop-weekly'
+        $s.detail | Should -BeLike 'The weekly window is at 88 percent and climbing*'
+    }
+
+    # NO READING WHILE NOTHING RUNS. The number barely moves with no worker spending it, and the
+    # first dispatch takes its own reading before it starts.
+    It 'takes no reading while no worker is running, and says the next dispatch reads for itself' {
+        Mock -ModuleName NightsWatch Get-UsageWindow { throw 'must not be read while idle' }
+        $r = Read-WatchUsage -LiveCount 0
+        $r | Should -BeNullOrEmpty
+        Should -Invoke -ModuleName NightsWatch Get-UsageWindow -Times 0 -Exactly
+
+        $s = Get-WatchUsageStep -Reading $r -Options $script:Opts
+        $s.action          | Should -Be 'idle'
+        $s.nextReadMinutes | Should -Be 5
+        $s.detail          | Should -BeLike '*next dispatch takes its own reading*'
+    }
+
+    It 'reads once a worker is running, and reads to confirm a wake with every worker paused' {
+        Mock -ModuleName NightsWatch Get-UsageWindow { New-Reading 40 }
+        (Read-WatchUsage -LiveCount 1).percent | Should -Be 40
+        (Read-WatchUsage -Confirming).percent  | Should -Be 40
+        Should -Invoke -ModuleName NightsWatch Get-UsageWindow -Times 2 -Exactly
     }
 
     It 'stops rather than sleeping when the weekly window is the one at the limit' {
@@ -307,7 +415,7 @@ Describe 'the usage window paces the night' {
     }
 
     It 'pauses on a stale floor already at the threshold' {
-        (Get-WatchUsageStep -Reading (New-Reading $null -Floor 89 -Status 'unknown') -Options $script:Opts).action |
+        (Get-WatchUsageStep -Reading (New-Reading $null -Floor 90 -Status 'unknown') -Options $script:Opts).action |
             Should -Be 'pause'
     }
 

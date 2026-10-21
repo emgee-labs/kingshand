@@ -1,13 +1,15 @@
 #Requires -Version 7.0
 Set-StrictMode -Version Latest
 
-# bin\Usage.psm1 is exercised here against a mocked quota-axi. Nothing below reaches the network,
-# needs a subscription, or writes anywhere at all - the module keeps no file, and one of the cases
-# below is there to keep it that way.
+# bin\Usage.psm1 is exercised here against a mocked probe and a mocked quota-axi. Nothing below
+# reaches the network, needs a subscription or spends usage, and the one file the reader writes -
+# its gate file - is pointed at a fresh path under the test drive for every case.
 #
-# `Invoke-QuotaAxi` is the module's single boundary to the outside world - every lookup goes through
-# that one function - so mocking it is what makes the whole answer testable, including the cases
-# that matter most: the ones where nothing answers at all.
+# `Invoke-UsageProbe` and `Invoke-QuotaAxi` are the module's two boundaries to the outside world -
+# every lookup goes through one of them - so mocking them is what makes the whole answer testable,
+# including the cases that matter most: the ones where nothing answers at all. By default the probe
+# is mocked to fail, so every case written for quota-axi still exercises quota-axi; the cases about
+# the probe say otherwise.
 #
 # The rule most of these defend is one line: an unanswered question is `unknown` and `percent` stays
 # unset. Zero is the fabrication that costs the most here, because it reads as a wide open window
@@ -15,6 +17,10 @@ Set-StrictMode -Version Latest
 
 BeforeAll {
     Import-Module "$PSScriptRoot\..\bin\Usage.psm1" -Force
+
+    # The real probe boundary, taken before the mock below replaces it, for the cases that drive it
+    # against a stand-in rather than mocking it.
+    $script:RealInvokeUsageProbe = (Get-Command -Module Usage -Name Invoke-UsageProbe).ScriptBlock
 
     $script:TempFixtures = [System.Collections.Generic.List[string]]::new()
 
@@ -124,6 +130,50 @@ BeforeAll {
             live = $Live; agentState = $AgentState; agentStatus = ''; waitingOn = ''
         }
     }
+
+    # The probe's stdout in the shape measured on this machine: an init line, the event, a result.
+    # Fractions, not percentages - 0.08 is eight percent - and epoch seconds for the resets.
+    function New-ProbeOutput {
+        param(
+            [object]$FiveHour = 0.08,
+            [object]$SevenDay = 0.33,
+            [long]$FiveHourResets = ([datetimeoffset]::UtcNow.AddHours(3).ToUnixTimeSeconds()),
+            [long]$SevenDayResets = ([datetimeoffset]::UtcNow.AddDays(4).ToUnixTimeSeconds()),
+            [switch]$NoEvent,
+            [switch]$NoUnified,
+            [switch]$NoAccountWindows
+        )
+        $lines = @('{"type":"system","subtype":"init","tools":[],"mcp_servers":[]}')
+        if (-not $NoEvent) {
+            $info = [ordered]@{ status = 'allowed'; resetsAt = $FiveHourResets; rateLimitType = 'five_hour' }
+            if (-not $NoUnified) {
+                $unified = [ordered]@{}
+                if ($NoAccountWindows) {
+                    $unified['some_new_window'] = @{ utilization = 0.5; resetsAt = $FiveHourResets }
+                } else {
+                    $unified['five_hour'] = @{ utilization = $FiveHour; resetsAt = $FiveHourResets }
+                    $unified['seven_day'] = @{ utilization = $SevenDay; resetsAt = $SevenDayResets }
+                }
+                $info['unifiedWindows'] = $unified
+            }
+            $lines += (@{ type = 'rate_limit_event'; rate_limit_info = $info } | ConvertTo-Json -Depth 8 -Compress)
+        }
+        $lines += '{"type":"result","subtype":"success","result":"ok"}'
+        $lines -join "`n"
+    }
+    function New-ProbeOk   { param([string]$Value, [int]$ExitCode = 0) [pscustomobject]@{ ok = $true; value = $Value; exitCode = $ExitCode; error = '' } }
+    function New-ProbeFail { param([string]$Error = 'the usage probe did not answer within 45 seconds and was stopped') [pscustomobject]@{ ok = $false; value = ''; exitCode = $null; error = $Error } }
+
+    # A gate file of a case's own, so one case's hold or stamp is never another's.
+    function New-GatePath { Join-Path (New-TempFixtureDir -Prefix 'usage-gate-') 'state\usage-gate.json' }
+
+    # EVERY CASE STARTS WITH A PROBE THAT FAILS AND A GATE FILE NOBODY ELSE HAS SEEN. A case written
+    # for quota-axi then exercises quota-axi exactly as it did before the probe existed, nothing
+    # reaches the real Claude Code, and nothing writes into the installation's own state\. The
+    # default path is fresh on every call, so the fifteen-minute gate never stands between two
+    # cases; a case about the gate or the hold passes -StatePath and keeps one file throughout.
+    Mock -ModuleName Usage Get-UsageStatePath { New-GatePath }
+    Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeFail 'the usage probe is not run in this test' }
 }
 
 AfterAll {
@@ -373,9 +423,9 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
         }
 
         # The refusal this detail is pasted into ends by telling the user to wait for the window,
-        # and on this machine the floor refusal is the one that fires most - the tool's live fetch
-        # is rate limited most of the time. A refusal that does not say when the window clears
-        # leaves out the one thing wanted next.
+        # and a floor refusal is the one that fires near the limit - from quota-axi's cache, or
+        # from the hold at 90 percent. A refusal that does not say when the window clears leaves
+        # out the one thing wanted next.
         It 'says when the window resets on a stale floor, not just on a measured reading' {
             Mock -ModuleName Usage Invoke-QuotaAxi {
                 New-AxiOk (New-AxiReport -FiveHourPercent 95 -Stale $true)
@@ -418,7 +468,7 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
             $r.floorPercent | Should -BeNullOrEmpty
         }
 
-        # The floor is the only guard there is while the tool's live fetch is rate limited, so a
+        # The floor is the only guard there is while the fallback answers from its cache, so a
         # missing reset time must not take it away as well - that would leave the dispatch with
         # nothing at all, from a reading that carried a perfectly good number.
         It 'still gives a floor when a stale window reports a percentage with no reset time' {
@@ -555,9 +605,10 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
         # a reader shown it for a renamed field would never look again.
         It 'says the usage is unknown rather than that this machine reports none' {
             Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiProviderJson '') }
-            Mock -ModuleName Usage Get-UsageFleet { @() }
+            Mock -ModuleName Usage Get-UsageFleet { @(New-FleetRow -Ticket 'kh') }
+            InModuleScope Usage { $script:LastSpoken = $null }
 
-            Get-UsagePulse | Should -Be 'usage unknown - nothing running'
+            Get-UsagePulse | Should -Be 'usage unknown - 1 running: kh working'
         }
     }
 
@@ -665,6 +716,454 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
             $r.window  | Should -Be ''
             $r.detail  | Should -BeLike '*the temp directory is gone*'
         }
+    }
+}
+
+Describe 'The probe answers first, and quota-axi only when it cannot' {
+    BeforeEach {
+        Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 4) }
+    }
+
+    It 'reads both windows from the probe and never asks quota-axi' {
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.08 -SevenDay 0.33) }
+
+        $r = Get-UsageWindow
+        $r.status  | Should -Be 'has-usage'
+        $r.signal  | Should -Be 'driving-window'
+        $r.source  | Should -Be 'probe'
+        $r.percent | Should -Be 33 -Because 'the week is the one nearer its limit'
+        $r.window  | Should -Be 'seven_day'
+        $r.detail  | Should -BeLike '*session window at 8 percent*'
+        Should -Invoke -ModuleName Usage Invoke-QuotaAxi -Times 0 -Exactly
+    }
+
+    It 'turns a fraction into a percentage and an epoch into a reset time' {
+        $reset = [datetimeoffset]::UtcNow.AddHours(2)
+        $p = ConvertFrom-UsageProbe -Value (New-ProbeOutput -FiveHour 0.5 -FiveHourResets $reset.ToUnixTimeSeconds())
+        $p.ok | Should -BeTrue
+        $five = @($p.windows | Where-Object { $_.id -eq 'five_hour' })[0]
+        $five.percentUsed | Should -Be 50
+        ([datetimeoffset]::Parse($five.resetsAt) - $reset).TotalSeconds | Should -BeLessThan 1
+    }
+
+    It 'pairs the probe reading with the active account, the same as quota-axi' {
+        Mock -ModuleName Usage Get-ActiveAccountName { 'personal' }
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput) }
+        (Get-UsageWindow).account | Should -Be 'personal'
+    }
+
+    # The fully-spent case has never been seen, and a turn refused at the limit may still exit
+    # non-zero after printing the event. What it printed is read; nothing is assumed from the code.
+    It 'reads the event from a probe that exited non-zero after printing it' {
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 1.0 -SevenDay 0.4) -ExitCode 1 }
+        $r = Get-UsageWindow
+        $r.status  | Should -Be 'has-usage'
+        $r.percent | Should -Be 100
+    }
+
+    Context 'when the probe cannot answer - one case per failure path, with the failure forced' {
+        It 'falls back to quota-axi once when the probe printed no rate_limit_event' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -NoEvent) }
+            $r = Get-UsageWindow
+            $r.source  | Should -Be 'quota-axi'
+            $r.percent | Should -Be 4
+            $r.detail  | Should -BeLike '*no rate_limit_event*'
+            Should -Invoke -ModuleName Usage Invoke-QuotaAxi -Times 1 -Exactly
+        }
+
+        It 'falls back when the event carries no unifiedWindows' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -NoUnified) }
+            $r = Get-UsageWindow
+            $r.source | Should -Be 'quota-axi'
+            $r.detail | Should -BeLike '*no unifiedWindows (its status was allowed)*'
+        }
+
+        # An empty answer is the one that switches every guard off quietly, so the probe never
+        # gives it: a renamed window is a failed probe, not an account with nothing to report.
+        It 'falls back rather than settling on no windows when neither account window is there' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -NoAccountWindows) }
+            $r = Get-UsageWindow
+            $r.status | Should -Not -Be 'no-usage'
+            $r.source | Should -Be 'quota-axi'
+            $r.detail | Should -BeLike '*neither the session nor the weekly window*'
+        }
+
+        It 'falls back, never reading zero, when a utilization is not a number' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 'lots') }
+            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiFail }
+            $r = Get-UsageWindow
+            $r.status  | Should -Be 'unknown'
+            $r.percent | Should -BeNullOrEmpty
+            $r.detail  | Should -BeLike '*not a fraction this can read*'
+        }
+
+        It 'falls back when a utilization is negative' {
+            (ConvertFrom-UsageProbe -Value (New-ProbeOutput -FiveHour -0.2)).ok | Should -BeFalse
+        }
+
+        It 'falls back when the probe timed out' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeFail }
+            $r = Get-UsageWindow
+            $r.source | Should -Be 'quota-axi'
+            $r.detail | Should -BeLike '*did not answer within 45 seconds*'
+        }
+
+        It 'falls back when Claude Code is not there to run' {
+            Mock -ModuleName Usage Get-UsageProbeCommandPath { $null }
+            $p = & $script:RealInvokeUsageProbe
+            $p.ok    | Should -BeFalse
+            $p.error | Should -BeLike '*Claude Code was not found*'
+        }
+
+        # U4.2: both fail, and the answer is the existing unknown - never a number.
+        It 'reports unknown with no figure at all when the probe and quota-axi both fail' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -NoEvent) }
+            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiFail 'quota-axi was not found.' }
+            $r = Get-UsageWindow
+            $r.status       | Should -Be 'unknown'
+            $r.signal       | Should -Be 'lookup-failed'
+            $r.percent      | Should -BeNullOrEmpty
+            $r.floorPercent | Should -BeNullOrEmpty
+            $r.detail       | Should -BeLike '*quota-axi was not found*'
+            $r.detail       | Should -BeLike '*usage probe was tried first*'
+        }
+
+        # U4.3: a stale fallback stays the floor it always was.
+        It 'keeps a stale fallback as a floor' {
+            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 41 -Stale $true) }
+            $r = Get-UsageWindow
+            $r.signal       | Should -Be 'stale-reading'
+            $r.percent      | Should -BeNullOrEmpty
+            $r.floorPercent | Should -Be 41
+            $r.source       | Should -Be 'quota-axi'
+        }
+
+        # U4.1 and U4.2: the gate refuses, and the answer is unknown rather than a number.
+        It 'reports unknown without asking quota-axi when the fifteen-minute gate refuses' {
+            $path = New-GatePath
+            (Request-UsageFallbackSlot -Path $path).allowed | Should -BeTrue
+
+            $r = Get-UsageWindow -StatePath $path
+            $r.status  | Should -Be 'unknown'
+            $r.signal  | Should -Be 'fallback-gated'
+            $r.percent | Should -BeNullOrEmpty
+            $r.detail  | Should -BeLike '*at most once every 15 minutes*'
+            Should -Invoke -ModuleName Usage Invoke-QuotaAxi -Times 0 -Exactly
+        }
+    }
+}
+
+Describe 'quota-axi is asked at most once every fifteen minutes, across every process' {
+    It 'refuses a second ask inside fifteen minutes and allows one after' {
+        $path  = New-GatePath
+        $start = [datetimeoffset]::UtcNow
+        $script:Clock = $start
+        Mock -ModuleName Usage Get-UsageNow { $script:Clock }
+
+        (Request-UsageFallbackSlot -Path $path).allowed | Should -BeTrue
+        $script:Clock = $start.AddMinutes(14.9)
+        $second = Request-UsageFallbackSlot -Path $path
+        $second.allowed | Should -BeFalse
+        $second.reason  | Should -BeLike '*asked again from*'
+        $script:Clock = $start.AddMinutes(15)
+        (Request-UsageFallbackSlot -Path $path).allowed | Should -BeTrue
+    }
+
+    # THE POINT OF THE FILE. The pulse, night's watch and a dispatch are separate processes, and a
+    # timer in memory would gate only the one holding it. A second process sees this one's claim.
+    It 'refuses an ask from another process after this one claimed the slot' {
+        $path = New-GatePath
+        (Request-UsageFallbackSlot -Path $path).allowed | Should -BeTrue
+
+        $module = (Resolve-Path "$PSScriptRoot\..\bin\Usage.psm1").Path
+        $script = "Import-Module '$($module.Replace("'", "''"))'; " +
+                  "(Request-UsageFallbackSlot -Path '$($path.Replace("'", "''"))').allowed"
+        $other = & pwsh -NoProfile -NonInteractive -Command $script
+        "$other".Trim() | Should -Be 'False'
+    }
+
+    It 'refuses rather than allows when the gate file is locked by another process' {
+        $path = New-GatePath
+        $null = Update-UsageGateState -Path $path
+        $held = [System.IO.File]::Open("$path.lock", 'Open', 'ReadWrite', 'None')
+        try {
+            $r = Request-UsageFallbackSlot -Path $path
+            $r.allowed | Should -BeFalse
+            $r.reason  | Should -BeLike '*stayed locked*'
+        } finally { $held.Dispose() }
+    }
+
+    # A process killed mid-write must never leave partial JSON the owner check then refuses for
+    # good, so the record is written whole beside the file and renamed over it - and the temp file
+    # is never left behind, whether the write happened or was refused.
+    It 'replaces the record whole, leaving no temp file after a write or a refused write' {
+        $path = New-GatePath
+        $dir  = Split-Path $path -Parent
+        (Update-UsageGateState -Path $path -Change { param($s) $s['fallbackAskedAt'] = 'a' }).ok | Should -BeTrue
+        (Update-UsageGateState -Path $path -Change { param($s) $s['fallbackAskedAt'] = 'b' }).ok | Should -BeTrue
+        (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json).fallbackAskedAt | Should -Be 'b'
+        @(Get-ChildItem -LiteralPath $dir -Filter '*.tmp').Count | Should -Be 0
+
+        # A rename that fails - here because a directory sits where the record goes - takes its
+        # temp file with it.
+        $blocked = Join-Path (New-TempFixtureDir) 'usage-gate.json'
+        New-Item -ItemType Directory -Path $blocked | Out-Null
+        (Update-UsageGateState -Path $blocked -Change { param($s) $s['fallbackAskedAt'] = 'a' }).ok | Should -BeFalse
+        @(Get-ChildItem -LiteralPath (Split-Path $blocked -Parent) -Filter '*.tmp').Count | Should -Be 0
+
+        '{ "workers": {} }' | Set-Content -LiteralPath $path -Encoding utf8
+        (Update-UsageGateState -Path $path -Change { param($s) $s['fallbackAskedAt'] = 'c' }).ok | Should -BeFalse
+        @(Get-ChildItem -LiteralPath $dir -Filter '*.tmp').Count | Should -Be 0
+    }
+
+    # Criterion 8: the gate file cannot land on anything it does not own.
+    It 'refuses a path that is not the gate file, and leaves the file there untouched' {
+        $dir  = New-TempFixtureDir
+        $crew = Join-Path $dir 'crew.json'
+        '{ "workers": {} }' | Set-Content -LiteralPath $crew -Encoding utf8
+        $before = Get-Content -LiteralPath $crew -Raw
+
+        $u = Update-UsageGateState -Path $crew -Change { param($s) $s['fallbackAskedAt'] = 'x' }
+        $u.ok      | Should -BeFalse
+        $u.problem | Should -BeLike '*has to be named usage-gate.json*'
+        Get-Content -LiteralPath $crew -Raw | Should -Be $before
+        (Request-UsageFallbackSlot -Path $crew).allowed | Should -BeFalse
+    }
+
+    It 'refuses a file at the gate path that is not its own record, and leaves it untouched' {
+        $path = New-GatePath
+        New-Item -ItemType Directory -Force -Path (Split-Path $path -Parent) | Out-Null
+        '{ "workers": { "T-1": {} } }' | Set-Content -LiteralPath $path -Encoding utf8
+        $before = Get-Content -LiteralPath $path -Raw
+
+        $r = Request-UsageFallbackSlot -Path $path
+        $r.allowed | Should -BeFalse
+        $r.reason  | Should -BeLike "*not this reader's own record*"
+        Get-Content -LiteralPath $path -Raw | Should -Be $before
+    }
+}
+
+Describe 'nothing reads a window from 90 percent until it resets, but the one confirming read' {
+    It 'holds a window read at 90 or more, answering from the hold as a floor without probing' {
+        $path = New-GatePath
+        Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiFail }
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.92 -SevenDay 0.4) }
+        (Get-UsageWindow -StatePath $path).percent | Should -Be 92
+
+        $held = Get-UsageWindow -StatePath $path
+        $held.status       | Should -Be 'unknown'
+        $held.signal       | Should -Be 'held-at-limit'
+        $held.source       | Should -Be 'hold'
+        $held.percent      | Should -BeNullOrEmpty
+        $held.floorPercent | Should -Be 92
+        $held.window       | Should -Be 'five_hour'
+        $held.resetsAt     | Should -Not -BeNullOrEmpty
+        Should -Invoke -ModuleName Usage Invoke-UsageProbe -Times 1 -Exactly
+        Should -Invoke -ModuleName Usage Invoke-QuotaAxi -Times 0 -Exactly
+    }
+
+    It 'takes the confirming read once the reset has passed, and clears the hold when it rolled' {
+        $path  = New-GatePath
+        $start = [datetimeoffset]::UtcNow
+        $script:Clock = $start
+        Mock -ModuleName Usage Get-UsageNow { $script:Clock }
+        $reset = $start.AddHours(1).ToUnixTimeSeconds()
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.95 -SevenDay 0.4 -FiveHourResets $reset
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk $script:ProbeReply }
+        $null = Get-UsageWindow -StatePath $path
+
+        $script:Clock = $start.AddMinutes(59)
+        (Get-UsageWindow -StatePath $path).signal | Should -Be 'held-at-limit'
+
+        $script:Clock = $start.AddMinutes(61)
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.03 -SevenDay 0.4 -FiveHourResets ($start.AddHours(6).ToUnixTimeSeconds())
+        $confirm = Get-UsageWindow -StatePath $path
+        $confirm.status | Should -Be 'has-usage'
+        $confirm.source | Should -Be 'probe'
+        $script:Clock = $start.AddMinutes(62)
+        (Get-UsageWindow -StatePath $path).source | Should -Be 'probe' -Because 'the hold was cleared'
+        Should -Invoke -ModuleName Usage Invoke-UsageProbe -Times 3 -Exactly
+    }
+
+    It 'holds only the account it was read on' {
+        $path = New-GatePath
+        $script:Account = 'personal'
+        Mock -ModuleName Usage Get-ActiveAccountName { $script:Account }
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.93 -SevenDay 0.4) }
+        $null = Get-UsageWindow -StatePath $path
+
+        $script:Account = 'office'
+        (Get-UsageWindow -StatePath $path).source | Should -Be 'probe'
+    }
+
+    # The dispatch refusal acts on a floor exactly as it acts on any floor, so a held window still
+    # refuses new work - which is the point of not spending the last tenth on reading it.
+    It 'reads nothing at all while held, however many times it is asked' {
+        $path = New-GatePath
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.9 -SevenDay 0.4) }
+        1..5 | ForEach-Object { $null = Get-UsageWindow -StatePath $path }
+        Should -Invoke -ModuleName Usage Invoke-UsageProbe -Times 1 -Exactly
+    }
+}
+
+Describe 'a reading carries the earlier reading of its window, for the climb' {
+    BeforeEach {
+        $script:Start = [datetimeoffset]::UtcNow
+        $script:Clock = $script:Start
+        Mock -ModuleName Usage Get-UsageNow { $script:Clock }
+        $script:Reset = $script:Start.AddHours(3).ToUnixTimeSeconds()
+    }
+
+    It 'carries the reading taken two minutes earlier from the same window' {
+        $path = New-GatePath
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.83 -SevenDay 0.2 -FiveHourResets $script:Reset
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk $script:ProbeReply }
+        (Get-UsageWindow -StatePath $path).previous | Should -BeNullOrEmpty -Because 'there is nothing before the first'
+
+        $script:Clock = $script:Start.AddMinutes(2)
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.88 -SevenDay 0.2 -FiveHourResets $script:Reset
+        $r = Get-UsageWindow -StatePath $path
+        $r.previous.percent | Should -Be 83
+        $r.previous.window  | Should -Be 'five_hour'
+        ([datetimeoffset]::Parse($r.takenAt) - [datetimeoffset]::Parse($r.previous.takenAt)).TotalMinutes |
+            Should -Be 2
+    }
+
+    It 'takes no baseline from a reading younger than the time to the next read' {
+        $path = New-GatePath
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.5 -SevenDay 0.2 -FiveHourResets $script:Reset) }
+        $null = Get-UsageWindow -StatePath $path
+        $script:Clock = $script:Start.AddMinutes(4)
+        (Get-UsageWindow -StatePath $path).previous | Should -BeNullOrEmpty -Because 'under 85 the next read is five minutes away'
+    }
+
+    # The pulse, the watch and every dispatch share one history, so a reader out of phase leaves a
+    # reading too young to measure from between two that are not. The older one is still found.
+    It 'skips a too-young reading from another reader for an older one old enough' {
+        $path = New-GatePath
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.83 -SevenDay 0.2 -FiveHourResets $script:Reset
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk $script:ProbeReply }
+        $null = Get-UsageWindow -StatePath $path
+
+        $script:Clock = $script:Start.AddMinutes(1)
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.86 -SevenDay 0.2 -FiveHourResets $script:Reset
+        $null = Get-UsageWindow -StatePath $path
+
+        $script:Clock = $script:Start.AddMinutes(2)
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.88 -SevenDay 0.2 -FiveHourResets $script:Reset
+        $r = Get-UsageWindow -StatePath $path
+        $r.previous.percent | Should -Be 83
+
+        Import-Module "$PSScriptRoot\..\bin\NightsWatch.psm1"
+        $step = Get-WatchUsageStep -Reading $r -Options (New-WatchOptions)
+        $step.projectedPercent | Should -Be 93
+        $step.action           | Should -Be 'pause'
+    }
+
+    # Night's watch runs up to eight workers, and each dispatch reads the window too. A burst of
+    # them inside one read interval must not push the one reading old enough out of the history.
+    It 'keeps a baseline a full interval old behind a burst of dispatches' {
+        $path = New-GatePath
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.70 -SevenDay 0.2 -FiveHourResets $script:Reset
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk $script:ProbeReply }
+        $null = Get-UsageWindow -StatePath $path
+
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.72 -SevenDay 0.2 -FiveHourResets $script:Reset
+        foreach ($i in 1..10) {
+            $script:Clock = $script:Start.AddSeconds(25 * $i)
+            $null = Get-UsageWindow -StatePath $path
+        }
+
+        $script:Clock = $script:Start.AddMinutes(5)
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.75 -SevenDay 0.2 -FiveHourResets $script:Reset
+        (Get-UsageWindow -StatePath $path).previous.percent | Should -Be 70
+    }
+
+    It 'takes no baseline from before the window reset' {
+        $path = New-GatePath
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.5 -SevenDay 0.2 -FiveHourResets $script:Reset
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk $script:ProbeReply }
+        $null = Get-UsageWindow -StatePath $path
+        $script:Clock = $script:Start.AddMinutes(5)
+        $script:ProbeReply = New-ProbeOutput -FiveHour 0.5 -SevenDay 0.2 -FiveHourResets ($script:Start.AddHours(5).ToUnixTimeSeconds())
+        (Get-UsageWindow -StatePath $path).previous | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'the cadence is the King''s, and decided in one place' {
+    It 'is five minutes, and two from 85 percent' {
+        Get-UsageReadIntervalMinutes -Percent 84.9 | Should -Be 5
+        Get-UsageReadIntervalMinutes -Percent 85   | Should -Be 2
+        Get-UsageReadIntervalMinutes -Percent 99   | Should -Be 2
+        Get-UsageReadIntervalMinutes -Percent $null | Should -Be 5 -Because 'an unknown is not known to be near the limit'
+    }
+}
+
+Describe 'the probe boundary itself, against a stand-in for Claude Code' {
+    BeforeAll {
+        $script:StandInDir = New-TempFixtureDir -Prefix 'usage-probe-standin-'
+        $script:StandIn    = Join-Path $script:StandInDir 'claude-standin.cmd'
+        $script:ArgsFile   = Join-Path $script:StandInDir 'args.txt'
+        $script:CwdFile    = Join-Path $script:StandInDir 'cwd.txt'
+        $script:Reply      = Join-Path $script:StandInDir 'reply.txt'
+        Set-Content -LiteralPath $script:StandIn -Encoding ascii -Value @(
+            '@echo off',
+            'echo %*>"%KH_TEST_PROBE_ARGS%"',
+            'cd>"%KH_TEST_PROBE_CWD%"',
+            'if exist "%KH_TEST_PROBE_DIR%\slow" ping -n 30 127.0.0.1 >nul',
+            'type "%KH_TEST_PROBE_DIR%\reply.txt"',
+            'exit /b 0'
+        )
+        (New-ProbeOutput -FiveHour 0.07) | Set-Content -LiteralPath $script:Reply -Encoding utf8
+        $script:Saved = @{ cmd = $env:KINGSHAND_USAGE_PROBE_COMMAND }
+        $env:KINGSHAND_USAGE_PROBE_COMMAND = $script:StandIn
+        $env:KH_TEST_PROBE_ARGS = $script:ArgsFile
+        $env:KH_TEST_PROBE_CWD  = $script:CwdFile
+        $env:KH_TEST_PROBE_DIR  = $script:StandInDir
+    }
+    AfterAll {
+        $env:KINGSHAND_USAGE_PROBE_COMMAND = $script:Saved.cmd
+        Remove-Item Env:\KH_TEST_PROBE_ARGS, Env:\KH_TEST_PROBE_CWD, Env:\KH_TEST_PROBE_DIR -ErrorAction SilentlyContinue
+    }
+
+    # Through the real boundary, so the flags that make the probe side-effect free are the flags
+    # the stand-in actually received.
+    It 'runs with the flags that keep it cheap and side-effect free, from a directory it removes' {
+        $p = & $script:RealInvokeUsageProbe
+        $p.ok | Should -BeTrue
+        (ConvertFrom-UsageProbe -Value $p.value).ok | Should -BeTrue
+
+        $line = Get-Content -LiteralPath $script:ArgsFile -Raw
+        foreach ($flag in @('-p', '--output-format stream-json', '--verbose', '--model haiku',
+                            '--tools ""', '--strict-mcp-config', '--setting-sources ""', '--safe-mode',
+                            '--no-session-persistence', '--disable-slash-commands',
+                            '--permission-prompts none', '--no-chrome')) {
+            $line.Contains($flag) | Should -BeTrue -Because "the probe passes $flag"
+        }
+        $cwd = (Get-Content -LiteralPath $script:CwdFile -Raw).Trim()
+        $cwd | Should -BeLike '*kh-usage-probe-*'
+        Test-Path -LiteralPath $cwd | Should -BeFalse -Because 'the probe leaves nothing on disk'
+    }
+
+    It 'stops a probe that does not answer in time, and reports it as a failure' {
+        Set-Content -LiteralPath (Join-Path $script:StandInDir 'slow') -Value 'x'
+        try {
+            $p = & $script:RealInvokeUsageProbe -TimeoutSeconds 2
+            $p.ok    | Should -BeFalse
+            $p.error | Should -BeLike '*did not answer within 2 seconds*'
+        } finally {
+            Remove-Item -LiteralPath (Join-Path $script:StandInDir 'slow') -Force
+        }
+    }
+}
+
+# The one check that spends real usage, a few hundred tokens of the cheapest model. Skipped unless
+# KINGSHAND_LIVE_USAGE_PROBE is 1, so the suite as everybody runs it never spends anything.
+Describe 'the live probe, opt-in' -Skip:("$env:KINGSHAND_LIVE_USAGE_PROBE" -ne '1') {
+    It 'reads both windows from the real Claude Code' {
+        $p = & $script:RealInvokeUsageProbe
+        $parsed = ConvertFrom-UsageProbe -Value $p.value
+        $parsed.ok | Should -BeTrue -Because "$($parsed.problem)"
     }
 }
 
@@ -884,7 +1383,8 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                percent = 62; detail = 'x'; resetsAt = ''; window = 'five_hour'
                                takenAt = '2026-09-05T00:00:00.0000000Z' }
         }
-        Mock -ModuleName Usage Get-UsageFleet { @() }
+        # One worker running by default, because the pulse reads nothing while nothing runs.
+        Mock -ModuleName Usage Get-UsageFleet { @(New-FleetRow -Ticket 'kh') }
 
         # The baseline the pulse compares against is one variable inside the module, living for the
         # life of the process - so each case starts from a pulse that has never spoken, the way a
@@ -901,7 +1401,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                window = 'seven_day'; account = 'personal'; generatedAt = ''
                                schemaVersion = '3'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '62% used (week, personal) - nothing running'
+        Get-UsagePulse | Should -Be '62% used (week, personal) - 1 running: kh working'
     }
 
     # TWO READINGS EITHER SIDE OF A SWITCH ARE PERCENTAGES OF TWO DIFFERENT POOLS. Silence would
@@ -915,11 +1415,11 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                schemaVersion = '3'; takenAt = 'now' }
         }
         Mock -ModuleName Usage Get-UsageWindow { & $reading 'personal' }
-        Get-UsagePulse | Should -Be '62% used (session, personal) - nothing running'
+        Get-UsagePulse | Should -Be '62% used (session, personal) - 1 running: kh working'
         Get-UsagePulse | Should -BeNullOrEmpty -Because 'nothing moved within that account'
 
         Mock -ModuleName Usage Get-UsageWindow { & $reading 'office' }
-        Get-UsagePulse | Should -Be '62% used (session, office) - nothing running'
+        Get-UsagePulse | Should -Be '62% used (session, office) - 1 running: kh working'
     }
 
     # A floor is never printed as a bare percentage, because a bare percentage reads as a
@@ -933,7 +1433,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                window = 'five_hour'; account = 'personal'; generatedAt = ''
                                schemaVersion = '3'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be 'at least 41% used (stale, session, personal) - nothing running'
+        Get-UsagePulse | Should -Be 'at least 41% used (stale, session, personal) - 1 running: kh working'
     }
 
     # The same number decaying from a measurement into a floor is a change worth saying, because
@@ -945,7 +1445,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                window = 'five_hour'; account = 'a'; generatedAt = ''
                                schemaVersion = '3'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '40% used (session, a) - nothing running'
+        Get-UsagePulse | Should -Be '40% used (session, a) - 1 running: kh working'
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'unknown'; signal = 'stale-reading'; percent = $null
@@ -953,7 +1453,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                window = 'five_hour'; account = 'a'; generatedAt = ''
                                schemaVersion = '3'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be 'at least 40% used (stale, session, a) - nothing running'
+        Get-UsagePulse | Should -Be 'at least 40% used (stale, session, a) - 1 running: kh working'
     }
 
     # The same 62 percent, session one tick and week the next, is a different fact about what is
@@ -1016,8 +1516,38 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
         Get-UsagePulse | Should -BeLike '*1 running: live-one*'
     }
 
-    It 'says so when there is nothing running' {
-        Get-UsagePulse | Should -Be '62% used (session) - nothing running'
+    It 'names the percentage beside the one worker running' {
+        Get-UsagePulse | Should -Be '62% used (session) - 1 running: kh working'
+    }
+
+    # NO READING WHILE NOTHING RUNS - the King's word, 2026-10-22. The number barely moves with no
+    # worker spending it, and the first dispatch takes its own reading before it starts.
+    It 'takes no reading while nothing is running, and says so rather than a number' {
+        Mock -ModuleName Usage Get-UsageFleet { @(New-FleetRow -Ticket 'gone' -Live $false) }
+        Mock -ModuleName Usage Get-UsageWindow { throw 'must not be read while nothing runs' }
+
+        $line = Get-UsagePulse
+        $line | Should -Be 'usage not read while nothing runs - nothing running'
+        Should -Invoke -ModuleName Usage Get-UsageWindow -Times 0 -Exactly
+        Get-UsagePulse | Should -BeNullOrEmpty -Because 'an idle fleet that stays idle is nothing new'
+    }
+
+    It 'reads again, and speaks, the moment a worker starts' {
+        Mock -ModuleName Usage Get-UsageFleet { @() }
+        Get-UsagePulse | Should -Be 'usage not read while nothing runs - nothing running'
+
+        Mock -ModuleName Usage Get-UsageFleet { @(New-FleetRow -Ticket 'kh') }
+        Get-UsagePulse | Should -Be '62% used (session) - 1 running: kh working'
+    }
+
+    It 'says a held floor as held rather than as stale' {
+        Mock -ModuleName Usage Get-UsageWindow {
+            [pscustomobject]@{ status = 'unknown'; signal = 'held-at-limit'; percent = $null
+                               floorPercent = 92.4; stale = $true; detail = 'x'; resetsAt = ''
+                               window = 'five_hour'; account = 'a'; generatedAt = ''
+                               schemaVersion = ''; source = 'hold'; previous = $null; takenAt = 'now' }
+        }
+        Get-UsagePulse | Should -Be 'at least 92% used (held, session, a) - 1 running: kh working'
     }
 
     # A line every interval regardless is the progress narration hard rule 6 forbids, and the King
@@ -1048,7 +1578,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 71; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '71% used (session) - nothing running'
+        Get-UsagePulse | Should -Be '71% used (session) - 1 running: kh working'
     }
 
     # THE SAME SENTENCE TWICE IS NOT A CHANGE. The band that decides whether the pulse speaks and
@@ -1060,7 +1590,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 69.6; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '70% used (session) - nothing running'
+        Get-UsagePulse | Should -Be '70% used (session) - 1 running: kh working'
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 70.2; detail = 'x'
@@ -1074,13 +1604,13 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 69.2; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '69% used (session) - nothing running'
+        Get-UsagePulse | Should -Be '69% used (session) - 1 running: kh working'
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 70.2; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '70% used (session) - nothing running'
+        Get-UsagePulse | Should -Be '70% used (session) - 1 running: kh working'
     }
 
     # Losing the number is itself a change worth one line. Reported as the same silence as
@@ -1093,7 +1623,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                detail = 'x'; resetsAt = ''; window = ''; takenAt = 'now' }
         }
         $line = Get-UsagePulse
-        $line | Should -Be 'usage unknown - nothing running'
+        $line | Should -Be 'usage unknown - 1 running: kh working'
         $line | Should -Not -BeLike '*0%*'
     }
 
@@ -1156,7 +1686,7 @@ Describe 'The pulse takes the fleet from the reader that already joins intent to
         '{ "workers": {} }' | Set-Content -LiteralPath $crew -Encoding utf8
 
         Get-UsagePulse -CrewStatePath $crew |
-            Should -Be '5% used (session) - nothing running'
+            Should -Be 'usage not read while nothing runs - nothing running'
     }
 
     # A RECORD WITH A FIELD MISSING USED TO END THE PULSE FOR THE SESSION. This module runs under
@@ -1198,7 +1728,7 @@ Describe 'The pulse takes the fleet from the reader that already joins intent to
             $env:KINGSHAND_TEST_USAGE_HERDR = $reply
 
             { Get-UsageFleet -CrewStatePath $crew } | Should -Not -Throw
-            Get-UsagePulse -CrewStatePath $crew | Should -Be '5% used (session) - nothing running'
+            Get-UsagePulse -CrewStatePath $crew | Should -Be 'usage not read while nothing runs - nothing running'
         } finally {
             $env:PATH = $savedPath
             $env:KINGSHAND_TEST_USAGE_HERDR = $savedVar
@@ -1212,19 +1742,54 @@ Describe 'The pulse on a timer' {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 5; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Mock -ModuleName Usage Get-UsageFleet { @() }
+        Mock -ModuleName Usage Get-UsageFleet { @(New-FleetRow -Ticket 'kh') }
         InModuleScope Usage { $script:LastSpoken = $null }
     }
 
     # The default is what the documented background job takes - it passes no interval at all - so
     # the cadence is read off the wait the loop actually performs rather than off a note about it.
-    It 'waits ten minutes between ticks when nobody says otherwise' {
+    It 'waits five minutes between ticks when nobody says otherwise' {
         $global:UsageSleeps = @()
         Mock -ModuleName Usage Start-Sleep { $global:UsageSleeps += $Milliseconds }
 
         Watch-UsagePulse -Count 2 | Out-Null
-        @($global:UsageSleeps) | Should -Be @(600000)
+        @($global:UsageSleeps) | Should -Be @(300000)
         Remove-Variable -Name UsageSleeps -Scope Global -ErrorAction SilentlyContinue
+    }
+
+    # THE KING'S CADENCE: every two minutes once a reading is at or above 85 percent. Read off the
+    # wait the loop really performs after a tick that read 85, and one that read a floor of 86.
+    It 'waits two minutes between ticks once the reading is at or above 85 percent' {
+        $global:UsageSleeps = @()
+        Mock -ModuleName Usage Start-Sleep { $global:UsageSleeps += $Milliseconds }
+        Mock -ModuleName Usage Get-UsageWindow {
+            [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 85; detail = 'x'
+                               resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
+        }
+        Watch-UsagePulse -Count 2 | Out-Null
+
+        Mock -ModuleName Usage Get-UsageWindow {
+            [pscustomobject]@{ status = 'unknown'; signal = 'stale-reading'; percent = $null
+                               floorPercent = 86; detail = 'x'; resetsAt = ''; window = 'five_hour'
+                               takenAt = 'now' }
+        }
+        Watch-UsagePulse -Count 2 | Out-Null
+        @($global:UsageSleeps) | Should -Be @(120000, 120000)
+        Remove-Variable -Name UsageSleeps -Scope Global -ErrorAction SilentlyContinue
+    }
+
+    It 'keeps the ordinary interval while nothing runs, since nothing was read' {
+        $global:UsageSleeps = @()
+        Mock -ModuleName Usage Start-Sleep { $global:UsageSleeps += $Milliseconds }
+        Mock -ModuleName Usage Get-UsageFleet { @() }
+        Watch-UsagePulse -Count 2 | Out-Null
+        @($global:UsageSleeps) | Should -Be @(300000)
+        Remove-Variable -Name UsageSleeps -Scope Global -ErrorAction SilentlyContinue
+    }
+
+    It 'refuses a close interval of nothing on a run with no end' {
+        { Watch-UsagePulse -CloseIntervalMinutes 0 } | Should -Throw '*needs an interval to wait out*'
+        { Watch-UsagePulse -Count 1 -CloseIntervalMinutes -1 } | Should -Throw '*cannot be negative*'
     }
 
     It 'takes a different cadence when a session asks for one' {
@@ -1286,14 +1851,14 @@ Describe 'The pulse on a timer' {
         Mock -ModuleName Usage Get-UsageFleet {
             $global:UsageTickCount++
             if ($global:UsageTickCount -eq 1) { throw 'crew.json was half written' }
-            @()
+            @(New-FleetRow -Ticket 'kh')
         }
 
         $out = @(Watch-UsagePulse -Count 2 -IntervalMinutes 0 `
                                   -WarningAction SilentlyContinue)
         $global:UsageTickCount | Should -Be 2 -Because 'the second tick has to happen at all'
         $out.Count | Should -Be 1
-        $out[0]    | Should -Be '5% used (session) - nothing running'
+        $out[0]    | Should -Be '5% used (session) - 1 running: kh working'
         Remove-Variable -Name UsageTickCount -Scope Global -ErrorAction SilentlyContinue
     }
 

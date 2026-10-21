@@ -343,15 +343,16 @@ if (-not (Get-HerdrCommandPath)) { throw (Get-HerdrCommandHint) }
 # IT FAILS OPEN, DELIBERATELY. A reading that could not be taken is a warning and a dispatch, never
 # a block. The prompt-box guards already made this call for an unreadable screen and the reasoning
 # transfers unchanged: a blind guard that blocks everything costs more than one that lets work
-# through and says it could not see. So a missing quota-axi, a lookup that failed and an answer that
-# would not parse all dispatch.
+# through and says it could not see. So a probe and a quota-axi that both failed, a fallback the
+# fifteen-minute gate did not allow and an answer that would not parse all dispatch.
 #
-# A FLOOR STILL REFUSES, AND ON THIS MACHINE IT IS USUALLY THE ONLY THING THAT CAN. The tool's live
-# fetch is rate limited most of the time, so most readings are stale - `unknown`, with a cached
-# number carried alongside as a lower bound. Consumption never falls inside a window, so a floor at
-# or past the threshold means the real figure is too, and refusing on it is sound where refusing on
-# the stale number as though it were current would not be. Nothing here treats the floor as the
-# answer: the message says plainly that it is a floor.
+# A FLOOR STILL REFUSES. Two readings carry one: quota-axi answering from its own stale cache, and a
+# window already read at or past 90 percent, which Usage.psm1 holds without reading again until it
+# resets - `unknown` either way, with the earlier number carried alongside as a lower bound.
+# Consumption never falls inside a window, so a floor at or past the threshold means the real figure
+# is too, and refusing on it is sound where refusing on an earlier number as though it were current
+# would not be. Nothing here treats the floor as the answer: the message says plainly that it is a
+# floor.
 #
 # A settled "nothing here reports this" says nothing at all. That is a stable fact about the
 # machine rather than something wrong with it, and a warning on every dispatch for a state nobody
@@ -365,6 +366,15 @@ if ($null -ne $measured -and $measured -ge $UsageThresholdPercent) {
            "refused from $UsageThresholdPercent percent, so worker $Name was not dispatched. " +
            "$($usage.detail) Wait for the window to reset, or dispatch with a higher " +
            "-UsageThresholdPercent if this one has to go out now. Nothing was created.")
+}
+# A HELD WINDOW REFUSES WHATEVER THE THRESHOLD. Usage.psm1 stops reading a window once it reaches
+# 90 percent, so a held floor of 91 never climbs past a -UsageThresholdPercent of 95 or 99, and a
+# dispatch compared against it would go out into a window that may already be spent.
+if ("$($usage.signal)" -eq 'held-at-limit' -and $null -ne $floor) {
+    throw ("The usage window is held from 90 percent until its reset, at least " +
+           "$([int][Math]::Floor($floor)) percent spent, and nothing reads it again before then, " +
+           "so worker $Name was not dispatched whatever -UsageThresholdPercent says." +
+           "$(Format-UsageResetTime -IsoTime "$($usage.resetsAt)") Nothing was created.")
 }
 # COMPARED RAW AND EXACT, which is where every bit of this guard's safety lives - the double the
 # reader took, against the threshold, with no rounding in between. The figure in the message is

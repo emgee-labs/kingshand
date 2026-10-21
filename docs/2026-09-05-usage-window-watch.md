@@ -6,8 +6,12 @@ way to it, and the decisions that shape what was built.
 
 ## Where the number comes from
 
-`quota-axi`, a separate tool installed with npm. It reports the account's own windows as JSON - a
+**Updated 2026-10-22: a headless probe first, `quota-axi` second.** The section below on the probe
+supersedes what this note first said, that no command reports usage.
+
+`quota-axi`, a separate tool installed with npm, reports the account's own windows as JSON - a
 used percentage and a reset time per window - and `bin\Usage.psm1` runs it and parses that JSON.
+It is now the fallback, for the reason the next section gives.
 
 **Nothing in kingshand reads a credential file, a transcript or a terminal to get this.** One file
 in the profile is read and it holds one word - the name of the active account, which the last
@@ -15,6 +19,53 @@ decision below explains. That boundary is the same one `bin\Ci.psm1` keeps to `g
 keeps the reader clear of the account-switch machinery, which does read credentials and is none of
 this module's business. It is also what honours the open-ended-input rule: the only format read is
 JSON with a declared schema version, from a tool that owns the question.
+
+## The probe, and why quota-axi became the fallback - 2026-10-22
+
+quota-axi asks an endpoint that answers about five requests and then refuses for minutes. With the
+pulse, night's watch and every dispatch each running it, that was about thirty requests an hour,
+so through most of a night it served a cache that went on reading the same number while workers
+spent the window. A reader that freezes is the failure this note began with.
+
+**One headless Claude Code turn carries the answer.** `claude -p --output-format stream-json
+--verbose` emits a `rate_limit_event` whose `unifiedWindows` hold both windows' utilization, as a
+fraction, and reset time, as epoch seconds - the server's own figures, current at every read. It is
+an ordinary inference call, so that endpoint's rate limit never touches it. The field is
+undocumented and could move in an update, which is why quota-axi stays behind it.
+
+**Measured on this machine, 2026-10-22, Claude Code 2.1.304:** one probe costs 2 input tokens, 907
+cache-write tokens and 4 output tokens on the cheapest model - about 0.0002 dollars at list price -
+and takes about 5 seconds of turn time and 7 seconds end to end. At the cadence below that is well
+under a hundred probes a night.
+
+**It is made side-effect free by flags, each checked against `claude --help`:** no tools, no MCP
+servers, no settings files, no CLAUDE.md, skills, plugins or hooks, no transcript, nothing that can
+prompt, and a one-line system prompt, run from a fresh empty directory that is removed afterwards.
+`bin\Usage.psm1` lists the flags and what each one does. `--bare` would skip more and is not used:
+it never reads the subscription login, so it has no account to report on. Claude Code still updates
+its own global bookkeeping on start, as any run does; no transcript, history entry or project entry
+was written in the measured runs.
+
+**The order is the probe, then quota-axi, then unknown.** A probe that prints no event, an event
+with no windows, neither account window, or a utilization that is not a non-negative number is a
+failed probe - never zero, and never the settled "no windows" answer, because that answer switches
+every guard off quietly and the probe has never been seen to give it. What the event says once a
+window is fully spent has never been observed; a shape it does not recognise is unreadable.
+
+**quota-axi is asked at most once every fifteen minutes across every process.** The pulse, night's
+watch and a dispatch are separate processes, so a timer held in memory would gate only one of them.
+The gate is a stamp in `state\usage-gate.json`, claimed under an exclusive lock before the tool
+starts, so of any number of processes only one passes in a window. A gate that refuses is an
+unknown reading, which fails open. The file is the reader's alone: a path with any other name, or a
+file there that is not its own record, is refused and left untouched.
+
+**From 90 percent nothing reads that window until it resets**, apart from the one confirming read
+after it. The King set this, with five minutes between reads and two from 85 percent, on
+2026-10-22: the last tenth is what keeps night's watch alive across the gap and nudges the paused
+workers after the reset. Until then the answer is the held figure as a floor, and a held window
+is at the limit whatever the threshold: the dispatch refusal and the watch's pause act on it even
+where the caller's threshold is set above the held figure. **No reading is taken while no
+worker is running** - the number barely moves then, and the first dispatch reads for itself.
 
 ## What was tried first, and what each one gave back
 
@@ -49,7 +100,8 @@ there directly.
 
 **A non-interactive subcommand.** There is none. The CLI's own help lists nine commands and not one
 of them reports usage or limits. Print mode with JSON output returns a result envelope carrying cost
-and token counts for that one run, and nothing about the account's windows.
+and token counts for that one run, and nothing about the account's windows. Stream-json output with
+`--verbose` was not tried then, and it does carry them - the probe section above.
 
 **The live session itself.** A session can be interrogated about itself and it does not know. The
 environment carries a session id, a process id and an entrypoint; the session record on disk carries
