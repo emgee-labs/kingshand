@@ -10067,8 +10067,14 @@ Describe 'fief holds one project per session and changes routing and delivery, n
         Assert-Phrase -Text (Get-DocText $script:MusterMd) -Where 'muster Step 8b' `
             -Phrase 'A close-out passes `-EndSession` as well, which removes the session''s baseline'
         Assert-Phrase -Text (Get-DocText $script:StuckMd) -Where 'rally Step 4' `
-            -Phrase ('**A worker recorded with `session` or `checkout` is relaunched as `fief`''s `A wedged ' +
+            -Phrase ('**A worker recorded with `checkout` is relaunched as `fief`''s `A wedged ' +
                      'warm worker` paragraph says**')
+        Assert-Phrase -Text (Get-DocText $script:StuckMd) -Where 'rally Step 4' `
+            -Phrase ('**A worker recorded with `session` and no `checkout` is isolated**: it is ' +
+                     'stopped and relaunched through the worktree path above')
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase ('An isolated session worker has no settings record and no baseline: it is ' +
+                     'relaunched in its worktree as `rally` Step 4 says')
         Assert-Phrase -Text (Get-DocText $script:StuckMd) -Where 'rally Step 4' `
             -Phrase 'then `Set-CrewRelaunch` - never `Add-CrewWorker`, which refuses the id'
     }
