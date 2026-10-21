@@ -103,11 +103,13 @@ organization and a token. Nothing here installs it and nothing here needs it. Wi
 Hand says so once and asks you to paste the ticket or describe the work, and handles it as adhoc -
 which is the ordinary path and works exactly as well.
 
-**`quota-axi`, only for the usage pulse.** It is what reports how much of the current usage window
-is spent, and kingshand asks it rather than reading a credential file or a transcript of its own.
-Nothing here installs it: `npm install -g quota-axi`. Without it everything still dispatches - the
-pulse says the usage is not known and the refusal near the limit fails open on purpose, because a
-reader that breaks must not make the tool undispatchable.
+**`quota-axi`, only as the usage reading's fallback.** How much of the current usage window is
+spent is read from one small headless Claude Code turn first; quota-axi is asked only when that
+cannot answer, and never more than once every fifteen minutes. Kingshand asks these rather than
+reading a credential file or a transcript of its own. Nothing here installs it:
+`npm install -g quota-axi`. Without it everything still dispatches - where the headless turn also
+fails, the pulse says the usage is not known and the refusal near the limit fails open on purpose,
+because a reader that breaks must not make the tool undispatchable.
 
 **Pester 6+, only to run this repository's own tests.** Nothing in `bin\` and no skill imports it,
 so an installation without Pester dispatches, gates and lands identically. `Install-Module Pester

@@ -8,16 +8,19 @@ Set-StrictMode -Version Latest
 # that answers or says plainly it cannot, a refusal that stops a new dispatch near the limit
 # (Dispatch-Worker.ps1 owns that), and a pulse line that speaks only when something has changed.
 #
-# WHERE THE NUMBER COMES FROM, AND WHY IT IS NOT READ HERE. `quota-axi` is a separate tool that
-# already owns this question: it reports the account's own windows as JSON, with a used percentage
-# and a reset time per window. Nothing in this file opens a credential file, a transcript or a
-# terminal - it runs that tool and parses its JSON, which is the same boundary Ci.psm1 keeps to
-# `gh`. That matters twice over: it is what keeps standing criterion 12 honoured, because the only
-# format read here is JSON with a declared schema version, and it is what keeps this change clear
-# of the account-switch machinery, which reads credentials and is none of this module's business.
+# WHERE THE NUMBER COMES FROM, IN ORDER. First a one-turn headless Claude Code probe: an ordinary
+# inference call whose stream-json output carries a `rate_limit_event` with both windows' live
+# utilization and reset time, so the usage endpoint's own rate limit never touches it. Second, only
+# when the probe cannot answer, `quota-axi`, a separate tool that asks that rate-limited endpoint
+# and is therefore asked at most once every fifteen minutes across every process on the machine.
+# Nothing in this file opens a credential file, a transcript or a terminal - it runs those two tools
+# and parses their JSON, which is the same boundary Ci.psm1 keeps to `gh`. That keeps standing
+# criterion 12 honoured, because the only formats read here are JSON documents the tools emit, one
+# per line in the probe's case, and it keeps this change clear of the account-switch machinery,
+# which reads credentials and is none of this module's business.
 #
-# Four candidates were tested before settling on it and all four gave nothing:
-# docs\2026-09-05-usage-window-watch.md records what each one returned.
+# docs\2026-09-05-usage-window-watch.md records the candidates that were tried, the probe's measured
+# cost, and why the fallback is gated.
 #
 # THREE ANSWERS, AND THE THIRD IS THE POINT - the shape Ci.psm1 already uses on this repo.
 # `has-usage` and `no-usage` are answers; `unknown` is the refusal to guess when the question could
@@ -32,14 +35,78 @@ Set-StrictMode -Version Latest
 # scanner standing criterion 12 forbids, and there is no round after which such a matcher is
 # finished. The switch is a person's word read by the Hand, and it stays that way.
 
-# Ten minutes between pulses, and it is a parameter on Watch-UsagePulse rather than a constant so a
-# session that wants a different cadence can say so without editing this file.
-$script:DefaultPulseIntervalMinutes = 10
+# Nested import WITHOUT -Force - `statute`'s style rules own why. Paths.psm1 is where the Claude Code
+# binary and the installation root are resolved, and the probe and the gate file need one each.
+Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
+
+# THE KING'S CADENCE, 2026-10-22, owned here and taken from Get-UsageReadIntervalMinutes by both the
+# pulse and night's watch: a reading every five minutes, every two once a reading is at or above 85
+# percent, and none at all from 90 percent until that window resets - the hold below. The last tenth
+# is what keeps the watch alive across the gap and nudges the paused workers after the reset, so it
+# is not spent on reading.
+$script:ReadIntervalMinutes      = 5
+$script:CloseReadIntervalMinutes = 2
+$script:CloseFromPercent         = 85
+$script:HoldFromPercent          = 90
 
 # How long a `quota-axi` call may take before it is given up on. It reaches the network, so a
 # dispatch that waited on it indefinitely would be a dispatch a hung tool could stop - which is the
 # fail-closed outcome R-006 rules out. A timeout reads as `unknown`, which fails open.
 $script:DefaultTimeoutSeconds = 20
+
+# How long the probe may take. Measured at about five seconds on this machine; the rest is headroom
+# for a slow start, and a probe still running at the end is killed and reads as a failed probe.
+$script:DefaultProbeTimeoutSeconds = 45
+
+# The probe's whole command line, from this module and never from a caller. Each flag is checked
+# against `claude --help` and exists for one property:
+#   -p                          non-interactive: one turn, then exit, and no trust dialog
+#   --output-format stream-json one JSON document per line, which is where rate_limit_event arrives
+#   --verbose                   stream-json in print mode requires it
+#   --model haiku               the cheapest model
+#   --tools ''                  no tools at all
+#   --strict-mcp-config         no MCP servers - none is passed through --mcp-config
+#   --setting-sources ''        no user, project or local settings file is loaded
+#   --safe-mode                 no CLAUDE.md, skills, plugins, hooks or custom agents
+#   --no-session-persistence    no transcript is saved and nothing can be resumed
+#   --disable-slash-commands    nothing in the prompt is expanded as a command
+#   --permission-prompts none   anything that would prompt is denied instead
+#   --no-chrome                 no browser integration
+#   --system-prompt             one line, so the turn costs as little as a turn can
+# `--bare` is NOT used, although it skips more: it never reads the OAuth login, so on a subscription
+# it has no account to report on. The probe runs from a fresh empty directory that is removed
+# afterwards, so no project's own hooks or settings can be found from where it starts.
+$script:ProbeArguments = @(
+    '-p',
+    '--output-format', 'stream-json',
+    '--verbose',
+    '--model', 'haiku',
+    '--tools', '',
+    '--strict-mcp-config',
+    '--setting-sources', '',
+    '--safe-mode',
+    '--no-session-persistence',
+    '--disable-slash-commands',
+    '--permission-prompts', 'none',
+    '--no-chrome',
+    '--system-prompt', 'Reply with the single word ok.',
+    'ok'
+)
+
+# THE FALLBACK GATE. quota-axi asks an endpoint that answers about five requests and then refuses for
+# minutes, and the pulse, night's watch and every dispatch are separate processes - so a timer held
+# in memory would gate only the process holding it. The gate is a stamp in one file under state\,
+# claimed under an exclusive lock before the tool is started, so of any number of processes only one
+# can pass in a window. Update-UsageGateState owns the lock and the ownership check.
+$script:FallbackGateMinutes = 15
+$script:GateFileName        = 'usage-gate.json'
+$script:GateOwner           = 'kingshand-usage-gate'
+$script:GateLockTimeoutMs   = 3000
+# Enough readings to find one at least a minute old behind a burst of dispatches, and no more.
+$script:GateHistoryLimit    = 6
+# A climb is measured only against a reading at least this old. The probe reports whole percentage
+# points, so two readings seconds apart turn one point of rounding into a steep climb.
+$script:BaselineMinMinutes  = 1
 
 # How many workers the pulse names before the rest become a count. The line is one line, hard cap,
 # however many workers are live - so the tail is summarised rather than wrapped.
@@ -55,15 +122,21 @@ $script:AccountWindowIds = @('five_hour', 'seven_day')
 # It never needs to outlive the process, because a tick is only ever compared against the tick
 # before it and the documented arming is one long-lived background job.
 #
-# NOTHING IN THIS MODULE OPENS A FILE TO KEEP IT, and that is deliberate rather than incidental. A
-# record here would live in state\, beside crew.json, and every guard written to stop a mistyped
-# path replacing the fleet is a guard that can be got wrong - a half-written crew.json read as a
-# half-written record of ours was exactly that, and it cost the fleet with nothing raised anywhere.
-# There is no path to mistype and no file to overwrite when the baseline is a variable.
+# THE PULSE OPENS NO FILE TO KEEP IT, and that is deliberate rather than incidental. A record here
+# would live in state\, beside crew.json, and every guard written to stop a mistyped path replacing
+# the fleet is a guard that can be got wrong - a half-written crew.json read as a half-written
+# record of ours was exactly that, and it cost the fleet with nothing raised anywhere. There is no
+# path to mistype and no file to overwrite when the baseline is a variable. The reader's gate file
+# is a different thing with a different owner - Update-UsageGateState - and the pulse never touches
+# it except through Get-UsageWindow.
 #
 # The accepted cost is one line: a restarted session speaks its first pulse even where nothing has
 # moved, because it has nothing yet to compare against.
 $script:LastSpoken = $null
+
+# The reading the pulse last took, held only so Watch-UsagePulse can pick its next interval from it.
+# $null while nothing runs, because nothing was read.
+$script:LastPulseReading = $null
 
 # A property off a ConvertFrom-Json object, or $null when it is not there. Under
 # Set-StrictMode -Version Latest a missing property throws, and every field below is one the tool
@@ -206,6 +279,338 @@ function Invoke-QuotaAxi {
             if ($f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
         }
     }
+}
+
+# Now, as the one clock every gate and hold decision is taken against, so a test can move it.
+function Get-UsageNow {
+    [CmdletBinding()]
+    param()
+    [datetimeoffset]::UtcNow
+}
+
+# The Claude Code the probe launches.
+#
+# KINGSHAND_USAGE_PROBE_COMMAND names a stand-in, and it exists for one caller: a test that drives
+# the real dispatcher. That script re-imports this module with -Force, which discards any mock a test
+# set inside it, so without a stand-in every dispatch such a test drives would spend real usage.
+# Unset - everywhere but there - it is Paths.psm1's own resolution, which prefers the binary over
+# npm's wrapper.
+function Get-UsageProbeCommandPath {
+    [CmdletBinding()]
+    param()
+
+    $standIn = "$env:KINGSHAND_USAGE_PROBE_COMMAND".Trim()
+    if ($standIn) { return $standIn }
+    Get-ClaudeCommandPath
+}
+
+# The probe's boundary with the outside world, beside Invoke-QuotaAxi and kept to the same promise:
+# it never throws, and a missing binary, a hang and a crash all arrive as ok = $false carrying what
+# happened. A run that exited non-zero still hands back what it printed, because the event this
+# reads can arrive on a turn that then failed - the fully-spent case is exactly that shape, and
+# ConvertFrom-UsageProbe is what decides whether the output answers.
+#
+# THE ARGUMENTS ARE PASSED AS A LIST, NEVER AS ONE STRING. Two of them are empty, and an empty
+# argument survives only when the framework quotes each element itself. Standard input is closed at
+# once, so print mode cannot sit waiting on a pipe nobody writes to.
+function Invoke-UsageProbe {
+    [CmdletBinding()]
+    param([int]$TimeoutSeconds = $script:DefaultProbeTimeoutSeconds)
+
+    $exe = Get-UsageProbeCommandPath
+    if (-not $exe) {
+        return [pscustomobject]@{ ok = $false; value = ''; exitCode = $null; error = (Get-ClaudeCommandHint) }
+    }
+
+    $dir = $null
+    $p   = $null
+    try {
+        # A fresh empty directory, so the probe starts somewhere no project's hooks or settings can
+        # be found from, and nothing it might create outlives the call.
+        $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('kh-usage-probe-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
+
+        $psi = [System.Diagnostics.ProcessStartInfo]::new($exe)
+        foreach ($a in $script:ProbeArguments) { $psi.ArgumentList.Add($a) }
+        $psi.WorkingDirectory       = $dir
+        $psi.UseShellExecute        = $false
+        $psi.CreateNoWindow         = $true
+        $psi.RedirectStandardInput  = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError  = $true
+
+        $p = [System.Diagnostics.Process]::Start($psi)
+        $p.StandardInput.Close()
+        $outTask = $p.StandardOutput.ReadToEndAsync()
+        $errTask = $p.StandardError.ReadToEndAsync()
+        if (-not $p.WaitForExit($TimeoutSeconds * 1000)) {
+            try { $p.Kill($true) } catch { }
+            return [pscustomobject]@{
+                ok = $false; value = ''; exitCode = $null
+                error = "the usage probe did not answer within $TimeoutSeconds seconds and was stopped"
+            }
+        }
+        $p.WaitForExit()
+        [pscustomobject]@{
+            ok       = $true
+            value    = "$($outTask.GetAwaiter().GetResult())"
+            exitCode = $p.ExitCode
+            error    = (("$($errTask.GetAwaiter().GetResult())") -replace '\s+', ' ').Trim()
+        }
+    } catch {
+        [pscustomobject]@{
+            ok = $false; value = ''; exitCode = $null
+            error = "the usage probe could not be run: $($_.Exception.Message)"
+        }
+    } finally {
+        if ($p) { $p.Dispose() }
+        if ($dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# The probe's output as the same window list quota-axi's report carries, or the reason it is not.
+#
+# .ok       whether a rate_limit_event carrying at least one account window was found
+# .windows  @{ id; percentUsed; resetsAt } per window, the shape Get-AccountUsageWindows reads
+# .problem  what was missing, written to sit inside a sentence
+#
+# ONE JSON DOCUMENT PER LINE, EACH PARSED BY THE FRAMEWORK. stream-json is a bounded format the
+# tool owns, so nothing here scans text: a line that does not parse is not one of the documents and
+# is skipped, and of the documents only one `type` is read. The last event wins where there are two.
+#
+# FAILS CLOSED ON ANYTHING IT DOES NOT RECOGNISE, and never towards zero. What the event carries once
+# a window is fully spent has never been seen, so every departure from the measured shape is a
+# failed probe that hands the question to the fallback: no event, no `unifiedWindows`, neither
+# account window inside it, a utilization that is not a number or is negative. An empty window list
+# is a failure here rather than the settled "no windows" quota-axi can say, because this tool has
+# never been seen to say it - and that answer is the one that switches every guard off quietly.
+# Utilization arrives as a fraction - 0.08 is eight percent - and is turned into a percentage.
+function ConvertFrom-UsageProbe {
+    [CmdletBinding()]
+    param([AllowEmptyString()][string]$Value)
+
+    $fail = { param($why) [pscustomobject]@{ ok = $false; windows = @(); problem = $why } }
+
+    $found = $null
+    foreach ($line in ("$Value" -split "`r?`n")) {
+        $t = $line.Trim()
+        if (-not $t) { continue }
+        $doc = $null
+        try { $doc = $t | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+        if ((Get-JsonField $doc 'type') -eq 'rate_limit_event') { $found = $doc }
+    }
+    if ($null -eq $found) { return & $fail 'its output carried no rate_limit_event' }
+
+    $info = Get-JsonField $found 'rate_limit_info'
+    if (-not (Test-JsonField $info 'unifiedWindows') -or $null -eq (Get-JsonField $info 'unifiedWindows')) {
+        $status = "$(Get-JsonField $info 'status')".Trim()
+        $said = if ($status) { " (its status was $status)" } else { '' }
+        return & $fail "its rate_limit_event carried no unifiedWindows$said"
+    }
+    $unified = Get-JsonField $info 'unifiedWindows'
+
+    $windows = @()
+    foreach ($id in $script:AccountWindowIds) {
+        if (-not (Test-JsonField $unified $id)) { continue }
+        $w = Get-JsonField $unified $id
+        $fraction = ConvertTo-UsageNumber (Get-JsonField $w 'utilization')
+        $percent = $null
+        if ($null -ne $fraction -and $fraction -ge 0) { $percent = [Math]::Round($fraction * 100, 4) }
+
+        $reset = ''
+        $epoch = ConvertTo-UsageNumber (Get-JsonField $w 'resetsAt')
+        if ($null -ne $epoch) {
+            try { $reset = [datetimeoffset]::FromUnixTimeSeconds([int64]$epoch).ToString('o') }
+            catch { $reset = '' }
+        }
+        $entry = @{ id = $id; percentUsed = $percent }
+        if ($reset) { $entry['resetsAt'] = $reset }
+        $windows += [pscustomobject]$entry
+    }
+    if ($windows.Count -eq 0) {
+        return & $fail 'its rate_limit_event carried neither the session nor the weekly window'
+    }
+    foreach ($w in $windows) {
+        if ($null -eq $w.percentUsed) {
+            $named = Format-UsageWindowName -Id $w.id
+            return & $fail ("its rate_limit_event reported a utilization for $named " +
+                            'that is not a fraction this can read')
+        }
+    }
+    [pscustomobject]@{ ok = $true; windows = $windows; problem = '' }
+}
+
+# Where the gate file lives: state\ under this installation, beside crew.json and owned by this
+# module alone. state\ rather than data\ because it is machine-local coordination between running
+# processes, not durable knowledge anyone reads later, and nothing indexes it.
+function Get-UsageStatePath {
+    [CmdletBinding()]
+    param()
+    Join-Path (Get-KingshandHome) "state\$script:GateFileName"
+}
+
+# Reads and changes the gate file under an exclusive lock, so two processes can never both read the
+# same state and both act on it. This is the mechanism that holds the fifteen-minute fallback gate
+# and the hold at 90 percent across separate processes; a sentence asking callers to take turns
+# would hold nothing, because each caller is inside its own read when it matters.
+#
+# .ok       whether the file was read and, where -Change altered it, written
+# .state    the record after the change, as a hashtable
+# .problem  why not, written to sit inside a sentence
+#
+# IT CANNOT OVERWRITE A FILE IT DOES NOT OWN, two ways. The path must end in the one file name this
+# module writes, so a mistyped path cannot land on crew.json or anything else in state\. And a file
+# already there must be this module's own record - JSON stamped with its owner - or it is refused
+# untouched. Only an empty file, which is what the exclusive open itself creates, is taken as new.
+#
+# It never throws. A lock that cannot be had in three seconds, a directory that cannot be made and a
+# file that is not ours all come back as ok = $false, and every caller decides what that costs it.
+function Update-UsageGateState {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [scriptblock]$Change = $null
+    )
+
+    $fail = { param($why) [pscustomobject]@{ ok = $false; state = $null; problem = $why } }
+    if ((Split-Path -Path $Path -Leaf) -ne $script:GateFileName) {
+        return & $fail "the gate file has to be named $script:GateFileName and $Path is not, so it was not written"
+    }
+
+    $stream = $null
+    try {
+        $dir = Split-Path -Path $Path -Parent
+        if ($dir -and -not (Test-Path -LiteralPath $dir -PathType Container)) {
+            New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop | Out-Null
+        }
+
+        $deadline = [datetime]::UtcNow.AddMilliseconds($script:GateLockTimeoutMs)
+        while (-not $stream) {
+            try {
+                $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::OpenOrCreate,
+                    [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+            } catch [System.IO.IOException] {
+                if ([datetime]::UtcNow -ge $deadline) {
+                    return & $fail ("the gate file $Path stayed locked by another process for " +
+                                     "$($script:GateLockTimeoutMs / 1000) seconds")
+                }
+                # Not Start-Sleep: a test that mocks the pulse's sleep must not also stall this one.
+                [System.Threading.Thread]::Sleep(50)
+            }
+        }
+
+        $reader = [System.IO.StreamReader]::new($stream, [System.Text.UTF8Encoding]::new($false), $true,
+                                                 4096, $true)
+        $text = $reader.ReadToEnd()
+        $reader.Dispose()
+
+        $state = $null
+        if ($text.Trim()) {
+            try { $state = $text | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { $state = $null }
+            if ($state -isnot [System.Collections.IDictionary] -or "$($state['owner'])" -ne $script:GateOwner) {
+                return & $fail ("$Path holds something that is not this reader's own record, so it " +
+                                 'was left untouched')
+            }
+        } else {
+            $state = @{ owner = $script:GateOwner }
+        }
+        if (-not $state.Contains('fallbackAskedAt')) { $state['fallbackAskedAt'] = '' }
+        if (-not $state.Contains('hold'))            { $state['hold'] = $null }
+        if (-not $state.Contains('history') -or $null -eq $state['history']) { $state['history'] = @() }
+        $state['history'] = @($state['history'])
+
+        $before = $state | ConvertTo-Json -Depth 8 -Compress
+        if ($Change) { & $Change $state }
+        $after = $state | ConvertTo-Json -Depth 8 -Compress
+        if ($after -ne $before -or -not $text.Trim()) {
+            $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes(($state | ConvertTo-Json -Depth 8))
+            $stream.SetLength(0)
+            $stream.Write($bytes, 0, $bytes.Length)
+            $stream.Flush()
+        }
+        [pscustomobject]@{ ok = $true; state = $state; problem = '' }
+    } catch {
+        & $fail "the gate file $Path could not be used: $($_.Exception.Message)"
+    } finally {
+        if ($stream) { $stream.Dispose() }
+    }
+}
+
+# Whether quota-axi may be asked now, and if so the claim that it is being asked - taken in one
+# locked step, so the check and the stamp cannot be split by another process between them.
+#
+# .allowed  whether this caller may start quota-axi
+# .reason   why not, as a sentence
+#
+# A gate file that cannot be used refuses rather than allows. The fifteen minutes cannot be honoured
+# without the stamp, and an extra read is exactly what keeps the endpoint refusing; the probe was
+# already tried, so what a refusal costs is an unknown reading, which fails open.
+function Request-UsageFallbackSlot {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+
+    # What the change found, carried out of the block in a box because the block runs in the
+    # gate function's scope rather than this one.
+    $box = @{ now = (Get-UsageNow); last = $null }
+    $u = Update-UsageGateState -Path $Path -Change {
+        param($s)
+        # Through ConvertTo-UsageResetTime, never "$(...)": the JSON reader hands an ISO time back
+        # as a date, and a date turned into text takes this machine's culture and stops parsing.
+        $stamp = [datetimeoffset]::MinValue
+        $was   = ConvertTo-UsageResetTime $s['fallbackAskedAt']
+        if ($was -and [datetimeoffset]::TryParse($was, [ref]$stamp) -and
+            $stamp -le $box.now -and ($box.now - $stamp).TotalMinutes -lt $script:FallbackGateMinutes) {
+            $box.last = $stamp
+            return
+        }
+        $s['fallbackAskedAt'] = $box.now.ToString('o')
+    }
+    if (-not $u.ok) {
+        return [pscustomobject]@{
+            allowed = $false
+            reason  = "the fifteen-minute gate on it could not be checked: $($u.problem)."
+        }
+    }
+    $last = $box.last
+    if ($null -ne $last) {
+        $next = $last.AddMinutes($script:FallbackGateMinutes).ToString('o')
+        return [pscustomobject]@{
+            allowed = $false
+            reason  = ("it is asked at most once every $script:FallbackGateMinutes minutes across every " +
+                       "process here, it was last asked at $($last.ToString('o')), and it may be asked " +
+                       "again from $next.")
+        }
+    }
+    [pscustomobject]@{ allowed = $true; reason = '' }
+}
+
+# How many minutes until the next reading - the King's cadence, the one place it is decided. A
+# percentage that could not be read takes the ordinary interval: the close one is for a window
+# known to be near its limit, and an unknown is not known to be.
+function Get-UsageReadIntervalMinutes {
+    [CmdletBinding()]
+    param(
+        $Percent,
+        [double]$IntervalMinutes      = $script:ReadIntervalMinutes,
+        [double]$CloseIntervalMinutes = $script:CloseReadIntervalMinutes
+    )
+
+    $n = ConvertTo-UsageNumber $Percent
+    if ($null -ne $n -and $n -ge $script:CloseFromPercent) { return $CloseIntervalMinutes }
+    $IntervalMinutes
+}
+
+# The figure a reading lets anything act on: the measurement where there is one, otherwise the
+# floor, otherwise $null. Never 0 for "not known".
+function Get-UsageActedPercent {
+    [CmdletBinding()]
+    param($Reading)
+
+    if ("$(Get-JsonField $Reading 'status')" -eq 'has-usage') {
+        $n = ConvertTo-UsageNumber (Get-JsonField $Reading 'percent')
+        if ($null -ne $n) { return $n }
+    }
+    ConvertTo-UsageNumber (Get-JsonField $Reading 'floorPercent')
 }
 
 # A JSON field that must be a number, as a double - or $null where it is anything else.
@@ -442,27 +847,48 @@ function Select-DrivingUsageWindow {
         Sort-Object -Property percent -Descending) | Select-Object -First 1
 }
 
-# How much of the current usage window is spent.
-#
-# .status        has-usage | no-usage | unknown
-# .signal        what settled it
-# .percent       the percentage used, or $null - NEVER 0 as a stand-in for "not known", and set
-#                ONLY on a current reading. A stale one leaves it unset and fills floorPercent.
-# .floorPercent  a lower bound from a cached reading, or $null. Never an answer; see below.
-# .stale         whether the tool called its own reading stale
-# .detail        one line naming the evidence, written to be read to a person
-# .resetsAt      when the driving window resets, ISO, or '' where that could not be read
-# .window        which window the percentage came from, or ''
-# .account       which account the reading belongs to, or '' where that could not be read
-# .generatedAt   when the tool generated the answer, ISO, or ''
-# .schemaVersion the schema the tool stamped its answer with, as it wrote it, or ''
-# .takenAt       when this reading was taken, ISO
-#
-# THE SCHEMA VERSION IS RECORDED AND NEVER REFUSED ON. It is what tells a later reader whether an
-# answer this could not make sense of came from a format that has moved on, so it is carried on the
-# reading and named in the detail of every answer that is not a percentage. Refusing an unfamiliar
-# version would be the opposite mistake: a compatible bump would take the reader out on a machine
-# where it was working the day before, and this guard fails open by design.
+# One reading's fields before anything has been read into them. Both sources fill the same shape, so
+# a caller never has to know which one answered in order to read the answer.
+function New-UsageReading {
+    [CmdletBinding()]
+    param([string]$Account = '', [string]$TakenAt = '')
+
+    [ordered]@{
+        status        = 'unknown'
+        signal        = ''
+        percent       = $null
+        floorPercent  = $null
+        stale         = $false
+        detail        = ''
+        resetsAt      = ''
+        window        = ''
+        account       = $Account
+        generatedAt   = ''
+        schemaVersion = ''
+        source        = ''
+        previous      = $null
+        takenAt       = $TakenAt
+    }
+}
+
+function Complete-UsageReading {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Reading,
+        [Parameter(Mandatory)][string]$Status,
+        [Parameter(Mandatory)][string]$Signal,
+        [Parameter(Mandatory)][string]$Detail
+    )
+
+    $Reading.status = $Status
+    $Reading.signal = $Signal
+    $Reading.detail = $Detail
+    [pscustomobject]$Reading
+}
+
+# From a list of windows to an answer: the part of a reading both sources share. -Source names where
+# the windows came from at the start of a sentence. -Stale and -StateError are what the source said
+# about its own freshness, which only quota-axi ever says; -Schema is the note on its schema version.
 #
 # WHICH WINDOW, AND WHY IT IS THE WORST OF ONLY SOME OF THEM. An account reports several windows and
 # they do not all bound the same thing. The session and weekly windows both bound every dispatch, so
@@ -473,35 +899,379 @@ function Select-DrivingUsageWindow {
 # pool has rolled. A missing or unreadable reset time costs only the claim about when the window
 # clears, never the percentage. Get-AccountUsageWindows owns those rules and the measured trap
 # behind them, and nothing it drops is dropped in silence.
+function Resolve-UsageWindows {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Reading,
+        [Parameter(Mandatory)][AllowEmptyCollection()][array]$Windows,
+        [Parameter(Mandatory)][string]$Source,
+        [bool]$Stale = $false,
+        [string]$StateError = '',
+        [string]$Schema = ''
+    )
+
+    $Reading.stale = $Stale
+
+    # The account's own windows, looked up BY ID and never by position, each annotated with what
+    # could be read off it. Get-AccountUsageWindows owns which windows those are and what makes
+    # one of them stop applying.
+    $present = Get-AccountUsageWindows -Windows $Windows
+
+    # A LIST OF WINDOWS THIS RECOGNISES NONE OF IS NOT AN ACCOUNT WITH NO WINDOWS. It is the
+    # tool saying something this cannot read, and the difference decides whether every dispatch
+    # from now on is guarded. `no-usage` is the one answer that neither refuses nor warns, so
+    # settling on it here would switch the guard off permanently and tell nobody - which is
+    # exactly what a renamed window id would produce, and this tool's window ordering has
+    # already changed once. Only the literal empty list is the tool affirmatively saying there
+    # are none; this is `unknown`, which warns and still dispatches, so the reader stays
+    # fail-open while saying plainly what it saw.
+    #
+    # The ids it did report are named, because the whole point is that a person can tell a
+    # rename from an account that really has only a spend cap.
+    if ($present.Count -eq 0) {
+        $seen = @($Windows | ForEach-Object { "$(Get-JsonField $_ 'id')".Trim() } |
+                  Where-Object { $_ } | Select-Object -Unique)
+        $listed = if ($seen.Count -gt 0) {
+            ' It reported ' + ($seen -join ', ') + ' instead.'
+        } else { ' None of them carried an id this could read.' }
+        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'no-account-windows' -Detail (
+            "$Source reported usage windows for the Claude account and not one of them is " +
+            'the session or weekly window this reads, so how much of the window is spent was ' +
+            'not established - a renamed window id arrives looking exactly like this.' +
+            $listed + $Schema)
+    }
+
+    # Every note this reading could carry, computed once from every window present rather than
+    # only from the ones that survived - a window that was dropped is exactly the one whose
+    # absence has to be said out loud.
+    $notes      = Format-UsageWindowNotes -Windows $present
+    $applicable = @($present | Where-Object { $_.applies })
+    if ($applicable.Count -eq 0) {
+        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'no-applicable-window' -Detail (
+            "$Source reported the Claude account's windows and every one of them has " +
+            'already reset, so none of them describes a window that is currently running and ' +
+            'how much is spent is not known.' + $notes + $Schema)
+    }
+
+    $driving = Select-DrivingUsageWindow -Applicable $applicable
+    if (-not $driving) {
+        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'no-percentage' -Detail (
+            "$Source reported the Claude account's windows and a used percentage could not " +
+            'be read from any of them, so the usage window is not known.' + $notes + $Schema)
+    }
+
+    $Reading.window   = $driving.id
+    $Reading.resetsAt = $driving.resetsAt
+    $named = Format-UsageWindowName -Id $driving.id
+    $when  = Format-UsageResetTime -IsoTime $driving.resetsAt
+
+    # A STALE READING IS AN UNKNOWN, NEVER A NUMBER - and this is the failure that put a figure
+    # of 10 percent in front of the King when the true one was 42. The tool's live fetch had
+    # been rate limited and it answered from a cache taken before four workers ran for ninety
+    # minutes. Reporting that as current is precisely the "stale value presented as current"
+    # this module refuses, so `percent` stays unset and the status is `unknown`.
+    #
+    # THE NUMBER IS STILL A FLOOR, AND THE FLOOR IS WORTH KEEPING. Consumption never falls
+    # inside a window, so a cached 10 percent means at least 10 percent is spent. It is carried
+    # as `floorPercent` - a lower bound the dispatch refusal may still act on - and nothing ever
+    # presents it as the answer.
+    #
+    # COMPARED RAW, SHOWN ROUNDED DOWN, and the two are not in tension. The guard's safety is
+    # carried entirely by the comparison, which the dispatch refusal makes against the exact
+    # double and never against the digits. What is shown is a different job: "at least" is a
+    # claim about the evidence, and at a true 89.2 the sentence "at least 90 percent is spent"
+    # asserts more than the reading supports. Rounding a lower bound DOWN is what keeps "at
+    # least" true, so every rendering of a floor - here, the dispatch refusal and the pulse -
+    # floors it, and no rendering ever overstates what was actually measured.
+    #
+    # The reset time rides along on this one as well as on a measured reading. This sentence is
+    # pasted straight into the refusal the user acts on, and "when does it clear" is the one
+    # thing wanted next after being told the dispatch was refused.
+    if ($Stale) {
+        $Reading.floorPercent = $driving.percent
+        $because = if ($StateError) { " Its own last attempt failed: $StateError." } else { '' }
+        $age = if ($Reading.generatedAt) { " The cached answer was generated at $($Reading.generatedAt)." }
+               else { '' }
+        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'stale-reading' -Detail (
+            "$Source reports its own Claude reading as stale, so it describes an earlier " +
+            'moment rather than this one and no current percentage can be given. At least ' +
+            "$([Math]::Floor($driving.percent)) percent of $named is spent, which is a floor " +
+            "rather than a reading." + $when + $notes + $because + $age + $Schema)
+    }
+
+    $others = @($applicable | Where-Object { $_.id -ne $driving.id -and $null -ne $_.percent })
+    $beside = if ($others.Count -gt 0) {
+        ' It is the nearest its limit of ' +
+        (@(@($driving) + $others | ForEach-Object {
+            "$(Format-UsageWindowName -Id $_.id) at $([Math]::Round($_.percent, 1)) percent"
+        }) -join ' and ') + '.'
+    } else { '' }
+
+    $Reading.percent = $driving.percent
+    Complete-UsageReading -Reading $Reading -Status 'has-usage' -Signal 'driving-window' -Detail (
+        "$([Math]::Round($driving.percent, 1)) percent of $named is spent." + $when + $beside + $notes)
+}
+
+# One reading from the headless probe. Anything short of a percentage comes back `unknown` with what
+# went wrong as its detail, and Get-UsageWindow hands the question to the fallback - this never
+# answers `no-usage`, because the probe has never been seen to say there is nothing to report.
+function Read-UsageFromProbe {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Reading,
+        [int]$TimeoutSeconds = $script:DefaultProbeTimeoutSeconds
+    )
+
+    $r = Invoke-UsageProbe -TimeoutSeconds $TimeoutSeconds
+    if (-not $r.ok) {
+        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'probe-failed' -Detail $r.error
+    }
+    $parsed = ConvertFrom-UsageProbe -Value $r.value
+    if (-not $parsed.ok) {
+        $why = $parsed.problem
+        if ($null -ne $r.exitCode -and $r.exitCode -ne 0) { $why += ", and it exited $($r.exitCode)" }
+        if ($r.error) { $why += " saying: $($r.error)" }
+        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'probe-failed' -Detail $why
+    }
+    Resolve-UsageWindows -Reading $Reading -Windows $parsed.windows -Source 'The usage probe'
+}
+
+# One reading from quota-axi, the fallback, read exactly as it always has been.
+function Read-UsageFromQuotaAxi {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Reading,
+        [int]$TimeoutSeconds = $script:DefaultTimeoutSeconds
+    )
+
+    $r = Invoke-QuotaAxi -Arguments @('--provider', 'claude', '--json') -TimeoutSeconds $TimeoutSeconds
+    if (-not $r.ok) {
+        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'lookup-failed' -Detail (
+            "How much of the usage window is spent could not be established: $($r.error)")
+    }
+
+    $json = $null
+    try { $json = $r.value | ConvertFrom-Json } catch {
+        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'unreadable-answer' -Detail (
+            'quota-axi answered with something that is not the JSON report this reads ' +
+            "($($_.Exception.Message)), so the usage window is not known.")
+    }
+
+    # THE SCHEMA VERSION IS RECORDED AND NEVER REFUSED ON. It is what tells a later reader whether
+    # an answer this could not make sense of came from a format that has moved on, so it is carried
+    # on the reading and named in the detail of every answer that is not a percentage. Refusing an
+    # unfamiliar version would be the opposite mistake: a compatible bump would take the reader out
+    # on a machine where it was working the day before, and this guard fails open by design.
+    $Reading.schemaVersion = "$(Get-JsonField $json 'schemaVersion')".Trim()
+    # When the tool generated this answer, carried on every reading so a cached one is visibly
+    # cached rather than presented as a measurement taken now.
+    $Reading.generatedAt = ConvertTo-UsageResetTime (Get-JsonField $json 'generatedAt')
+    $schema = if ($Reading.schemaVersion) {
+        " The answer was stamped schema version $($Reading.schemaVersion)."
+    } else {
+        ' The answer carried no schema version.'
+    }
+
+    $providers = ConvertTo-JsonList (Get-JsonField $json 'providers')
+    $claude = @($providers | Where-Object { (Get-JsonField $_ 'provider') -eq 'claude' }) |
+              Select-Object -First 1
+    if (-not $claude) {
+        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'no-provider' -Detail (
+            'quota-axi answered without reporting on the Claude account, so how much of the ' +
+            'usage window is spent was not established.' + $schema)
+    }
+
+    # Read here and acted on by the resolver, once the windows have been parsed - because a stale
+    # reading still yields a floor, and the floor comes out of those same windows.
+    $state = Get-JsonField $claude 'state'
+    $stale = ($true -eq (Get-JsonField $state 'stale'))
+
+    # THREE FACTS, NOT ONE, AND ONLY ONE OF THEM SWITCHES THE GUARD OFF QUIETLY. An empty list
+    # is the tool saying there are no windows here, which is a settled fact about this machine
+    # and rightly draws no warning on a dispatch. A field the tool never wrote, and one it wrote
+    # as null, are the tool not answering - and a renamed field would otherwise read as that
+    # settled fact, leaving every dispatch unguarded with nothing said to anybody. Not knowing
+    # is `unknown`, which is the one answer of the three that warns.
+    $windowsValue = Get-JsonField $claude 'windows'
+    if (-not (Test-JsonField $claude 'windows')) {
+        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'no-windows-field' -Detail (
+            'quota-axi answered about the Claude account without saying anything about usage ' +
+            'windows at all, so how much of the window is spent was not established - the ' +
+            'field this reads them from was not there.' + $schema)
+    }
+    if ($null -eq $windowsValue) {
+        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'windows-not-reported' -Detail (
+            'quota-axi reported the Claude account with its usage windows left empty rather ' +
+            'than listed, so it did not say what they are and how much of the window is ' +
+            'spent is not known.' + $schema)
+    }
+
+    $windows = ConvertTo-JsonList $windowsValue
+    if ($windows.Count -eq 0) {
+        return Complete-UsageReading -Reading $Reading -Status 'no-usage' -Signal 'no-windows' -Detail (
+            'quota-axi reports the Claude account with no usage windows at all, so there is ' +
+            'no window percentage to watch on this machine.' + $schema)
+    }
+
+    Resolve-UsageWindows -Reading $Reading -Windows $windows -Source 'quota-axi' -Stale $stale `
+        -StateError "$(Get-JsonField $state 'error')".Trim() -Schema $schema
+}
+
+# THE HOLD AT 90 PERCENT. Once a reading puts the driving window at or past 90 percent, nothing reads
+# that window again until its own reset time has passed - not the pulse, not night's watch, not a
+# dispatch - because the last tenth is what keeps the watch alive across the gap. The answer in the
+# meantime is the held figure as a floor, which is sound because consumption never falls inside a
+# window: the dispatch refusal and the watch's pause both act on it exactly as they act on any floor.
+# The first read after the reset is the confirming one, and Save-UsageReading clears or renews the
+# hold from what it finds.
 #
-# A STALE READING NEVER BECOMES A PERCENTAGE. It becomes a floor, and the floor is the only thing
-# guarding a dispatch while the tool's live fetch is rate limited - which, measured on this machine,
-# is most of the time. The comment at the stale branch below owns that in full.
+# Scoped to the account it was taken on, because the reading follows whichever account is active
+# and another account's pool is not held. A gate file that cannot be read holds nothing: what that
+# costs is one probe, which is the fail-open direction.
+function Get-UsageHeldReading {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Reading,
+        [Parameter(Mandatory)][string]$StatePath,
+        [Parameter(Mandatory)][datetimeoffset]$Now
+    )
+
+    $u = Update-UsageGateState -Path $StatePath
+    if (-not $u.ok) { return $null }
+    $hold = $u.state['hold']
+    if ($hold -isnot [System.Collections.IDictionary]) { return $null }
+    if ("$($hold['account'])" -ne "$($Reading.account)") { return $null }
+
+    $iso   = ConvertTo-UsageResetTime $hold['resetsAt']
+    $reset = [datetimeoffset]::MinValue
+    if (-not $iso -or -not [datetimeoffset]::TryParse($iso, [ref]$reset) -or $reset -le $Now) { return $null }
+    $percent = ConvertTo-UsageNumber $hold['percent']
+    if ($null -eq $percent) { return $null }
+
+    $Reading.floorPercent = $percent
+    $Reading.stale        = $true
+    $Reading.window       = "$($hold['window'])"
+    $Reading.resetsAt     = $reset.ToString('o')
+    $Reading.source       = 'hold'
+    $named = Format-UsageWindowName -Id $Reading.window
+    $taken = ConvertTo-UsageResetTime $hold['takenAt']
+    $at    = if ($taken) { " taken at $taken," } else { '' }
+    Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'held-at-limit' -Detail (
+        "The last reading,$at put $named at $([Math]::Floor($percent)) percent, and from " +
+        "$script:HoldFromPercent percent nothing reads that window again until it resets, so no " +
+        "current percentage is given. At least $([Math]::Floor($percent)) percent of $named is " +
+        'spent, which is a floor rather than a reading.' + (Format-UsageResetTime -IsoTime $Reading.resetsAt))
+}
+
+# Records a reading that answered, sets or clears the hold from it, and hands it back carrying the
+# earlier reading a climb can be measured from.
+#
+# .previous is the newest recorded reading from the SAME window - same account, same window id, the
+# same reset time to within two minutes - taken at least a minute before this one, or $null. The
+# reset time is what tells one five-hour window from the next, so a reading from before a reset is
+# never a baseline for one after it. A gate file that cannot be written costs the baseline and the
+# hold, never the reading.
+function Save-UsageReading {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Reading,
+        [Parameter(Mandatory)][string]$StatePath,
+        [Parameter(Mandatory)][datetimeoffset]$Now
+    )
+
+    $entry = @{
+        account  = "$($Reading.account)"
+        window   = "$($Reading.window)"
+        percent  = $Reading.percent
+        resetsAt = "$($Reading.resetsAt)"
+        takenAt  = "$($Reading.takenAt)"
+        source   = "$($Reading.source)"
+    }
+    $box = @{ previous = $null; now = $Now; entry = $entry }
+
+    $null = Update-UsageGateState -Path $StatePath -Change {
+        param($s)
+        $mine  = $box.entry
+        $reset = [datetimeoffset]::MinValue
+        $hasReset = [datetimeoffset]::TryParse($mine.resetsAt, [ref]$reset)
+        $history = @($s['history'] | Where-Object { $_ -is [System.Collections.IDictionary] })
+
+        if ($hasReset) {
+            for ($i = $history.Count - 1; $i -ge 0; $i--) {
+                $h = $history[$i]
+                if ("$($h['account'])" -ne $mine.account -or "$($h['window'])" -ne $mine.window) { continue }
+                $hReset = [datetimeoffset]::MinValue
+                $hTaken = [datetimeoffset]::MinValue
+                $hResetIso = ConvertTo-UsageResetTime $h['resetsAt']
+                $hTakenIso = ConvertTo-UsageResetTime $h['takenAt']
+                if (-not [datetimeoffset]::TryParse($hResetIso, [ref]$hReset)) { continue }
+                if (-not [datetimeoffset]::TryParse($hTakenIso, [ref]$hTaken)) { continue }
+                if ([Math]::Abs(($hReset - $reset).TotalMinutes) -gt 2) { continue }
+                if (($box.now - $hTaken).TotalMinutes -lt $script:BaselineMinMinutes) { continue }
+                $p = ConvertTo-UsageNumber $h['percent']
+                if ($null -eq $p) { continue }
+                $box.previous = [pscustomobject]@{
+                    percent = $p; window = "$($h['window'])"; resetsAt = $hResetIso
+                    takenAt = $hTakenIso; source = "$($h['source'])"
+                }
+                break
+            }
+        }
+
+        $s['history'] = @(@($history) + @($mine) | Select-Object -Last $script:GateHistoryLimit)
+
+        $current = $s['hold']
+        if ($null -ne $mine.percent -and $mine.percent -ge $script:HoldFromPercent -and
+            $hasReset -and $reset -gt $box.now) {
+            $s['hold'] = $mine
+        } elseif ($current -is [System.Collections.IDictionary] -and "$($current['account'])" -eq $mine.account) {
+            $s['hold'] = $null
+        }
+    }
+
+    $Reading.previous = $box.previous
+    $Reading
+}
+
+# How much of the current usage window is spent.
+#
+# .status        has-usage | no-usage | unknown
+# .signal        what settled it
+# .percent       the percentage used, or $null - NEVER 0 as a stand-in for "not known", and set
+#                ONLY on a current reading. A stale or held one leaves it unset and fills floorPercent.
+# .floorPercent  a lower bound from a cached or held reading, or $null. Never an answer.
+# .stale         whether the reading describes an earlier moment - quota-axi's own cache, or the hold
+# .detail        one line naming the evidence, written to be read to a person
+# .resetsAt      when the driving window resets, ISO, or '' where that could not be read
+# .window        which window the percentage came from, or ''
+# .account       which account the reading belongs to, or '' where that could not be read
+# .generatedAt   when quota-axi generated the answer, ISO, or ''
+# .schemaVersion the schema quota-axi stamped its answer with, as it wrote it, or ''
+# .source        which source answered: probe | quota-axi | hold - the hold being no source asked at
+#                all - or '' where none did
+# .previous      the earlier reading of this same window a climb is measured from, or $null -
+#                Save-UsageReading owns which reading that is
+# .takenAt       when this reading was taken, ISO
+#
+# THE ORDER, AND WHAT EACH STEP COSTS WHEN IT FAILS.
+#   1. The hold: a window already read at or past 90 percent is not read again until it resets.
+#   2. The probe: one headless turn, answering only with a percentage.
+#   3. quota-axi, once, and only where the fifteen-minute gate across every process allows it.
+#   4. Neither: `unknown` with no percentage, saying what each step said - never a number.
+# A stale quota-axi reading stays the floor it always was. Signals added by this order are
+# `held-at-limit` and `fallback-gated`; every other signal is the one its source always gave.
 function Get-UsageWindow {
     [CmdletBinding()]
-    param([int]$TimeoutSeconds = $script:DefaultTimeoutSeconds)
+    param(
+        [int]$TimeoutSeconds      = $script:DefaultTimeoutSeconds,
+        [int]$ProbeTimeoutSeconds = $script:DefaultProbeTimeoutSeconds,
+        # Empty is every caller but a test: the gate file under this installation's state\.
+        [string]$StatePath        = ''
+    )
 
-    $result = [ordered]@{
-        status        = 'unknown'
-        signal        = ''
-        percent       = $null
-        floorPercent  = $null
-        stale         = $false
-        detail        = ''
-        resetsAt      = ''
-        window        = ''
-        account       = (Get-ActiveAccountName)
-        generatedAt   = ''
-        schemaVersion = ''
-        takenAt       = (Get-Date).ToUniversalTime().ToString('o')
-    }
-    $finish = {
-        param($status, $signal, $detail)
-        $result.status = $status
-        $result.signal = $signal
-        $result.detail = $detail
-        [pscustomobject]$result
-    }
+    $account = Get-ActiveAccountName
+    $now     = Get-UsageNow
+    $taken   = $now.UtcDateTime.ToString('o')
 
     # NOTHING BELOW MAY LEAVE THIS FUNCTION AS AN EXCEPTION, and the try is what guarantees it
     # rather than each read being individually careful. Dispatch-Worker.ps1 calls this under
@@ -509,183 +1279,44 @@ function Get-UsageWindow {
     # dispatch dead - turning a guard that was written to fail OPEN into the hard block the whole
     # design rules out. A reading nobody could take is `unknown`, whatever went wrong taking it.
     try {
-        $r = Invoke-QuotaAxi -Arguments @('--provider', 'claude', '--json') -TimeoutSeconds $TimeoutSeconds
-        if (-not $r.ok) {
-            return & $finish 'unknown' 'lookup-failed' `
-                "How much of the usage window is spent could not be established: $($r.error)"
+        if (-not $StatePath.Trim()) { $StatePath = Get-UsageStatePath }
+
+        $held = Get-UsageHeldReading -Reading (New-UsageReading -Account $account -TakenAt $taken) `
+                    -StatePath $StatePath -Now $now
+        if ($held) { return $held }
+
+        $probe = Read-UsageFromProbe -Reading (New-UsageReading -Account $account -TakenAt $taken) `
+                     -TimeoutSeconds $ProbeTimeoutSeconds
+        if ($probe.status -eq 'has-usage') {
+            $probe.source = 'probe'
+            return Save-UsageReading -Reading $probe -StatePath $StatePath -Now $now
+        }
+        $why = "$($probe.detail)".Trim().TrimEnd('.')
+
+        $slot = Request-UsageFallbackSlot -Path $StatePath
+        if (-not $slot.allowed) {
+            return Complete-UsageReading -Reading (New-UsageReading -Account $account -TakenAt $taken) `
+                -Status 'unknown' -Signal 'fallback-gated' -Detail (
+                    'How much of the usage window is spent could not be established: the usage probe ' +
+                    "did not answer ($why), and quota-axi was not asked because $($slot.reason)")
         }
 
-        $json = $null
-        try { $json = $r.value | ConvertFrom-Json } catch {
-            return & $finish 'unknown' 'unreadable-answer' `
-                ('quota-axi answered with something that is not the JSON report this reads ' +
-                 "($($_.Exception.Message)), so the usage window is not known.")
+        $answer = Read-UsageFromQuotaAxi -Reading (New-UsageReading -Account $account -TakenAt $taken) `
+                      -TimeoutSeconds $TimeoutSeconds
+        $answer.source = 'quota-axi'
+        $answer.detail = "$($answer.detail) The usage probe was tried first and did not answer: $why."
+        if ($answer.status -eq 'has-usage') {
+            return Save-UsageReading -Reading $answer -StatePath $StatePath -Now $now
         }
-
-        # Recorded from the answer, never compared against a version this was written for. The note
-        # rides along on every answer below that is not a percentage, which are exactly the ones a
-        # later reader would want to know the schema for.
-        $result.schemaVersion = "$(Get-JsonField $json 'schemaVersion')".Trim()
-        # When the tool generated this answer, carried on every reading so a cached one is visibly
-        # cached rather than presented as a measurement taken now.
-        $result.generatedAt = ConvertTo-UsageResetTime (Get-JsonField $json 'generatedAt')
-        $schema = if ($result.schemaVersion) {
-            " The answer was stamped schema version $($result.schemaVersion)."
-        } else {
-            ' The answer carried no schema version.'
-        }
-
-        $providers = ConvertTo-JsonList (Get-JsonField $json 'providers')
-        $claude = @($providers | Where-Object { (Get-JsonField $_ 'provider') -eq 'claude' }) |
-                  Select-Object -First 1
-        if (-not $claude) {
-            return & $finish 'unknown' 'no-provider' `
-                ('quota-axi answered without reporting on the Claude account, so how much of the ' +
-                 'usage window is spent was not established.' + $schema)
-        }
-
-        # Read here and acted on further down, once the windows have been parsed - because a stale
-        # reading still yields a floor, and the floor comes out of those same windows.
-        $state = Get-JsonField $claude 'state'
-        $result.stale = ($true -eq (Get-JsonField $state 'stale'))
-
-        # THREE FACTS, NOT ONE, AND ONLY ONE OF THEM SWITCHES THE GUARD OFF QUIETLY. An empty list
-        # is the tool saying there are no windows here, which is a settled fact about this machine
-        # and rightly draws no warning on a dispatch. A field the tool never wrote, and one it wrote
-        # as null, are the tool not answering - and a renamed field would otherwise read as that
-        # settled fact, leaving every dispatch unguarded with nothing said to anybody. Not knowing
-        # is `unknown`, which is the one answer of the three that warns.
-        $windowsValue = Get-JsonField $claude 'windows'
-        if (-not (Test-JsonField $claude 'windows')) {
-            return & $finish 'unknown' 'no-windows-field' `
-                ('quota-axi answered about the Claude account without saying anything about usage ' +
-                 'windows at all, so how much of the window is spent was not established - the ' +
-                 'field this reads them from was not there.' + $schema)
-        }
-        if ($null -eq $windowsValue) {
-            return & $finish 'unknown' 'windows-not-reported' `
-                ('quota-axi reported the Claude account with its usage windows left empty rather ' +
-                 'than listed, so it did not say what they are and how much of the window is ' +
-                 'spent is not known.' + $schema)
-        }
-
-        $windows = ConvertTo-JsonList $windowsValue
-        if ($windows.Count -eq 0) {
-            return & $finish 'no-usage' 'no-windows' `
-                ('quota-axi reports the Claude account with no usage windows at all, so there is ' +
-                 'no window percentage to watch on this machine.' + $schema)
-        }
-
-        # The account's own windows, looked up BY ID and never by position, each annotated with what
-        # could be read off it. Get-AccountUsageWindows owns which windows those are and what makes
-        # one of them stop applying.
-        $present = Get-AccountUsageWindows -Windows $windows
-
-        # A LIST OF WINDOWS THIS RECOGNISES NONE OF IS NOT AN ACCOUNT WITH NO WINDOWS. It is the
-        # tool saying something this cannot read, and the difference decides whether every dispatch
-        # from now on is guarded. `no-usage` is the one answer that neither refuses nor warns, so
-        # settling on it here would switch the guard off permanently and tell nobody - which is
-        # exactly what a renamed window id would produce, and this tool's window ordering has
-        # already changed once. Only the literal empty list above is the tool affirmatively saying
-        # there are none; this is `unknown`, which warns and still dispatches, so the reader stays
-        # fail-open while saying plainly what it saw.
-        #
-        # The ids it did report are named, because the whole point is that a person can tell a
-        # rename from an account that really has only a spend cap.
-        if ($present.Count -eq 0) {
-            $seen = @($windows | ForEach-Object { "$(Get-JsonField $_ 'id')".Trim() } |
-                      Where-Object { $_ } | Select-Object -Unique)
-            $listed = if ($seen.Count -gt 0) {
-                ' It reported ' + ($seen -join ', ') + ' instead.'
-            } else { ' None of them carried an id this could read.' }
-            return & $finish 'unknown' 'no-account-windows' `
-                ('quota-axi reported usage windows for the Claude account and not one of them is ' +
-                 'the session or weekly window this reads, so how much of the window is spent was ' +
-                 'not established - a renamed window id arrives looking exactly like this.' +
-                 $listed + $schema)
-        }
-
-        # Every note this reading could carry, computed once from every window present rather than
-        # only from the ones that survived - a window that was dropped is exactly the one whose
-        # absence has to be said out loud.
-        $notes      = Format-UsageWindowNotes -Windows $present
-        $applicable = @($present | Where-Object { $_.applies })
-        if ($applicable.Count -eq 0) {
-            return & $finish 'unknown' 'no-applicable-window' `
-                ('quota-axi reported the Claude account''s windows and every one of them has ' +
-                 'already reset, so none of them describes a window that is currently running and ' +
-                 'how much is spent is not known.' + $notes + $schema)
-        }
-
-        $driving = Select-DrivingUsageWindow -Applicable $applicable
-        if (-not $driving) {
-            return & $finish 'unknown' 'no-percentage' `
-                ('quota-axi reported the Claude account''s windows and a used percentage could not ' +
-                 'be read from any of them, so the usage window is not known.' + $notes + $schema)
-        }
-
-        $result.window   = $driving.id
-        $result.resetsAt = $driving.resetsAt
-        $named = Format-UsageWindowName -Id $driving.id
-        $when  = Format-UsageResetTime -IsoTime $driving.resetsAt
-
-        # A STALE READING IS AN UNKNOWN, NEVER A NUMBER - and this is the failure that put a figure
-        # of 10 percent in front of the King when the true one was 42. The tool's live fetch had
-        # been rate limited and it answered from a cache taken before four workers ran for ninety
-        # minutes. Reporting that as current is precisely the "stale value presented as current"
-        # this module refuses, so `percent` stays unset and the status is `unknown`.
-        #
-        # THE NUMBER IS STILL A FLOOR, AND THE FLOOR IS WORTH KEEPING. Consumption never falls
-        # inside a window, so a cached 10 percent means at least 10 percent is spent. It is carried
-        # as `floorPercent` - a lower bound the dispatch refusal may still act on - and nothing ever
-        # presents it as the answer.
-        #
-        # COMPARED RAW, SHOWN ROUNDED DOWN, and the two are not in tension. The guard's safety is
-        # carried entirely by the comparison, which the dispatch refusal makes against the exact
-        # double and never against the digits. What is shown is a different job: "at least" is a
-        # claim about the evidence, and at a true 89.2 the sentence "at least 90 percent is spent"
-        # asserts more than the reading supports. Rounding a lower bound DOWN is what keeps "at
-        # least" true, so every rendering of a floor - here, the dispatch refusal and the pulse -
-        # floors it, and no rendering ever overstates what was actually measured.
-        #
-        # The reset time rides along on this one as well as on a measured reading. This sentence is
-        # pasted straight into the refusal the user acts on, and "when does it clear" is the one
-        # thing wanted next after being told the dispatch was refused.
-        if ($result.stale) {
-            $result.floorPercent = $driving.percent
-            $why = "$(Get-JsonField $state 'error')".Trim()
-            $because = if ($why) { " Its own last attempt failed: $why." } else { '' }
-            $age = if ($result.generatedAt) { " The cached answer was generated at $($result.generatedAt)." }
-                   else { '' }
-            return & $finish 'unknown' 'stale-reading' `
-                ('quota-axi reports its own Claude reading as stale, so it describes an earlier ' +
-                 'moment rather than this one and no current percentage can be given. At least ' +
-                 "$([Math]::Floor($driving.percent)) percent of $named is spent, which is a floor " +
-                 "rather than a reading." + $when + $notes + $because + $age + $schema)
-        }
-
-        $others = @($applicable | Where-Object { $_.id -ne $driving.id -and $null -ne $_.percent })
-        $beside = if ($others.Count -gt 0) {
-            ' It is the nearest its limit of ' +
-            (@(@($driving) + $others | ForEach-Object {
-                "$(Format-UsageWindowName -Id $_.id) at $([Math]::Round($_.percent, 1)) percent"
-            }) -join ' and ') + '.'
-        } else { '' }
-
-        $result.percent = $driving.percent
-        & $finish 'has-usage' 'driving-window' `
-            ("$([Math]::Round($driving.percent, 1)) percent of $named is spent." + $when + $beside +
-             $notes)
+        $answer
     } catch {
-        # Reset rather than reported as read. A field set on the way to a throw is a half-finished
-        # answer, and a percentage carried out of a reading that failed is the fabrication this
-        # module exists to refuse.
-        $result.percent  = $null
-        $result.window   = ''
-        $result.resetsAt = ''
-        & $finish 'unknown' 'lookup-failed' `
-            ('How much of the usage window is spent could not be established: quota-axi answered ' +
-             "with something this could not read ($($_.Exception.Message)).")
+        # A fresh reading rather than one carried out of the failure. A field set on the way to a
+        # throw is a half-finished answer, and a percentage carried out of a reading that failed is
+        # the fabrication this module exists to refuse.
+        Complete-UsageReading -Reading (New-UsageReading -Account $account -TakenAt $taken) `
+            -Status 'unknown' -Signal 'lookup-failed' -Detail (
+                'How much of the usage window is spent could not be established: the reading ' +
+                "failed with something this could not read ($($_.Exception.Message)).")
     }
 }
 
@@ -764,7 +1395,8 @@ function Get-UsagePercentShown {
 function Format-UsagePulse {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)]$Reading,
+        # $null where nothing was read, because nothing was running.
+        [Parameter(Mandatory)][AllowNull()]$Reading,
         [Parameter(Mandatory)][AllowEmptyCollection()][array]$Live
     )
 
@@ -791,11 +1423,17 @@ function Format-UsagePulse {
     # exactly how a cached 10 was taken for a current one. No guard rests on these digits.
     $floor = ConvertTo-UsageNumber (Get-JsonField $Reading 'floorPercent')
 
-    $head = if ($status -eq 'has-usage' -and $null -ne $shown) {
+    # A held floor is not a cache that went stale: it is the reader declining to spend the last
+    # tenth of a window on reading it, so it says held.
+    $kind = if ("$(Get-JsonField $Reading 'signal')" -eq 'held-at-limit') { 'held' } else { 'stale' }
+
+    $head = if ($null -eq $Reading) {
+        'usage not read while nothing runs'
+    } elseif ($status -eq 'has-usage' -and $null -ne $shown) {
         "$shown% used$suffix"
     } elseif ($null -ne $floor) {
         "at least $([int][Math]::Floor($floor))% used" +
-        $(if ($notes.Count -gt 0) { ' (stale, ' + ($notes -join ', ') + ')' } else { ' (stale)' })
+        $(if ($notes.Count -gt 0) { " ($kind, " + ($notes -join ', ') + ')' } else { " ($kind)" })
     } elseif ($status -eq 'no-usage') {
         'usage not reported here'
     } else {
@@ -833,9 +1471,14 @@ function Get-UsagePulse {
     [CmdletBinding()]
     param([string]$CrewStatePath = '')
 
-    $reading = Get-UsageWindow
     $fleet   = @(Get-UsageFleet -CrewStatePath $CrewStatePath)
     $live    = @($fleet | Where-Object { $true -eq (Get-JsonField $_ 'live') })
+
+    # NO READING WHILE NOTHING RUNS - the King's word, 2026-10-22. The number barely moves with no
+    # worker spending it, so a read then costs a turn for nothing; the first dispatch takes its own
+    # fresh reading before it starts, which is what keeps the refusal near the limit armed.
+    $reading = if ($live.Count -gt 0) { Get-UsageWindow } else { $null }
+    $script:LastPulseReading = $reading
 
     # The band, so a percentage that ticks from 61 to 62 does not speak while one that crosses 70
     # does. An unknown reading is its own band, so losing the number is itself a change worth one
@@ -849,7 +1492,9 @@ function Get-UsagePulse {
     $account  = "$(Get-JsonField $reading 'account')"
     $shown = Get-UsagePercentShown (Get-JsonField $reading 'percent')
     $floor = ConvertTo-UsageNumber (Get-JsonField $reading 'floorPercent')
-    $band = if ($status -eq 'has-usage' -and $null -ne $shown) {
+    $band = if ($null -eq $reading) {
+        'idle'
+    } elseif ($status -eq 'has-usage' -and $null -ne $shown) {
         "b$([int][Math]::Floor($shown / 10))"
     } elseif ($null -ne $floor) {
         # Banded separately from a real reading, so the line changes when a measurement decays into
@@ -889,15 +1534,24 @@ function Get-UsagePulse {
 # The first tick speaks immediately and every later one waits out the interval, so arming it costs
 # nothing and a -Count of 1 never sleeps. -Count 0 runs until the job is stopped, which is what the
 # documented job uses.
+#
+# THE INTERVAL FOLLOWS THE LAST READING: -IntervalMinutes, and -CloseIntervalMinutes once that
+# reading - or its floor - is at or above 85 percent. Get-UsageReadIntervalMinutes owns the choice
+# and the defaults are the King's five and two. A tick past the hold at 90 percent costs nothing,
+# because Get-UsageWindow answers it from the hold without reading.
 function Watch-UsagePulse {
     [CmdletBinding()]
     param(
-        [double]$IntervalMinutes = $script:DefaultPulseIntervalMinutes,
+        [double]$IntervalMinutes = $script:ReadIntervalMinutes,
+        [double]$CloseIntervalMinutes = $script:CloseReadIntervalMinutes,
         [int]$Count = 0,
         [string]$CrewStatePath = ''
     )
 
     if ($IntervalMinutes -lt 0) { throw "IntervalMinutes cannot be negative; got $IntervalMinutes." }
+    if ($CloseIntervalMinutes -lt 0) {
+        throw "CloseIntervalMinutes cannot be negative; got $CloseIntervalMinutes."
+    }
     if ($Count -lt 0)           { throw "Count cannot be negative; got $Count." }
 
     # NO INTERVAL AND NO END IS A BUSY LOOP, and this is the one shape of it. The sleep is skipped
@@ -907,16 +1561,19 @@ function Watch-UsagePulse {
     # It is silent while it does it, because after the first tick nothing has changed and the
     # pulse's normal answer is nothing at all, which the King is taught to read as a pulse that is
     # working. Refused rather than quietly given a cadence nobody asked for.
-    if ($Count -eq 0 -and $IntervalMinutes -le 0) {
+    if ($Count -eq 0 -and ($IntervalMinutes -le 0 -or $CloseIntervalMinutes -le 0)) {
         throw ("A pulse that runs until it is stopped needs an interval to wait out; got " +
-               "$IntervalMinutes. Give -IntervalMinutes a positive number of minutes, or pass " +
-               "-Count to bound the run if you want ticks with no wait between them.")
+               "$IntervalMinutes and $CloseIntervalMinutes. Give -IntervalMinutes and " +
+               "-CloseIntervalMinutes a positive number of minutes, or pass -Count to bound the " +
+               "run if you want ticks with no wait between them.")
     }
 
     $i = 0
     while ($Count -eq 0 -or $i -lt $Count) {
-        if ($i -gt 0 -and $IntervalMinutes -gt 0) {
-            Start-Sleep -Milliseconds ([int]($IntervalMinutes * 60000))
+        if ($i -gt 0) {
+            $wait = Get-UsageReadIntervalMinutes -Percent (Get-UsageActedPercent $script:LastPulseReading) `
+                        -IntervalMinutes $IntervalMinutes -CloseIntervalMinutes $CloseIntervalMinutes
+            if ($wait -gt 0) { Start-Sleep -Milliseconds ([int]($wait * 60000)) }
         }
         # ONE BAD TICK COSTS ONE TICK, never the session. This runs as a background job whose
         # normal output is nothing at all, so an exception out of the loop would end the pulse in a
@@ -941,4 +1598,7 @@ Export-ModuleMember -Function Get-QuotaAxiCommandPath, Get-QuotaAxiHint, Invoke-
                               Format-UsageWindowNotes,
                               Select-DrivingUsageWindow, Get-UsageWindow, Get-UsageFleet,
                               Get-WorkerPhrase, Get-WorkerLabel, Format-UsagePulse,
-                              Get-UsagePulse, Watch-UsagePulse
+                              Get-UsagePulse, Watch-UsagePulse,
+                              Get-UsageProbeCommandPath, Invoke-UsageProbe, ConvertFrom-UsageProbe,
+                              Get-UsageStatePath, Update-UsageGateState, Request-UsageFallbackSlot,
+                              Get-UsageReadIntervalMinutes, Get-UsageActedPercent

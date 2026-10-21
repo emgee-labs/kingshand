@@ -26,16 +26,15 @@ Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
 Import-Module (Join-Path $PSScriptRoot 'GateRun.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Herdr.psm1')
 Import-Module (Join-Path $PSScriptRoot 'AwayJournal.psm1')
+Import-Module (Join-Path $PSScriptRoot 'Usage.psm1')
 
-# The King's 88 percent, 2026-10-21. Earlier notes give 85 and 90; his later word wins.
-$script:DefaultThresholdPercent = 88
+# The King's 90 percent, 2026-10-22, replacing his 88 of the day before: the last tenth of the
+# window is kept to hold the watch across the gap and nudge the paused workers after the reset.
+$script:DefaultThresholdPercent = 90
 # N9 is unsettled, so the default is the cautious one: two workers at once. An invocation argument.
 $script:DefaultMaxWorkers = 2
-# How often the quota may be read. The tool freezes its cached reading when it is overloaded, and a
-# frozen reading looks exactly like a fresh one, so this is a floor rather than a target.
-$script:CloseReadMinutes = 5
-$script:LooseReadMinutes = 7
-$script:CloseFromPercent = 80
+# How often the quota is read is NOT decided here: Usage.psm1's Get-UsageReadIntervalMinutes owns
+# the King's five minutes, and two from 85 percent, for the pulse and the watch alike.
 # How long past the reported reset to sleep. The reset time is not precise to the second.
 $script:DefaultMarginMinutes = 5
 # The longest sleep a five-hour window can ever need. Anything longer is the weekly window, which
@@ -334,52 +333,129 @@ function Invoke-WatchMerge {
 # The usage window
 # ---------------------------------------------------------------------------------------------
 
+# The reading a watch tick acts on, or $null where the rule says not to take one.
+#
+# NO READING WHILE NO WORKER IS RUNNING - the King's word, 2026-10-22. The number barely moves with
+# nothing spending it, and the first dispatch takes its own fresh reading before it starts, so the
+# dispatcher's refusal near the limit still has one. -LiveCount is how many workers are running now,
+# counted from what is live. -Confirming is the one read after a wake, which is taken with every
+# worker paused and is the whole point of waking.
+function Read-WatchUsage {
+    [CmdletBinding(DefaultParameterSetName = 'Tick')]
+    param(
+        [Parameter(Mandatory, ParameterSetName = 'Tick')][int]$LiveCount,
+        [Parameter(Mandatory, ParameterSetName = 'Confirm')][switch]$Confirming
+    )
+    if ($PSCmdlet.ParameterSetName -eq 'Tick' -and $LiveCount -le 0) { return $null }
+    Get-UsageWindow
+}
+
+# Where the window will be at the next read if it keeps climbing as it did since the last one.
+#
+# On 2026-10-20 the window went from 83 to 88 percent in two minutes, so a pause that waits for a
+# reading of 90 can arrive after the limit. The climb is the rise from the reading's `previous` -
+# the earlier reading of the SAME window, which Usage.psm1 chooses - scaled to the time until the
+# next read, so a previous reading two minutes back and a next read two minutes on add the climb
+# once. $null where there is no such reading, or no current percentage to project from; the caller
+# then falls back to the plain threshold. A window that has not risen projects to where it is.
+function Get-WatchProjectedPercent {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Reading, $Percent, [Parameter(Mandatory)][double]$NextReadMinutes)
+
+    if ("$($Reading.status)" -ne 'has-usage' -or $null -eq $Percent) { return $null }
+    $prop = $Reading.PSObject.Properties['previous']
+    if (-not $prop -or $null -eq $prop.Value) { return $null }
+    $prev = $prop.Value
+    if ("$($prev.window)" -ne "$($Reading.window)") { return $null }
+
+    $then = [datetimeoffset]::MinValue
+    $now  = [datetimeoffset]::MinValue
+    if (-not [datetimeoffset]::TryParse("$($prev.takenAt)", [ref]$then)) { return $null }
+    if (-not [datetimeoffset]::TryParse("$($Reading.takenAt)", [ref]$now)) { return $null }
+    $elapsed = ($now - $then).TotalMinutes
+    if ($elapsed -le 0) { return $null }
+
+    $before = ConvertTo-UsageNumber $prev.percent
+    if ($null -eq $before) { return $null }
+    $climb = [double]$Percent - $before
+    if ($climb -le 0) { return [double]$Percent }
+    [double]$Percent + $climb * ($NextReadMinutes / $elapsed)
+}
+
 # What one reading of the usage window tells the watch to do next.
 #
-# .action  continue | pause | stop-weekly | blind
+# .action  continue | pause | stop-weekly | blind | idle
 #            continue     under the threshold; work goes on
-#            pause        at or past it on the five-hour window; pause the workers, sleep to wakeAt
-#            stop-weekly  at or past it on the weekly window; the reset is days away, so stop
+#            pause        at or past it on the five-hour window, or climbing fast enough to reach it
+#                         by the next read; pause the workers, sleep to wakeAt
+#            stop-weekly  the same on the weekly window; the reset is days away, so stop
 #            blind        no current reading; fails open as vigil says, and the watch records it
-# .percent      the figure acted on - a current one, or a floor - or $null
-# .wakeAt       for pause: the reset plus the margin, pinned now, ISO
-# .nextReadMinutes  when the quota may next be read: 5 at or past 80 percent, 7 below
-# .detail       one line for the journal
+#            idle         no reading was taken because nothing is running; dispatch as usual, and
+#                         the dispatcher takes its own reading before it starts
+# .percent           the figure acted on - a current one, or a floor - or $null
+# .projectedPercent  where the climb puts it at the next read, or $null with no earlier reading
+# .wakeAt            for pause: the reset plus the margin, pinned now, ISO
+# .nextReadMinutes   when the quota may next be read, from Get-UsageReadIntervalMinutes
+# .detail            one line for the journal
 function Get-WatchUsageStep {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)]$Reading,
+        # $null is the idle tick Read-WatchUsage hands back when nothing is running.
+        [Parameter(Mandatory)][AllowNull()]$Reading,
         [Parameter(Mandatory)]$Options,
         [int]$MarginMinutes = $script:DefaultMarginMinutes
     )
+
+    if ($null -eq $Reading) {
+        return [pscustomobject]@{
+            action = 'idle'; percent = $null; projectedPercent = $null; wakeAt = ''
+            nextReadMinutes = (Get-UsageReadIntervalMinutes -Percent $null)
+            detail = ('No worker is running, so the usage window was not read. The next dispatch ' +
+                      'takes its own reading before it starts.')
+        }
+    }
 
     $status  = "$($Reading.status)"
     $percent = $null
     if ($status -eq 'has-usage' -and $null -ne $Reading.percent) { $percent = [double]$Reading.percent }
     elseif ($null -ne $Reading.floorPercent) { $percent = [double]$Reading.floorPercent }
 
-    $next = if ($null -ne $percent -and $percent -ge $script:CloseFromPercent) { $script:CloseReadMinutes }
-            else { $script:LooseReadMinutes }
-    $out = [ordered]@{ action = 'continue'; percent = $percent; wakeAt = ''; nextReadMinutes = $next; detail = "$($Reading.detail)" }
+    $next      = Get-UsageReadIntervalMinutes -Percent $percent
+    $projected = Get-WatchProjectedPercent -Reading $Reading -Percent $percent -NextReadMinutes $next
+    $out = [ordered]@{
+        action = 'continue'; percent = $percent; projectedPercent = $projected; wakeAt = ''
+        nextReadMinutes = $next; detail = "$($Reading.detail)"
+    }
 
     $atLimit = $null -ne $percent -and $percent -ge $Options.thresholdPercent
-    if (-not $atLimit) {
+    $onClimb = -not $atLimit -and $null -ne $projected -and $projected -ge $Options.thresholdPercent
+    if (-not $atLimit -and -not $onClimb) {
         if ($status -ne 'has-usage' -and $status -ne 'no-usage') { $out.action = 'blind' }
         return [pscustomobject]$out
     }
 
+    $limit = $Options.thresholdPercent
+    $which = if ("$($Reading.window)" -eq 'seven_day') { 'The weekly window' } else { 'The window' }
+    $where = if ($onClimb) {
+        "$which is at $([Math]::Floor($percent)) percent and climbing fast enough to reach " +
+        "$([Math]::Floor($projected)) by the next read in $next minutes, past the $limit percent pause"
+    } else { "$which is at $([Math]::Floor($percent)) percent" }
+
     if ("$($Reading.window)" -eq 'seven_day') {
         $out.action = 'stop-weekly'
-        $out.detail = "The weekly window is at $([Math]::Floor($percent)) percent and resets in days, so the watch stops rather than sleeping. $($Reading.detail)"
+        $out.detail = "$where and resets in days, so the watch stops rather than sleeping. " +
+                      "$($Reading.detail)"
         return [pscustomobject]$out
     }
 
     $out.action = 'pause'
+    if ($onClimb) { $out.detail = "$where. $($Reading.detail)" }
     $wake = Get-WatchWakeTime -ResetsAt "$($Reading.resetsAt)" -MarginMinutes $MarginMinutes
     if (-not $wake.ok) {
         # A pause with no time to wake at is a night nobody wakes from. Stop instead, and say why.
         $out.action = 'stop-weekly'
-        $out.detail = "The window is at $([Math]::Floor($percent)) percent and its reset time could not be read ($($wake.problem)), so there is no time to sleep to and the watch stops."
+        $out.detail = "$where and its reset time could not be read ($($wake.problem)), so there " +
+                      'is no time to sleep to and the watch stops.'
         return [pscustomobject]$out
     }
     $out.wakeAt = $wake.at
@@ -435,9 +511,9 @@ function Test-WatchWindowRolled {
         [double]$Reading.percent -lt $Options.thresholdPercent
 }
 
-# What to do with each reading after the timer wakes. The live fetch is rate limited most of the
-# time, so the first reading is often stale, and a stale reading is not a reason to leave the
-# workers stopped all night.
+# What to do with each reading after the timer wakes. The probe answers most reads, but where it
+# cannot, the fallback may answer stale or be gated, and a reading that is not current is not a
+# reason to leave the workers stopped all night.
 #
 # .action  restart              the window rolled: restart the paused workers
 #          pause | stop-weekly  a current reading is still at the limit: re-arm the timer from its
@@ -643,6 +719,7 @@ function Write-WatchRecordOnce {
 
 Export-ModuleMember -Function New-WatchOptions, Test-WatchDispatchSlot, Get-WatchReadyItems,
                               Select-WatchPool, Get-WatchMergeVerdict, Invoke-WatchMerge,
+                              Read-WatchUsage, Get-WatchProjectedPercent,
                               Get-WatchUsageStep, Get-WatchWakeTime, Wait-WatchReset,
                               Test-WatchWindowRolled, Get-WatchWakeStep, Save-WatchGateRescue, Get-WatchResumeChoice,
                               New-WatchRestartPrompt, Clear-WatchLimitDialog, Write-WatchRecordOnce

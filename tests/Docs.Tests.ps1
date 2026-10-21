@@ -4967,7 +4967,8 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                 Should -BeGreaterThan 0 -Because 'the Hand copies the block, so it has to be runnable'
             $script:Vigil | Should -Match ('\*\*A harness-tracked background job, never with `&` and ' +
                                            'never as a detached process\.\*\*')
-            $script:Vigil | Should -Match 'Ten minutes between pulses by default'
+            $script:Vigil | Should -Match ('Five minutes between pulses by default, and two once a ' +
+                                           'reading is at or above 85 percent')
         }
 
         # The arming used to depend on somebody remembering, and it was not remembered - the pulse
@@ -4986,7 +4987,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         # follows is the same silence a healthy pulse produces.
         It 'refuses a finite count and says why half an hour is not a session' {
             $script:Vigil | Should -Match '\*\*No count, ever - it runs until the session ends\.\*\*'
-            $script:Vigil | Should -Match ('`-Count 3` at the default cadence is thirty\s+minutes')
+            $script:Vigil | Should -Match ('`-Count 3` at the default cadence is fifteen\s+minutes')
             $script:Vigil | Should -Match ('Any\s+finite count is a promise to go quiet at a moment ' +
                                            'nobody will notice')
         }
@@ -5006,6 +5007,26 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         It 'pins the line to one line, with the tail as a count' {
             $script:Vigil | Should -Match 'One line, hard cap, however many workers are live'
             $script:Vigil | Should -Match 'the tail becomes a count'
+        }
+
+        # The three rules the King set on 2026-10-22 about where the number comes from and when it
+        # is read. Usage.Tests.ps1 drives each one through the code; these pin the sentences.
+        It 'says the probe answers first and quota-axi is a gated fallback' {
+            $script:Vigil | Should -Match ('\*\*A one-turn headless probe first, `quota-axi` only when ' +
+                                           'the probe cannot answer\*\*')
+            $script:Vigil | Should -Match ('asked at most once every fifteen minutes across every\s+' +
+                                           'process on the machine')
+        }
+
+        It 'says nothing reads a window from 90 percent until it resets but the confirming read' {
+            $script:Vigil | Should -Match ('\*\*From 90 percent nothing reads that window\s+again until ' +
+                                           'it resets, apart from the one confirming read after it\*\*')
+            $script:Vigil | Should -Match 'says `held` in place of `stale`'
+        }
+
+        It 'says the pulse takes no reading while no worker is running' {
+            $script:Vigil | Should -Match '\*\*It takes no reading while no worker is running\*\*'
+            $script:Vigil | Should -Match '`usage not read while nothing runs - nothing running`'
         }
 
         # The two facts a percentage is meaningless without: which window it is about, and which
@@ -5048,8 +5069,10 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                                            'its number\.\*\*')
             $script:Vigil | Should -Match 'Where that floor alone is\s+already at or past the threshold'
             $script:Vigil | Should -Match 'Only the first ever refuses\s+\*\*as a measurement\*\*'
-            $script:Vigil | Should -Match ('A missing `quota-axi`, a lookup that\s+failed and an ' +
-                                           'answer that would not parse all warn and dispatch anyway')
+            $script:Vigil | Should -Match ('When the probe cannot answer, a\s+missing `quota-axi`, a ' +
+                                           'lookup that failed and an answer that would not parse all ' +
+                                           'warn and dispatch\s+anyway, and so does a fallback the ' +
+                                           'fifteen-minute gate did not allow')
             $script:Vigil | Should -Not -Match 'It never blocks a dispatch on an unreadable reading'
         }
 
@@ -5106,6 +5129,16 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             Assert-Phrase -Text (Get-HandSection 'What you own') -Where 'CLAUDE.md' `
                 -Phrase ('The usage pulse owns no file at all. What it last said lives in the ' +
                          'background job that is pulsing, for as long as that job runs')
+        }
+
+        # The reader does keep one file, and it is named among what the Hand owns so nobody takes
+        # it for debris - or takes the pulse's rule above for a rule about the whole module.
+        It 'names the usage reader''s gate file and its one writer, among what the Hand owns' {
+            Assert-Phrase -Text (Get-HandSection 'What you own') -Where 'CLAUDE.md' `
+                -Phrase ('`state\usage-gate.json` - the usage reader''s record across processes: when ' +
+                         'quota-axi was last asked, the hold on a window read at 90 percent, and the ' +
+                         'last few readings. Written only by `bin\Usage.psm1`, which refuses any file ' +
+                         'there that is not its own record.')
         }
     }
 
@@ -10249,6 +10282,31 @@ Describe 'night''s watch is regency plus queue-working, and merges only under +w
             -Phrase '**A stale reading is read again every five minutes for up to thirty**'
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
             -Phrase '`restart-unconfirmed` restarts the workers anyway and records its `detail` in the away journal'
+    }
+
+    # The King's figures and two rules of 2026-10-22. NightsWatch.Tests.ps1 drives each through the
+    # code - the default, the cadence, the projection with and without two readings, and the idle
+    # skip - and these pin the sentences the Hand reads them from.
+    It 'states the 90 percent default and the five-and-two cadence' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'The threshold defaults to 90 percent of the driving window'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase ('- every five minutes, every two from 85 percent, the King''s cadence of ' +
+                     '2026-10-22 -')
+    }
+
+    It 'pauses on the climb, falling back to the plain threshold without two readings' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**The pause comes on the climb as well as the figure**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'With no earlier reading of that window, the plain threshold decides.'
+    }
+
+    It 'takes no reading while no worker is running' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**No reading while no worker is running.**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'the dispatcher takes its own fresh reading before the first worker starts.'
     }
 
     It 'fails open on an unreadable window as vigil says, and records that it could not see' {
