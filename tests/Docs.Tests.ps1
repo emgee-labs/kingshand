@@ -10059,6 +10059,20 @@ Describe 'fief holds one project per session and changes routing and delivery, n
             -Phrase 'Add its id to the record first, with `Add-CrewItem`, and save'
     }
 
+    It 'ends a session''s baseline at every session-end cleanup, and rally relaunches as fief says' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'passing its recorded `settings_record` and, because the session is over, `-EndSession`'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'stop it on his word - with `-EndSession`'
+        Assert-Phrase -Text (Get-DocText $script:MusterMd) -Where 'muster Step 8b' `
+            -Phrase 'A close-out passes `-EndSession` as well, which removes the session''s baseline'
+        Assert-Phrase -Text (Get-DocText $script:StuckMd) -Where 'rally Step 4' `
+            -Phrase ('**A worker recorded with `session` or `checkout` is relaunched as `fief`''s `A wedged ' +
+                     'warm worker` paragraph says**')
+        Assert-Phrase -Text (Get-DocText $script:StuckMd) -Where 'rally Step 4' `
+            -Phrase 'then `Set-CrewRelaunch` - never `Add-CrewWorker`, which refuses the id'
+    }
+
     It 'cleans a checkout worker up through the callable, which keeps the branch and checkout' {
         Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
             -Phrase 'Clean a checkout worker up with `Stop-CheckoutWorker`'

@@ -129,8 +129,9 @@ where sending it would add scope he did not state, that is a Step 3 question in 
 checkout worker's work is in the checkout and on its branch whatever happens to the worker, so
 stopping it loses nothing - but a worker whose record points at an open hold is still never
 stopped, as Step 8b says. Clean a checkout worker up with `Stop-CheckoutWorker` from
-`bin\ClaudeWorkspace.psm1`, passing its recorded `settings_record`; it never deletes the branch
-and never removes the checkout. An isolated session worker is cleaned up as Step 8b has it.
+`bin\ClaudeWorkspace.psm1`, passing its recorded `settings_record` and, because the session is
+over, `-EndSession`; it never deletes the branch and never removes the checkout. An isolated
+session worker is cleaned up as Step 8b has it.
 
 **A wedged warm worker is relaunched as the same worker, and keeps its fixes.** Clean it up with
 `Stop-CheckoutWorker`, dispatch it again with the same name, brief and branch, and re-record it with
@@ -181,7 +182,8 @@ none it kept.
    project, never a request routed to a project he has stopped working on.
 
 Ending the mode does not stop the warm worker on its own. Say in one line whether it is still
-running and what is uncommitted on its branch, and stop it on his word.
+running and what is uncommitted on its branch, and stop it on his word - with `-EndSession`, so
+the next session for this project starts from a fresh baseline rather than this one's.
 
 ## After a restart
 

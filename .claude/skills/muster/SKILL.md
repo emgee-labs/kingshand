@@ -2479,6 +2479,8 @@ pane, remove its worktree.
 
 **A worker recorded with `checkout` has no worktree: tear it down with `Stop-CheckoutWorker` from
 `bin\ClaudeWorkspace.psm1`, passing its `settings_record`, and never with the steps below.**
+A close-out passes `-EndSession` as well, which removes the session's baseline; only `fief`'s
+relaunch of a wedged warm worker leaves it off.
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
