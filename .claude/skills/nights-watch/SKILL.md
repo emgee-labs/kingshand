@@ -112,7 +112,9 @@ $step = Get-WatchUsageStep -Reading (Read-WatchUsage -LiveCount <workers running
 step comes back `idle`; the dispatcher takes its own fresh reading before the first worker starts.
 **The pause comes on the climb as well as the figure**: where the rise since the window's previous
 reading would carry it to the threshold by the next read, the step pauses now. With no earlier
-reading of that window, the plain threshold decides.
+reading of that window, or none at least as old as the time to the next read, the plain threshold
+decides. **A held window is at the limit whatever the threshold**: from 90 percent nothing reads
+it again before its reset, so the step pauses on the hold even where `-ThresholdPercent` is higher.
 
 - `idle` - nothing is running and nothing was read; dispatch as the pool allows.
 - `continue` - carry on.

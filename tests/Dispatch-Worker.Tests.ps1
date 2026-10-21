@@ -1774,6 +1774,31 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $r.id | Should -Be 'T-4105'
         }
 
+        # A HELD WINDOW IS AT THE LIMIT WHATEVER THE THRESHOLD. The first dispatch reads 91 and is
+        # refused, which holds the window; the probe then answers 5, and a dispatch that may go out
+        # up to 99 must still be refused, because nothing reads a held window before its reset.
+        It 'refuses on a held window even when the caller allows up to 99 percent' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 91
+            $f = New-DispatchFixture 'usage-held'
+            { Invoke-Dispatch -Fixture $f -Name 'T-4107' } | Should -Throw '*refused from 90 percent*'
+
+            ($reply = @{ type = 'rate_limit_event'; rate_limit_info = @{ status = 'allowed'
+                unifiedWindows = @{ five_hour = @{ utilization = 0.05
+                    resetsAt = [datetimeoffset]::UtcNow.AddHours(3).ToUnixTimeSeconds() } } } }) | Out-Null
+            ($reply | ConvertTo-Json -Depth 8 -Compress) |
+                Set-Content -Path (Join-Path $script:ShimDir 'probe.txt') -Encoding utf8
+
+            $err = { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4108' `
+                        -BriefPath $f.BriefPath -DataPath $f.DataPath -UsageThresholdPercent 99 } |
+                Should -Throw -PassThru
+            "$($err.Exception.Message)" | Should -BeLike '*held from 90 percent until its reset*'
+            "$($err.Exception.Message)" | Should -BeLike '*at least 91 percent*'
+            "$($err.Exception.Message)" | Should -BeLike '*It resets at*'
+            "$($err.Exception.Message)" | Should -BeLike '*Nothing was created*'
+            (Get-CallLines $f).Count | Should -Be 0
+        }
+
         # The prompt-box guards already made this call for an unreadable screen and the reasoning
         # transfers: a blind guard that blocks everything costs more than one that lets work through
         # and says it could not see.

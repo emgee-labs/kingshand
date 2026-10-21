@@ -367,6 +367,15 @@ if ($null -ne $measured -and $measured -ge $UsageThresholdPercent) {
            "$($usage.detail) Wait for the window to reset, or dispatch with a higher " +
            "-UsageThresholdPercent if this one has to go out now. Nothing was created.")
 }
+# A HELD WINDOW REFUSES WHATEVER THE THRESHOLD. Usage.psm1 stops reading a window once it reaches
+# 90 percent, so a held floor of 91 never climbs past a -UsageThresholdPercent of 95 or 99, and a
+# dispatch compared against it would go out into a window that may already be spent.
+if ("$($usage.signal)" -eq 'held-at-limit' -and $null -ne $floor) {
+    throw ("The usage window is held from 90 percent until its reset, at least " +
+           "$([int][Math]::Floor($floor)) percent spent, and nothing reads it again before then, " +
+           "so worker $Name was not dispatched whatever -UsageThresholdPercent says." +
+           "$(Format-UsageResetTime -IsoTime "$($usage.resetsAt)") Nothing was created.")
+}
 # COMPARED RAW AND EXACT, which is where every bit of this guard's safety lives - the double the
 # reader took, against the threshold, with no rounding in between. The figure in the message is
 # rounded DOWN instead, because it is a lower bound and "at least" has to stay true: at a real 90.4

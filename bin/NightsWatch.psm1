@@ -356,7 +356,9 @@ function Read-WatchUsage {
 # reading of 90 can arrive after the limit. The climb is the rise from the reading's `previous` -
 # the earlier reading of the SAME window, which Usage.psm1 chooses - scaled to the time until the
 # next read, so a previous reading two minutes back and a next read two minutes on add the climb
-# once. $null where there is no such reading, or no current percentage to project from; the caller
+# once. $null where there is no such reading, where it is younger than the time to the next read -
+# the probe reports whole points, so one point of rounding a minute back would read as a steep
+# climb - or where there is no current percentage to project from; the caller
 # then falls back to the plain threshold. A window that has not risen projects to where it is.
 function Get-WatchProjectedPercent {
     [CmdletBinding()]
@@ -373,7 +375,7 @@ function Get-WatchProjectedPercent {
     if (-not [datetimeoffset]::TryParse("$($prev.takenAt)", [ref]$then)) { return $null }
     if (-not [datetimeoffset]::TryParse("$($Reading.takenAt)", [ref]$now)) { return $null }
     $elapsed = ($now - $then).TotalMinutes
-    if ($elapsed -le 0) { return $null }
+    if ($elapsed -le 0 -or $elapsed -lt $NextReadMinutes) { return $null }
 
     $before = ConvertTo-UsageNumber $prev.percent
     if ($null -eq $before) { return $null }
@@ -386,8 +388,8 @@ function Get-WatchProjectedPercent {
 #
 # .action  continue | pause | stop-weekly | blind | idle
 #            continue     under the threshold; work goes on
-#            pause        at or past it on the five-hour window, or climbing fast enough to reach it
-#                         by the next read; pause the workers, sleep to wakeAt
+#            pause        at or past it on the five-hour window, held from 90 percent, or climbing
+#                         fast enough to reach it by the next read; pause the workers, sleep to wakeAt
 #            stop-weekly  the same on the weekly window; the reset is days away, so stop
 #            blind        no current reading; fails open as vigil says, and the watch records it
 #            idle         no reading was taken because nothing is running; dispatch as usual, and
@@ -427,7 +429,11 @@ function Get-WatchUsageStep {
         nextReadMinutes = $next; detail = "$($Reading.detail)"
     }
 
-    $atLimit = $null -ne $percent -and $percent -ge $Options.thresholdPercent
+    # A held window is at the limit whatever the threshold: nothing reads it again before its reset,
+    # so a held floor below a threshold over 90 would never rise to meet it.
+    $signal  = $Reading.PSObject.Properties['signal']
+    $held    = $signal -and "$($signal.Value)" -eq 'held-at-limit' -and $null -ne $percent
+    $atLimit = $held -or ($null -ne $percent -and $percent -ge $Options.thresholdPercent)
     $onClimb = -not $atLimit -and $null -ne $projected -and $projected -ge $Options.thresholdPercent
     if (-not $atLimit -and -not $onClimb) {
         if ($status -ne 'has-usage' -and $status -ne 'no-usage') { $out.action = 'blind' }

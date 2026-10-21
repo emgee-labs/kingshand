@@ -885,12 +885,35 @@ Describe 'quota-axi is asked at most once every fifteen minutes, across every pr
     It 'refuses rather than allows when the gate file is locked by another process' {
         $path = New-GatePath
         $null = Update-UsageGateState -Path $path
-        $held = [System.IO.File]::Open($path, 'Open', 'ReadWrite', 'None')
+        $held = [System.IO.File]::Open("$path.lock", 'Open', 'ReadWrite', 'None')
         try {
             $r = Request-UsageFallbackSlot -Path $path
             $r.allowed | Should -BeFalse
             $r.reason  | Should -BeLike '*stayed locked*'
         } finally { $held.Dispose() }
+    }
+
+    # A process killed mid-write must never leave partial JSON the owner check then refuses for
+    # good, so the record is written whole beside the file and renamed over it - and the temp file
+    # is never left behind, whether the write happened or was refused.
+    It 'replaces the record whole, leaving no temp file after a write or a refused write' {
+        $path = New-GatePath
+        $dir  = Split-Path $path -Parent
+        (Update-UsageGateState -Path $path -Change { param($s) $s['fallbackAskedAt'] = 'a' }).ok | Should -BeTrue
+        (Update-UsageGateState -Path $path -Change { param($s) $s['fallbackAskedAt'] = 'b' }).ok | Should -BeTrue
+        (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json).fallbackAskedAt | Should -Be 'b'
+        @(Get-ChildItem -LiteralPath $dir -Filter '*.tmp').Count | Should -Be 0
+
+        # A rename that fails - here because a directory sits where the record goes - takes its
+        # temp file with it.
+        $blocked = Join-Path (New-TempFixtureDir) 'usage-gate.json'
+        New-Item -ItemType Directory -Path $blocked | Out-Null
+        (Update-UsageGateState -Path $blocked -Change { param($s) $s['fallbackAskedAt'] = 'a' }).ok | Should -BeFalse
+        @(Get-ChildItem -LiteralPath (Split-Path $blocked -Parent) -Filter '*.tmp').Count | Should -Be 0
+
+        '{ "workers": {} }' | Set-Content -LiteralPath $path -Encoding utf8
+        (Update-UsageGateState -Path $path -Change { param($s) $s['fallbackAskedAt'] = 'c' }).ok | Should -BeFalse
+        @(Get-ChildItem -LiteralPath $dir -Filter '*.tmp').Count | Should -Be 0
     }
 
     # Criterion 8: the gate file cannot land on anything it does not own.

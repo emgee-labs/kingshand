@@ -5024,6 +5024,13 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Vigil | Should -Match 'says `held` in place of `stale`'
         }
 
+        It 'says a held window is at the limit whatever threshold a caller passes' {
+            $script:Vigil | Should -Match ('\*\*A held window is at the limit whatever the threshold\*\*:\s+' +
+                                           'from\s+90 percent the reader does not read it again until ' +
+                                           'it resets, so a dispatch is refused on the hold\s+even where ' +
+                                           '`-UsageThresholdPercent` is set above')
+        }
+
         It 'says the pulse takes no reading while no worker is running' {
             $script:Vigil | Should -Match '\*\*It takes no reading while no worker is running\*\*'
             $script:Vigil | Should -Match '`usage not read while nothing runs - nothing running`'
@@ -10299,7 +10306,15 @@ Describe 'night''s watch is regency plus queue-working, and merges only under +w
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
             -Phrase '**The pause comes on the climb as well as the figure**'
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
-            -Phrase 'With no earlier reading of that window, the plain threshold decides.'
+            -Phrase ('With no earlier reading of that window, or none at least as old as the time to ' +
+                     'the next read, the plain threshold decides.')
+    }
+
+    It 'pauses on a held window whatever the threshold' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase ('**A held window is at the limit whatever the threshold**: from 90 percent nothing ' +
+                     'reads it again before its reset, so the step pauses on the hold even where ' +
+                     '`-ThresholdPercent` is higher.')
     }
 
     It 'takes no reading while no worker is running' {

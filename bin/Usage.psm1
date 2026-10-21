@@ -22,6 +22,12 @@ Set-StrictMode -Version Latest
 # docs\2026-09-05-usage-window-watch.md records the candidates that were tried, the probe's measured
 # cost, and why the fallback is gated.
 #
+# KINGSHAND_USAGE_PROBE_COMMAND IS A TEST SEAM AND NOTHING ELSE. It names a stand-in for the Claude
+# Code binary the probe launches. Dispatch-Worker.ps1 re-imports this module with -Force, which
+# discards any mock a test set on the probe, so a test driving the real dispatcher has no other way
+# to keep each dispatch from spending real usage. Nothing but tests sets it; unset is every real
+# caller, and the probe then launches the binary Paths.psm1 resolves.
+#
 # THREE ANSWERS, AND THE THIRD IS THE POINT - the shape Ci.psm1 already uses on this repo.
 # `has-usage` and `no-usage` are answers; `unknown` is the refusal to guess when the question could
 # not be settled - no `quota-axi`, a tool that would not run, output that is not the JSON this
@@ -461,7 +467,14 @@ function Get-UsageStatePath {
 # IT CANNOT OVERWRITE A FILE IT DOES NOT OWN, two ways. The path must end in the one file name this
 # module writes, so a mistyped path cannot land on crew.json or anything else in state\. And a file
 # already there must be this module's own record - JSON stamped with its owner - or it is refused
-# untouched. Only an empty file, which is what the exclusive open itself creates, is taken as new.
+# untouched. Only a missing or empty file is taken as new.
+#
+# IT CAN NEVER LEAVE A HALF-WRITTEN FILE. A process killed mid-write - the pulse's job stopped at a
+# session restart - would otherwise leave partial JSON that the owner check refuses on every later
+# call, and the gate and the hold would stop working for good. So the new record is written whole
+# to a temp file beside it and renamed over it. Windows will not rename over a file held open, so
+# the exclusive lock is held on a sibling `.lock` file rather than on the record itself, and the
+# rename happens while that lock is still held.
 #
 # It never throws. A lock that cannot be had in three seconds, a directory that cannot be made and a
 # file that is not ours all come back as ok = $false, and every caller decides what that costs it.
@@ -477,7 +490,8 @@ function Update-UsageGateState {
         return & $fail "the gate file has to be named $script:GateFileName and $Path is not, so it was not written"
     }
 
-    $stream = $null
+    $lock = $null
+    $temp = $null
     try {
         $dir = Split-Path -Path $Path -Parent
         if ($dir -and -not (Test-Path -LiteralPath $dir -PathType Container)) {
@@ -485,9 +499,9 @@ function Update-UsageGateState {
         }
 
         $deadline = [datetime]::UtcNow.AddMilliseconds($script:GateLockTimeoutMs)
-        while (-not $stream) {
+        while (-not $lock) {
             try {
-                $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::OpenOrCreate,
+                $lock = [System.IO.File]::Open("$Path.lock", [System.IO.FileMode]::OpenOrCreate,
                     [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
             } catch [System.IO.IOException] {
                 if ([datetime]::UtcNow -ge $deadline) {
@@ -499,10 +513,10 @@ function Update-UsageGateState {
             }
         }
 
-        $reader = [System.IO.StreamReader]::new($stream, [System.Text.UTF8Encoding]::new($false), $true,
-                                                 4096, $true)
-        $text = $reader.ReadToEnd()
-        $reader.Dispose()
+        $text = ''
+        if (Test-Path -LiteralPath $Path -PathType Leaf) {
+            $text = [System.IO.File]::ReadAllText($Path, [System.Text.UTF8Encoding]::new($false))
+        }
 
         $state = $null
         if ($text.Trim()) {
@@ -523,16 +537,18 @@ function Update-UsageGateState {
         if ($Change) { & $Change $state }
         $after = $state | ConvertTo-Json -Depth 8 -Compress
         if ($after -ne $before -or -not $text.Trim()) {
-            $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes(($state | ConvertTo-Json -Depth 8))
-            $stream.SetLength(0)
-            $stream.Write($bytes, 0, $bytes.Length)
-            $stream.Flush()
+            $temp = "$Path.$([guid]::NewGuid().ToString('N')).tmp"
+            [System.IO.File]::WriteAllText($temp, ($state | ConvertTo-Json -Depth 8),
+                                           [System.Text.UTF8Encoding]::new($false))
+            [System.IO.File]::Move($temp, $Path, $true)
+            $temp = $null
         }
         [pscustomobject]@{ ok = $true; state = $state; problem = '' }
     } catch {
         & $fail "the gate file $Path could not be used: $($_.Exception.Message)"
     } finally {
-        if ($stream) { $stream.Dispose() }
+        if ($temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+        if ($lock) { $lock.Dispose() }
     }
 }
 

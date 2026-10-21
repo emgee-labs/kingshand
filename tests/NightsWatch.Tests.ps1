@@ -309,6 +309,21 @@ Describe 'the usage window paces the night' {
             Should -Be 'continue' -Because 'without two readings the plain threshold decides'
     }
 
+    # Nothing reads a held window again before its reset, so a held floor of 91 never rises to meet
+    # a threshold of 95 - the watch has to pause on the hold itself.
+    It 'pauses on a held window whatever the threshold' {
+        $held = New-Reading $null -Floor 91 -Status 'unknown'
+        $held | Add-Member -NotePropertyName signal -NotePropertyValue 'held-at-limit'
+        $s = Get-WatchUsageStep -Reading $held -Options (New-WatchOptions -ThresholdPercent 95)
+        $s.action | Should -Be 'pause'
+        $s.wakeAt | Should -Not -BeNullOrEmpty
+
+        $weekly = New-Reading $null -Floor 91 -Status 'unknown' -Window 'seven_day'
+        $weekly | Add-Member -NotePropertyName signal -NotePropertyValue 'held-at-limit'
+        (Get-WatchUsageStep -Reading $weekly -Options (New-WatchOptions -ThresholdPercent 95)).action |
+            Should -Be 'stop-weekly'
+    }
+
     It 'honours a different threshold given at invocation' {
         (Get-WatchUsageStep -Reading (New-Reading 88) -Options (New-WatchOptions -ThresholdPercent 95)).action |
             Should -Be 'continue'
@@ -325,6 +340,14 @@ Describe 'the usage window paces the night' {
         $s.projectedPercent | Should -Be 93
         $s.wakeAt           | Should -Not -BeNullOrEmpty
         $s.detail           | Should -BeLike '*climbing fast enough*'
+    }
+
+    # The probe reports whole points, so 87 a minute before 88 may be no climb at all. A baseline
+    # younger than the time to the next read is not one, and the plain threshold decides.
+    It 'measures no climb from a reading younger than the time to the next read' {
+        $s = Get-WatchUsageStep -Reading (New-ClimbingReading 88 87 -MinutesAgo 1) -Options $script:Opts
+        $s.projectedPercent | Should -BeNullOrEmpty
+        $s.action           | Should -Be 'continue'
     }
 
     It 'carries on below 90 when the climb would not reach it by the next read' {

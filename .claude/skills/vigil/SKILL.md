@@ -160,8 +160,10 @@ percent in front of the King when the truth was 42 - so it never becomes a perce
 consumption never falls inside a window, so it is a true lower bound. Where that floor alone is
 already at or past the threshold, the real figure is too, and the dispatch is refused with a message
 that says plainly it refused on a floor and when the window clears. Below the threshold it warns and
-goes ahead like every other unknown. A window held at 90 percent refuses the same way, on the
-figure it was held at, because the reader does not read it again until it resets.
+goes ahead like every other unknown. **A held window is at the limit whatever the threshold**: from
+90 percent the reader does not read it again until it resets, so a dispatch is refused on the hold
+even where `-UsageThresholdPercent` is set above the figure it was held at, and night's watch
+pauses on it at any `-ThresholdPercent`.
 
 ## What it never does
 
