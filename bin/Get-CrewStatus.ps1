@@ -35,6 +35,11 @@
   does not read the queue.
   Liveness cannot answer any of it: a parked worker's turn ended cleanly, so it reads `idle`
   exactly like a finished one. It is intent, so crew.json owns it and herdr is never consulted.
+
+  `session`, `items` and `itemsError` say what rides a worker's branch, read through Crew.psm1's
+  Get-CrewItems. A `fief` session's warm worker is one row with every id in order; any other worker
+  is `session` false with its one ticket. A list that cannot be read leaves `items` empty and says
+  why in `itemsError`, so an unreadable record is never shown as a worker with nothing on it.
 #>
 [CmdletBinding()]
 param([string]$StatePath)
@@ -98,6 +103,12 @@ foreach ($id in $state.workers.Keys) {
         if ($corrected) { $liveState = "$corrected" }
     }
 
+    # Get-CrewItems owns both record shapes and refuses a list it cannot read; that refusal is
+    # carried on the row rather than taking down the status of every other worker.
+    $items = @(); $itemsError = ''
+    try { $items = @(foreach ($it in (Get-CrewItems -State $state -WorkerId $id)) { $it.id }) }
+    catch { $itemsError = $_.Exception.Message }
+
     [PSCustomObject]@{
         id          = $id
         ticket      = $w.ticket
@@ -113,5 +124,13 @@ foreach ($id in $state.workers.Keys) {
         # guarantees the key on every record, so this is set or empty and never absent. Which
         # decision, never whether it is still owed - see the header.
         waitingOn   = if ($w.waiting_on) { "$($w.waiting_on)" } else { '' }
+        # A `fief` session's warm worker is ONE row carrying every id on its branch, in order. An
+        # ordinary worker reads `session` false and its one ticket. These come last for the same
+        # reason waitingOn does: no existing field moves.
+        session     = [bool]($w.ContainsKey('session') -and $w.session -eq $true)
+        items       = $items
+        # Why the list could not be read, or the empty string. A list that cannot be read is said
+        # to be unreadable rather than shown as empty, which would read as nothing on the branch.
+        itemsError  = $itemsError
     }
 }

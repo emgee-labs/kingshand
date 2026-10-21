@@ -1066,7 +1066,9 @@ browser procedure counts towards that one, per Step 2, which owns the rule - a b
 it imports, a path that does not exist, a directory where a file was meant, two different files
 whose names would land on top of each other in the staging directory, a standing file that exists
 and cannot be opened, a directory sitting where a standing file belongs, and a brief that cannot be
-opened for writing to be told what was attached to it.
+opened for writing to be told what was attached to it. A dispatch with `-InCheckout` adds the
+checkout's own refusals on top, all of them before anything is created too, and the dispatcher's
+header lists them.
 
 **The usage one is the only refusal here that can be absent rather than raised.** Every one of the
 other eleven is about something this dispatch knows exactly - a path it was handed, or the base ref
@@ -1270,6 +1272,9 @@ because "nothing happened" is not an event anything can push at you.
   tell the user plainly that they will need to ask.
 
 Tell the user one line per worker that dispatch happened, then stop talking.
+
+**A `fief` session's warm worker is dispatched with `-InCheckout -Branch` and recorded with
+`-Session`**, and every later fix reaches it as a prompt rather than a dispatch - `fief` owns that.
 
 ## Step 5 - Quiet, and status on request
 
@@ -2462,6 +2467,9 @@ findings stay. Leave `data\<id>\` alone.
 
 Teardown is three things in this order, and the order is the safety: stop the worker, discard its
 pane, remove its worktree.
+
+**A worker recorded with `checkout` has no worktree: tear it down with `Stop-CheckoutWorker` from
+`bin\ClaudeWorkspace.psm1`, passing its `settings_record`, and never with the steps below.**
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force

@@ -508,7 +508,19 @@ try {
             $rep = if ($_.hasReport) { ', report on disk' } else { '' }
             $held = Get-Field $_ 'waitingOn'
             $park = if ($held) { ", last parked on decision $held" } else { '' }
-            "- $($_.id) $($_.ticket) ($($_.repo)) stage $($_.stage), $liveText$park$rep"
+            # A `fief` session's warm worker is one line naming every id on its branch, in order,
+            # where an ordinary worker names its one ticket. A list that could not be read says so
+            # rather than printing as a session with nothing on it.
+            $what = "$($_.ticket)"
+            if ((Get-Field $_ 'session') -eq 'True') {
+                $ids = @(@(try { $_.items } catch { @() }) | Where-Object { $_ })
+                $err = Get-Field $_ 'itemsError'
+                $on  = Get-Field $_ 'branch'
+                $where = if ((Get-Field $_ 'checkout') -eq 'True') { " in the checkout on $on" } elseif ($on) { " on $on" } else { '' }
+                $what = if ($err) { "session worker$where, items unreadable ($err)" }
+                        else { "session worker$where carrying $($ids -join ', ')" }
+            }
+            "- $($_.id) $what ($($_.repo)) stage $($_.stage), $liveText$park$rep"
         })
     }
 

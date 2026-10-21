@@ -12,7 +12,15 @@ Set-StrictMode -Version Latest
 #
 # Everything here is a grant. Each one is written where the user can read it back, and each is
 # scoped to a single worktree that kingshand created itself from a repo the King registered -
-# never to the repo, never to the machine.
+# never to the machine. The one exception to "never the repo" is a worker the King asked to run in
+# the project's own checkout, and the section near the end of this file owns how that grant is
+# made and taken back.
+
+# Nested imports, WITHOUT -Force - `statute`'s style rules own why. Stop-CheckoutWorker is the only
+# caller of either: it stops the worker through Herdr.psm1 and drops the record's index line
+# through Index.psm1.
+Import-Module (Join-Path $PSScriptRoot 'Herdr.psm1')
+Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
 
 # The two grants that used to be command-line flags, written into the worktree.
 #
@@ -124,4 +132,303 @@ function Grant-ClaudeFolderTrust {
     [pscustomobject]@{ granted = $true; reason = 'written'; key = $key }
 }
 
-Export-ModuleMember -Function Set-WorkerWorkspaceSettings, Grant-ClaudeFolderTrust
+# ---------------------------------------------------------------------------------------------
+# A worker in the project's OWN checkout, with no worktree: the `fief` skill's warm worker.
+#
+# The grants are the same two, and the difference is whose file they land in. A worktree is a fresh
+# checkout kingshand made, so its settings.local.json is kingshand's to write whole. A checkout is
+# the King's, and its settings.local.json may already hold his own `allow` list and anything else he
+# put there. So the file is EDITED rather than written - every key he had survives, the two grants
+# are set on top - and it is put back exactly as it was when the worker is cleaned up.
+#
+# FOUR THINGS WENT WRONG WHEN THIS WAS DONE BY HAND, and each is a mechanism here now:
+#
+#   - The original was not kept. The record below holds the file's exact bytes, taken before the
+#     first write, so restoring is a byte copy rather than a reconstruction.
+#   - Afterwards nobody could tell whether there had been a file at all. The record says so, and a
+#     file that did not exist before is DELETED at cleanup rather than restored as an empty one.
+#   - The allow list was dropped. The file is parsed as JSON through JsonNode and only the two grant
+#     keys are touched, so `allow` and everything else are carried across untouched.
+#   - A failed read was built from. `$orig.permissions.allow` on a Get-Content that threw produced
+#     `allow: [null]`, which Claude Code meets with a settings-warning prompt the worker then sits
+#     blocked on. Here a file that is there and cannot be read, or is not a JSON object, REFUSES -
+#     nothing is written from an answer that was never obtained.
+#
+# The record lives beside the brief, at <briefdir>\checkout-settings.json, never in the checkout,
+# where it would be one more untracked file in somebody's working tree.
+# ---------------------------------------------------------------------------------------------
+
+$script:CheckoutRecordLeaf = 'checkout-settings.json'
+
+function Get-CheckoutSettingsRecordPath {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$BriefDirectory)
+    Join-Path $BriefDirectory $script:CheckoutRecordLeaf
+}
+
+# Everything the write will need, worked out WITHOUT writing anything. The dispatcher calls this
+# before it creates a single file, so a settings file it cannot honour costs the caller a message
+# and nothing else - the same discipline as every other refusal there.
+function New-CheckoutSettingsPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$CheckoutPath,
+        [Parameter(Mandatory)][string]$RecordPath,
+        [string[]]$AdditionalDirectories = @()
+    )
+
+    if (-not (Test-Path -LiteralPath $CheckoutPath -PathType Container)) {
+        throw "Checkout not found, so its settings cannot be prepared: $CheckoutPath"
+    }
+    $claudeDir    = Join-Path $CheckoutPath '.claude'
+    $settingsPath = Join-Path $claudeDir 'settings.local.json'
+
+    # The record is the only copy of what the file held before, so it is never overwritten. One
+    # already there means an earlier no-worktree worker was never cleaned up, and the settings file
+    # on disk is THAT worker's edit - recording it now as "the original" would make the King's real
+    # original unrecoverable.
+    if (Test-Path -LiteralPath $RecordPath) {
+        throw ("A permission-file record already exists at $RecordPath, so an earlier worker in " +
+               "this checkout was never cleaned up and $settingsPath still holds its grants. That " +
+               "record is the only copy of what the file held before, and it is not overwritten. " +
+               "Clean that worker up with Stop-CheckoutWorker first. Nothing was changed.")
+    }
+
+    $existed = Test-Path -LiteralPath $settingsPath
+    $bytes   = $null
+    $root    = $null
+    if ($existed) {
+        if (Test-Path -LiteralPath $settingsPath -PathType Container) {
+            throw "$settingsPath is a directory, so there is no settings file to edit. Nothing was changed."
+        }
+        try { $bytes = [System.IO.File]::ReadAllBytes($settingsPath) }
+        catch {
+            throw ("$settingsPath exists and could not be read ($($_.Exception.Message)). Nothing is " +
+                   "built from a read that failed - that is how a worker ends up blocked on a " +
+                   "settings warning. Fix the file or move it aside. Nothing was changed.")
+        }
+        $text = [System.Text.Encoding]::UTF8.GetString($bytes).TrimStart([char]0xFEFF)
+        $docOptions = [System.Text.Json.JsonDocumentOptions]::new()
+        $docOptions.CommentHandling     = [System.Text.Json.JsonCommentHandling]::Skip
+        $docOptions.AllowTrailingCommas = $true
+        try { $root = [System.Text.Json.Nodes.JsonNode]::Parse($text, $null, $docOptions) }
+        catch {
+            throw ("$settingsPath is not valid JSON ($($_.Exception.Message)), so the grants cannot " +
+                   "be added without losing what it holds. Fix the file or move it aside. " +
+                   "Nothing was changed.")
+        }
+        if ($root -isnot [System.Text.Json.Nodes.JsonObject]) {
+            throw ("$settingsPath does not hold a JSON object, so the grants have nowhere to go. " +
+                   "Nothing was changed.")
+        }
+    } else {
+        $root = [System.Text.Json.Nodes.JsonObject]::new()
+    }
+
+    $perms = $root['permissions']
+    if ($null -eq $perms) {
+        $perms = [System.Text.Json.Nodes.JsonObject]::new()
+        $root['permissions'] = $perms
+    } elseif ($perms -isnot [System.Text.Json.Nodes.JsonObject]) {
+        throw "$settingsPath has a 'permissions' value that is not an object. Nothing was changed."
+    }
+    $perms['defaultMode'] = [System.Text.Json.Nodes.JsonValue]::Create('bypassPermissions')
+
+    $dirs = $perms['additionalDirectories']
+    if ($null -eq $dirs) {
+        $dirs = [System.Text.Json.Nodes.JsonArray]::new()
+        $perms['additionalDirectories'] = $dirs
+    } elseif ($dirs -isnot [System.Text.Json.Nodes.JsonArray]) {
+        throw ("$settingsPath has an 'additionalDirectories' value that is not a list. " +
+               "Nothing was changed.")
+    }
+    $have = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($n in $dirs) {
+        if ($null -ne $n -and $n.GetValueKind() -eq [System.Text.Json.JsonValueKind]::String) {
+            $null = $have.Add($n.GetValue[string]())
+        }
+    }
+    foreach ($d in @($AdditionalDirectories | Where-Object { $_ })) {
+        if ($have.Add($d)) { $dirs.Add([System.Text.Json.Nodes.JsonNode][System.Text.Json.Nodes.JsonValue]::Create($d)) }
+    }
+
+    $opts = [System.Text.Json.JsonSerializerOptions]::new()
+    $opts.WriteIndented = $true
+
+    [pscustomobject]@{
+        checkoutPath     = $CheckoutPath
+        settingsPath     = $settingsPath
+        recordPath       = $RecordPath
+        existed          = $existed
+        claudeDirExisted = (Test-Path -LiteralPath $claudeDir -PathType Container)
+        original         = if ($existed) { [Convert]::ToBase64String($bytes) } else { $null }
+        content          = $root.ToJsonString($opts)
+    }
+}
+
+# Carries out a plan. The RECORD IS WRITTEN FIRST and with CreateNew, so the settings file is never
+# changed while nothing holds its original, and two dispatches racing for one record cannot both
+# believe they own it - the second one's open fails.
+function Set-CheckoutWorkerSettings {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Plan)
+
+    $record = [ordered]@{
+        settingsPath     = $Plan.settingsPath
+        existed          = [bool]$Plan.existed
+        claudeDirCreated = -not [bool]$Plan.claudeDirExisted
+        original         = $Plan.original
+    } | ConvertTo-Json -Depth 3
+
+    $recordDir = Split-Path -Parent $Plan.recordPath
+    if ($recordDir -and -not (Test-Path -LiteralPath $recordDir)) {
+        New-Item -ItemType Directory -Force -Path $recordDir | Out-Null
+    }
+    try {
+        $fs = [System.IO.File]::Open($Plan.recordPath, 'CreateNew', 'Write', 'None')
+        try {
+            $buf = [System.Text.Encoding]::UTF8.GetBytes($record)
+            $fs.Write($buf, 0, $buf.Length)
+        } finally { $fs.Dispose() }
+    } catch {
+        throw ("The permission-file record at $($Plan.recordPath) could not be created " +
+               "($($_.Exception.Message)), so $($Plan.settingsPath) was not touched.")
+    }
+
+    $claudeDir = Split-Path -Parent $Plan.settingsPath
+    if (-not (Test-Path -LiteralPath $claudeDir)) {
+        New-Item -ItemType Directory -Force -Path $claudeDir | Out-Null
+    }
+    [System.IO.File]::WriteAllText($Plan.settingsPath, $Plan.content)
+    $Plan.settingsPath
+}
+
+# Reads a record back, refusing anything it cannot stand behind. A record that is missing, will not
+# parse, or names something other than a settings.local.json under a .claude directory is refused
+# by name: guessing at "there was probably no file" would delete the King's settings, and a record
+# naming some other file would let a cleanup delete a file it never wrote.
+function Read-CheckoutSettingsRecord {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RecordPath)
+
+    if (-not (Test-Path -LiteralPath $RecordPath -PathType Leaf)) {
+        throw ("There is no permission-file record at $RecordPath, so nothing says whether the " +
+               "checkout had a settings file before this worker. Nothing was changed - restore " +
+               "it by hand from what you know.")
+    }
+    try { $r = Get-Content -LiteralPath $RecordPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop }
+    catch {
+        throw ("The permission-file record at $RecordPath could not be read " +
+               "($($_.Exception.Message)). Nothing was changed.")
+    }
+    $names = @($r.PSObject.Properties.Name)
+    foreach ($k in 'settingsPath', 'existed', 'claudeDirCreated', 'original') {
+        if ($names -notcontains $k) {
+            throw "The permission-file record at $RecordPath has no '$k'. Nothing was changed."
+        }
+    }
+    if ($r.existed -isnot [bool] -or $r.claudeDirCreated -isnot [bool]) {
+        throw "The permission-file record at $RecordPath does not say plainly whether a file existed. Nothing was changed."
+    }
+    $sp = "$($r.settingsPath)"
+    if ((Split-Path $sp -Leaf) -ne 'settings.local.json' -or
+        (Split-Path (Split-Path $sp -Parent) -Leaf) -ne '.claude') {
+        throw ("The permission-file record at $RecordPath names $sp, which is not a " +
+               ".claude\settings.local.json. Nothing was changed.")
+    }
+    $bytes = $null
+    if ($r.existed) {
+        try { $bytes = [Convert]::FromBase64String("$($r.original)") }
+        catch {
+            throw ("The permission-file record at $RecordPath says a file existed and its copy of " +
+                   "that file is unreadable. Nothing was changed.")
+        }
+    }
+    [pscustomobject]@{
+        recordPath       = $RecordPath
+        settingsPath     = $sp
+        existed          = $r.existed
+        claudeDirCreated = $r.claudeDirCreated
+        original         = $bytes
+    }
+}
+
+# Puts the checkout's settings file back the way the record says it was, then removes the record.
+function Restore-CheckoutWorkerSettings {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RecordPath)
+
+    $r = Read-CheckoutSettingsRecord -RecordPath $RecordPath
+    if ($r.existed) {
+        [System.IO.File]::WriteAllBytes($r.settingsPath, $r.original)
+        $action = 'restored'
+    } else {
+        if (Test-Path -LiteralPath $r.settingsPath -PathType Leaf) {
+            Remove-Item -LiteralPath $r.settingsPath -Force
+        }
+        # Only a directory this worker's dispatch created, and only while it is empty - anything
+        # else in it is somebody else's.
+        $claudeDir = Split-Path -Parent $r.settingsPath
+        if ($r.claudeDirCreated -and (Test-Path -LiteralPath $claudeDir -PathType Container) -and
+            @(Get-ChildItem -LiteralPath $claudeDir -Force).Count -eq 0) {
+            Remove-Item -LiteralPath $claudeDir -Force
+        }
+        $action = 'deleted'
+    }
+    Remove-Item -LiteralPath $RecordPath -Force
+    [pscustomobject]@{ settingsPath = $r.settingsPath; action = $action }
+}
+
+# Cleanup for a worker in the project's own checkout. `muster` Step 8b points here rather than
+# carrying a second copy of the procedure.
+#
+# THREE THINGS IN THIS ORDER, and two it never does. Stop the worker, discard its pane, put the
+# settings file back. It NEVER deletes the branch and NEVER removes the checkout: there is no
+# worktree, the checkout is the King's own working tree, and the branch is where the work lives.
+#
+# The record is read BEFORE anything is stopped, so a record that cannot be stood behind stops the
+# cleanup at the start instead of half way. A worker that does not stop leaves the settings alone:
+# it is still running under them.
+function Stop-CheckoutWorker {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$RecordPath,
+        # The data root whose index lists the record. Index.psm1's own default unless a caller
+        # points it elsewhere, which is what lets a test drive this without the real installation.
+        [string]$DataPath = ''
+    )
+
+    $null = Read-CheckoutSettingsRecord -RecordPath $RecordPath
+
+    $stop = Stop-HerdrAgent -Name $Name
+    if (-not $stop.stopped) {
+        throw ("Worker $Name did not stop, so its pane and the checkout's settings file were left " +
+               "exactly as they are - it is still running under those grants. Nothing else was changed.")
+    }
+    $paneRemoved = $false
+    if ($stop.paneId) { $null = Remove-HerdrPane -PaneId $stop.paneId; $paneRemoved = $true }
+
+    $restored = Restore-CheckoutWorkerSettings -RecordPath $RecordPath
+
+    # The record was indexed when dispatch wrote it, so its line goes with it. A failure here is
+    # drift the next digest reports, never a reason to call the cleanup failed.
+    try {
+        if ($DataPath) { $null = Remove-IndexEntry -Path $RecordPath -DataPath $DataPath }
+        else           { $null = Remove-IndexEntry -Path $RecordPath }
+    } catch {
+        Write-Warning "The index line for $RecordPath could not be dropped ($($_.Exception.Message))."
+    }
+
+    [pscustomobject]@{
+        stopped      = $true
+        paneRemoved  = $paneRemoved
+        settings     = $restored.action
+        settingsPath = $restored.settingsPath
+    }
+}
+
+Export-ModuleMember -Function Set-WorkerWorkspaceSettings, Grant-ClaudeFolderTrust,
+                              Get-CheckoutSettingsRecordPath, New-CheckoutSettingsPlan,
+                              Set-CheckoutWorkerSettings, Read-CheckoutSettingsRecord,
+                              Restore-CheckoutWorkerSettings, Stop-CheckoutWorker

@@ -105,8 +105,10 @@ line and start immediately; a preamble about how you will now avoid preamble wri
 active mode claims it: there it ends the quick-exchange mode and this shape is left exactly as it
 was. Someone capped at one-line replies who asks for normal mode wants the ordinary Hand back
 rather than this discipline taken away, and where they want that too the phrase reaches here the
-next time they say it. With parley off, it turns the shape off exactly as above. `parley` owns its
-own rules; this is only which skill the phrase belongs to.
+next time they say it. While a `fief` session is in force with parley off, the session is the
+innermost mode and the phrase ends it instead - `fief` owns that. With neither in force, it turns
+the shape off exactly as above. `parley` owns its own rules; this is only which skill the phrase
+belongs to.
 
 Neither survives the session. Every new session starts shaped, because that is the default.
 Someone who wants it off permanently should say so in `instructions.md`, which is read every

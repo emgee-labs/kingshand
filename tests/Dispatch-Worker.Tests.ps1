@@ -1028,6 +1028,208 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
     # integrates on `dev`. Resolve-BaseRef is exercised on its own above; what a worker is actually
     # handed is decided here, where the resolved ref becomes both the branch point and the recorded
     # base. So this asserts the tree the worker opens, not just the string that came back.
+    # A `fief` session's warm worker runs in the project's own checkout, on the branch the King
+    # named, with no worktree. Nothing here may create or switch a branch, and every refusal comes
+    # before anything is created - the King's checkout is the one place a half-done dispatch costs
+    # him something.
+    Context 'a dispatch into the project''s own checkout' {
+        BeforeAll {
+            Set-AgentStartState
+
+            function Invoke-CheckoutDispatch {
+                # -Base main by default: these fixtures have no remote, and with nothing recorded the
+                # resolver's answer for a checkout is the session branch itself, which is refused.
+                # The case that drives that refusal passes -NoBase.
+                param([Parameter(Mandatory)]$Fixture, [string]$Name = 'acme-api-session',
+                      [string]$Branch = 'feature-x', [string]$RepoPath, [switch]$NoBase)
+                if (-not $RepoPath) { $RepoPath = $Fixture.Repo }
+                if ($NoBase) {
+                    & $script:DispatchScript -RepoPath $RepoPath -Name $Name -BriefPath $Fixture.BriefPath `
+                        -DataPath $Fixture.DataPath -InCheckout -Branch $Branch
+                } else {
+                    & $script:DispatchScript -RepoPath $RepoPath -Name $Name -BriefPath $Fixture.BriefPath `
+                        -DataPath $Fixture.DataPath -InCheckout -Branch $Branch -Base 'main' 3>$null
+                }
+            }
+
+            function Get-LocalBranches {
+                param([Parameter(Mandatory)][string]$Repo)
+                @(& git -C $Repo for-each-ref --format='%(refname:short)' refs/heads | Sort-Object)
+            }
+
+            # Nothing created: no settings file, no record, no spawn, the brief as it was.
+            function Assert-NothingCreated {
+                param([Parameter(Mandatory)]$Fixture, [Parameter(Mandatory)][string]$BriefBefore)
+                Test-Path -LiteralPath (Join-Path $Fixture.Repo '.claude') | Should -BeFalse
+                Test-Path -LiteralPath (Join-Path $Fixture.BriefDir 'checkout-settings.json') |
+                    Should -BeFalse
+                @(Get-CallLines $Fixture | Where-Object { $_ -like 'agent start*' }).Count | Should -Be 0
+                [System.IO.File]::ReadAllText($Fixture.BriefPath) | Should -Be $BriefBefore
+            }
+
+            $script:Co = New-DispatchFixture 'checkout'
+            git -C $script:Co.Repo checkout -q -b 'feature-x'
+            Set-Content -Path (Join-Path $script:Co.Repo 'wip.txt') -Value 'the owner''s' -Encoding utf8
+            Set-Content -Path (Join-Path $script:Co.Repo 'base.txt') -Value 'edited' -Encoding utf8
+            $script:CoBranches = Get-LocalBranches $script:Co.Repo
+            $script:CoResult   = Invoke-CheckoutDispatch -Fixture $script:Co
+            $script:CoBrief    = [System.IO.File]::ReadAllText($script:Co.BriefPath)
+        }
+
+        It 'runs the worker in the checkout itself, on the named branch' {
+            $script:CoResult.worktree | Should -Be $script:Co.Repo
+            $script:CoResult.branch   | Should -Be 'feature-x'
+            $script:CoResult.checkout | Should -BeTrue
+            (& git -C $script:Co.Repo rev-parse --abbrev-ref HEAD).Trim() | Should -Be 'feature-x'
+        }
+
+        It 'cuts no worktree and creates no branch' {
+            Test-Path -LiteralPath (Join-Path $script:Co.Repo '.claude\worktrees') | Should -BeFalse
+            @(& git -C $script:Co.Repo worktree list --porcelain | Where-Object { $_ -like 'worktree *' }).Count |
+                Should -Be 1
+            Get-LocalBranches $script:Co.Repo | Should -Be $script:CoBranches
+        }
+
+        It 'records the base the landing measures the whole branch against' {
+            $script:CoResult.base | Should -Be 'main'
+        }
+
+        # With nothing recorded, the resolver falls back to the branch the checkout is on - right
+        # for a worktree, where that is the default branch, and wrong here, where it is the session
+        # branch: a diff of the branch against itself is empty, and empty reads as clean.
+        It 'refuses a base that resolves to the session branch itself, before creating anything' {
+            $f = New-DispatchFixture 'checkout-selfbase'
+            git -C $f.Repo checkout -q -b 'feature-x'
+            $before = [System.IO.File]::ReadAllText($f.BriefPath)
+            { Invoke-CheckoutDispatch -Fixture $f -NoBase } | Should -Throw '*session branch feature-x itself*'
+            Assert-NothingCreated -Fixture $f -BriefBefore $before
+        }
+
+        It 'takes the base from the repository when it records one' {
+            $f = New-DispatchFixture 'checkout-origin'
+            $bare = "$($f.Repo)-remote.git"
+            $script:TempFixtures.Add($bare)
+            git init --bare -q -b main $bare
+            git -C $f.Repo remote add origin $bare
+            git -C $f.Repo push -q origin main 2>&1 | Out-Null
+            git -C $f.Repo remote set-head origin -a 2>&1 | Out-Null
+            git -C $f.Repo checkout -q -b 'feature-x'
+            (Invoke-CheckoutDispatch -Fixture $f -NoBase).base | Should -Be 'origin/main'
+        }
+
+        It 'grants the two settings in the checkout and records that no file existed before' {
+            $settings = Join-Path $script:Co.Repo '.claude\settings.local.json'
+            $json = Get-Content -LiteralPath $settings -Raw | ConvertFrom-Json
+            $json.permissions.defaultMode | Should -Be 'bypassPermissions'
+            @($json.permissions.additionalDirectories) | Should -Contain $script:Co.BriefDir
+            $script:CoResult.settingsRecord | Should -Be (Join-Path $script:Co.BriefDir 'checkout-settings.json')
+            (Get-Content -LiteralPath $script:CoResult.settingsRecord -Raw | ConvertFrom-Json).existed |
+                Should -BeFalse
+        }
+
+        It 'indexes the record it wrote, like every durable file under data' {
+            @(Get-IndexEntries -All -DataPath $script:Co.DataPath | ForEach-Object { $_.path }) |
+                Should -Contain 'data\brief\checkout-settings.json'
+        }
+
+        It 'writes the checkout warnings into the brief, with what was already uncommitted' {
+            $script:CoBrief.Contains('## Working in the checkout, not a worktree') | Should -BeTrue
+            $script:CoBrief.Contains('**You are not in a worktree.**') | Should -BeTrue
+            $script:CoBrief.Contains('**Stay on branch `feature-x`.**') | Should -BeTrue
+            $script:CoBrief.Contains('**Never stash, reset, checkout, restore or clean anything**') |
+                Should -BeTrue
+            $script:CoBrief.Contains('**Do not commit, push or open a pull request until a prompt tells you to.**') |
+                Should -BeTrue
+            $script:CoBrief.Contains('**not yours**') | Should -BeTrue
+            $script:CoBrief.Contains('- `?? wip.txt`') | Should -BeTrue
+            $script:CoBrief.Contains('- ` M base.txt`') | Should -BeTrue
+        }
+
+        It 'says plainly when nothing was uncommitted' {
+            $f = New-DispatchFixture 'checkout-clean'
+            git -C $f.Repo checkout -q -b 'feature-x'
+            $null = Invoke-CheckoutDispatch -Fixture $f
+            [System.IO.File]::ReadAllText($f.BriefPath).Contains(
+                'Nothing was uncommitted in this checkout when you were dispatched.') | Should -BeTrue
+        }
+
+        It 'refuses a checkout that is on another branch, before creating anything' {
+            $f = New-DispatchFixture 'checkout-wrong'
+            $before = [System.IO.File]::ReadAllText($f.BriefPath)
+            { Invoke-CheckoutDispatch -Fixture $f } | Should -Throw '*is on main*told to work on feature-x*'
+            Assert-NothingCreated -Fixture $f -BriefBefore $before
+            (& git -C $f.Repo rev-parse --abbrev-ref HEAD).Trim() | Should -Be 'main'
+        }
+
+        It 'refuses a detached HEAD, before creating anything' {
+            $f = New-DispatchFixture 'checkout-detached'
+            git -C $f.Repo checkout -q --detach
+            $before = [System.IO.File]::ReadAllText($f.BriefPath)
+            { Invoke-CheckoutDispatch -Fixture $f } | Should -Throw '*not on any branch*'
+            Assert-NothingCreated -Fixture $f -BriefBefore $before
+        }
+
+        It 'refuses a path below the top of the checkout' {
+            $f = New-DispatchFixture 'checkout-subdir'
+            git -C $f.Repo checkout -q -b 'feature-x'
+            $sub = Join-Path $f.Repo 'src'
+            New-Item -ItemType Directory -Force -Path $sub | Out-Null
+            { Invoke-CheckoutDispatch -Fixture $f -RepoPath $sub } | Should -Throw '*not one*'
+            Test-Path -LiteralPath (Join-Path $sub '.claude') | Should -BeFalse
+        }
+
+        It 'refuses -InCheckout with no branch, and a branch with no -InCheckout' {
+            $f = New-DispatchFixture 'checkout-args'
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'x1' -BriefPath $f.BriefPath `
+                  -DataPath $f.DataPath -InCheckout } | Should -Throw '*needs -Branch*'
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'x1' -BriefPath $f.BriefPath `
+                  -DataPath $f.DataPath -Branch 'main' } | Should -Throw '*-InCheckout was not passed*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude') | Should -BeFalse
+        }
+
+        It 'refuses a settings file it cannot read, before creating anything' {
+            $f = New-DispatchFixture 'checkout-badjson'
+            git -C $f.Repo checkout -q -b 'feature-x'
+            New-Item -ItemType Directory -Force -Path (Join-Path $f.Repo '.claude') | Out-Null
+            Set-Content -Path (Join-Path $f.Repo '.claude\settings.local.json') -Value '{ "permissions": '
+            $before = [System.IO.File]::ReadAllText($f.BriefPath)
+            { Invoke-CheckoutDispatch -Fixture $f } | Should -Throw '*not valid JSON*'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'checkout-settings.json') | Should -BeFalse
+            [System.IO.File]::ReadAllText($f.BriefPath) | Should -Be $before
+        }
+
+        # The record is the only copy of the King's original settings file. A second dispatch into
+        # a checkout nobody cleaned up would record the first worker's edit as the original.
+        It 'refuses a second dispatch while the first one''s record is still there' {
+            $before = [System.IO.File]::ReadAllText($script:Co.BriefPath)
+            $record = [System.IO.File]::ReadAllText($script:CoResult.settingsRecord)
+            { Invoke-CheckoutDispatch -Fixture $script:Co } | Should -Throw '*record already exists*'
+            [System.IO.File]::ReadAllText($script:CoResult.settingsRecord) | Should -Be $record
+            [System.IO.File]::ReadAllText($script:Co.BriefPath) | Should -Be $before
+        }
+
+        It 'replaces its own section on a re-dispatch rather than adding a second' {
+            $f = New-DispatchFixture 'checkout-again'
+            git -C $f.Repo checkout -q -b 'feature-x'
+            $r = Invoke-CheckoutDispatch -Fixture $f
+            $null = Restore-CheckoutWorkerSettings -RecordPath $r.settingsRecord
+            $null = Remove-IndexEntry -Path $r.settingsRecord -DataPath $f.DataPath
+            Set-Content -Path (Join-Path $f.Repo 'later.txt') -Value 'x' -Encoding utf8
+            $null = Invoke-CheckoutDispatch -Fixture $f
+            $text = [System.IO.File]::ReadAllText($f.BriefPath)
+            ([regex]::Matches($text, '(?m)^## Working in the checkout, not a worktree')).Count | Should -Be 1
+            $text.Contains('- `?? later.txt`') | Should -BeTrue
+            $text.Contains('SECRET-BODY-MARKER') | Should -BeTrue -Because 'the rest of the brief is untouched'
+        }
+
+        It 'never writes the checkout section into an ordinary worktree brief' {
+            $f = New-DispatchFixture 'worktree-plain'
+            $null = Invoke-Dispatch -Fixture $f -Name 'T-1901'
+            [System.IO.File]::ReadAllText($f.BriefPath).Contains('## Working in the checkout') |
+                Should -BeFalse
+        }
+    }
+
     Context 'a repository whose integration branch is not its default branch' {
         BeforeAll {
             Set-AgentStartState

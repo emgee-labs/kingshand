@@ -2,7 +2,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
-[![Tests](https://img.shields.io/badge/tests-2007%20passing-3fb950)](tests)
+[![Tests](https://img.shields.io/badge/tests-2080%20passing-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 # You rule. It executes.
@@ -61,7 +61,7 @@ reads.
   much gets written rather than what you get asked before anything ships.
 - **Your preferences stay yours.** `instructions.md` is read every session and never written by the
   tool - enforced by the permission layer, not just asked for in prose.
-- **Your other projects are untouched.** All eighteen skills live in this repository's own
+- **Your other projects are untouched.** All nineteen skills live in this repository's own
   `.claude\skills\`. Nothing is written into `~\.claude\`, so a session anywhere else on the machine
   behaves exactly as it did before.
 
@@ -197,7 +197,7 @@ astray - neither of which a detached background session allows.
 
 ## Built-in skills
 
-Eighteen, all project-local. Twelve you invoke; six the Hand loads for itself.
+Nineteen, all project-local. Thirteen you invoke; six the Hand loads for itself.
 
 | Skill | What it is for |
 |---|---|
@@ -209,6 +209,7 @@ Eighteen, all project-local. Twelve you invoke; six the Hand loads for itself.
 | `herald` | Owns reply shape, which is on by default. Load it to turn it off |
 | `vigil` | Owns the usage pulse, which is on by default. Load it to turn it off |
 | `parley` | Quick mode for small work - one or two line replies, nothing rendered, no review gate on the dispatch. Off until you say `quick question` |
+| `fief` | A session for one project - every request routes there, and one worker makes a run of fixes on one branch in your own checkout, committing and pushing only when you say. Off until you say `<project> session` |
 | `regency` | Hold the fleet while you are away, and batch what does not need you - `petition` below says what may be decided in your stead. Also `/afk` |
 | `audience` | What happened while you were away from this session |
 | `chronicle` | Curate durable memory before a context reset |
@@ -230,10 +231,14 @@ discovered later.
 
 What still constrains it:
 
-- Workers only ever run inside their own git worktree, never in your checkout.
+- Workers run inside their own git worktree, never in your checkout - except the one worker of a
+  `fief` session, which runs in your checkout only because you asked for it, on the branch you
+  already have checked out. Its settings file there is recorded before it is edited and put back
+  exactly at cleanup.
 - Each worktree is recorded as trusted in your own `~\.claude.json` before its worker starts, so an
   unattended worker does not stop on Claude Code's folder-trust dialog with nobody there to answer.
-  That entry is exactly the worktree kingshand just created - never its parent repository, and never
+  That entry is exactly the worktree kingshand just created - never its parent repository, except
+  the checkout a `fief` session's worker runs in, and never
   the machine. With no `~\.claude.json`, nothing is written and the worker stops at the dialog.
 - Nothing is dispatched into a repository you have not registered.
 - Nothing pushes unless that project is registered with a push-capable posture, and nothing is
@@ -256,7 +261,7 @@ VERSION                 this installation's version, and the only place it is wr
 bin\                    dispatch, worker state, registry, snapshot, digest, herdr, workspace prep,
                         version, self-update, browser verification, the away journal, the usage
                         window, a gate run's state and the wait on it
-.claude\skills\         eighteen project-local skills. They load only in this directory
+.claude\skills\         nineteen project-local skills. They load only in this directory
 tests\                  the Pester suite
 tools\herdr\            herdr, fetched and SHA-256 verified by the installer - gitignored,
                         and deliberately not on PATH

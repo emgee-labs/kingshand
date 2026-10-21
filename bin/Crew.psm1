@@ -37,6 +37,17 @@ Set-StrictMode -Version Latest
 # Parking a second time replaces the key rather than clearing it.
 #
 # docs\2026-09-04-parked-decision-route.md is the design record behind both paragraphs above.
+#
+# ONE WORKER, SEVERAL ITEMS, AND ONLY FOR A SESSION WORKER. Every other record maps one worker to one
+# ticket and reads exactly as it always has: no key is added to it, here or on import. A worker the
+# `fief` skill keeps warm for a run of fixes on one branch is recorded with -Session, and its record
+# carries `items` - every ticket or fix id riding that branch, in the order they joined it, each
+# with its kind. `ticket` stays the first item, so anything that reads one ticket per worker still
+# reads a true one. The list is durable, so it survives a restart, and it is the one source for the
+# commit and pull request titles, which name every id. Get-CrewItems reads either shape.
+#
+# A worker in the project's own checkout, with no worktree, carries `checkout` and the path of the
+# permission-file record dispatch wrote, which is what its cleanup reads back.
 
 $script:ValidStages = @('dispatched', 'implementing', 'gating', 'ready', 'landed', 'failed')
 $script:ValidKinds  = @('ticket', 'adhoc')
@@ -77,7 +88,15 @@ function Add-CrewWorker {
         # The ref the worktree actually branched from, as reported by Dispatch-Worker. Usually
         # origin/<default>, which is NOT the same as the local default branch when the local one
         # is behind. Every diff, log and attribution check at the landing gate must use this.
-        [string]$Base = 'origin/main'
+        [string]$Base = 'origin/main',
+        # A `fief` session's warm worker, which carries a list of items rather than one ticket.
+        # Off for every ordinary dispatch, so its records keep their shape.
+        [switch]$Session,
+        # Dispatched with -InCheckout, into the project's own checkout. SettingsRecord is the path
+        # Dispatch-Worker returned as settingsRecord, and it is required here because cleanup
+        # cannot put the King's settings file back without it.
+        [switch]$InCheckout,
+        [string]$SettingsRecord = ''
     )
 
     if ($Kind -notin $script:ValidKinds) {
@@ -85,6 +104,13 @@ function Add-CrewWorker {
     }
     if ($State.workers.ContainsKey($WorkerId)) {
         throw "Duplicate worker id '$WorkerId'."
+    }
+    if ($InCheckout -and -not $SettingsRecord.Trim()) {
+        throw ("A checkout worker needs -SettingsRecord - the record Dispatch-Worker returned as " +
+               "settingsRecord - or nothing can put the checkout's settings file back at cleanup.")
+    }
+    if ($SettingsRecord.Trim() -and -not $InCheckout) {
+        throw "-SettingsRecord is for a checkout worker; pass -InCheckout as well, or leave it off."
     }
 
     $State.workers[$WorkerId] = @{
@@ -100,6 +126,79 @@ function Add-CrewWorker {
         landed        = $false
         waiting_on    = $null
     }
+    if ($Session) {
+        $State.workers[$WorkerId].session = $true
+        $State.workers[$WorkerId].items   = @(@{ id = $Ticket; kind = $Kind })
+    }
+    if ($InCheckout) {
+        $State.workers[$WorkerId].checkout        = $true
+        $State.workers[$WorkerId].settings_record = $SettingsRecord.Trim()
+    }
+}
+
+# One more ticket or fix joining a session worker's branch, appended in order. Refused on a worker
+# that is not a session worker - an ordinary record maps one worker to one ticket and gaining a list
+# would change what every reader of it sees - and refused for an id already on the branch, because
+# a title naming one id twice is a title nobody can trust.
+function Add-CrewItem {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$State,
+        [Parameter(Mandatory)][string]$WorkerId,
+        [Parameter(Mandatory)][string]$Item,
+        [Parameter(Mandatory)][string]$Kind
+    )
+
+    if (-not $State.workers.ContainsKey($WorkerId)) { throw "Worker '$WorkerId' not found." }
+    if ($Kind -notin $script:ValidKinds) {
+        throw "Invalid kind '$Kind'. Must be one of: $($script:ValidKinds -join ', ')"
+    }
+    if ($Item -notmatch $script:HoldKeyPattern) {
+        throw ("Invalid item id '$Item'. Must be slug-shaped: letters, digits, '.', '_' or '-', " +
+               "and the first character must be a letter or a digit.")
+    }
+    $rec = $State.workers[$WorkerId]
+    if (-not ($rec.ContainsKey('session') -and $rec.session -eq $true)) {
+        throw ("Worker '$WorkerId' is not a session worker, so it carries one ticket and nothing " +
+               "joins it. Dispatch the new work on its own, or record the session worker with -Session.")
+    }
+    # Assigned rather than wrapped: Get-CrewItems returns its list through the leading-comma idiom.
+    $items = Get-CrewItems -State $State -WorkerId $WorkerId
+    if (@($items | Where-Object { $_.id -eq $Item }).Count -gt 0) {
+        throw "Item '$Item' is already on worker '$WorkerId''s branch."
+    }
+    $rec.items = @(@($rec.items) + @(@{ id = $Item; kind = $Kind }))
+}
+
+# Every item a worker carries, in order, as objects with `id` and `kind`. An ordinary record answers
+# with its one ticket, so a caller never has to know which shape it is holding. A session record
+# whose list cannot be read as that is refused by name: a title or a status line built from a guess
+# would name work that is not on the branch, or leave out work that is.
+function Get-CrewItems {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$State,
+        [Parameter(Mandatory)][string]$WorkerId
+    )
+
+    if (-not $State.workers.ContainsKey($WorkerId)) { throw "Worker '$WorkerId' not found." }
+    $rec = $State.workers[$WorkerId]
+    if (-not ($rec -is [System.Collections.IDictionary] -and $rec.Contains('items'))) {
+        return , @([pscustomobject]@{ id = "$($rec.ticket)"; kind = "$($rec.kind)" })
+    }
+    $out = foreach ($it in @($rec.items)) {
+        if (-not ($it -is [System.Collections.IDictionary]) -or -not $it.Contains('id') -or
+            -not $it.Contains('kind') -or "$($it.id)" -notmatch $script:HoldKeyPattern -or
+            "$($it.kind)" -notin $script:ValidKinds) {
+            throw ("Worker '$WorkerId' records an item list that cannot be read: every entry must " +
+                   "carry an id and a kind of $($script:ValidKinds -join ' or ').")
+        }
+        [pscustomobject]@{ id = "$($it.id)"; kind = "$($it.kind)" }
+    }
+    if (@($out).Count -eq 0) {
+        throw "Worker '$WorkerId' records an empty item list, so nothing says what rides its branch."
+    }
+    , @($out)
 }
 
 function Set-CrewWaitingOn {
@@ -203,4 +302,5 @@ function Import-CrewState {
 }
 
 Export-ModuleMember -Function New-CrewState, Add-CrewWorker, Set-CrewStage, Set-CrewWaitingOn,
-                              Get-CrewWorker, Get-CrewByStage, Save-CrewState, Import-CrewState
+                              Get-CrewWorker, Get-CrewByStage, Save-CrewState, Import-CrewState,
+                              Add-CrewItem, Get-CrewItems

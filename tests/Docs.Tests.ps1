@@ -3986,7 +3986,7 @@ Describe 'one file owns herdr''s command line, and the record says why' {
     It 'CLAUDE.md lists the workspace module that replaces the missing arguments' {
         Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
             -Phrase ('| `bin\ClaudeWorkspace.psm1` | writes a worktree''s `settings.local.json` ' +
-                     'and pre-seeds folder trust, because no arguments can be passed to a worker |')
+                     'and pre-seeds folder trust, because no arguments can be passed to a worker')
     }
 
     It 'statute states the one-owner rule for the spawn layer' {
@@ -5579,7 +5579,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                 -Phrase ('**While `parley` is loaded, "normal mode" is parley''s phrase and not this ' +
                          'one.**')
             Assert-Phrase -Text $herald -Where 'the herald skill' `
-                -Phrase 'With parley off, it turns the shape off exactly as above.'
+                -Phrase 'With neither in force, it turns the shape off exactly as above.'
             # The reasoning, in both, because a bare precedence rule is the thing a later edit
             # reverses as an inconsistency.
             foreach ($text in @($script:Parley, $herald)) {
@@ -5619,7 +5619,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
 
     It 'every skill directory lives under .claude\skills\' {
         $skills = @(Get-ChildItem (Join-Path $script:Root '.claude\skills') -Directory)
-        $skills.Count | Should -Be 18 -Because 'seventeen skills plus setup, all project-local'
+        $skills.Count | Should -Be 19 -Because 'eighteen skills plus setup, all project-local'
         @($skills.Name) | Should -Contain 'herald' -Because 'output shape has an owner the user can turn on'
         foreach ($s in $skills) {
             Test-Path -LiteralPath (Join-Path $s.FullName 'SKILL.md') |
@@ -7304,7 +7304,7 @@ Describe 'the installation has a version, and one command moves it to a release'
 
     It 'counts every skill that now loads' {
         Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'CLAUDE.md Skills' `
-            -Phrase 'so all eighteen load when Claude Code runs here'
+            -Phrase 'so all nineteen load when Claude Code runs here'
     }
 
     It 'gives the version and the update their own owners in the tooling table' {
@@ -9944,5 +9944,162 @@ Describe 'the review-surface contract is stated once and cross-referenced everyw
         Assert-Phrase -Text (Get-DocText $script:ImportMd) -Where 'the annex registry answer' `
             -Phrase ('and if you then wait on that surface, `muster`''s `## The review surface` ' +
                      'section owns answering in it and re-arming the poll.')
+    }
+}
+
+# fief, the project session mode. One project per session, one warm worker, one branch. Every rule
+# below is obeyed by a reader, so these pin the wording that carries each one: deleting the rule
+# fails here. The mechanics it leans on - the checkout dispatch, the permission file, the item list
+# - are tested through the code in Dispatch-Worker, ClaudeWorkspace and Crew.
+Describe 'fief holds one project per session and changes routing and delivery, never authority' {
+    BeforeAll {
+        $script:FiefMd = Join-Path $script:Root '.claude\skills\fief\SKILL.md'
+        $script:Fief   = Get-DocText $script:FiefMd
+        $script:HeraldMd = Join-Path $script:Root '.claude\skills\herald\SKILL.md'
+        $script:FiefNote = Join-Path $script:Root 'docs\2026-10-21-project-session.md'
+    }
+
+    It 'is entered only on the King''s own words, and fires on them' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**Fief is off by default, and nothing turns it on but the King''s own word.**'
+        $head = (Get-Content -Path $script:FiefMd -TotalCount 4) -join ' '
+        foreach ($p in @('"<project> session"', '"this session is for <project>"', '"fief <project>"',
+                         '"end session"')) {
+            $head.Contains($p) | Should -BeTrue -Because "the description must fire on $p"
+        }
+    }
+
+    It 'is session-scoped, with nothing under state carrying it' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'Nothing under `state\` carries the mode, so a restart drops it'
+    }
+
+    It 'says what a restarted session does on finding a live session worker' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase ('reports it in the orientation line - the project, the branch and the items on ' +
+                     'it - and does not re-enter the mode until the King says so.**')
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Skills section' `
+            -Phrase ('**A restarted session that finds a live session worker reports it in the ' +
+                     'orientation line and does not re-enter the mode until the King says so**')
+    }
+
+    It 'pins routing to the session''s project, with one line for a mismatch' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**While the mode is in force, every request resolves to the session''s project.**'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**A request that plainly names another project gets one line, and the Hand waits.**'
+    }
+
+    It 'keeps unrelated work off the session branch' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**Unrelated work never rides the session branch.**'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'it goes to its own branch and its own pull request through ordinary `muster` dispatch'
+    }
+
+    It 'loads the project''s context once, on entry, with absence a normal state' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**Load its context once**, now, and not again for each request'
+        foreach ($f in @('`data\rules-<project>.md`', '`data\done-<project>.md`',
+                         '`data\index\<project>.md`', '`data\session-<project>.md`')) {
+            $script:Fief.Contains($f) | Should -BeTrue -Because "the session loads $f on entry"
+        }
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' -Phrase '**Absent is a normal state**'
+    }
+
+    It 'leaves hard rules 1, 2 and 3 standing' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**Hard rule 1 holds.** The Hand writes no project code in a session - the warm worker does.'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**Hard rule 2 holds.** Nothing reaches a server without his word.'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' -Phrase '**Hard rule 3 holds.**'
+    }
+
+    It 'routes work and switches no account' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**It routes work and switches no account.**'
+    }
+
+    It 'has one warm worker, fed fixes as prompts, in the checkout by default' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**Each later fix reaches the same worker as a prompt, never as a new dispatch.**'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' -Phrase '**No worktree by default.**'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' -Phrase '-InCheckout -Branch "<branch he named>"'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'takes one ordinary worktree for the whole run of fixes'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' -Phrase 'Never one worktree per fix.'
+    }
+
+    It 'records the item before the worker is sent the fix' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'Add its id to the record first, with `Add-CrewItem`, and save'
+    }
+
+    It 'cleans a checkout worker up through the callable, which keeps the branch and checkout' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'Clean a checkout worker up with `Stop-CheckoutWorker`'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'it never deletes the branch and never removes the checkout'
+        Assert-Phrase -Text (Get-DocText $script:MusterMd) -Where 'muster Step 8b' `
+            -Phrase ('**A worker recorded with `checkout` has no worktree: tear it down with ' +
+                     '`Stop-CheckoutWorker` from `bin\ClaudeWorkspace.psm1`, passing its ' +
+                     '`settings_record`, and never with the steps below.**')
+        Assert-Phrase -Text (Get-DocText $script:MusterMd) -Where 'muster Step 4' `
+            -Phrase ('**A `fief` session''s warm worker is dispatched with `-InCheckout -Branch` and ' +
+                     'recorded with `-Session`**')
+    }
+
+    # The step rule has one owner, parley, and the session points at it rather than restating it.
+    It 'gives commit, push and pull request one word each, owned by parley''s step rule' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase ('**Commit, push and raise a pull request are three separate words, and each ' +
+                     'authorises only itself.** `parley`''s `## One step at a time` owns that rule')
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**Inside a session that holds whatever the project''s `yolo` says**'
+    }
+
+    It 'runs the review gate once, on the whole branch, at the push word' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**The gate runs once, on the whole branch, never per fix**'
+    }
+
+    It 'names every id in the commit and pull request titles, and calls out a change with no ticket' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'The title names every id on the branch, comma separated'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'calls out each item of kind `adhoc` as a change with no ticket'
+    }
+
+    # Which mode claims "normal mode" while both are loaded, in all three files that name it.
+    It 'settles "normal mode" between fief, parley and herald' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**"normal mode" belongs to the innermost active mode, and parley is the inner one.**'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase ('While parley is loaded, "normal mode" ends parley and the session carries on ' +
+                     'untouched. With parley off it ends the session, and leaves `herald` exactly as it was.')
+        Assert-Phrase -Text (Get-DocText $script:HeraldMd) -Where 'the herald skill' `
+            -Phrase ('While a `fief` session is in force with parley off, the session is the ' +
+                     'innermost mode and the phrase ends it instead')
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Skills section' `
+            -Phrase ('and while a `fief` session is in force with parley off it ends the session ' +
+                     'instead, which `fief` owns.')
+    }
+
+    It 'is triggered from CLAUDE.md, and its session file has an owner and a routing test' {
+        $hand = Get-DocText $script:HandMd
+        Assert-Phrase -Text $hand -Where 'the CLAUDE.md Skills section' `
+            -Phrase '`fief` is the project session mode, and it is **off by default** like parley'
+        Assert-Phrase -Text $hand -Where 'the CLAUDE.md What you own list' `
+            -Phrase '- `data\session-<project>.md` - how a `fief` session for one project runs'
+        Assert-Phrase -Text $hand -Where 'the CLAUDE.md Knowledge routing section' `
+            -Phrase ('Test it apart from the rules file by asking whether it holds for every piece of ' +
+                     'work on the project; where it holds only for how a session runs, it is the ' +
+                     'session file''s.')
+    }
+
+    It 'points at a design note that exists' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '`docs\2026-10-21-project-session.md` records the design and the two decisions the King made.'
+        Test-Path -LiteralPath $script:FiefNote | Should -BeTrue
     }
 }
