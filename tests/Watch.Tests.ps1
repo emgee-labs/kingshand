@@ -255,6 +255,27 @@ Describe 'A gate watch reports every outcome as its own line' {
 }
 
 Describe 'Watch-GateRun' {
+    BeforeEach { Mock -ModuleName Watch Get-GateRunState { $script:Running } }
+
+    # The wait takes its first reading as the baseline, so a run that had already ended when the
+    # watch was armed would never change and the watch would wait out its clock and say "re-arm".
+    It 'reports a run that had already ended at once rather than waiting on it' {
+        Mock -ModuleName Watch Get-GateRunState { $script:Passed }
+        Mock -ModuleName Watch Wait-GateRunChange { throw 'should not wait' }
+        $l = Watch-GateRun -RepoPath 'C:\repos\acme-api' -Branch 'feature-x'
+        Assert-OneLine $l
+        $l | Should -BeLike 'PASSED gate on feature-x*outcome passed*pull/7*'
+        Should -Invoke -ModuleName Watch Wait-GateRunChange -Times 0
+    }
+
+    It 'reports a run that had already failed at once' {
+        Mock -ModuleName Watch Get-GateRunState {
+            $s = $script:Passed.PSObject.Copy(); $s.outcome = 'failed'; $s }
+        Mock -ModuleName Watch Wait-GateRunChange { throw 'should not wait' }
+        $l = Watch-GateRun -Branch 'feature-x'
+        $l | Should -BeLike 'FAILED gate on feature-x*outcome failed*'
+    }
+
     # The wait returns on any change. A step moving on is not where the Hand is needed, so the watch
     # keeps going - and hands the last reading back in, so a park between two waits is seen.
     It 'waits through a step moving on and stops at the park, handing each reading back in' {

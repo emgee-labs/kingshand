@@ -300,7 +300,37 @@ function Format-GateWatch {
     }
 }
 
+# A reading that is already where a watch would stop - parked or ended - in the gate wait's own
+# shape, so it is reported now rather than waited on. $null for a run still going. -AllowParked
+# off leaves a park to the wait, for a watch armed after a steer that should move it.
+function ConvertTo-GateStopWait {
+    param($State, [bool]$AllowParked = $true)
+
+    $parked  = $AllowParked -and (Get-WatchField $State 'isParked') -eq $true
+    $outcome = "$(Get-WatchField $State 'outcome')"
+    if (-not $parked -and -not $outcome) { return $null }
+    # The reasons are the gate wait's own words for the same states.
+    $reason = if ($parked) { 'parked' }
+              elseif ($outcome -match '^passed\b') { 'finished' }
+              else { 'failed' }
+    [pscustomobject]@{
+        reason            = $reason
+        state             = $State
+        parkedOn          = if ($parked) { "$(Get-WatchField $State 'parkedOn')" } else { '' }
+        outcome           = $outcome
+        outcomeRecognised = [bool]($outcome -match '^(passed|failed|cancelled|aborted)\b')
+        unreadableReads   = 0
+        reads             = 1
+        changes           = @()
+    }
+}
+
 # A gate run, until it parks or ends. One line.
+#
+# Armed afresh, it reads the run once first: the wait takes its first reading as the baseline, so a
+# run that had already ended would never change and the watch would wait out its clock and say to
+# re-arm. An ended run is reported at once. A parked one is still waited on, because a watch armed
+# after a steer is waiting for that park to move.
 #
 # The wait underneath returns on ANY change, including a step moving on. This keeps waiting through
 # those - handing each reading back in with -FromState, so a park that lands between two waits is
@@ -321,6 +351,16 @@ function Watch-GateRun {
     $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
     $from     = $FromState
     $warned   = [System.Collections.Generic.List[object]]::new()
+
+    if ($null -eq $from) {
+        $first = $null
+        try { $first = Get-GateRunState -RepoPath $RepoPath -Run $Run -Branch $Branch }
+        catch { $first = $null }
+        if ("$(Get-WatchField $first 'status')" -eq 'has-run') {
+            $ended = ConvertTo-GateStopWait -State $first -AllowParked $false
+            if ($null -ne $ended) { return Format-GateWatch -Label $label -Wait $ended -ReadCommand $read }
+        }
+    }
 
     while ($true) {
         $left = [int][Math]::Ceiling(($deadline - (Get-Date)).TotalSeconds)
@@ -416,25 +456,9 @@ function Watch-Delivery {
     }
     if ($status -eq 'no-run') { return "$($worker.line) No gate run is recorded on $Branch." }
 
-    $read    = "Get-GateRunState -RepoPath '$RepoPath' -Branch '$Branch'"
-    $parked  = (Get-WatchField $gate 'isParked') -eq $true
-    $outcome = "$(Get-WatchField $gate 'outcome')"
-    if ($parked -or $outcome) {
-        # Already where a watch would stop, so it is reported now rather than waited on. The
-        # reasons are the gate wait's own words for the same states.
-        $reason = if ($parked) { 'parked' }
-                  elseif ($outcome -match '^passed\b') { 'finished' }
-                  else { 'failed' }
-        $stub = [pscustomobject]@{
-            reason            = $reason
-            state             = $gate
-            parkedOn          = if ($parked) { "$(Get-WatchField $gate 'parkedOn')" } else { '' }
-            outcome           = $outcome
-            outcomeRecognised = [bool]($outcome -match '^(passed|failed|cancelled|aborted)\b')
-            unreadableReads   = 0
-            reads             = 1
-            changes           = @()
-        }
+    $read = "Get-GateRunState -RepoPath '$RepoPath' -Branch '$Branch'"
+    $stub = ConvertTo-GateStopWait -State $gate
+    if ($null -ne $stub) {
         return "$($worker.line) Its gate: " +
                (Format-GateWatch -Label "on $Branch" -Wait $stub -ReadCommand $read)
     }
