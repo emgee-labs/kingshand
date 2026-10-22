@@ -361,6 +361,16 @@ Describe 'a fresh clone is told to set up, and is not sent after a skill that ca
             Should -BeFalse -Because 'a new reader''s first screen should not read as a typo'
     }
 
+    # A fresh clone has no check record, so without this the digest always asked a brand-new user
+    # about the weekly dependency check before they had installed anything it checks.
+    It 'does not ask about the weekly dependency check before setup has run' {
+        $script:FreshText.Contains('DEPENDENCY_CHECK_DUE') |
+            Should -BeFalse -Because 'the one step that works on a fresh clone is "set it up"'
+        $installed = New-Fixture 'installed-never-checked'
+        (Get-Digest $installed).Contains('DEPENDENCY_CHECK_DUE: the weekly dependency check has never run on this machine.') |
+            Should -BeTrue -Because 'once installed, a check that never ran is due again'
+    }
+
     It 'still renders every other section rather than stopping at the banner' {
         foreach ($section in @('FLEET', 'QUEUE', 'CONTEXT')) {
             $script:FreshText.Contains($section) |

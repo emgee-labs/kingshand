@@ -733,9 +733,12 @@ try {
     $recordPath = Join-Path (Split-Path $StatePath -Parent) 'dependency-check.json'
     $pinsScript = Join-Path $PSScriptRoot 'Update-DependencyPins.ps1'
     if (-not (Test-PathQuiet $pinsScript)) { throw "Update-DependencyPins.ps1 is not at $pinsScript." }
-    $check = & $pinsScript -Due -Root $script:Root -RecordPath $recordPath
+    # Not asked before setup has run. On a fresh clone the record is always absent, so the check
+    # would always read as never run - and the first question a new user heard would be about a
+    # weekly maintenance step for tools they have not installed yet, ahead of the one step that works.
+    $check = if ($script:NotSetUp) { $null } else { & $pinsScript -Due -Root $script:Root -RecordPath $recordPath }
 
-    if ($check.state -ne 'not-due') {
+    if ($check -and $check.state -ne 'not-due') {
         # The week the check is for, as the backlog id the Hand files it under. ISO weeks, so the
         # same week has the same id on every machine and in every culture.
         $now  = (Get-Date).ToUniversalTime()
