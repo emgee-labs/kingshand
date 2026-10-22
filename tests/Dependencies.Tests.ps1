@@ -331,3 +331,100 @@ Describe 'the weekly pin report' {
         { & "$PSScriptRoot\..\bin\Update-DependencyPins.ps1" -Root $bad } | Should -Throw "*'x'*"
     }
 }
+
+# The weekly check's record. Every case runs against an empty manifest, which is a report that
+# completes with no pins and so needs no network, and against its own root under TestDrive - the
+# live state\ is never read or written.
+Describe 'the weekly check''s record' {
+    BeforeAll {
+        $script:PinsScript = Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Update-DependencyPins.ps1'
+        function Get-RecordPath { param([string]$Root) Join-Path $Root 'state\dependency-check.json' }
+        function Set-Record {
+            param([string]$Root, [string]$Text)
+            New-Item -ItemType Directory -Force -Path (Join-Path $Root 'state') | Out-Null
+            Set-Content -LiteralPath (Get-RecordPath $Root) -Value $Text -Encoding utf8
+        }
+        function Set-RecordAge {
+            param([string]$Root, [double]$Days)
+            $when = [datetime]::UtcNow.AddDays(-$Days).ToString('o')
+            Set-Record $Root "{`"owner`":`"kingshand-dependency-check`",`"lastRun`":`"$when`"}"
+        }
+    }
+
+    It 'says never when there is no record' {
+        $root = New-PinRoot -Json '{}'
+        $d = & $script:PinsScript -Due -Root $root
+        $d.state   | Should -Be 'never'
+        $d.lastRun | Should -BeNullOrEmpty
+    }
+
+    It 'says due past seven days, with how many' {
+        $root = New-PinRoot -Json '{}'
+        Set-RecordAge $root 9.5
+        $d = & $script:PinsScript -Due -Root $root
+        $d.state | Should -Be 'due'
+        $d.days  | Should -Be 9
+    }
+
+    It 'says not due inside seven days' {
+        $root = New-PinRoot -Json '{}'
+        Set-RecordAge $root 6.5
+        (& $script:PinsScript -Due -Root $root).state | Should -Be 'not-due'
+    }
+
+    It 'reads <name> as unreadable, says why, and never gives a date' -ForEach @(
+        @{ name = 'text that is not JSON';   text = 'hello';                                   why = 'not this check''s own record' }
+        @{ name = 'another owner''s record'; text = '{"owner":"someone-else","lastRun":"x"}'; why = 'not this check''s own record' }
+        @{ name = 'a record with no date';    text = '{"owner":"kingshand-dependency-check"}'; why = 'no date' }
+        @{ name = 'a date in the future';     text = '{"owner":"kingshand-dependency-check","lastRun":"2999-01-01T00:00:00.0000000Z"}'; why = 'in the future' }
+    ) {
+        $root = New-PinRoot -Json '{}'
+        Set-Record $root $text
+        $d = & $script:PinsScript -Due -Root $root
+        $d.state   | Should -Be 'unreadable'
+        $d.lastRun | Should -BeNullOrEmpty
+        $d.days    | Should -BeNullOrEmpty
+        $d.detail  | Should -Match ([regex]::Escape($why))
+    }
+
+    It 'does not reset the clock on a plain run, which is a look and not the check' {
+        $root = New-PinRoot -Json '{}'
+        Set-RecordAge $root 10
+        $null = & $script:PinsScript -Root $root
+        (& $script:PinsScript -Due -Root $root).state | Should -Be 'due'
+        $root2 = New-PinRoot -Json '{}'
+        $null = & $script:PinsScript -Root $root2
+        Test-Path (Get-RecordPath $root2) | Should -BeFalse -Because 'a plain run writes nothing'
+    }
+
+    It 'resets the clock on -Record, starting a record where there was none' {
+        $root = New-PinRoot -Json '{}'
+        $null = & $script:PinsScript -Record -Root $root
+        $d = & $script:PinsScript -Due -Root $root
+        $d.state | Should -Be 'not-due'
+        $d.days  | Should -Be 0
+        Set-RecordAge $root 10
+        $null = & $script:PinsScript -Record -Root $root
+        (& $script:PinsScript -Due -Root $root).state | Should -Be 'not-due'
+    }
+
+    It 'records nothing when the report could not run' {
+        $root = New-PinRoot -Json '{"x":{"source":"pip","version":"1.0.0"}}'
+        { & $script:PinsScript -Record -Root $root } | Should -Throw "*'x'*"
+        Test-Path (Get-RecordPath $root) | Should -BeFalse
+    }
+
+    It 'refuses to overwrite a file that is not its own record, and leaves it untouched' {
+        $root = New-PinRoot -Json '{}'
+        Set-Record $root '{"owner":"someone-else"}'
+        { & $script:PinsScript -Record -Root $root } | Should -Throw '*not this check''s own record*'
+        (Get-Content -Raw (Get-RecordPath $root)).Trim() | Should -Be '{"owner":"someone-else"}'
+    }
+
+    It 'refuses a record path that is not named for it' {
+        $root = New-PinRoot -Json '{}'
+        $other = Join-Path $root 'state\crew.json'
+        { & $script:PinsScript -Record -Root $root -RecordPath $other } | Should -Throw '*dependency-check.json*'
+        Test-Path $other | Should -BeFalse
+    }
+}
