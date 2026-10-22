@@ -355,7 +355,10 @@ Describe 'a fresh clone is told to set up, and is not sent after a skill that ca
     It 'does not name /annex while it is still unreachable' {
         $script:FreshText.Contains('/annex') |
             Should -BeFalse -Because 'the registry and toolchain it needs are created by install.ps1, which has not run'
-        $script:FreshText.Contains('set it up first') | Should -BeTrue
+        $script:FreshText.Contains('nothing can be dispatched until "set it up" has run first.') |
+            Should -BeTrue -Because 'the registry line names the same step the banner does, as a sentence'
+        $script:FreshText.Contains('until set it up first') |
+            Should -BeFalse -Because 'a new reader''s first screen should not read as a typo'
     }
 
     It 'still renders every other section rather than stopping at the banner' {

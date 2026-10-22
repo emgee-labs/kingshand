@@ -457,7 +457,7 @@ try {
         # Before setup has run, /annex is not a linked skill, so naming it here sends a
         # new reader after a command that does not exist. The first-run banner above already
         # named the one step that works.
-        $next = if ($script:NotSetUp) { 'set it up first' } else { 'a project is registered with /annex' }
+        $next = if ($script:NotSetUp) { '"set it up" has run first' } else { 'a project is registered with /annex' }
         if ($snap.registry.present) {
             Add-Line "  Projects: none registered - nothing can be dispatched until $next."
         } else {
