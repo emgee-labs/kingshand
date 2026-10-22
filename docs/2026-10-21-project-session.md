@@ -31,7 +31,8 @@ a worktree. Making it a mode is mostly making those mechanical.
   than building from the failure, and puts the original back or deletes the file at cleanup.
   `Stop-CheckoutWorker` is that cleanup, and it never deletes the branch or removes the checkout.
   A session that wants isolation gets one ordinary worktree for the whole run.
-- **The checkout warnings are a fixed brief section the dispatcher writes**: not in a worktree,
+- **The checkout warnings are a fixed section the dispatcher writes** - into the dispatch file
+  beside the brief since 2026-10-22, never into the brief itself: not in a worktree,
   the branch to stay on, the commands never to run, commit and push only on a prompt, and git's
   own listing of what was already uncommitted and stashed, quoted as not the worker's. The first
   dispatch keeps that listing as a baseline beside the brief, never in the checkout, so a relaunch

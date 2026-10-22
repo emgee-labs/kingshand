@@ -422,6 +422,33 @@ Describe 'Waiting for a change' {
         $w.changes.Count | Should -Be 0
     }
 
+    # A watch that re-arms after a step transition hands the reading it last saw back in. A park
+    # landing in the moment between the two waits is then a change this wait reports - taken as its
+    # own first read instead, it would become the baseline and the park would never be seen.
+    It 'compares against a reading it was handed, so a park between two waits is not lost' {
+        Mock -ModuleName GateRunWait Start-Sleep { }
+        Set-ReadQueue @($script:Parked)
+
+        $w = Wait-GateRunChange -PollSeconds 1 -FromState $script:Running
+
+        $w.changed  | Should -BeTrue
+        $w.reason   | Should -Be 'parked'
+        $w.reads    | Should -Be 1
+        $w.baseline | Should -Be $script:Running
+    }
+
+    # An unreadable reading is never a baseline, handed in or not: it is ignored, and the wait takes
+    # its own first readable read as it would have anyway.
+    It 'ignores a handed-in reading that is not a readable one' {
+        Set-ReadQueue @($script:Parked)
+        $bad = ConvertFrom-GateRunOutput -Text ''
+
+        $w = Wait-GateRunChange -TimeoutSeconds 1 -PollSeconds 1 -FromState $bad
+
+        $w.changed | Should -BeFalse
+        $w.reason  | Should -Be 'timeout'
+    }
+
     It 'does not report the park it was armed on as new when only its clock moved' {
         # FAILURE 2 AGAIN, BY THE DOOR THE CASE ABOVE CANNOT WATCH. That one re-reads one decoded
         # reading, so its `awaiting_agent` never advances and a ticking clock inside the signature

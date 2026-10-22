@@ -4,9 +4,10 @@
 #
 # So the two behaviours that carry the whole design are pinned hardest here: writing a file and
 # indexing it must be ONE call, and a file no index lists must be counted as drift. Everything else
-# - the one-line cap, the per-project scope, the three exclusions - exists to keep those two
-# honest. The exclusions are an index file, a rendered `*.html` surface and a `read-first\` copy,
-# and each passes the same test: it is derived from a file the index already lists, so an entry
+# - the one-line cap, the per-project scope, the four exclusions - exists to keep those two
+# honest. The exclusions are an index file, a rendered `*.html` surface, a `read-first\` copy and
+# a dispatch file beside its brief, and each passes the same test: it is derived from a file the
+# index already lists, so an entry
 # would record one fact twice. An exclusion that cannot say what it is derived from does not
 # belong, whatever the count.
 #
@@ -301,6 +302,20 @@ Describe 'a file no index lists is drift, and drift is counted' {
 
         @(Get-IndexDrift -DataPath $data).unindexed |
             Should -Be @('data\read-first-notes.md', 'data\T-1\report.md')
+    }
+
+    # What dispatch adds to a brief goes to <name>.dispatch.md beside it, rewritten on every
+    # dispatch from the brief and from files the index lists at their own paths. Derived, so it is
+    # excluded - but only beside the brief it came from: a `.dispatch.md` with no `<name>.md` next
+    # to it is not dispatch's file, and it counts like anything else.
+    It 'never counts a dispatch file beside its brief, and still counts one with no brief' {
+        $data = New-DataFixture 'dispatch-files'
+        New-DataFile -DataPath $data -Relative 'T-1\brief.md'          | Out-Null
+        New-DataFile -DataPath $data -Relative 'T-1\brief.dispatch.md' | Out-Null
+        New-DataFile -DataPath $data -Relative 'T-2\notes.dispatch.md' | Out-Null
+        Add-IndexEntry -Path 'data\T-1\brief.md' -Summary 'the brief' -Project 'acme' -DataPath $data | Out-Null
+
+        @((Get-IndexDrift -DataPath $data).unindexed) | Should -Be @('data\T-2\notes.dispatch.md')
     }
 
     It 'never counts a rendered surface or an index against the drift' {

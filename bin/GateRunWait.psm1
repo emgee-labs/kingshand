@@ -385,6 +385,13 @@ function Get-GateRunStopReason {
 # different, finished run and reported success immediately. Naming the branch turns that into a
 # refusal, and a refusal is a `no-run` reading this wait will happily baseline and then notice
 # changing the moment the right run appears.
+#
+# -FromState IS FOR A CALLER RE-ARMING ON A RUN IT IS ALREADY WATCHING. Passed the `.state` an earlier
+# wait returned, this compares against that reading instead of taking its own first read as the
+# baseline - so a park that lands in the moment between the two waits is a change this wait reports,
+# rather than the baseline it silently starts from. Left off, which is every caller arming a watch
+# afresh, the first readable read is the baseline exactly as before. A baseline that is not a
+# readable reading is ignored rather than trusted, because an unreadable read is never a baseline.
 function Wait-GateRunChange {
     [CmdletBinding()]
     param(
@@ -393,7 +400,8 @@ function Wait-GateRunChange {
         [string]$Branch = '',
         [int]$TimeoutSeconds = 0,
         [int]$PollSeconds = $script:DefaultPollSeconds,
-        [int]$UnreadableTolerance = $script:DefaultUnreadableTolerance
+        [int]$UnreadableTolerance = $script:DefaultUnreadableTolerance,
+        $FromState = $null
     )
 
     if ($PollSeconds -lt 1)         { $PollSeconds = 1 }
@@ -415,6 +423,17 @@ function Wait-GateRunChange {
     $consecutive    = 0
     $lastDetail     = ''
     $lastSignal     = ''
+
+    # A variable named for the parameter would be the same variable as $baseline above - PowerShell
+    # names are not case-sensitive - which is why the parameter is -FromState.
+    if ($null -ne $FromState -and
+        ($FromState.PSObject.Properties.Name -contains 'status') -and
+        "$($FromState.status)" -in @('has-run', 'no-run')) {
+        $baseline      = $FromState
+        $baselineSig   = Get-GateRunSignature -State $FromState
+        $baselineTaken = Get-StateText -State $FromState -Name 'takenAt'
+        $state         = $FromState
+    }
 
     $report = {
         param($changed, $reason, $detail, $changes, $outcomeRecognised)

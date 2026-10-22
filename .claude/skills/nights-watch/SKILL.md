@@ -30,7 +30,7 @@ would make every afk an authorisation.
    The threshold defaults to 90 percent of the driving window, at most two workers run at once, and
    merging is on wherever a project's entry declares `+watch-merge`. `-NoMerge` turns watch merging
    off for this run; **nothing he can say at invocation turns it on where the token is absent.**
-3. **Run regency's steps 2 and 3** - confirm every worker is readable, arm a wait for each one.
+3. **Run regency's steps 2 and 3** - confirm every worker is readable, arm a watch for each one.
 4. Say one line naming the options and that the watch runs only while this session stays open, and
    stop talking.
 
@@ -95,9 +95,9 @@ unchanged** - load it, apply it, and never restate it here. Record each one the 
 `decree` either way, as regency says.
 
 **A worker legitimately parked is not wedged.** Once `muster` Step 6 has found it parked, record it
-once with `Write-WatchRecordOnce` and watch its gate with `Wait-GateRunChange` from
-`bin\GateRunWait.psm1` rather than a progress wait, so a parked lane is one record, not a stall
-report every threshold. A blocked worker's prompt stays regency's case and is never answered.
+once with `Write-WatchRecordOnce` and watch its gate with `bin\Watch.ps1 gate <id>` rather than a
+worker watch, so a parked lane is one record, not a stall report every threshold. A blocked
+worker's prompt stays regency's case and is never answered.
 
 ## The usage window
 

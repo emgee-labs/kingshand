@@ -99,7 +99,8 @@ $r = & $env:KINGSHAND_HOME\bin\Dispatch-Worker.ps1 `
 
 The dispatcher's header owns what that switch refuses and writes - it never creates or switches a
 branch, it refuses a checkout not already on that branch, and it writes the checkout warnings into
-the brief itself. Relay any refusal as it comes: a checkout on the wrong branch is his to switch.
+the dispatch file beside the brief, as `muster` Step 4 says. Relay any refusal as it comes: a
+checkout on the wrong branch is his to switch.
 
 **A session that asks for isolation** - "use a worktree", or work he must not see half-done in his
 checkout - takes one ordinary worktree for the whole run of fixes: the same call without
@@ -121,7 +122,7 @@ shape.
 **Each later fix reaches the same worker as a prompt, never as a new dispatch.** Add its id to
 the record first, with `Add-CrewItem`, and save - so the list on disk is the branch's truth before
 the worker touches anything. A fix with no ticket gets a short slug of its own and kind `adhoc`.
-Then send the fix with `Send-HerdrPrompt`, wait for `working`, and re-arm the wait, as Step 4
+Then send the fix with `Send-HerdrPrompt`, wait for `working`, and re-arm the watch, as Step 4
 requires of any prompt you send yourself. The King asking for a fix is his word for that fix;
 where sending it would add scope he did not state, that is a Step 3 question in one line first.
 

@@ -102,8 +102,9 @@ the skill which of the two is meant to load it and when.
 
 Briefs for tasks that touch kingshand's own tracked material should tell the worker to load this
 skill. Nothing in the dispatcher acts on that case. `Dispatch-Worker.ps1` does match the repo path
-against `data\projects.md`, and it does add lines to a brief - one `Read first` line per standing
-file it attached for the resolved project - but it composes those lines itself and knows nothing
+against `data\projects.md`, and it does add lines for a brief - one `Read first` line per standing
+file it attached for the resolved project, in the dispatch file beside the brief rather than in the
+brief itself - but it composes those lines itself and knows nothing
 about what a task touches. Add the instruction to kingshand-repo briefs by hand instead, or put it
 in `data\rules-kingshand.md`, which reaches every worker dispatched here without anyone passing it.
 
