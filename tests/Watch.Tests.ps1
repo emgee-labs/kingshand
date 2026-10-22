@@ -242,6 +242,13 @@ Describe 'A gate watch reports every outcome as its own line' {
         $l | Should -BeLike 'NO OUTCOME gate on feature-x after 30 minutes*review running*1 of its 4 reads*'
     }
 
+    It 'says a run that timed out parked is parked, and points at its findings rather than another wait' {
+        $l = Format-GateWatch -Label 'on feature-x' -Wait (New-GateWait -Reason 'timeout' -State $script:Parked)
+        Assert-OneLine $l
+        $l | Should -BeLike 'NO OUTCOME gate on feature-x*nothing moved, and it is parked at its review step*petition*'
+        $l | Should -Not -BeLike '*neither parked nor ended*'
+    }
+
     It 'reads a wait result it cannot read as unreadable' {
         Format-GateWatch -Label 'on feature-x' -Wait $null | Should -BeLike 'UNREADABLE gate*'
     }
@@ -285,6 +292,16 @@ Describe 'Watch-Delivery' {
         Should -Invoke -ModuleName Watch Wait-GateRunChange -Times 1 -ParameterFilter {
             $null -ne $FromState -and $RepoPath -eq 'C:\wt'
         }
+    }
+
+    It 'keeps the worker''s own line, input box and all, when it went idle while its run kept going' {
+        Mock -ModuleName Watch Wait-HerdrAgentProgress { New-Wake -State 'done' -Box 'half-typed reply' }
+        Mock -ModuleName Watch Get-GateRunState { $script:Running }
+        Mock -ModuleName Watch Wait-GateRunChange { New-GateWait -Reason 'finished' -State $script:Passed }
+
+        $l = Watch-Delivery -Name 'T-1' -RepoPath 'C:\wt' -Branch 'feature-x'
+        Assert-OneLine $l
+        $l | Should -BeLike "IDLE WHILE GATE RUNS T-1*PASSED gate*SETTLED T-1*'half-typed reply'*load rally*Last seen: Wrote report.md*"
     }
 
     It 'reports a gate that was already parked when the worker stopped, with its findings' {

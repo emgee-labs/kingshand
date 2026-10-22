@@ -131,7 +131,8 @@ $script:Lines    = [System.Collections.Generic.List[string]]::new()
 $script:DefaultListCap = 25
 $script:ListCap  = $script:DefaultListCap
 # Workers are capped tighter than other lists, because each line is long and the ones past the cap
-# are the least urgent: the list is sorted live first, then recorded as working, then waiting.
+# are the least urgent: the list is sorted live first, then recorded as working, then waiting. A
+# live worker is never cut, because Recovery re-arms a watch on every live worker this list names.
 $script:WorkerCap = 8
 
 # THE HARNESS'S INLINE LIMIT, AND THE NUMBER THIS WHOLE DIGEST IS BUILT AROUND. Claude Code caps a
@@ -639,7 +640,7 @@ try {
         $failed = $over.Count - $landed
         Add-Line ("  Workers: $($workers.Count) recorded - $($active.Count) live or not finished, " +
                   "$landed landed and $failed failed, none of them read live. Get-CrewStatus lists them all.")
-        $script:ListCap = $script:WorkerCap
+        $script:ListCap = [Math]::Max($script:WorkerCap, @($active | Where-Object { & $isLive $_ }).Count)
         Add-BoundedList -Items @($active | ForEach-Object {
             $liveText = if ($null -eq $_.live) { 'liveness unknown' } elseif ($_.live) { 'live' } else { 'not live' }
             $agent    = Get-Field $_ 'agentState'
@@ -701,7 +702,7 @@ try {
 #
 #     NOTHING HERE DECIDES WHETHER THE PULSE SHOULD RUN. The King turns it off by
 #     writing a line in his own standing instructions, which this digest prints
-#     whole further down, and the Hand honours it by having read them. A script
+#     whole at the top, and the Hand honours it by having read them. A script
 #     matching a phrase in free prose somebody wrote by hand is the open-ended
 #     scanner the standing criteria forbid, so the command is printed unconditionally
 #     and the judgement stays with the reader.

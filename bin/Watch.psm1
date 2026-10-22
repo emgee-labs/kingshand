@@ -282,6 +282,13 @@ function Format-GateWatch {
             $never = if ($null -eq $state) { ' No readable reading was ever taken.' } else { '' }
             $mins  = [Math]::Round([double](Get-WatchField $Wait 'waitedSeconds') / 60, 1)
             $unit  = if ($mins -eq 1) { 'minute' } else { 'minutes' }
+            if ((Get-WatchField $state 'isParked') -eq $true) {
+                $on = "$(Get-WatchField $state 'parkedOn')"
+                $at = if ($on) { " at its $on step" } else { '' }
+                return ("NO OUTCOME gate $Label after $mins $unit - nothing moved, and it is " +
+                        "parked$at.$where$blind Next: read its findings with $ReadCommand and " +
+                        'decide under petition; re-arming would only wait on it again.')
+            }
             return ("NO OUTCOME gate $Label after $mins $unit - it neither parked nor ended." +
                     "$where$never$blind Next: re-arm this watch.")
         }
@@ -435,7 +442,7 @@ function Watch-Delivery {
     $gateLine = Watch-GateRun -RepoPath $RepoPath -Branch $Branch -TimeoutMinutes $TimeoutMinutes `
                     -FromState $gate
     "IDLE WHILE GATE RUNS $Name - its turn ended while the gate run it started on $Branch kept " +
-    "going, so the gate was watched instead. $gateLine"
+    "going, so the gate was watched instead. $gateLine The worker: $($worker.line)"
 }
 
 Export-ModuleMember -Function Format-WorkerWake, Format-GateWatch, Watch-Worker, Watch-GateRun,
