@@ -3,8 +3,9 @@
 .SYNOPSIS
   The once-per-session digest: this installation's version, toolchain problems, fleet state, what
   a restart killed and has to be re-armed, the queue, whether the weekly dependency check is due on
-  a maintainer's installation, whether a newer release exists, where the data index is and how far it has drifted, the King's own standing instructions, and the
-  two curated memory files, rendered as one block a session can read and trust.
+  a maintainer's installation, whether a newer release exists, where the data index is and how far
+  it has drifted, the King's own standing instructions, and the two curated memory files, rendered
+  as one block a session can read and trust.
 .DESCRIPTION
   This is operational input, not a report. It runs from a SessionStart hook and its whole purpose
   is to make a restart a non-event: everything a fresh session needs to orient itself is printed
