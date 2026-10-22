@@ -1,6 +1,6 @@
 ---
 name: statute
-description: Reference for changing kingshand's own tracked material - `CLAUDE.md`, `bin\`, `.claude\skills\`, `tests\`, `docs\`. Load it before editing any of that material, whether working as the Hand directly or as a worker briefed on a kingshand-repo task. Covers the knowledge-placement decision tree, the one-owner rule for contracts, the inline-stub pattern for content moved into a skill, size discipline for the always-loaded file, trigger hygiene for new skills, the rule that a prose rule needs a test, matching a new rule's form to the failure it is for, and kingshand's style rules.
+description: Reference for changing kingshand's own tracked material - `CLAUDE.md`, `bin\`, `.claude\skills\`, `tests\`, `docs\`. Load it before editing any of that material, whether working as the Hand directly or as a worker briefed on a kingshand-repo task. Covers the knowledge-placement decision tree, the one-owner rule for contracts, the inline-stub pattern for content moved into a skill, size discipline for the always-loaded file, trigger hygiene for new skills, the rule that a prose rule needs a test, matching a new rule's form to the failure it is for, the dependency pins and their weekly refresh, and kingshand's style rules. Also load it to run that weekly refresh.
 version: 1.0.0
 ---
 
@@ -149,6 +149,25 @@ suppresses code blocks, so say what to do in that case instead of carving it out
 rule 5 is the worked example on our own material, a length prohibition with two exemptions hung
 off it - and it stays as written, because this guidance shapes the next rule rather than
 reopening one already in force.
+
+## Dependency pins
+
+`dependencies.json` at the repo root records the exact version of every dependency a release was
+verified with - herdr with each platform's SHA-256, the review gate, and the npm tools - and a
+minimum for Claude Code, which updates itself. `install.ps1 -SyncPins` moves a user to those pins
+and `/update` runs it, so **a pin is what every user ends up on, and is never moved past.**
+`bin\Dependencies.psm1` owns the manifest's fields and how each version is read.
+
+**Moving a pin is a maintainer's job, done weekly, and it ships only in a release.** The refresh:
+
+1. Run `bin\Update-DependencyPins.ps1`. It writes nothing; it lists each pin, the latest published
+   version, and whether moving to it crosses a breaking line.
+2. For each move that is not breaking, bump the pin in `dependencies.json` on a branch - for herdr,
+   the version, the protocol and every platform's SHA-256, copied from `https://herdr.dev/latest.json`.
+3. Run the whole suite, and for herdr the live checks against a separate test server that
+   `docs\2026-10-22-herdr-0-9-5.md` describes. Ship only what passes, in that week's release.
+4. **A breaking move stays pinned and becomes its own task** - a herdr protocol change or a major
+   version is re-verified on its own branch, never folded into the weekly bump.
 
 ## Style rules
 

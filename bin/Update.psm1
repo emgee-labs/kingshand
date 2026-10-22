@@ -27,7 +27,8 @@ Set-StrictMode -Version Latest
 #
 # The user's own state is never involved. `data\`, `state\`, `config\`, `tools\` and
 # `instructions.md` are gitignored, so no fetch or fast-forward can reach them, and this module
-# adds no machinery to protect what git already ignores.
+# adds no machinery to protect what git already ignores. The one thing that does move under
+# `tools\` is a dependency the re-run installer brings to the release's pinned version.
 #
 # NOT -Force on either import - a module never forces a nested import. The rule and the failure it
 # prevents are in the `statute` skill's style rules.
@@ -470,12 +471,17 @@ function Invoke-KingshandUpdate {
     # install.ps1 is idempotent and is called, never reimplemented. Its output is captured so a
     # caller reports the outcome rather than leaking a wall of installer text.
     #
+    # -SyncPins, so every dependency moves to the version the new release pins and nobody has to do
+    # it by hand. install.ps1 owns what that moves and what it refuses - it never goes past a pin and
+    # never replaces herdr under a running server - and a pin it could not reach exits non-zero,
+    # which arrives here as installOk false with the reason in installError.
+    #
     # $LASTEXITCODE is cleared first because it is global and holds whatever the last native
     # command left there. A script that returns without calling `exit` would otherwise be read as
     # having failed with some earlier command's status.
     try {
         $global:LASTEXITCODE = 0
-        $installOut = @(& $InstallScript *>&1)
+        $installOut = @(& $InstallScript -SyncPins *>&1)
         $installCode = $LASTEXITCODE
         $global:LASTEXITCODE = 0
         $result.installOk = ($installCode -eq 0)

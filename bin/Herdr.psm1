@@ -10,7 +10,9 @@ Set-StrictMode -Version Latest
 # was.
 #
 # Every non-obvious rule below was observed on this machine against herdr 0.8.2 (protocol 20),
-# not read from the documentation. Where the two disagree the observation wins and says so.
+# not read from the documentation, and re-measured against herdr 0.9.5 (protocol 22) on
+# 2026-10-22 - docs\2026-10-22-herdr-0-9-5.md records what held and what changed. Where the
+# documentation and an observation disagree the observation wins and says so.
 
 $script:HerdrTimeoutMs = 240000
 
@@ -42,9 +44,9 @@ function Get-HerdrCommandHint {
     [CmdletBinding()]
     param()
 
-    'herdr was not found. Run install.ps1 -InstallMissing, which downloads herdr 0.8.2 into ' +
-    'tools\herdr and verifies its SHA-256 before extracting. Dispatch cannot spawn or steer a ' +
-    'worker without it.'
+    'herdr was not found. Run install.ps1 -InstallMissing, which downloads the herdr version ' +
+    'pinned in dependencies.json into tools\herdr and verifies its SHA-256 before extracting. ' +
+    'Dispatch cannot spawn or steer a worker without it.'
 }
 
 # herdr's agent names are far narrower than kingshand's ticket ids, and the CLI rejects rather
@@ -87,6 +89,31 @@ function ConvertTo-HerdrAgentName {
 # status 1, and a syntax error exits 2. `agent start` is the exception that matters - it can exit
 # 1 while still having registered the agent, so callers that care must re-read rather than trust
 # the exit status.
+#
+# A PROTOCOL MISMATCH THROWS EVEN UNDER -AllowError. When the herdr binary and the running server
+# are different versions - measured both ways between 0.8.2 (protocol 20) and 0.9.5 (protocol 22) -
+# every command answers `protocol_mismatch` while every pane carries on running. Handed back as an
+# ordinary error it would read exactly like "no such agent": Get-HerdrAgent would answer $null,
+# Stop-HerdrAgent would report a live worker stopped, and a progress wait would call it gone. So it
+# is never handed back; Assert-HerdrProtocolMatch below is the one place that recognises it.
+function Assert-HerdrProtocolMatch {
+    [CmdletBinding()]
+    param($Parsed)
+
+    if ($null -eq $Parsed -or $Parsed.PSObject.Properties.Name -notcontains 'error') { return }
+    $err = $Parsed.error
+    if ($null -eq $err -or $err.PSObject.Properties.Name -notcontains 'code') { return }
+    if ("$($err.code)" -ne 'protocol_mismatch') { return }
+
+    $said = ''
+    if ($err.PSObject.Properties.Name -contains 'message') { $said = "$($err.message)" }
+    throw ('herdr protocol_mismatch: the herdr binary and its running server are different ' +
+           'versions, so no worker state can be read until they match. Put back the binary the ' +
+           'server was started from, or - once no worker needs its pane - run `herdr server ' +
+           'stop`, which ends every pane, and start again on one version. herdr said: ' +
+           (($said -replace '\s+', ' ').Trim()))
+}
+
 function Invoke-Herdr {
     [CmdletBinding()]
     param(
@@ -105,6 +132,7 @@ function Invoke-Herdr {
     try { $parsed = $text | ConvertFrom-Json } catch { }
 
     if ($parsed -and $parsed.PSObject.Properties.Name -contains 'error') {
+        Assert-HerdrProtocolMatch -Parsed $parsed
         if ($AllowError) { return $parsed }
         throw "herdr $($Arguments[0]) $($Arguments[1]): $($parsed.error.code) - $($parsed.error.message)"
     }
@@ -142,12 +170,16 @@ function Test-HerdrServer {
 #
 # THE PAYLOAD DECIDES, AND THE EXIT CODE IS ONLY A FALLBACK. A reply that parses and carries a
 # boolean `server.running` is the answer whatever herdr exited with; the exit code is reported in
-# `.detail` and never overrides it. That is deliberate, and it is deliberate because the exit code
-# for a server that is DOWN has never been measured: seeing it means stopping the server, and the
-# only machine available was hosting live workers at the time. Reading it first would have meant
-# guessing, and guessing wrong in the direction that makes `/update` refuse - with "could not be
-# read" - on the ordinary machine of a user who has simply never dispatched anything. So the
-# parsed field is the evidence, and the exit code is what a reader sees beside it.
+# `.detail` and never overrides it. Measured on 2026-10-22 against a server that was not running,
+# on 0.8.2 and 0.9.5 alike: `status --json` exits 0 with `running` false. That agrees with reading
+# the payload first, and the rule stays as it is because a later herdr may exit otherwise - reading
+# the exit code first would then make `/update` refuse, with "could not be read", on the ordinary
+# machine of a user who has simply never dispatched anything.
+#
+# .compatible  herdr's own `server.compatible`: $true when this binary and the running server speak
+#              the same protocol, $false when they do not, $null when the server is not running or
+#              the reply did not say. $false is the mixed state Invoke-Herdr's header describes, and
+#              a caller about to replace the binary reads it here rather than discovering it later.
 #
 # Unknown is therefore reserved for an answer nobody can read at all: no herdr, no output, output
 # that does not parse, or a reply with no boolean saying whether the server is running. That is the
@@ -161,7 +193,9 @@ function Get-HerdrServerState {
     param()
 
     $exe = Get-HerdrCommandPath
-    if (-not $exe) { return [pscustomobject]@{ state = 'unknown'; detail = (Get-HerdrCommandHint) } }
+    if (-not $exe) {
+        return [pscustomobject]@{ state = 'unknown'; detail = (Get-HerdrCommandHint); compatible = $null }
+    }
 
     $PSNativeCommandUseErrorActionPreference = $false
 
@@ -188,9 +222,19 @@ function Get-HerdrServerState {
         $word = ''
         if ($server.PSObject.Properties.Name -contains 'status') { $word = "$($server.status)" }
         $said = if ($word) { ", and said $word" } else { '' }
+
+        # Only a boolean counts, for the same reason `running` only counts as one.
+        $compatible = $null
+        if ($running -and $server.PSObject.Properties.Name -contains 'compatible' -and
+            $server.compatible -is [bool]) {
+            $compatible = [bool]$server.compatible
+        }
+        if ($compatible -eq $false) { $said += ', from a different herdr version than this binary' }
+
         return [pscustomobject]@{
-            state  = if ($running) { 'running' } else { 'stopped' }
-            detail = "herdr status exited $code, reported running=$running$said"
+            state      = if ($running) { 'running' } else { 'stopped' }
+            detail     = "herdr status exited $code, reported running=$running$said"
+            compatible = $compatible
         }
     }
 
@@ -205,9 +249,53 @@ function Get-HerdrServerState {
     }
 
     [pscustomobject]@{
-        state  = 'unknown'
-        detail = "herdr status exited $code and $why - $(($text -replace '\s+', ' ').Trim())"
+        state      = 'unknown'
+        detail     = "herdr status exited $code and $why - $(($text -replace '\s+', ' ').Trim())"
+        compatible = $null
     }
+}
+
+# Which herdr this binary is, read from herdr's own `status --json` rather than from a banner:
+#
+#   .version   the client's version string, or $null when it could not be read
+#   .protocol  the client's protocol number, or $null
+#   .path      the binary that answered, or $null when there is none
+#   .detail    what stopped it being readable, empty when it was
+#
+# The client half of that reply is answered by the binary alone, so this works with no server
+# running. bin\Dependencies.psm1 compares it with the pinned version.
+function Get-HerdrVersion {
+    [CmdletBinding()]
+    param()
+
+    $exe = Get-HerdrCommandPath
+    if (-not $exe) {
+        return [pscustomobject]@{ version = $null; protocol = $null; path = $null; detail = (Get-HerdrCommandHint) }
+    }
+
+    $PSNativeCommandUseErrorActionPreference = $false
+    $text = (& $exe status --json 2>&1 | Out-String).Trim()
+    $global:LASTEXITCODE = 0
+
+    $parsed = $null
+    if ($text) { try { $parsed = $text | ConvertFrom-Json } catch { } }
+    $client = $null
+    if ($null -ne $parsed -and $parsed.PSObject.Properties.Name -contains 'client') { $client = $parsed.client }
+
+    if ($null -eq $client -or $client.PSObject.Properties.Name -notcontains 'version' -or
+        -not ($client.version -is [string]) -or -not $client.version) {
+        return [pscustomobject]@{
+            version = $null; protocol = $null; path = $exe
+            detail  = "herdr status --json named no client version - $(($text -replace '\s+', ' ').Trim())"
+        }
+    }
+
+    $protocol = $null
+    if ($client.PSObject.Properties.Name -contains 'protocol' -and
+        ($client.protocol -is [long] -or $client.protocol -is [int])) {
+        $protocol = [int]$client.protocol
+    }
+    [pscustomobject]@{ version = $client.version; protocol = $protocol; path = $exe; detail = '' }
 }
 
 # Starts the herdr server if it is not already up, and returns once `status` confirms it.
@@ -318,14 +406,17 @@ function Read-HerdrAgentScreen {
 
     $failed = [pscustomobject]@{ ok = $false; text = '' }
 
-    if ($code) { return $failed }
     if (-not $text -or -not $text.Trim()) { return $failed }
 
     # herdr answers errors as JSON on stderr, which `2>&1` folds into the text above. A rendered
     # terminal does not parse as an object carrying an `error`, so this discriminates without
-    # needing to know herdr's error codes.
+    # needing to know herdr's error codes - except the one that must not read as a failed read at
+    # all, which Invoke-Herdr's header owns.
     $parsed = $null
     try { $parsed = $text | ConvertFrom-Json } catch { }
+    Assert-HerdrProtocolMatch -Parsed $parsed
+
+    if ($code) { return $failed }
     if ($parsed -and $parsed.PSObject.Properties.Name -contains 'error') { return $failed }
 
     [pscustomobject]@{ ok = $true; text = $text }
@@ -561,6 +652,8 @@ function Get-HerdrAgents {
 # has the durable record to render and an unreachable herdr must not stop it rendering. A guard
 # that refuses an action wants this one instead, because "could not ask" and "nobody is there" are
 # different answers and only one of them is safe to act on.
+#
+# Neither reader answers a version mismatch: both throw it, because Invoke-Herdr does.
 function Get-HerdrAgentInventory {
     [CmdletBinding()]
     param()
@@ -667,7 +760,14 @@ function Read-HerdrAgent {
     $agentName = ConvertTo-HerdrAgentName -Name $Name
     $exe = Get-HerdrCommandPath
     if (-not $exe) { throw (Get-HerdrCommandHint) }
-    (& $exe agent read $agentName --source recent-unwrapped --lines $Lines 2>&1 | Out-String)
+    $text = (& $exe agent read $agentName --source recent-unwrapped --lines $Lines 2>&1 | Out-String)
+
+    # Any other error is shown to the reader as herdr wrote it; a version mismatch is not shown as
+    # though it were the worker's screen. Invoke-Herdr's header owns why.
+    $parsed = $null
+    try { $parsed = $text | ConvertFrom-Json } catch { }
+    Assert-HerdrProtocolMatch -Parsed $parsed
+    $text
 }
 
 # True when the worker's LIVE screen is showing an interactive prompt waiting on a human.
@@ -1144,7 +1244,7 @@ function Remove-HerdrPane {
 }
 
 Export-ModuleMember -Function Get-HerdrCommandPath, Get-HerdrCommandHint, ConvertTo-HerdrAgentName,
-                              Invoke-Herdr, Test-HerdrServer, Get-HerdrServerState,
+                              Invoke-Herdr, Test-HerdrServer, Get-HerdrServerState, Get-HerdrVersion,
                               Start-HerdrServer, New-HerdrPane,
                               Start-HerdrAgent, Get-HerdrAgent, Get-HerdrAgents,
                               Get-HerdrAgentInventory, Send-HerdrPrompt,

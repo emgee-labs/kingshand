@@ -7,7 +7,8 @@ Set-StrictMode -Version Latest
 # without a live server, a live pane, or a live Claude Code worker.
 #
 # Every case below pins a rule that was learned from an observed failure on this machine against
-# herdr 0.8.2 (protocol 20), not from the documentation. The comments name which failure.
+# herdr 0.8.2 (protocol 20), not from the documentation, and re-measured against herdr 0.9.5
+# (protocol 22) - the 0.9.5 captures are at the end. The comments name which failure.
 
 BeforeAll {
     Import-Module "$PSScriptRoot\..\bin\Herdr.psm1" -Force
@@ -397,11 +398,11 @@ Describe 'Get-HerdrServerState tells a stopped server apart from a status read t
         @{ running = 'false'; word = 'not running'; expected = 'stopped' }
         @{ running = 'true';  word = 'running';     expected = 'running' }
     ) {
-        # The exit code herdr uses when its server is down has never been measured - seeing it means
-        # stopping a server that was hosting live workers - so nothing here may rest on it. A reply
-        # that parses and says whether the server is running has already answered the question, and
-        # reading the exit code first would refuse `/update` on the ordinary machine of a user who
-        # has simply never dispatched anything.
+        # 0.8.2 and 0.9.5 both exit 0 for a server that is down, measured on 2026-10-22, but a later
+        # herdr may not, so nothing here may rest on the exit code. A reply that parses and says
+        # whether the server is running has already answered the question, and reading the exit
+        # code first would refuse `/update` on the ordinary machine of a user who has simply never
+        # dispatched anything.
         Set-HerdrScreenFailure -Text "{`"server`":{`"status`":`"$word`",`"running`":$running}}" -ExitCode 1
 
         $s = Get-HerdrServerState
@@ -1595,5 +1596,266 @@ Describe 'New-HerdrPane never splits, because a split pane is an unreadable pane
         ($script:seen3 -join ' ') |
             Should -Match 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=0' `
             -Because 'a worker with no human at its prompt has no use for a suggested prompt'
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# herdr 0.9.5 (protocol 22), captured live on 2026-10-22 against a separate test server.
+#
+# Every screen and reply below was read off a real herdr 0.9.5 with a real worker in it, then had
+# its machine paths replaced by generic ones. docs\2026-10-22-herdr-0-9-5.md records the
+# measurement; these pin the parses that run against it, through the public functions.
+# ---------------------------------------------------------------------------------------------
+Describe 'herdr 0.9.5 replies parse the way 0.8.2 replies did' {
+    BeforeAll {
+        $script:V095Dir = Initialize-HerdrScreenStub
+        $rule = ([string][char]0x2500) * 119
+
+        # A worker blocked on a two-option question. The highlighted option is drawn with the caret
+        # and a PLAIN space; the free-text option now carries a trailing full stop.
+        $script:V095Question = @"
+`u{276F} Use the question tool to ask me one question: which colour do I prefer, with the options Red
+  and Blue. Do nothing else.
+$rule
+ `u{2610} Colour
+
+Which colour do you prefer?
+
+`u{276F} 1. Red
+     You prefer red.
+  2. Blue
+     You prefer blue.
+  3. Type something.
+$rule
+  4. Chat about this
+
+Enter to select `u{00B7} `u{2191}/`u{2193} to navigate `u{00B7} Esc to cancel
+"@
+
+        # The folder-trust dialog a fresh directory stops on, at full width.
+        $script:V095Trust = @"
+ Accessing workspace:
+
+ C:\repos\acme-api
+
+ Quick safety check: Is this a project you created or one you trust?
+
+ `u{276F} No, exit
+   Yes, I trust this folder
+
+ Enter to confirm `u{00B7} Esc to cancel
+"@
+
+        # The same dialog in a 12-column pane. Every phrase the guard looks for is broken across
+        # lines, and herdr itself called this worker idle.
+        $script:V095NarrowTrust = @"
+ `u{276F} No,
+   exit
+   Yes, I
+   trust
+   this
+   folder
+
+ Enter
+ to
+ confirm
+ `u{00B7} Esc
+ to
+ cancel
+"@
+
+        # An idle worker with text typed into its box: the caret and a NO-BREAK space, unchanged.
+        $script:V095StrayBox = @"
+`u{25CF} finished
+
+`u{273B} Baked for 1s `u{00B7} done 5:24 AM
+$rule
+`u{276F}`u{00A0}stray words in the box
+$rule
+  `u{23F5}`u{23F5} auto mode on (shift+tab to cycle)
+"@
+
+        # A working worker, nine and then forty seconds in. Only the timer and token count moved.
+        $script:V095WorkingEarly = @"
+`u{276F} Write a short story directly in your reply.
+
+`u{273B} Hashing`u{2026} (9s `u{00B7} `u{2193} 584 tokens)
+$rule
+`u{276F}`u{00A0}
+$rule
+  `u{23F5}`u{23F5} auto mode on (shift+tab to cycle) `u{00B7} esc to interrupt
+"@
+        $script:V095WorkingLater = $script:V095WorkingEarly.Replace('9s', '40s').Replace('584 tokens', '2.1k tokens')
+
+        # The agent record. 0.9.5 adds completion_seq and launch_pending beside the fields this
+        # module reads; none of the old ones moved.
+        $script:V095AgentGet = '{"id":"cli:agent:get","result":{"agent":{"agent":"claude","agent_status":"done","completion_seq":10,"cwd":"C:\\repos\\acme-api","focused":false,"interactive_ready":true,"name":"t-9001","pane_id":"w2:p1","revision":0,"state_change_seq":10,"tab_id":"w2:t1","terminal_id":"term_0001","workspace_id":"w2"},"type":"agent_info"}}'
+
+        $script:V095NotFound = '{"error":{"code":"agent_not_found","message":"agent target t-9001 not found"},"id":"cli:agent:get"}'
+
+        $script:V095StatusRunning  = '{"client":{"version":"0.9.5","protocol":22},"server":{"status":"running","running":true,"version":"0.9.5","protocol":22,"compatible":true,"endpoint_compatible":true}}'
+        $script:V095StatusMixed    = '{"client":{"version":"0.9.5","protocol":22},"server":{"status":"running","running":true,"version":"0.8.2","protocol":20,"compatible":false,"endpoint_compatible":null,"restart_needed":true}}'
+        $script:V095StatusStopped  = '{"client":{"version":"0.9.5","protocol":22},"server":{"status":"not_running","running":false,"version":null,"protocol":null,"compatible":null}}'
+    }
+
+    BeforeEach { Mock -ModuleName Herdr Get-HerdrCommandPath { $env:KINGSHAND_TEST_HERDR_EXE } }
+
+    Context 'the screen' {
+        It 'reads a worker on a question menu as blocked, and its box as empty' {
+            Set-HerdrScreen $script:V095Question
+            Test-HerdrAgentAwaitingInput -Name 'T-9001' | Should -BeTrue
+            Get-HerdrAgentPromptBox -Name 'T-9001' |
+                Should -Be '' -Because 'the highlighted option is drawn with a plain space after the caret'
+        }
+
+        It 'reads the folder-trust dialog as blocked' {
+            Set-HerdrScreen $script:V095Trust
+            Test-HerdrAgentAwaitingInput -Name 'T-9001' | Should -BeTrue
+        }
+
+        It 'reads a 12-column pane as unreadable rather than as a healthy idle worker' {
+            Set-HerdrScreen $script:V095NarrowTrust
+            Test-HerdrAgentReadable -Name 'T-9001' | Should -BeFalse
+            Test-HerdrAgentAwaitingInput -Name 'T-9001' |
+                Should -BeFalse -Because 'the phrases are broken across lines, which is why readability is asked separately'
+        }
+
+        It 'quotes text typed into the box' {
+            Set-HerdrScreen $script:V095StrayBox
+            Get-HerdrAgentPromptBox -Name 'T-9001' | Should -Be 'stray words in the box'
+        }
+
+        It 'gives one signal for a working screen whose timer and token count moved' {
+            Set-HerdrScreen $script:V095WorkingEarly
+            $early = Get-HerdrAgentProgressSignal -Name 'T-9001'
+            Set-HerdrScreen $script:V095WorkingLater
+            $later = Get-HerdrAgentProgressSignal -Name 'T-9001'
+
+            $early.readable | Should -BeTrue
+            $later.signal   | Should -Be $early.signal
+            $early.promptBox | Should -Be ''
+        }
+    }
+
+    Context 'the agent record' {
+        It 'returns the agent from a 0.9.5 reply with its new fields beside the old ones' {
+            Set-HerdrScreen $script:V095AgentGet
+            $a = Get-HerdrAgent -Name 'T-9001'
+            $a.pane_id      | Should -Be 'w2:p1'
+            $a.agent_status | Should -Be 'done'
+        }
+
+        It 'answers an unknown agent with nothing, as before' {
+            Set-HerdrScreenFailure -Text $script:V095NotFound -ExitCode 1
+            Get-HerdrAgent -Name 'T-9001' | Should -BeNullOrEmpty
+        }
+    }
+
+    Context 'the server' {
+        It 'reports a running server on the same version as compatible' {
+            Set-HerdrScreen $script:V095StatusRunning
+            $s = Get-HerdrServerState
+            $s.state      | Should -Be 'running'
+            $s.compatible | Should -BeTrue
+        }
+
+        It 'reports a running server on another version as running and not compatible' {
+            Set-HerdrScreen $script:V095StatusMixed
+            $s = Get-HerdrServerState
+            $s.state      | Should -Be 'running'
+            $s.compatible | Should -BeFalse
+            $s.detail     | Should -Match 'different herdr version'
+        }
+
+        It 'reports a stopped server, which 0.9.5 answers with exit 0, with no compatibility claim' {
+            Set-HerdrScreen $script:V095StatusStopped
+            $s = Get-HerdrServerState
+            $s.state      | Should -Be 'stopped'
+            $s.compatible | Should -BeNullOrEmpty
+        }
+
+        It 'makes no compatibility claim when the reply does not say' {
+            Set-HerdrScreen '{"server":{"status":"running","running":true}}'
+            (Get-HerdrServerState).compatible | Should -BeNullOrEmpty
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# A binary and a server on different herdr versions. Measured both ways between 0.8.2 and 0.9.5:
+# every command answers protocol_mismatch while every pane keeps running. Each case forces that
+# reply and proves the reader throws it rather than reading it as a worker that is not there.
+# ---------------------------------------------------------------------------------------------
+Describe 'a herdr binary on a different version from its server fails loudly' {
+    BeforeAll {
+        $script:MismatchDir = Initialize-HerdrScreenStub
+
+        # Both directions, as each binary words it.
+        $script:MismatchNewer = '{"id":"cli:agent:get","error":{"code":"protocol_mismatch","message":"client protocol 22 is newer than server protocol 20; restart the Herdr server before using this command. Stop the old server to use the new version.\nStopping exits pane processes."}}'
+        $script:MismatchOlder = '{"id":"cli:agent:get","error":{"code":"protocol_mismatch","message":"client protocol 20 is older than server protocol 22; upgrade the Herdr client before using this command"}}'
+    }
+    BeforeEach { Mock -ModuleName Herdr Get-HerdrCommandPath { $env:KINGSHAND_TEST_HERDR_EXE } }
+
+    It 'throws from <name>, whichever side is older' -ForEach @(
+        @{ name = 'Get-HerdrAgent';          call = { Get-HerdrAgent -Name 'T-9001' } }
+        @{ name = 'Get-HerdrAgents';         call = { Get-HerdrAgents } }
+        @{ name = 'Get-HerdrAgentInventory'; call = { Get-HerdrAgentInventory } }
+        @{ name = 'Get-HerdrAgentState';     call = { Get-HerdrAgentState -Name 'T-9001' } }
+        @{ name = 'Read-HerdrAgentScreen';   call = { Read-HerdrAgentScreen -Name 'T-9001' } }
+        @{ name = 'Read-HerdrAgent';         call = { Read-HerdrAgent -Name 'T-9001' } }
+        @{ name = 'Wait-HerdrAgent';         call = { Wait-HerdrAgent -Name 'T-9001' -TimeoutMs 10 } }
+        @{ name = 'Stop-HerdrAgent';         call = { Stop-HerdrAgent -Name 'T-9001' -TimeoutSeconds 1 } }
+    ) {
+        foreach ($reply in @($script:MismatchNewer, $script:MismatchOlder)) {
+            Set-HerdrScreenFailure -Text $reply -ExitCode 1
+            { & $call } | Should -Throw '*protocol_mismatch*'
+        }
+    }
+
+    It 'throws even where the caller asked for herdr''s errors back' {
+        Set-HerdrScreenFailure -Text $script:MismatchNewer -ExitCode 1
+        { Invoke-Herdr -AllowError -Arguments @('agent', 'list') } |
+            Should -Throw '*different versions*'
+    }
+
+    It 'never reports a live worker stopped' {
+        Set-HerdrScreenFailure -Text $script:MismatchNewer -ExitCode 1
+        $r = $null
+        try { $r = Stop-HerdrAgent -Name 'T-9001' -TimeoutSeconds 1 } catch { }
+        $r | Should -BeNullOrEmpty -Because 'a teardown told "stopped" removes the worktree of a worker still running'
+    }
+
+    It 'still hands back every other error under -AllowError' {
+        Set-HerdrScreenFailure -Text '{"error":{"code":"agent_not_found","message":"gone"}}' -ExitCode 1
+        $r = Invoke-Herdr -AllowError -Arguments @('agent', 'get', 't-9001')
+        $r.error.code | Should -Be 'agent_not_found'
+    }
+}
+
+Describe 'Get-HerdrVersion reads which herdr this binary is' {
+    BeforeAll { $script:VersionDir = Initialize-HerdrScreenStub }
+    BeforeEach { Mock -ModuleName Herdr Get-HerdrCommandPath { $env:KINGSHAND_TEST_HERDR_EXE } }
+
+    It 'reads the client version and protocol, with no server needed' {
+        Set-HerdrScreen '{"client":{"version":"0.9.5","channel":"stable","protocol":22},"server":{"status":"not_running","running":false}}'
+        $v = Get-HerdrVersion
+        $v.version  | Should -Be '0.9.5'
+        $v.protocol | Should -Be 22
+        $v.detail   | Should -Be ''
+    }
+
+    It 'reads a reply with no client version as unreadable, never as a version' {
+        Set-HerdrScreen 'herdr: unrecognised option --json'
+        $v = Get-HerdrVersion
+        $v.version | Should -BeNullOrEmpty
+        $v.path    | Should -Not -BeNullOrEmpty -Because 'a herdr answered, so it is installed'
+        $v.detail  | Should -Match 'no client version'
+    }
+
+    It 'answers no herdr with no path, and the hint' {
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $null }
+        $v = Get-HerdrVersion
+        $v.path   | Should -BeNullOrEmpty
+        $v.detail | Should -Match 'herdr was not found'
     }
 }

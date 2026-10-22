@@ -48,7 +48,7 @@ BeforeAll {
         '#Requires -Version 7.0'
         '# A stub, not the real installer. It records that it ran, OUTSIDE the repository, so the'
         '# working tree it was called from stays clean.'
-        'Set-Content -LiteralPath (Join-Path (Split-Path $PSScriptRoot -Parent) ''install-ran.txt'') -Value ''ran'''
+        'Set-Content -LiteralPath (Join-Path (Split-Path $PSScriptRoot -Parent) ''install-ran.txt'') -Value (''ran '' + ($args -join '' ''))'
         'Write-Host ''stub installer ran'''
         'exit {0}'
     )
@@ -381,6 +381,16 @@ Describe 'an update that can happen moves the installation and reports the move'
         $r.installOk | Should -BeTrue
         Test-Path -LiteralPath $f.Marker |
             Should -BeTrue -Because 'the default -InstallScript is the install.ps1 at the root being updated'
+    }
+
+    It 'asks the installer to move every dependency to the release''s pins' {
+        $f = New-Installation -Name 'syncpins'
+        Publish-Release -Fixture $f -Version '0.2.0' -Subjects @('Move a pin')
+
+        $null = Invoke-KingshandUpdate -Root $f.Path
+
+        (Get-Content -LiteralPath $f.Marker -Raw) |
+            Should -Match '-SyncPins' -Because 'an update that left dependencies off their pins would leave every user to move them by hand'
     }
 
     It 'reports an installer that did not finish, rather than reporting plain success' {
