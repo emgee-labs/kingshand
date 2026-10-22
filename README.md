@@ -2,7 +2,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
-[![Tests](https://img.shields.io/badge/tests-2150%20passing-3fb950)](tests)
+[![Tests](https://img.shields.io/badge/tests-2348%20passing-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 # You rule. It executes.
@@ -69,16 +69,22 @@ reads.
 
 ### Requirements
 
-Six things, and the installer fetches or names every one of them.
+Seven things. **Install the first two yourself** - you need Git to clone this and PowerShell 7 to
+run the installer - and the installer fetches or names the other five.
 
 | | Why | Install |
 |---|---|---|
-| PowerShell 7+ | every script targets it | `winget install --id Microsoft.PowerShell` |
-| Claude Code | the Hand and every worker | `npm install -g @anthropic-ai/claude-code` |
+| PowerShell 7+ | every script targets it. Windows ships only Windows PowerShell 5.1, which will not run them | `winget install --id Microsoft.PowerShell` |
 | Git for Windows | worktrees are the isolation | `winget install --id Git.Git` |
-| `lavish-axi` | the review surface both gates render to | `npm install -g lavish-axi` |
-| `tasks-axi` | the durable backlog | `npm install -g tasks-axi` |
+| Node.js | npm, which the next three install through | `winget install --id OpenJS.NodeJS.LTS` |
+| Claude Code | the Hand and every worker | `npm install -g @anthropic-ai/claude-code` |
+| `lavish-axi` | the review surface both gates render to | `npm install -g lavish-axi@<pin>` |
+| `tasks-axi` | the durable backlog | `npm install -g tasks-axi@<pin>` |
 | `herdr` | the terminal every worker is spawned and watched through | fetched by the installer, at its pinned version |
+
+`<pin>` is the version `dependencies.json` names; the installer prints each command with it filled
+in. Node.js installs for the whole machine, so on an account without administrator rights it needs
+someone who has them, or the installer from [nodejs.org](https://nodejs.org).
 
 Everything below this line is optional, and a run with none of it installed reports no failure.
 
@@ -126,7 +132,8 @@ when the config is unset, and it never writes either line twice.
 ### Install and launch
 
 Clone it wherever you keep things. Any drive, any folder, spaces in the path are fine - it works
-out its own location and nothing here assumes otherwise.
+out its own location and nothing here assumes otherwise. Every command here runs in PowerShell 7 -
+start it with `pwsh` - and not in Windows PowerShell, which refuses the scripts.
 
 ```powershell
 git clone https://github.com/emgee-labs/kingshand
@@ -138,11 +145,17 @@ Then type **`set it up`** - or `setup`, or `/setup`. Every skill ships inside th
 they are readable in a fresh clone with nothing installed yet. The installer names what it found,
 what it installed, and what still needs you.
 
-The manual equivalent:
+**No Claude Code yet?** Then `claude` above has nothing to start, so run the installer by hand
+first, from the same folder. This is also the manual equivalent of `set it up`:
 
 ```powershell
 .\install.ps1 -InstallMissing
 ```
+
+Then open a new `pwsh`, so it sees what was installed, and carry on from `claude`. The first time
+Claude Code starts it asks you to sign in, to trust this folder, and to accept the permission mode
+this repository ships with - [Permissions](#permissions-and-what-you-are-agreeing-to) below says
+what that mode is.
 
 **`-InstallMissing` is opt-in.** Without it, nothing is installed and each missing tool is reported
 with the exact command that fixes it. Nothing self-elevates. `herdr` is the one thing fetched

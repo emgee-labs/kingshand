@@ -4411,6 +4411,21 @@ Describe 'the setup skill ships inside the repo so a fresh clone can bootstrap i
             -Phrase 'Permissions, and what you are agreeing to'
     }
 
+    # Says only what is true of their run. With the review pipeline chosen the gate was installed,
+    # and reporting it as deliberately left out tells them the opposite of what just happened.
+    It 'says the review gate was left out only when they chose the local answer' {
+        Assert-Phrase -Text $script:SetupText -Where 'the setup skill' `
+            -Phrase ('Say this one only when they chose the local answer in Step 1; with the review ' +
+                     'pipeline it was installed')
+    }
+
+    # A session started before the install cannot see anything the install put on PATH, so the
+    # first command the Hand runs afterwards fails on a tool that is installed.
+    It 'sends them to a fresh Claude Code session, not only a new shell' {
+        Assert-Phrase -Text $script:SetupText -Where 'the setup skill' `
+            -Phrase '**Then quit this Claude Code session and start `claude` again from that new shell**'
+    }
+
     It 'sends them to a new shell and then to /annex' {
         Assert-Phrase -Text $script:SetupText -Where 'the setup skill' `
             -Phrase '**Open a new shell.** `KINGSHAND_HOME` is set for the user'
@@ -4442,6 +4457,21 @@ Describe 'the setup skill ships inside the repo so a fresh clone can bootstrap i
             -Phrase 'Then type **`set it up`** - or `setup`, or `/setup`.'
         Assert-Phrase -Text $readme -Where 'the README Install section' `
             -Phrase '**`-InstallMissing` is opt-in.**'
+    }
+
+    # "set it up" is typed into Claude Code, so a machine without it cannot take the first route.
+    # The README has to say which route that machine takes, what the scripts run in, and what Node
+    # is for, or a new user's first command fails with nothing telling them why.
+    It 'tells a machine with no Claude Code, no PowerShell 7 or no Node.js what to do first' {
+        $readme = Get-DocText (Join-Path $script:Root 'README.md')
+        Assert-Phrase -Text $readme -Where 'the README Install section' `
+            -Phrase '**No Claude Code yet?** Then `claude` above has nothing to start, so run the installer by hand'
+        Assert-Phrase -Text $readme -Where 'the README Install section' `
+            -Phrase 'Every command here runs in PowerShell 7'
+        Assert-Phrase -Text $readme -Where 'the README Requirements table' `
+            -Phrase '| Node.js | npm, which the next three install through | `winget install --id OpenJS.NodeJS.LTS` |'
+        Assert-Phrase -Text $readme -Where 'the README Requirements section' `
+            -Phrase '**Install the first two yourself**'
     }
 }
 
@@ -4553,7 +4583,7 @@ Describe 'install.ps1 reports rather than installs unless it is told to' {
     It 'gives a short instruction for each thing it genuinely cannot install' {
         $text = Get-DocText $script:InstallPs1
         Assert-Phrase -Text $text -Where 'install.ps1' `
-            -Phrase 'Install Node.js from https://nodejs.org, then run this again.'
+            -Phrase 'Install Node.js from https://nodejs.org, open a new shell so PATH picks it up, then run this again.'
         Assert-Phrase -Text $text -Where 'install.ps1' `
             -Phrase 'Install App Installer from the Microsoft Store, then run this again.'
     }

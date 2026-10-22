@@ -147,6 +147,19 @@ function Test-Prerequisite {
         }
     }
 
+    # Every npm command above fails on a machine with no Node.js, which is every fresh Windows
+    # machine, so Node is named first rather than left for "npm is not recognized" to reveal.
+    # Its manager is its own: -InstallMissing installs it on its own path, before anything npm
+    # installs, and the generic loop must not run it a second time.
+    $needsNpm = @($still | Where-Object { $_.Manager -eq 'npm' }).Count -gt 0
+    if ($needsNpm -and -not (Get-NpmCommand)) {
+        Write-Miss ("{0,-12} {1}" -f 'npm', (Get-NpmMissingHint))
+        $still.Insert(0, @{
+            Name = 'Node.js'; Manager = 'nodejs'
+            Install = 'winget install --id OpenJS.NodeJS.LTS'; What = 'npm, which the tools above install through'
+        })
+    }
+
     # The executable, and specifically WHICH form of it. npm's claude.cmd wrapper forwards with %*,
     # which lets cmd.exe re-parse the quotes inside an argument, so anything carrying JSON arrives
     # truncated. The review gate passes a JSON schema on every agent step, so a wrapper-only machine
@@ -156,7 +169,9 @@ function Test-Prerequisite {
         Write-Ok ("{0,-12} {1}" -f 'claude.exe', $claudeExe)
         if (Test-ClaudeCommandIsWrapper -Path $claudeExe) { $script:ClaudeIsWrapper = $true }
     }
-    else {
+    elseif (@($still | Where-Object { $_.Name -eq 'claude' }).Count -eq 0) {
+        # Only where `claude` itself resolved and neither form of it did. Where `claude` is missing
+        # outright the loop above has already said so, and saying it twice reads as two problems.
         Write-Miss (Get-ClaudeCommandHint)
         $still.Add(@{
             Name = 'claude'; Manager = 'npm'
@@ -573,16 +588,23 @@ if ($InstallMissing -and ($missing.Count + $optional.Count) -gt 0) {
     if (-not (Get-Command 'npm' -ErrorAction SilentlyContinue)) {
         if ($hasWinget) {
             Write-Host '  npm is missing. Installing Node.js, which provides it.'
-            if (Invoke-InstallCommand 'winget install --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements') {
-                Update-PathFromRegistry
-            }
-            if (-not (Get-Command 'npm' -ErrorAction SilentlyContinue)) {
+            $nodeCommand = 'winget install --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements'
+            $nodeOk = Invoke-InstallCommand $nodeCommand
+            if ($nodeOk) { Update-PathFromRegistry }
+            if (-not $nodeOk) {
+                # Node.js installs for the whole machine, so on an account without administrator
+                # rights this is the step that fails - and saying it "installed" sent people to
+                # open a new shell for a Node that was never there.
+                $blocked['npm'] = ('Node.js did not install. If that was for want of administrator ' +
+                                   "rights, run this in an elevated PowerShell: $nodeCommand - or " +
+                                   'install it from https://nodejs.org - then open a new shell and run this again.')
+            } elseif (-not (Get-Command 'npm' -ErrorAction SilentlyContinue)) {
                 $blocked['npm'] = 'Node.js installed but npm is still not on PATH. Open a new shell and run this script again.'
             } else {
                 Write-Did 'npm is available.'
             }
         } else {
-            $blocked['npm'] = 'Install Node.js from https://nodejs.org, then run this again.'
+            $blocked['npm'] = 'Install Node.js from https://nodejs.org, open a new shell so PATH picks it up, then run this again.'
         }
     }
 
@@ -600,7 +622,7 @@ if ($InstallMissing -and ($missing.Count + $optional.Count) -gt 0) {
     # and running it twice would report a second success for work that already happened.
     $planned = [ordered]@{}
     foreach ($m in $installable) {
-        if ($m.Manager -eq 'psgallery' -or $m.Manager -eq 'herdr' -or $blocked.Contains($m.Manager)) { continue }
+        if ($m.Manager -in 'psgallery', 'herdr', 'nodejs' -or $blocked.Contains($m.Manager)) { continue }
         if ($planned.Contains($m.Install)) { $planned[$m.Install] = "$($planned[$m.Install]), $($m.Name)" }
         else { $planned[$m.Install] = $m.Name }
     }
@@ -684,6 +706,15 @@ foreach ($s in @(Get-DependencyPinStatus -Root $Root)) {
         # tool that pass does not check, which nothing installs and only this line names.
         if ($reportedAbove -notcontains $s.name) {
             Write-Host "  NOTE  $label not installed - optional. Add it at its pin with: $($s.command)"
+        }
+        continue
+    }
+    if ($s.state -eq 'unreadable' -and $s.source -eq 'npm' -and $s.name -ne 'claude-code' -and -not (Get-NpmCommand)) {
+        # No npm, so no npm version can be read at all. The prerequisite pass above has already
+        # named Node.js and every required npm tool as missing, so repeating each here as a MISS
+        # only lengthens the list a new user has to read; an optional one is said once, as optional.
+        if ($reportedAbove -notcontains $s.name) {
+            Write-Host "  NOTE  $label optional, and not checked - npm is not on PATH. Once it is, add it with: $($s.command)"
         }
         continue
     }
@@ -999,7 +1030,8 @@ if ($missing.Count -gt 0) {
     Write-Host "Install these before dispatching anything:"
     $missing | ForEach-Object { Write-Host ("  - {0}: {1}" -f $_.Name, $_.Install) }
     Write-Host ""
-    Write-Host "Then re-run: .\install.ps1"
+    Write-Host "Then open a new shell, so PATH picks up what you installed, and re-run: .\install.ps1"
+    if (-not $InstallMissing) { Write-Host "Or let this script install them for you: .\install.ps1 -InstallMissing" }
     exit 1
 }
 

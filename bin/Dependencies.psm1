@@ -200,6 +200,20 @@ function Get-NpmCommand {
     $null
 }
 
+# What a machine with no npm is told, said the same way by install.ps1 and the toolchain check.
+#
+# A fresh Windows machine has no Node.js, and every npm install command printed beside it fails
+# with "npm is not recognized" - so naming those commands without naming Node first hands a new
+# user three fixes that cannot work.
+function Get-NpmMissingHint {
+    [CmdletBinding()]
+    param()
+
+    'npm was not found. It comes with Node.js, and Claude Code, lavish-axi and tasks-axi are all ' +
+    'installed through it. Install Node.js LTS with: winget install --id OpenJS.NodeJS.LTS - or ' +
+    'from https://nodejs.org - then open a new shell so PATH is picked up.'
+}
+
 # npm's JSON answer to one command, or $null when it printed nothing that parses.
 function Invoke-NpmJson {
     param([Parameter(Mandatory)][string[]]$Arguments)
@@ -484,7 +498,7 @@ function Get-DependencyPinReport {
 }
 
 Export-ModuleMember -Function Get-DependencyManifestPath, Read-DependencyPins, Get-HerdrPinnedDigest,
-                              Get-NpmCommand,
+                              Get-NpmCommand, Get-NpmMissingHint,
                               ConvertTo-DependencyVersion, Test-DependencyMoveBreaking,
                               Get-InstalledDependencyVersion, Get-DependencySyncCommand,
                               Test-HerdrReplaceable,
