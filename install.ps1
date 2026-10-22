@@ -670,6 +670,7 @@ Write-Step 'Pinned versions'
 
 $syncing  = $SyncPins -or $InstallMissing
 $offPin   = [System.Collections.Generic.List[string]]::new()
+$reportedAbove = @($tools | ForEach-Object { $_.Name }) + @('claude-code', 'herdr', 'no-mistakes')
 
 foreach ($s in @(Get-DependencyPinStatus -Root $Root)) {
     $label = "{0,-12}" -f $s.name
@@ -678,8 +679,14 @@ foreach ($s in @(Get-DependencyPinStatus -Root $Root)) {
         Write-Ok "$label $($s.installed), at least the $($s.minimum) this release needs"
         continue
     }
-    # Reported, and installed at its pin, by the prerequisite pass above.
-    if ($s.state -eq 'missing') { continue }
+    if ($s.state -eq 'missing') {
+        # Reported, and installed at its pin, by the prerequisite pass above - all but an optional
+        # tool that pass does not check, which nothing installs and only this line names.
+        if ($reportedAbove -notcontains $s.name) {
+            Write-Host "  NOTE  $label not installed - optional. Add it at its pin with: $($s.command)"
+        }
+        continue
+    }
     if ($s.state -eq 'unreadable') {
         Write-Miss "$label its version could not be read - $($s.detail)"
         if ($syncing) { $offPin.Add($s.name) }
