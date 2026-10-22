@@ -78,7 +78,7 @@ Six things, and the installer fetches or names every one of them.
 | Git for Windows | worktrees are the isolation | `winget install --id Git.Git` |
 | `lavish-axi` | the review surface both gates render to | `npm install -g lavish-axi` |
 | `tasks-axi` | the durable backlog | `npm install -g tasks-axi` |
-| `herdr` | the terminal every worker is spawned and watched through | fetched by the installer |
+| `herdr` | the terminal every worker is spawned and watched through | fetched by the installer, at its pinned version |
 
 Everything below this line is optional, and a run with none of it installed reports no failure.
 
@@ -146,10 +146,17 @@ The manual equivalent:
 
 **`-InstallMissing` is opt-in.** Without it, nothing is installed and each missing tool is reported
 with the exact command that fixes it. Nothing self-elevates. `herdr` is the one thing fetched
-directly: it is checked against the SHA-256 published in `https://herdr.dev/latest.json` before it
-is extracted, a mismatch deletes the download and installs nothing, and an offline machine is told
+directly: it is checked against the SHA-256 `dependencies.json` pins and the one published in
+`https://herdr.dev/latest.json` before it is extracted, a mismatch deletes the download and installs nothing, and an offline machine is told
 so in one line rather than shown a web exception. Open a new shell afterwards so `KINGSHAND_HOME`
 is picked up.
+
+**Every dependency is pinned.** `dependencies.json` records the exact version of herdr, the review
+gate, `lavish-axi`, `tasks-axi` and `quota-axi` that this release was verified with, and the
+oldest Claude Code it needs. The installer reports each one against what you have, and
+`.\install.ps1 -SyncPins` moves each to its pin - never past it, only the copies the installer
+itself owns, and never herdr while its server is running. `/update` runs that for you after it moves
+to a new release.
 
 ### Talk to it
 
@@ -261,12 +268,14 @@ great many prompts.
 ```
 CLAUDE.md               the Hand's always-loaded instructions - identity, hard rules, contracts
 VERSION                 this installation's version, and the only place it is written down
+dependencies.json       the exact version of each dependency this release was verified with
 bin\                    dispatch, worker state, registry, snapshot, digest, herdr, workspace prep,
                         version, self-update, browser verification, the away journal, the usage
-                        window, a gate run's state and the wait on it, night's watch's guards
+                        window, a gate run's state and the wait on it, night's watch's guards,
+                        the dependency pins
 .claude\skills\         twenty project-local skills. They load only in this directory
 tests\                  the Pester suite
-tools\herdr\            herdr, fetched and SHA-256 verified by the installer - gitignored,
+tools\herdr\            herdr at its pinned version, SHA-256 verified by the installer - gitignored,
                         and deliberately not on PATH
 docs\                   the architecture decisions worth keeping
 .no-mistakes.yaml       the branch kingshand's own work integrates into - dev, which every pull

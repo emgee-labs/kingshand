@@ -255,6 +255,49 @@ function Get-HerdrServerState {
     }
 }
 
+# Which herdr this binary is, read from herdr's own `status --json` rather than from a banner:
+#
+#   .version   the client's version string, or $null when it could not be read
+#   .protocol  the client's protocol number, or $null
+#   .path      the binary that answered, or $null when there is none
+#   .detail    what stopped it being readable, empty when it was
+#
+# The client half of that reply is answered by the binary alone, so this works with no server
+# running. bin\Dependencies.psm1 compares it with the pinned version.
+function Get-HerdrVersion {
+    [CmdletBinding()]
+    param()
+
+    $exe = Get-HerdrCommandPath
+    if (-not $exe) {
+        return [pscustomobject]@{ version = $null; protocol = $null; path = $null; detail = (Get-HerdrCommandHint) }
+    }
+
+    $PSNativeCommandUseErrorActionPreference = $false
+    $text = (& $exe status --json 2>&1 | Out-String).Trim()
+    $global:LASTEXITCODE = 0
+
+    $parsed = $null
+    if ($text) { try { $parsed = $text | ConvertFrom-Json } catch { } }
+    $client = $null
+    if ($null -ne $parsed -and $parsed.PSObject.Properties.Name -contains 'client') { $client = $parsed.client }
+
+    if ($null -eq $client -or $client.PSObject.Properties.Name -notcontains 'version' -or
+        -not ($client.version -is [string]) -or -not $client.version) {
+        return [pscustomobject]@{
+            version = $null; protocol = $null; path = $exe
+            detail  = "herdr status --json named no client version - $(($text -replace '\s+', ' ').Trim())"
+        }
+    }
+
+    $protocol = $null
+    if ($client.PSObject.Properties.Name -contains 'protocol' -and
+        ($client.protocol -is [long] -or $client.protocol -is [int])) {
+        $protocol = [int]$client.protocol
+    }
+    [pscustomobject]@{ version = $client.version; protocol = $protocol; path = $exe; detail = '' }
+}
+
 # Starts the herdr server if it is not already up, and returns once `status` confirms it.
 #
 # CLAUDE_CODE_CHILD_SESSION is scrubbed from the server's environment, not just from each pane.
@@ -1201,7 +1244,7 @@ function Remove-HerdrPane {
 }
 
 Export-ModuleMember -Function Get-HerdrCommandPath, Get-HerdrCommandHint, ConvertTo-HerdrAgentName,
-                              Invoke-Herdr, Test-HerdrServer, Get-HerdrServerState,
+                              Invoke-Herdr, Test-HerdrServer, Get-HerdrServerState, Get-HerdrVersion,
                               Start-HerdrServer, New-HerdrPane,
                               Start-HerdrAgent, Get-HerdrAgent, Get-HerdrAgents,
                               Get-HerdrAgentInventory, Send-HerdrPrompt,

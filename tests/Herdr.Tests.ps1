@@ -1831,3 +1831,31 @@ Describe 'a herdr binary on a different version from its server fails loudly' {
         $r.error.code | Should -Be 'agent_not_found'
     }
 }
+
+Describe 'Get-HerdrVersion reads which herdr this binary is' {
+    BeforeAll { $script:VersionDir = Initialize-HerdrScreenStub }
+    BeforeEach { Mock -ModuleName Herdr Get-HerdrCommandPath { $env:KINGSHAND_TEST_HERDR_EXE } }
+
+    It 'reads the client version and protocol, with no server needed' {
+        Set-HerdrScreen '{"client":{"version":"0.9.5","channel":"stable","protocol":22},"server":{"status":"not_running","running":false}}'
+        $v = Get-HerdrVersion
+        $v.version  | Should -Be '0.9.5'
+        $v.protocol | Should -Be 22
+        $v.detail   | Should -Be ''
+    }
+
+    It 'reads a reply with no client version as unreadable, never as a version' {
+        Set-HerdrScreen 'herdr: unrecognised option --json'
+        $v = Get-HerdrVersion
+        $v.version | Should -BeNullOrEmpty
+        $v.path    | Should -Not -BeNullOrEmpty -Because 'a herdr answered, so it is installed'
+        $v.detail  | Should -Match 'no client version'
+    }
+
+    It 'answers no herdr with no path, and the hint' {
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $null }
+        $v = Get-HerdrVersion
+        $v.path   | Should -BeNullOrEmpty
+        $v.detail | Should -Match 'herdr was not found'
+    }
+}

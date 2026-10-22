@@ -46,7 +46,7 @@ turns out to be free once something owns the terminal.
 ## The evidence
 
 All of it observed on this machine against herdr 0.8.2, protocol 20, on native Windows. Nothing
-below is inferred.
+below is inferred. `2026-10-22-herdr-0-9-5.md` re-measures it against herdr 0.9.5, protocol 22.
 
 - A genuinely busy worker read `working` for the full duration of a 75-second turn and settled to
   `idle` when it ended. The feared "reports everything as dead" failure did not occur.
