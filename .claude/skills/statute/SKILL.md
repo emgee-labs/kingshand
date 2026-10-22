@@ -159,7 +159,12 @@ minimum for Claude Code, which updates itself. `install.ps1 -SyncPins` moves a u
 and `/update` runs it, so **a pin is what every user ends up on, and is never moved past.**
 `bin\Dependencies.psm1` owns the manifest's fields and how each version is read.
 
-**Moving a pin is a maintainer's job, done weekly, and it ships only in a release.** The refresh:
+**Moving a pin is a maintainer's job, done weekly, and it ships only in a release.** **Only an
+installation carrying the maintainer marker is asked about it**: the session-start digest raises the
+weekly check only where the gitignored file `config\maintainer` exists, and says nothing of it
+anywhere else. Nothing infers the marker from remotes or push rights. A maintainer turns it on
+once, with `New-Item -ItemType File -Force "$env:KINGSHAND_HOME\config\maintainer"`, and deleting
+the file turns it off. The refresh:
 
 1. Run `bin\Update-DependencyPins.ps1 -Record`. It lists each pin, the latest published version,
    and whether moving to it crosses a breaking line, and records that the weekly check ran - **a

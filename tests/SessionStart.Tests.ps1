@@ -15,7 +15,8 @@ BeforeAll {
             [Parameter(Mandatory)][string]$Name,
             [switch]$NoDataDirectory,
             [switch]$FailingPrereqs,
-            [switch]$NoVersionFile
+            [switch]$NoVersionFile,
+            [switch]$Maintainer
         )
         $root = Join-Path $TestDrive $Name
         New-Item -ItemType Directory -Force -Path $root | Out-Null
@@ -30,6 +31,10 @@ BeforeAll {
         }
         New-Item -ItemType Directory -Force -Path (Join-Path $root 'state')  | Out-Null
         New-Item -ItemType Directory -Force -Path (Join-Path $root 'config') | Out-Null
+        # The maintainer marker. Absent by default, as it is on every installation but a maintainer's.
+        if ($Maintainer) {
+            New-Item -ItemType File -Force -Path (Join-Path $root 'config\maintainer') | Out-Null
+        }
 
         # A real toolchain check reads this machine, so its verdict would vary between machines and
         # between days. Both shapes are faked here so each case chooses the verdict it is testing.
@@ -62,6 +67,12 @@ BeforeAll {
             Instructions = Join-Path $root 'instructions.md'
             Version      = Join-Path $root 'VERSION'
             Prereq       = $prereq
+            Maintainer   = Join-Path $root 'config\maintainer'
+            # The checkout the new-release notice reads. The fixture root is not a git repository,
+            # so by default the notice says it could not check; a case about the notice points this
+            # at a real clone with its own bare remote instead. Never the live installation, whose
+            # remote is a real server.
+            ReleaseRepo  = $root
             # Absent unless a case writes one, which is the ordinary state on a machine where no
             # review surface has ever been opened. Passed explicitly by Get-Digest for the same
             # reason every other path is: unset, it would resolve to the live store belonging to
@@ -142,6 +153,8 @@ BeforeAll {
             -VersionPath      $Fixture.Version `
             -PrereqScript     $Fixture.Prereq `
             -QueueRoot        $Fixture.Root `
+            -MaintainerPath   $Fixture.Maintainer `
+            -ReleaseRepoPath  $Fixture.ReleaseRepo `
             @lavish `
             -Json:$Json
         } finally { $env:PATH = $savedPath }
@@ -382,7 +395,7 @@ Describe 'a fresh clone is told to set up, and is not sent after a skill that ca
     It 'does not ask about the weekly dependency check before setup has run' {
         $script:FreshText.Contains('DEPENDENCY_CHECK_DUE') |
             Should -BeFalse -Because 'the one step that works on a fresh clone is "set it up"'
-        $installed = New-Fixture 'installed-never-checked'
+        $installed = New-Fixture 'installed-never-checked' -Maintainer
         (Get-Digest $installed).Contains('DEPENDENCY_CHECK_DUE: the weekly dependency check has never run on this machine.') |
             Should -BeTrue -Because 'once installed, a check that never ran is due again'
     }
@@ -1614,7 +1627,7 @@ Describe 'the digest says when the weekly dependency check is due' {
     }
 
     It 'says how long it has been when the last run is past seven days' {
-        $f = New-Fixture 'dep-due'
+        $f = New-Fixture 'dep-due' -Maintainer
         Set-CheckAge $f 12.5
         $text = Get-Digest $f
         $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check last ran 12 days ago'
@@ -1622,19 +1635,19 @@ Describe 'the digest says when the weekly dependency check is due' {
     }
 
     It 'says nothing when the check is not due' {
-        $f = New-Fixture 'dep-fresh'
+        $f = New-Fixture 'dep-fresh' -Maintainer
         Set-CheckAge $f 2
         (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') | Should -BeFalse
     }
 
     It 'says so when the check has never run' {
-        $text = Get-Digest (New-Fixture 'dep-never')
+        $text = Get-Digest (New-Fixture 'dep-never' -Maintainer)
         $text.Contains('DEPENDENCY_CHECK_DUE: the weekly dependency check has never run on this machine.') |
             Should -BeTrue
     }
 
     It 'reads a record it cannot read as unreadable and asks about it as due' {
-        $f = New-Fixture 'dep-garbled'
+        $f = New-Fixture 'dep-garbled' -Maintainer
         Set-CheckRecord $f 'not json at all'
         $text = Get-Digest $f
         $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check cannot be told from its record, so it is treated as due'
@@ -1642,7 +1655,7 @@ Describe 'the digest says when the weekly dependency check is due' {
     }
 
     It 'stays quiet when the check is already filed and open' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
-        $f = New-Fixture 'dep-filed'
+        $f = New-Fixture 'dep-filed' -Maintainer
         Set-CheckAge $f 12
         Push-Location $f.Root
         try { $null = tasks-axi add dep-check-2026-w01 'Weekly dependency check' --kind dependency-check 2>&1 }
@@ -1652,7 +1665,7 @@ Describe 'the digest says when the weekly dependency check is due' {
     }
 
     It 'asks again once the filed item is done' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
-        $f = New-Fixture 'dep-filed-done'
+        $f = New-Fixture 'dep-filed-done' -Maintainer
         Set-CheckAge $f 12
         Push-Location $f.Root
         try {
@@ -1663,7 +1676,7 @@ Describe 'the digest says when the weekly dependency check is due' {
     }
 
     It 'asks, and says so, when whether it is filed could not be read' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
-        $f = New-Fixture 'dep-queue-broken'
+        $f = New-Fixture 'dep-queue-broken' -Maintainer
         Set-CheckAge $f 12
         Set-Content -LiteralPath (Join-Path $f.Root '.tasks.toml') -Value 'backend = "nonsense"' -Encoding utf8
         $text = Get-Digest $f
@@ -1672,10 +1685,121 @@ Describe 'the digest says when the weekly dependency check is due' {
     }
 
     It 'still prints the rest of the digest when the check cannot be asked' {
-        $f = New-Fixture 'dep-dir'
+        $f = New-Fixture 'dep-dir' -Maintainer
         New-Item -ItemType Directory -Path (Join-Path $f.Root 'state\dependency-check.json') | Out-Null
         $text = Get-Digest $f
         $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check cannot be told from its record'
         $text.Contains('=== END KINGSHAND SESSION START ===') | Should -BeTrue
+    }
+}
+
+# Moving a pin is a maintainer's job, so only an installation marked as a maintainer's is asked about
+# it. Every case here would be due if it were asked, so silence can only come from the marker.
+Describe 'the weekly dependency check is asked only on a maintainer''s installation' {
+    It 'says nothing without the marker, even when the check has never run' {
+        $text = Get-Digest (New-Fixture 'dep-user')
+        $text.Contains('DEPENDENCY_CHECK_DUE') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $TestDrive 'dep-user\state\dependency-check.json') | Should -BeFalse
+    }
+
+    It 'says nothing without the marker when the record cannot be read either' {
+        $f = New-Fixture 'dep-user-garbled'
+        Set-Content -LiteralPath (Join-Path $f.Root 'state\dependency-check.json') -Value 'not json' -Encoding utf8
+        (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') | Should -BeFalse
+    }
+
+    It 'takes only a file as the marker, not a directory of that name' {
+        $f = New-Fixture 'dep-user-dir'
+        New-Item -ItemType Directory -Path $f.Maintainer | Out-Null
+        (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') | Should -BeFalse
+    }
+
+    It 'asks once the marker is there' {
+        (Get-Digest (New-Fixture 'dep-maintainer' -Maintainer)).Contains(
+            'DEPENDENCY_CHECK_DUE: the weekly dependency check has never run on this machine.') | Should -BeTrue
+    }
+}
+
+# Every installation is told when a newer release exists. bin\Update.psm1 and tests\Update.Tests.ps1
+# own the answer and its cache; these cases hold the digest's half - the one line, its wording, and
+# silence where there is nothing to say. Each notice case points the digest at a throwaway clone of
+# its own bare remote, so nothing reaches a server.
+Describe 'the digest says when a newer release exists, for every installation' {
+    BeforeAll {
+        function New-ReleaseClone {
+            param([Parameter(Mandatory)][string]$Name, [string[]]$Releases = @(), [string]$Installed = '0.1.0')
+            $base   = Join-Path $TestDrive "rel-$Name"
+            $remote = Join-Path $base 'remote'
+            $seed   = Join-Path $base 'seed'
+            $clone  = Join-Path $base 'clone'
+            git init --bare -b main $remote -q
+            git init -b main $seed -q
+            git -C $seed config user.name 'Test'
+            git -C $seed config user.email 'test@example.invalid'
+            Set-Content -LiteralPath (Join-Path $seed 'VERSION') -Value $Installed -Encoding utf8
+            git -C $seed add -A
+            git -C $seed commit -q -m 'Seed'
+            foreach ($r in $Releases) { git -C $seed tag $r }
+            git -C $seed remote add origin $remote
+            git -C $seed push -q origin main --tags 2>&1 | Out-Null
+            git clone -q $remote $clone 2>&1 | Out-Null
+            $clone
+        }
+    }
+
+    It 'prints one line naming both versions and /update when a newer release exists' {
+        $f = New-Fixture 'rel-newer'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'newer' -Releases @('v0.1.0', 'v0.2.0')
+        $text = Get-Digest $f
+        $text.Contains('UPDATE_AVAILABLE: 0.1.0 -> 0.2.0 - run /update') | Should -BeTrue
+        @($text -split "`r?`n" | Where-Object { $_ -like '*UPDATE_*' }).Count | Should -Be 1
+        Test-Path -LiteralPath (Join-Path $f.Root 'state\release-check.json') |
+            Should -BeTrue -Because 'the answer is cached beside the other state, so the next session today does not ask'
+    }
+
+    It 'says nothing when the installed release is the latest' {
+        $f = New-Fixture 'rel-same'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'same' -Releases @('v0.1.0')
+        (Get-Digest $f).Contains('UPDATE_') | Should -BeFalse
+    }
+
+    It 'says nothing when the installed version is ahead of every release' {
+        $f = New-Fixture 'rel-older'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'older' -Releases @('v0.0.9') -Installed '0.1.0'
+        (Get-Digest $f).Contains('UPDATE_') | Should -BeFalse
+    }
+
+    It 'says nothing on a checkout off the release branch' {
+        $f = New-Fixture 'rel-dev'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'dev' -Releases @('v0.1.0', 'v0.2.0')
+        git -C $f.ReleaseRepo checkout -q -b dev 2>&1 | Out-Null
+        (Get-Digest $f).Contains('UPDATE_') | Should -BeFalse
+    }
+
+    It 'says in one line that it could not check, naming no version, when the tags cannot be read' {
+        $f = New-Fixture 'rel-unreadable'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'unreadable' -Releases @('v0.1.0', 'v0.2.0')
+        git -C $f.ReleaseRepo remote set-url origin (Join-Path $TestDrive 'rel-nowhere')
+        $text = Get-Digest $f
+        $line = @($text -split "`r?`n" | Where-Object { $_ -like 'UPDATE_CHECK:*' })
+        $line.Count | Should -Be 1
+        $line[0] | Should -BeLike 'UPDATE_CHECK: could not check for a newer release - *'
+        $text.Contains('UPDATE_AVAILABLE') | Should -BeFalse
+        $text.Contains('=== END KINGSHAND SESSION START ===') | Should -BeTrue
+    }
+
+    It 'says when a failed check was made once it is answered from the cache' {
+        $f = New-Fixture 'rel-cachedfail'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'cachedfail' -Releases @('v0.1.0')
+        git -C $f.ReleaseRepo remote set-url origin (Join-Path $TestDrive 'rel-nowhere-either')
+        $null = Get-Digest $f
+        (Get-Digest $f) | Should -Match 'UPDATE_CHECK: could not check for a newer release \(as of \d{4}-\d\d-\d\d \d\d:\d\d UTC\) - '
+    }
+
+    It 'asks nothing and writes nothing before setup has run' {
+        $f = New-Fixture 'rel-fresh' -NoDataDirectory
+        $f.ReleaseRepo = New-ReleaseClone -Name 'fresh' -Releases @('v0.1.0', 'v0.2.0')
+        (Get-Digest $f).Contains('UPDATE_') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $f.Root 'state\release-check.json') | Should -BeFalse
     }
 }
