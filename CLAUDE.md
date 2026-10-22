@@ -76,11 +76,12 @@ exists to prevent.
 ## Session start
 
 A `SessionStart` hook runs `bin\Get-SessionStart.ps1` and injects its digest as this session's
-first input. The digest carries nine things: the full contents of `instructions.md`, first; this
+first input. The digest carries ten things: the full contents of `instructions.md`, first; this
 installation's version on one `VERSION:` line; any actionable toolchain problem; the fleet -
 registered projects, recorded workers, un-dispatched briefs and available reports; a `RE-ARM:`
 section carrying what the last session's restart killed; the queue from `tasks-axi ready
---include-held`; a `DEPENDENCY_CHECK_DUE:` line when the weekly dependency check is due; the data
+--include-held`; a `DEPENDENCY_CHECK_DUE:` line when the weekly dependency check is due on a
+maintainer's installation; an `UPDATE_AVAILABLE:` line when a newer release exists; the data
 index as counts alone - how much it covers and how many files under `data\` it has lost track of -
 and `data\king.md` and `data\learnings.md`. A clean toolchain prints nothing at all, so silence
 there is the good outcome.
@@ -128,7 +129,12 @@ adds the one backlog item the line names, with `--kind dependency-check`, so it 
 **Never run the check or file the item without his answer.** It is a line in chat rather than a
 rendered page - two fixed answers, nothing to compare. The digest prints nothing while an item of
 that kind is open, so a filed check is not asked about again. While `regency` or night's watch is
-in force, the question waits for his return like any other.
+in force, the question waits for his return like any other. Only an installation carrying the
+maintainer marker is ever asked; `statute`'s Dependency pins section owns the marker.
+
+**An `UPDATE_AVAILABLE:` line means a newer release exists: say so once, in the orientation line,
+and point at `/update` - never run it, and never raise it again that session.** An `UPDATE_CHECK:`
+line means the check could not be made: it names no version, so mention it only if he asks.
 
 The digest is not `survey` and neither runs the other. This is mechanical startup input nobody
 asked for; `survey` is a curated answer to "what needs me" that only the user ever asks for.
@@ -223,9 +229,9 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Get-SurveySnapshot.ps1` | the one bounded gather behind `/survey`: registry, workers joined with live state, reports, un-dispatched briefs. Returns structured data, renders nothing, never throws |
 | `bin\Render-Review.ps1` | structured data to reviewable HTML for lavish |
 | `bin\Test-CrewPrereqs.ps1` | verifies the toolchain; run it if anything behaves oddly |
-| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook, under the harness's inline limit: instructions.md whole and first, version, toolchain problems, what is live or waiting in the fleet and the queue with counts for the rest, what a restart killed and has to be re-armed, index counts, and each memory file whole where it fits. Never throws |
+| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook, under the harness's inline limit: instructions.md whole and first, version, toolchain problems, what is live or waiting in the fleet and the queue with counts for the rest, what a restart killed and has to be re-armed, the weekly dependency check on a maintainer's installation, a newer release, index counts, and each memory file whole where it fits. Never throws |
 | `bin\Version.psm1` | the `VERSION` file at the repo root: this installation's version, read and validated in one place, and never fabricated when it cannot be read |
-| `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the latest release tag, the commit subjects between two releases, and the installer run that moves every dependency to the release's pins |
+| `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the latest release tag, the commit subjects between two releases, and the installer run that moves every dependency to the release's pins - and the once-a-day new-release notice the digest prints |
 | `bin\Dependencies.psm1` | the pins in `dependencies.json`: each one read and checked, the installed and the latest published version of each read from the tool that owns it, and whether herdr may be replaced right now |
 | `bin\Update-DependencyPins.ps1` | the weekly pin refresh as data, writing nothing unless told the run is the weekly check: for each pin, the pinned version, the latest published one, and whether moving crosses a breaking line - and the one owner of when that check last ran and whether it is due |
 | `bin\Memory.psm1` | the startup-memory budget: what the two memory files cost, against what is allowed, and which of them the digest has room to print whole |

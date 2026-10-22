@@ -48,7 +48,9 @@ reads.
 - **A version, and one command to move it.** `/update` fast-forwards this installation to the
   latest tagged release, re-runs the installer, and tells you what you moved from, what you moved
   to, and what changed. It updates to a release rather than to whatever was pushed last, and it
-  refuses outright while a worker is live or your tree is dirty.
+  refuses outright while a worker is live or your tree is dirty. Once a day the session-start
+  digest checks the release tags and tells you when a newer release exists; it never updates on its
+  own.
 - **Nothing settled goes unread.** Every durable file the tool keeps for you gets one line in an
   index, and every brief names the files its worker must read before it starts - so a decision you
   already made cannot sit in a file nobody opens while the work ships without it.

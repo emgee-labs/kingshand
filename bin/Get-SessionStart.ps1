@@ -2,9 +2,10 @@
 <#
 .SYNOPSIS
   The once-per-session digest: this installation's version, toolchain problems, fleet state, what
-  a restart killed and has to be re-armed, the queue, whether the weekly dependency check is due,
-  where the data index is and how far it has drifted, the King's own standing instructions, and the
-  two curated memory files, rendered as one block a session can read and trust.
+  a restart killed and has to be re-armed, the queue, whether the weekly dependency check is due on
+  a maintainer's installation, whether a newer release exists, where the data index is and how far
+  it has drifted, the King's own standing instructions, and the two curated memory files, rendered
+  as one block a session can read and trust.
 .DESCRIPTION
   This is operational input, not a report. It runs from a SessionStart hook and its whole purpose
   is to make a restart a non-event: everything a fresh session needs to orient itself is printed
@@ -69,6 +70,12 @@
   collected. The tool has no command that lists its sessions, so this file is the one place that
   answer exists; it is JSON the tool writes to its own schema, which is why reading it is a parse
   of a bounded format rather than a scan of an open-ended one.
+.PARAMETER MaintainerPath
+  config\maintainer - the machine-local marker saying this installation is a maintainer's. Present,
+  the weekly dependency check is asked about; absent, it is never mentioned. Read, never written.
+.PARAMETER ReleaseRepoPath
+  the checkout whose VERSION, branch and origin remote the new-release notice reads - this
+  installation's root.
 .PARAMETER PrereqScript
   the toolchain check. Detect-only: a clean run prints nothing at all.
 .PARAMETER QueueRoot
@@ -89,6 +96,8 @@ param(
     [string]$InstructionsPath,
     [string]$VersionPath,
     [string]$LavishStatePath,
+    [string]$MaintainerPath,
+    [string]$ReleaseRepoPath,
     [string]$PrereqScript = (Join-Path $PSScriptRoot 'Test-CrewPrereqs.ps1'),
     [string]$QueueRoot,
     [switch]$Json
@@ -106,6 +115,8 @@ if (-not $RegistryPath)     { $RegistryPath     = Join-Path $script:Root 'data\p
 if (-not $BudgetPath)       { $BudgetPath       = Join-Path $script:Root 'config\startup-memory-budget' }
 if (-not $InstructionsPath) { $InstructionsPath = Join-Path $script:Root 'instructions.md' }
 if (-not $QueueRoot)        { $QueueRoot        = $script:Root }
+if (-not $MaintainerPath)   { $MaintainerPath   = Join-Path $script:Root 'config\maintainer' }
+if (-not $ReleaseRepoPath)  { $ReleaseRepoPath  = $script:Root }
 
 # lavish-axi's own store, resolved exactly the way the tool resolves it: LAVISH_AXI_STATE_DIR when
 # it is set, and the home directory otherwise. Both are the tool's own documented pair rather than
@@ -837,7 +848,13 @@ if (-not $script:Queue.ok) {
 }
 
 # --------------------------------------------------------------------------------
-# 3b. Dependency check - one line, and only when the weekly check is due.
+# 3b. Dependency check - one line, and only when the weekly check is due, and only
+#     on a maintainer's installation.
+#
+#     Moving a pin is a maintainer's job, so someone who only uses kingshand never
+#     hears of it. The marker is config\maintainer, a gitignored file a maintainer
+#     creates by hand - nothing infers it from remotes or push rights, which would be
+#     a guess. Without it this section asks nothing and prints nothing.
 #
 #     Nothing schedules the check, so a machine that was off misses nothing: the
 #     next session that starts after seven days says so. Update-DependencyPins.ps1
@@ -850,14 +867,18 @@ if (-not $script:Queue.ok) {
 #     and a backlog that cannot be read is said as unread - asking once too often
 #     costs the King a line, while staying quiet on a guess costs him the check.
 # --------------------------------------------------------------------------------
-try {
+# The marker is a file and nothing else: a directory or a path that will not resolve is no marker.
+$script:Maintainer = $false
+try { $script:Maintainer = [bool](Test-Path -LiteralPath $MaintainerPath -PathType Leaf) } catch { }
+
+# Not asked before setup has run either. On a fresh clone the record is always absent, so the check
+# would always read as never run - and the first question a new user heard would be about a weekly
+# maintenance step for tools they have not installed yet, ahead of the one step that works.
+if ($script:Maintainer -and -not $script:NotSetUp) { try {
     $recordPath = Join-Path (Split-Path $StatePath -Parent) 'dependency-check.json'
     $pinsScript = Join-Path $PSScriptRoot 'Update-DependencyPins.ps1'
     if (-not (Test-PathQuiet $pinsScript)) { throw "Update-DependencyPins.ps1 is not at $pinsScript." }
-    # Not asked before setup has run. On a fresh clone the record is always absent, so the check
-    # would always read as never run - and the first question a new user heard would be about a
-    # weekly maintenance step for tools they have not installed yet, ahead of the one step that works.
-    $check = if ($script:NotSetUp) { $null } else { & $pinsScript -Due -Root $script:Root -RecordPath $recordPath }
+    $check = & $pinsScript -Due -Root $script:Root -RecordPath $recordPath
 
     if ($check -and $check.state -ne 'not-due') {
         # The week the check is for, as the backlog id the Hand files it under. ISO weeks, so the
@@ -921,6 +942,42 @@ try {
     Add-Line ''
     Add-Line ("DEPENDENCY_CHECK_DUE: whether the weekly dependency check is due could not be read - " +
               (Format-Fault $_.Exception.Message) + " Treat it as due.")
+} }
+
+# --------------------------------------------------------------------------------
+# 3c. New release - one line, for every installation, when a newer release exists
+#     than the one this checkout is on.
+#
+#     Update.psm1 owns the whole answer: which tag is latest (the same rule /update
+#     moves by), the once-a-day cache under state\, and why a checkout off the
+#     release branch is told nothing. This section prints its answer and nothing
+#     else. CLAUDE.md's `## Session start` owns what the Hand does with the line.
+#
+#     Silent when current, ahead, off the release branch or with no release cut yet.
+#     A check that could not be made says so in one line and never names a version.
+#     Not asked before setup has run, because the cache would be the first thing
+#     written into a fresh clone.
+# --------------------------------------------------------------------------------
+if (-not $script:NotSetUp) {
+    try {
+        Import-Module (Join-Path $PSScriptRoot 'Update.psm1') -Force -ErrorAction Stop
+        $notice = Get-ReleaseNotice -Root $ReleaseRepoPath `
+                      -CachePath (Join-Path (Split-Path $StatePath -Parent) 'release-check.json')
+        if ($notice.state -eq 'newer') {
+            Add-Line ''
+            Add-Line "UPDATE_AVAILABLE: $($notice.installed) -> $($notice.latest) - run /update"
+        } elseif ($notice.state -eq 'unreadable') {
+            $asOf = if ($notice.fromCache -and $notice.checkedAt) {
+                " (as of $($notice.checkedAt.ToString('yyyy-MM-dd HH:mm')) UTC)"
+            } else { '' }
+            Add-Line ''
+            Add-Line ("UPDATE_CHECK: could not check for a newer release$asOf - " +
+                      (Format-Fault "$($notice.detail)"))
+        }
+    } catch {
+        Add-Line ''
+        Add-Line ("UPDATE_CHECK: could not check for a newer release - " + (Format-Fault $_.Exception.Message))
+    }
 }
 
 # --------------------------------------------------------------------------------

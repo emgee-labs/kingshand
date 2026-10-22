@@ -7399,7 +7399,7 @@ Describe 'the installation has a version, and one command moves it to a release'
 
     It 'names the version as one line of the session-start digest' {
         Assert-Phrase -Text (Get-HandSection 'Session start') -Where 'CLAUDE.md Session start' `
-            -Phrase ('The digest carries nine things: the full contents of `instructions.md`, first; ' +
+            -Phrase ('The digest carries ten things: the full contents of `instructions.md`, first; ' +
                      'this installation''s version on one `VERSION:` line')
     }
 
@@ -7431,7 +7431,8 @@ Describe 'the installation has a version, and one command moves it to a release'
         Assert-Phrase -Text $tooling -Where 'the CLAUDE.md tooling table' `
             -Phrase ('| `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the ' +
                      'latest release tag, the commit subjects between two releases, and the installer ' +
-                     'run that moves every dependency to the release''s pins |')
+                     'run that moves every dependency to the release''s pins - and the once-a-day ' +
+                     'new-release notice the digest prints |')
     }
 
     It 'lists the pin reader and the weekly pin refresh in the tooling table' {
@@ -10503,6 +10504,45 @@ Describe 'a due dependency check is asked about, never run or filed unasked' {
         Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
             -Phrase ('While `regency` or night''s watch is in force, the question waits for his return ' +
                      'like any other.')
+    }
+
+    # The marker's behaviour is tested through the digest in SessionStart.Tests.ps1; these pin the
+    # rule and the one command a maintainer is told to run.
+    It 'asks only an installation carrying the maintainer marker, and statute says how to set it' {
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase ('Only an installation carrying the maintainer marker is ever asked; `statute`''s ' +
+                     'Dependency pins section owns the marker.')
+        $statute = Get-DocText $script:GuidelinesMd
+        Assert-Phrase -Text $statute -Where 'the statute skill' `
+            -Phrase '**Only an installation carrying the maintainer marker is asked about it**'
+        Assert-Phrase -Text $statute -Where 'the statute skill' `
+            -Phrase 'Nothing infers the marker from remotes or push rights.'
+        Assert-Phrase -Text $statute -Where 'the statute skill' `
+            -Phrase 'New-Item -ItemType File -Force "$env:KINGSHAND_HOME\config\maintainer"'
+    }
+}
+
+# The notice itself - which tag, the once-a-day cache, silence off the release branch - is tested
+# through bin\Update.psm1 and the digest. These pin what the Hand does with the two lines.
+Describe 'a newer release is mentioned once and never acted on' {
+    BeforeAll { $script:RelStart = Get-HandSection 'Session start' }
+
+    It 'names the line in the digest''s list' {
+        Assert-Phrase -Text $script:RelStart -Where 'CLAUDE.md Session start' `
+            -Phrase 'an `UPDATE_AVAILABLE:` line when a newer release exists'
+    }
+
+    It 'says it once in the orientation line, points at /update, never runs it and never nags' {
+        Assert-Phrase -Text $script:RelStart -Where 'CLAUDE.md Session start' `
+            -Phrase ('**An `UPDATE_AVAILABLE:` line means a newer release exists: say so once, in the ' +
+                     'orientation line, and point at `/update` - never run it, and never raise it ' +
+                     'again that session.**')
+    }
+
+    It 'leaves a check that could not be made unmentioned unless asked' {
+        Assert-Phrase -Text $script:RelStart -Where 'CLAUDE.md Session start' `
+            -Phrase ('An `UPDATE_CHECK:` line means the check could not be made: it names no version, ' +
+                     'so mention it only if he asks.')
     }
 }
 
