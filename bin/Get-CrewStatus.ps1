@@ -63,7 +63,8 @@ if ($state.workers.Count -gt 0) {
     # Get-HerdrAgents already swallows herdr's own errors and returns an empty list, so a server
     # that is not running reads as no live agents - which is the truth: herdr's panes die with it.
     # A herdr that is not installed at all still throws, and that is deliberate: reporting every
-    # worker as dead because the tool is missing would be a confident lie.
+    # worker as dead because the tool is missing would be a confident lie. A herdr binary on a
+    # different version from its running server throws for the same reason; Herdr.psm1 owns it.
     #
     # Deliberately NOT wrapped in @(). Get-HerdrAgents returns via the leading-comma idiom, so the
     # pipeline hands back the intact agents array as one object; @() would nest it a second time
