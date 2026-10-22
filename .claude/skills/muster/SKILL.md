@@ -327,12 +327,12 @@ the file, and a worker left to work out which source wins picks wrong half the t
 
 **The project's standing rules are not pasted and not passed.** `data\rules-<project>.md` holds
 context and vocabulary - tagging and casing, shorthand, folders never to touch, branch naming,
-where a login is kept - and `annex` owns its format. Dispatch attaches it by itself and writes the
-`Read first` line naming the copy, so pass no `-ReadPath` for it and write no line for it. Do not
-paste it into the brief and never ask the worker to report against it: it is reference, and an
-`n/a` answered to "our tickets are tagged NG-" dilutes the self-check on the lines that are really
-tested. **Read it yourself before you write the brief** - the copy goes to the worker, and the
-ticket text is yours.
+where a login is kept - and `annex` owns its format. Dispatch attaches it by itself and names the
+copy in the dispatch file Step 4 describes, so pass no `-ReadPath` for it and write no line for it.
+Do not paste it into the brief and never ask the worker to report against it: it is reference, and
+an `n/a` answered to "our tickets are tagged NG-" dilutes the self-check on the lines that are
+really tested. **Read it yourself before you write the brief** - the copy goes to the worker, and
+the ticket text is yours.
 
 Dispatch attaches `done-<project>.md` on the same terms if you did not pass it, which is a backstop
 and not a reason to stop passing it: the paste above is what the worker is judged against, and it
@@ -1065,8 +1065,8 @@ browser procedure counts towards that one, per Step 2, which owns the rule - a b
 `## Browser checks` section that passes no `-ReadPath` for the browser procedure or for the module
 it imports, a path that does not exist, a directory where a file was meant, two different files
 whose names would land on top of each other in the staging directory, a standing file that exists
-and cannot be opened, a directory sitting where a standing file belongs, and a brief that cannot be
-opened for writing to be told what was attached to it. A dispatch with `-InCheckout` adds the
+and cannot be opened, a directory sitting where a standing file belongs, and a dispatch file beside
+the brief that dispatch did not write or cannot write to. A dispatch with `-InCheckout` adds the
 checkout's own refusals on top, all of them before anything is created too, and the dispatcher's
 header lists them.
 
@@ -1077,14 +1077,18 @@ not be taken warns and dispatches rather than blocking. The one exception is a c
 at or past the threshold, which refuses with no current reading behind it - `vigil` owns why, and
 relaying whichever of the two you get is the whole of what it asks of you.
 
-**Dispatch attaches the project's own standing files itself and writes their `Read first` lines.**
-`data\done-<project>.md` and `data\rules-<project>.md` are staged whenever they exist, keyed off
-the project the registry resolves from the repo path, and a line naming each copy goes in at the
-end of that section, below anything you wrote there. It writes no line for a file you passed
-yourself - that one you already named - and re-dispatching the same ticket adds nothing. Retire one
-of those files and re-dispatch the same ticket, and dispatch takes its own line back out and
-deletes the copy, so removing a standing file is enough to stop it reaching a worker. A project
-with neither file dispatches exactly as it did before either existed.
+**Dispatch attaches the project's own standing files itself and names them in a file of its own -
+it never edits your brief.** `data\done-<project>.md` and `data\rules-<project>.md` are staged
+whenever they exist, keyed off the project the registry resolves from the repo path, and a line
+naming each copy goes under `Read first` in `data\<id>\brief.dispatch.md`, the dispatch file beside
+the brief, which the worker's start prompt names beside the brief. An `-InCheckout` dispatch puts
+its checkout warnings there too. It writes no line for a file you passed yourself - that one you
+already named - and the file is composed afresh on every dispatch, so re-dispatching adds nothing.
+Retire one of those files and re-dispatch the same ticket, and its line goes and dispatch deletes
+the copy, so removing a standing file is enough to stop it reaching a worker. A project with neither
+file, dispatched without `-InCheckout`, gets no dispatch file at all. **Do not read the dispatch
+file and do not edit it**: the brief you wrote is exactly what you approved, and anything you open
+is context you pay for again on every call.
 
 **Dispatch does not read the paths out of the brief's prose, and nothing may make it start.** An
 earlier version did, comparing what it parsed there against `-ReadPath`, and it cost six review
@@ -1099,9 +1103,10 @@ file, and that is the fault, not the refusal. Add the section before dispatching
 `- Nothing beyond this brief - the index was checked and nothing in it applies.` where it turns up
 nothing this task touches.
 
-The staged copies are not indexed, and that is deliberate rather than an oversight: each one is a
-snapshot of a file the index already lists at its own path, so `Get-IndexableFiles` excludes
-`read-first\` and the drift count stays about files nothing has recorded anywhere.
+The staged copies and the dispatch file are not indexed, and that is deliberate rather than an
+oversight: each is derived from files the index already lists at their own paths, so
+`Get-IndexableFiles` excludes `read-first\` and a `.dispatch.md` beside its brief, and the drift
+count stays about files nothing has recorded anywhere.
 
 Then record it:
 
@@ -1169,27 +1174,31 @@ The dispatcher passes the brief by path, not by value. Keep it that way. Long te
 survive the trip intact - a 3,374-character prompt arrived whole - but a path is one line, it does
 not have to survive anything, and the brief on disk stays readable after the worker is gone.
 
-**Then arm a wait for that worker, before you say anything to the user.** Nothing else in this
+**Then arm a watch on that worker, before you say anything to the user.** Nothing else in this
 skill wakes you when a worker finishes. Step 5 goes quiet and Step 6 tells you what a finished
-worker looks like, but only this wait's completion brings you back to look:
+worker looks like, but only this watch's completion brings you back to look:
 
 ```powershell
-Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
-$w = Wait-HerdrAgentProgress -Name "<worker id>" -TimeoutMs 2700000
-if ($w.settled) { "WAKE <worker id> state=$($w.state) awaitingInput=$($w.awaitingInput) readable=$($w.signalReadable) box='$($w.promptBox)' last: $($w.lastActivity)" }
-elseif ($w.stalled) { "STALLED <worker id> $($w.quietMinutes)m with no movement - box='$($w.promptBox)' last seen: $($w.lastActivity)" }
-else { "NOT SETTLED <worker id> reason=$($w.reason) readable=$($w.signalReadable) box='$($w.promptBox)'" }
+& $env:KINGSHAND_HOME\bin\Watch.ps1 delivery <worker id>
 ```
 
-**Print every field you will need, because the printed line is all that survives.** The wait runs as
-a background job and its result object dies with the job - what reaches you is stdout and nothing
-else. `readable` is on both lines for that reason: a worker whose pane is too narrow to render is
-unreadable for every sample, so no stall is ever claimed and the watch ends at `reason=timeout`,
-which without that field is indistinguishable from a healthy worker that simply took longer than the
-watch.
+**Arm `delivery` on a worker whose brief runs the review gate, and `worker` on every other.**
+`worker <id>` watches the worker until it needs you. `delivery <id>` does the same and then, when
+the worker settles, reads the gate run on its branch: a run still going is watched to its park or
+its end, because a worker that hands its run to a background shell and goes back to its prompt
+reads settled within seconds while nothing watches the gate. `gate <id>` watches that run alone,
+until it parks or ends. Each takes the worker's worktree and branch from `state\crew.json`, so the
+command is
+one id long.
 
-**Use a guarded wake - `Wait-HerdrAgentProgress` here, or `Wait-HerdrAgentSettled` where only
-completion matters - and never `Wait-HerdrAgent` directly.** The raw
+**The command prints nothing while it waits and exactly one line when it ends** - the outcome in
+capitals, the evidence, and `Next:` with what to do. That line is the whole report, and
+`bin\Watch.psm1` owns every outcome and its wording; nothing here restates it. **Never write the
+wait out by hand again**: an inline script costs several hundred characters of your context per arm,
+paid again on every later call, and the line carries every field the old script printed.
+
+**The watch is built on a guarded wake, `Wait-HerdrAgentProgress`, and never on `Wait-HerdrAgent`
+directly** - nor is any wait you write yourself outside it. The raw
 wait returns on herdr's own classification, and that classification is wrong in both directions:
 a worker sitting on an unanswered menu was measured reporting `idle`, then `done` minutes later
 while a genuinely finished worker reported `idle`. Since the raw wait matches `idle`, `done` or
@@ -1221,54 +1230,54 @@ timer; if you find yourself writing a `while` loop around `Get-HerdrAgent`, you 
 thing this replaced. The progress wake samples the screen once per minute between those blocks,
 because "nothing happened" is not an event anything can push at you.
 
-- Run it as a **harness-tracked background job**, never with `&` and never as a detached process.
+- Run it as **one harness-tracked background job**, never with `&` and never as a detached process.
   Its completion is what wakes you; an untracked process wakes nothing and you will not notice it
   finish any more than you noticed the worker.
-- Arm **one wait per dispatched worker**. Three workers means three waits, each with its own id.
-- `blocked` is a wake reason, not a working state. A worker that goes `blocked` is sitting on an
+- Arm **one watch per dispatched worker**. Three workers means three watches, each with its own id.
+- `BLOCKED` is a wake reason, not a working state. A worker that goes `blocked` is sitting on an
   interactive prompt it cannot get past on its own, and it needs the user - surface it immediately
   and load `rally`. This is the failure that cost five hours of silence, and catching it is the
-  main thing herdr bought. `awaitingInput` being `$true` says the same thing off the worker's own
-  screen, and it wins over whatever `state` says.
-- **`stalled` is a wake reason too, and it is not a completion.** It means nothing on that worker's
-  screen has changed for `$w.quietMinutes` minutes against a threshold of twenty, which is long
+  main thing herdr bought. The line says `BLOCKED` off the worker's own screen, whatever its state
+  word says.
+- **`STALLED` is a wake reason too, and it is not a completion.** It means nothing on that worker's
+  screen has changed for the minutes the line names, against a threshold of twenty, which is long
   enough that a slow step is not it - a review pass on kingshand has legitimately taken 38 minutes
-  while printing its progress the whole way. Tell the user what the work has stopped on, how long it
-  has been there, and what it was last seen doing - `$w.lastActivity` carries that - then load
-  `rally`, which owns what happens next. **Do not act on a stall on your own**: a wrong automatic
-  action on a stalled worker is worse than a late human one, and nothing in the wait recovers
-  anything by design. Raise the threshold with `-StallMinutes` for work that is genuinely quiet for
-  longer; never lower it under fifteen, where slow steps start reporting as stalls and a false alarm
-  reaching the King costs more than a silent one.
-- **`$w.signalReadable` being `$false` means the watch was blind, not that the worker is fine.** The
+  while printing its progress the whole way. Tell the user what the work has stopped on, how long
+  it has been there, and what it was last seen doing - the line's `Last seen:` carries that - then
+  load `rally`, which owns what happens next. **Do not act on a stall on your own**: a wrong
+  automatic action on a stalled worker is worse than a late human one, and nothing in the wait
+  recovers anything by design. Raise the threshold with `-StallMinutes` on the watch for work
+  genuinely quiet for longer; never lower it under fifteen, where slow steps start reporting as
+  stalls and a false alarm reaching the King costs more than a silent one.
+- **A line saying the watch was blind means exactly that, not that the worker is fine.** The
   screen could not be read - usually a pane too narrow to render, the same defect that blinds the
   blocked-worker guard - so no stall can be claimed either way. Check it with
   `Test-HerdrAgentReadable` and say plainly that you cannot see the worker rather than reporting it
   healthy.
-- **`$w.promptBox` with anything in it is not the worker's output and not a question for you.** It is
-  text sitting in that worker's input box that nothing here sent, and a bare Enter would submit it as
-  though the Hand had written it. **Never submit it and never clear it** - quote it, say which worker
-  it was on, and load `rally`, which owns what happens next.
-- **`reason` of `gone` means herdr has no such worker any more.** That is not a timeout and not a
+- **A line quoting text in the input box is not the worker's output and not a question for you.**
+  It is text sitting in that worker's input box that nothing here sent, and a bare Enter would
+  submit it as though the Hand had written it. **Never submit it and never clear it** - quote it,
+  say which worker it was on, and load `rally`, which owns what happens next.
+- **`GONE` means herdr has no such worker any more.** That is not a timeout and not a
   stall: the process is not there. It is confirmed by a second read and by the server still
   answering, so neither one transient error nor a server that is down produces it. Load `rally` and
   reconcile before anything else, and never remove its worktree first.
-- **`reason` of `wait-failed` is the watch failing, not the worker.** Either herdr kept answering
+- **`WATCH FAILED` is the watch failing, not the worker.** Either herdr kept answering
   instantly instead of blocking for its slice, or the server stopped answering at all, so the wait
   gave up rather than spinning silently or claiming the worker had vanished. The worker is probably
-  still alive and now unwatched: check the server with `Test-HerdrServer`, re-arm the wait, and say
+  still alive and now unwatched: check the server with `Test-HerdrServer`, re-arm the watch, and say
   in one line that you lost sight of it rather than reporting it healthy.
 - **Never arm the wait immediately after submitting a prompt without accounting for stale state.**
   A worker reads `idle` for a moment after its prompt is submitted, so a wait armed on `idle`
   alone can return instantly and report a completion that never happened. The dispatcher hands
   back a worker that has already been given its brief; if you submit anything further yourself,
   wait for `working` first.
-- If the wait times out without the worker finishing, re-arm it. A timeout says nothing about the
-  worker; assuming it is fine is how the silence starts again. That is what `settled` being
-  `$false` means - not settled is the absence of an outcome, never an outcome of its own.
+- If the watch comes back `NO OUTCOME`, re-arm it. A timeout says nothing about the worker;
+  assuming it is fine is how the silence starts again - not settled is the absence of an outcome,
+  never an outcome of its own.
 - **Never promise to report back without arming this first.** Saying "I will report when they are
-  done" with no armed wait is exactly the defect this exists to prevent - three workers reached
-  their reports and nothing came back to read them. If for any reason the wait cannot be armed,
+  done" with no armed watch is exactly the defect this exists to prevent - three workers reached
+  their reports and nothing came back to read them. If for any reason the watch cannot be armed,
   tell the user plainly that they will need to ask.
 
 Tell the user one line per worker that dispatch happened, then stop talking.
@@ -1305,8 +1314,9 @@ how a worker waiting on a person gets told it is done, torn down, and reported a
 
 **A worker is finished when all three of these hold, and never on fewer:**
 
-1. the guarded wake from Step 4 came back settled - `$w.settled` is `$true`;
-2. it is not awaiting input - `$w.awaitingInput` is `$false`, which is read off the worker's live
+1. the watch from Step 4 came back settled - its line opens `SETTLED`, or `IDLE WHILE GATE RUNS`
+   for a worker whose gate run ended after it did;
+2. it is not awaiting input - the line did not say `BLOCKED`, which is read off the worker's live
    screen rather than taken from herdr's word for it;
 3. `$env:KINGSHAND_HOME\data\<id>\report.md` exists.
 
@@ -1349,12 +1359,12 @@ $rec = Get-CrewWorker -State $s -WorkerId "<id>"
 $rec.waiting_on        # the key of the hold carrying its decision, or $null
 ```
 
-**Inside this step the worker's record is `$rec` and never `$w`.** `$w` is this step's wake object
-from Step 4 - the three facts above read `$w.settled` and `$w.awaitingInput` off it - and it is
-re-read here rather than trusted, so binding the record over it leaves the re-read returning
-`$null` under normal mode and throwing under `Set-StrictMode`. Two objects, two names. The rule is
-this step's alone: Step 7 and Step 8 bind the record to `$w` with no wake object in scope, and
-neither is a collision to go and tidy.
+**Inside this step the worker's record is `$rec` and never `$w`.** `$w` is the name a wake object
+takes wherever one is still held in a script - a re-armed wait of your own, or one `rally` arms -
+so binding the record over it leaves a later read of the wake returning `$null` under normal mode
+and throwing under `Set-StrictMode`. Two objects, two names. The rule is this step's alone: Step 7
+and Step 8 bind the record to `$w` with no wake object in scope, and neither is a collision to go
+and tidy.
 
 **The field is set or it is not, and there is no third value. A null means no park has been
 recorded on this record, and never that there is nothing to answer; set means it parked, and the
@@ -2090,9 +2100,9 @@ The re-run walks the local steps again against commits that have not changed, th
 flags at dispatch to avoid it. Read the screen back afterwards to confirm the steer landed, and
 where the worker is gone or will not take it, `rally` owns the recovery.
 
-**A steered worker is a working worker again, so arm a fresh `Wait-HerdrAgentProgress` on it the
-way Step 4 does before going quiet.** The push is not done when the prompt is sent, and the wait
-that watched the first run settled when that run ended.
+**A steered worker is a working worker again, so arm a fresh Step 4 watch on it before going
+quiet** - `delivery`, since a push runs the gate. The push is not done when the prompt is sent, and
+the watch on the first run ended when that run did.
 
 **When the steered run finishes, it goes back through Step 6 exactly as the first run did** - the
 same three completion facts, the same parked-decision check - and only then to Step 8a, which

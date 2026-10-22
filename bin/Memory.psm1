@@ -128,4 +128,68 @@ function Get-MemoryReport {
     }
 }
 
-Export-ModuleMember -Function Get-MemoryBudget, Measure-MemoryFile, Get-MemoryReport
+# Which of the two memory files the session-start digest prints whole, and which it only names.
+#
+# The digest has a hard character limit, the harness's own, and the budget above does not keep it
+# under: 7,500 estimated tokens is about 22,500 characters of memory alone, more than twice the
+# whole limit. So the digest hands this the room it has left, and each file is printed whole where
+# it fits and named in one line where it does not. Order is king.md first, then learnings.md - how
+# the King works outranks what kingshand has hit.
+#
+# .files       one per memory file, in that order:
+#   .name        the file name
+#   .path        where it is
+#   .state       whole | pointer | absent | empty | unreadable
+#   .text        the text to print, for `whole`; '' otherwise
+#   .characters  its length as printed, or 0
+#   .error       for `unreadable`, what went wrong; '' otherwise
+# .room        the room it was given
+# .used        how much of it the `whole` files take, overhead included
+#
+# A file that cannot be read is `unreadable`, never `absent` and never `empty`: the three are
+# different facts, and a session told nothing was recorded about the King when the file is there
+# and broken would act on a picture with a hole in it.
+function Get-MemoryDigestPlan {
+    [CmdletBinding()]
+    param(
+        [string]$DataPath = (Get-DefaultMemoryDataPath),
+        [Parameter(Mandatory)][int]$RoomCharacters,
+        # What printing one file whole costs beyond its own text - its delimiter lines.
+        [int]$PerFileOverhead = 0
+    )
+
+    $used  = 0
+    $files = foreach ($name in $script:MemoryFiles) {
+        $path = Join-Path $DataPath $name
+        $plan = [ordered]@{ name = $name; path = $path; state = 'absent'; text = ''; characters = 0; error = '' }
+        try {
+            if (Test-Path -LiteralPath $path) {
+                if (Test-Path -LiteralPath $path -PathType Container) {
+                    throw "it is a directory, not a file"
+                }
+                $raw = ([System.IO.File]::ReadAllText($path) -replace "`r`n", "`n").TrimEnd("`n")
+                if ([string]::IsNullOrWhiteSpace($raw)) {
+                    $plan.state = 'empty'
+                } else {
+                    $plan.characters = $raw.Length
+                    if ($used + $raw.Length + $PerFileOverhead -le $RoomCharacters) {
+                        $plan.state = 'whole'
+                        $plan.text  = $raw
+                        $used += $raw.Length + $PerFileOverhead
+                    } else {
+                        $plan.state = 'pointer'
+                    }
+                }
+            }
+        } catch {
+            $plan.state = 'unreadable'
+            $plan.error = "$($_.Exception.Message)"
+        }
+        [pscustomobject]$plan
+    }
+
+    [pscustomobject]@{ files = @($files); room = $RoomCharacters; used = $used }
+}
+
+Export-ModuleMember -Function Get-MemoryBudget, Measure-MemoryFile, Get-MemoryReport,
+                              Get-MemoryDigestPlan

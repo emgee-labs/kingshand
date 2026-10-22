@@ -1072,21 +1072,36 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
     # both the arming discipline and the fact that it is not a poll.
     BeforeAll { $script:Step4 = Get-MusterStep 'Step 4 - Dispatch' }
 
-    It 'arms the wait at dispatch, before anything is said to the user' {
+    It 'arms the watch at dispatch, before anything is said to the user' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase 'Then arm a wait for that worker, before you say anything to the user.'
+            -Phrase '**Then arm a watch on that worker, before you say anything to the user.**'
+    }
+
+    # The watch is a verb with a one-line answer because the hand-written wait it replaced cost
+    # several hundred characters of the Hand's own context per arm, paid again on every later call.
+    It 'arms the watch as a short verb and never writes the wait out by hand' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('**Arm `delivery` on a worker whose brief runs the review gate, and `worker` on ' +
+                     'every other.**')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('**The command prints nothing while it waits and exactly one line when it ' +
+                     'ends**')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase '**Never write the wait out by hand again**'
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase '`bin\Watch.psm1` owns every outcome and its wording; nothing here restates it.'
     }
 
     It 'requires a harness-tracked background job rather than a detached one' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase 'Run it as a **harness-tracked background job**, never with `&` and never as a detached process.'
+            -Phrase 'Run it as **one harness-tracked background job**, never with `&` and never as a detached process.'
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase 'an untracked process wakes nothing'
     }
 
-    It 'arms one wait per dispatched worker' {
+    It 'arms one watch per dispatched worker' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase 'Arm **one wait per dispatched worker**.'
+            -Phrase 'Arm **one watch per dispatched worker**.'
     }
 
     It 'is an event and never a loop' {
@@ -1099,7 +1114,7 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
 
     It 'treats blocked as a wake reason rather than a working state' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase '`blocked` is a wake reason, not a working state.'
+            -Phrase '`BLOCKED` is a wake reason, not a working state.'
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase ('A worker that goes `blocked` is sitting on an interactive prompt it cannot ' +
                      'get past on its own, and it needs the user - surface it immediately and ' +
@@ -1117,9 +1132,9 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
             -Phrase 'if you submit anything further yourself, wait for `working` first'
     }
 
-    It 're-arms a timed-out wait rather than assuming the worker is fine' {
+    It 're-arms a timed-out watch rather than assuming the worker is fine' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase 'If the wait times out without the worker finishing, re-arm it.'
+            -Phrase 'If the watch comes back `NO OUTCOME`, re-arm it.'
     }
 
     It 'never promises to report back without arming it first' {
@@ -1129,16 +1144,16 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
             -Phrase 'tell the user plainly that they will need to ask'
     }
 
-    It 'the wake is stated once, as runnable text, and blocks in herdr' {
-        $fences = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('WAKE <worker id>') })
-        $fences.Count | Should -Be 1 -Because 'the wake is stated once, as runnable text'
-        $fences[0].Contains('Wait-HerdrAgentProgress') |
-            Should -BeTrue -Because 'the armed wait watches progress as well as liveness'
+    It 'the watch is stated once, as runnable text, and is the verb rather than an inline wait' {
+        $fences = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('Watch.ps1 delivery <worker id>') })
+        $fences.Count | Should -Be 1 -Because 'the watch is stated once, as runnable text'
         # The raw wait, not the guarded ones whose names begin with it. It returns on a
         # classification that was measured wrong in both directions.
-        $fences[0] | Should -Not -Match 'Wait-HerdrAgent\s+-Name' -Because 'the raw wait is never armed directly'
+        $fences[0] | Should -Not -Match 'Wait-HerdrAgent' -Because 'no wait is written out inline any more'
         $fences[0].Contains('Start-Sleep') |
             Should -BeFalse -Because 'a sleep in the wake is the polling loop coming back'
+        @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('$w = Wait-HerdrAgentProgress') }).Count |
+            Should -Be 0 -Because 'the hand-written wait is gone from the skill'
     }
 
     # A stall is a wake reason of its own: the worker is alive, `working` by every state word herdr
@@ -1146,7 +1161,7 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
     # because a wrong automatic action on a stalled worker is worse than a late human one.
     It 'treats a stall as a wake reason and refuses to act on one' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase '**`stalled` is a wake reason too, and it is not a completion.**'
+            -Phrase '**`STALLED` is a wake reason too, and it is not a completion.**'
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase '**Do not act on a stall on your own**'
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
@@ -1158,8 +1173,8 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase 'against a threshold of twenty'
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase ('Raise the threshold with `-StallMinutes` for work that is genuinely quiet for ' +
-                     'longer; never lower it under fifteen')
+            -Phrase ('Raise the threshold with `-StallMinutes` on the watch for work genuinely quiet ' +
+                     'for longer; never lower it under fifteen')
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase 'a false alarm reaching the King costs more than a silent one'
     }
@@ -1168,12 +1183,12 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
     # slow one. Both were reported as "fine" by everything that came before.
     It 'refuses to read an unreadable screen or a missing worker as health' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase ('**`$w.signalReadable` being `$false` means the watch was blind, not that the ' +
-                     'worker is fine.**')
+            -Phrase ('**A line saying the watch was blind means exactly that, not that the worker is ' +
+                     'fine.**')
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase 'say plainly that you cannot see the worker rather than reporting it healthy'
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase '**`reason` of `gone` means herdr has no such worker any more.**'
+            -Phrase '**`GONE` means herdr has no such worker any more.**'
     }
 
     # The wake line prints `promptBox` on every branch, and a printed field with no stated response
@@ -1182,7 +1197,7 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
     # destroys the only record the event happened.
     It 'says what a non-empty prompt box is, and routes it to rally instead of acting on it' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase ('**`$w.promptBox` with anything in it is not the worker''s output and not a ' +
+            -Phrase ('**A line quoting text in the input box is not the worker''s output and not a ' +
                      'question for you.**')
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase ('a bare Enter would submit it as though the Hand had written it')
@@ -1213,9 +1228,8 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
     # for a worker that is waiting on a person.
     It 'uses the guarded wake and says why the raw one is unsafe' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase ('**Use a guarded wake - `Wait-HerdrAgentProgress` here, or ' +
-                     '`Wait-HerdrAgentSettled` where only completion matters - and never ' +
-                     '`Wait-HerdrAgent` directly.**')
+            -Phrase ('**The watch is built on a guarded wake, `Wait-HerdrAgentProgress`, and never ' +
+                     'on `Wait-HerdrAgent`')
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase ('a worker sitting on an unanswered menu was measured reporting `idle`, then ' +
                      '`done` minutes later while a genuinely finished worker reported `idle`')
@@ -1227,8 +1241,8 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
 
     It 'lets the screen outrank the state word, and keeps not-settled from becoming one' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase ('`awaitingInput` being `$true` says the same thing off the worker''s own ' +
-                     'screen, and it wins over whatever `state` says.')
+            -Phrase ('The line says `BLOCKED` off the worker''s own screen, whatever its state ' +
+                     'word says.')
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase 'not settled is the absence of an outcome, never an outcome of its own'
     }
@@ -1258,9 +1272,9 @@ Describe 'completion is evidence, not a state, and there is no transcript to fal
         Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
             -Phrase '**A worker is finished when all three of these hold, and never on fewer:**'
         Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
-            -Phrase 'the guarded wake from Step 4 came back settled - `$w.settled` is `$true`'
+            -Phrase 'the watch from Step 4 came back settled - its line opens `SETTLED`'
         Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
-            -Phrase ('it is not awaiting input - `$w.awaitingInput` is `$false`, which is read off ' +
+            -Phrase ('it is not awaiting input - the line did not say `BLOCKED`, which is read off ' +
                      'the worker''s live screen rather than taken from herdr''s word for it')
         Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
             -Phrase '`$env:KINGSHAND_HOME\data\<id>\report.md` exists.'
@@ -2041,7 +2055,8 @@ Describe 'recovery reconciles records against reality before taking new work' {
                      'anything else.**')
         Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
             -Phrase 'a restart kills it silently'
-        $s | Should -Match 'Wait-HerdrAgentProgress' -Because 'the guarded wait is the one to re-arm, not the raw one'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase 'arm a fresh watch - `bin\Watch.ps1` as one background job - as `muster` Step 4'
     }
 
     # Re-arming after a restart restores the watch, and it also restarts the stall clock from zero.
@@ -3349,7 +3364,14 @@ Describe 'the King''s stated instructions are read and never rewritten' {
         $digest = Get-Content -Path (Join-Path $script:Root 'bin\Get-SessionStart.ps1') -Raw
         $digest.Contains('.PARAMETER InstructionsPath') |
             Should -BeTrue -Because 'the path is a parameter, so a test can point it at a fixture'
-        $digest.Contains("-AbsentMeans 'the King has stated no standing instructions. Read it, never write it.'") |
+        $root = Join-Path $TestDrive 'instructions-absent'
+        New-Item -ItemType Directory -Force -Path (Join-Path $root 'data') | Out-Null
+        $out = & (Join-Path $script:Root 'bin\Get-SessionStart.ps1') -DataPath (Join-Path $root 'data') `
+                   -StatePath (Join-Path $root 'state\crew.json') -RegistryPath (Join-Path $root 'data\projects.md') `
+                   -BudgetPath (Join-Path $root 'budget') -InstructionsPath (Join-Path $root 'instructions.md') `
+                   -VersionPath (Join-Path $root 'VERSION') -QueueRoot $root `
+                   -LavishStatePath (Join-Path $root 'lavish.json') -PrereqScript (Join-Path $root 'none.ps1')
+        $out.Contains('ABSENT - the King has stated no standing instructions. Read it, never write it.') |
             Should -BeTrue -Because 'absence is a stated fact here, exactly as it is for a memory file'
     }
 
@@ -3515,7 +3537,8 @@ Describe 'the session-start digest is read once and not read again' {
     It 'keeps the two exceptions narrow and names both' {
         Assert-Phrase -Text $script:SessionStart -Where 'CLAUDE.md session start' `
             -Phrase ('The exceptions are narrow: a source the digest reported absent or corrupt, ' +
-                     'and a targeted piece of work that must inspect a file before writing to it.')
+                     'one it only named or counted, and a targeted piece of work that must inspect a ' +
+                     'file before writing to it.')
     }
 
     It 'leaves liveness to the live process inventory rather than the digest' {
@@ -3767,8 +3790,8 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
                      'directory where a file was meant, two different files whose names would ' +
                      'land on top of each other in the staging directory, a standing file that ' +
                      'exists and cannot be opened, a directory sitting where a standing file ' +
-                     'belongs, and a brief that cannot be opened for writing to be told what was ' +
-                     'attached to it.')
+                     'belongs, and a dispatch file beside the brief that dispatch did not write or ' +
+                     'cannot write to.')
     }
 
     # The usage one is the odd one out and the skill has to say so, because relaying a warning is a
@@ -3821,12 +3844,15 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     It 'muster says dispatch attaches the standing files and names them itself' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase ("**Dispatch attaches the project's own standing files itself and writes their " +
-                     '`Read first` lines.**')
+            -Phrase ("**Dispatch attaches the project's own standing files itself and names them in " +
+                     'a file of its own - it never edits your brief.**')
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase 'It writes no line for a file you passed yourself'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase 'A project with neither file dispatches exactly as it did before either existed.'
+            -Phrase ('the dispatch file beside the brief, which the worker''s start prompt names ' +
+                     'beside the brief')
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase '**Do not read the dispatch file and do not edit it**'
     }
 
     # The rules file is reference, not a checklist, and the distinction is the reason it is a second
@@ -4956,8 +4982,18 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         # digest print the file, but no observable output can show that the route it took was the
         # whole-file printer and not a matcher that happened to agree today.
         It 'the digest prints it in full rather than reading anything out of it' {
-            (Get-Content -Path (Join-Path $script:Root 'bin\Get-SessionStart.ps1') -Raw) |
-                Should -Match "Add-ContextFile -Name 'instructions\.md'"
+            $root = Join-Path $TestDrive 'pulse-off-switch'
+            New-Item -ItemType Directory -Force -Path (Join-Path $root 'data') | Out-Null
+            $said = 'No usage pulse this session, please - I will ask for it.'
+            Set-Content -LiteralPath (Join-Path $root 'instructions.md') -Value $said -Encoding utf8
+            $out = & (Join-Path $script:Root 'bin\Get-SessionStart.ps1') -DataPath (Join-Path $root 'data') `
+                       -StatePath (Join-Path $root 'state\crew.json') -RegistryPath (Join-Path $root 'data\projects.md') `
+                       -BudgetPath (Join-Path $root 'budget') -InstructionsPath (Join-Path $root 'instructions.md') `
+                       -VersionPath (Join-Path $root 'VERSION') -QueueRoot $root `
+                       -LavishStatePath (Join-Path $root 'lavish.json') -PrereqScript (Join-Path $root 'none.ps1')
+            $out.Contains($said) | Should -BeTrue -Because 'the King''s line arrives verbatim'
+            $out.Contains('Watch-UsagePulse') |
+                Should -BeTrue -Because 'the arming command is printed whatever the file says'
         }
 
         # The arming pattern is the whole of R-008: a runnable block in the shape muster Step 4
@@ -7333,7 +7369,8 @@ Describe 'the installation has a version, and one command moves it to a release'
 
     It 'names the version as one line of the session-start digest' {
         Assert-Phrase -Text (Get-HandSection 'Session start') -Where 'CLAUDE.md Session start' `
-            -Phrase 'The digest carries eight things: this installation''s version on one `VERSION:` line'
+            -Phrase ('The digest carries nine things: the full contents of `instructions.md`, first; ' +
+                     'this installation''s version on one `VERSION:` line')
     }
 
     It 'declares the update skill trigger inline, with its refusals' {
@@ -8070,7 +8107,7 @@ Describe 'a project carries standing rules that reach every worker without being
         Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
             -Phrase ('**Both of those reach a worker mechanically. `bin\Dispatch-Worker.ps1` ' +
                      'attaches whichever of the two exists to every brief for that project and ' +
-                     'names each copy under `Read first` itself,**')
+                     'names each copy in the file it writes beside the brief,**')
         Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
             -Phrase 'so delivery never depends on your remembering to pass it'
     }
@@ -8158,8 +8195,9 @@ Describe 'a project carries standing rules that reach every worker without being
     It 'statute no longer claims the dispatcher never writes to a brief' {
         $g = Get-DocText $script:GuidelinesMd
         Assert-Phrase -Text $g -Where 'the statute skill' `
-            -Phrase ('it does add lines to a brief - one `Read first` line per standing file it ' +
-                     'attached for the resolved project')
+            -Phrase ('it does add lines for a brief - one `Read first` line per standing file it ' +
+                     'attached for the resolved project, in the dispatch file beside the brief ' +
+                     'rather than in the brief itself')
         $g.Contains('it never adds a line to a brief') |
             Should -BeFalse -Because 'the dispatcher does add lines to a brief now'
     }
@@ -8381,8 +8419,8 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase ('The rule is this step''s alone: Step 7 and Step 8 bind the record to `$w` ' +
                      'with no wake object in scope, and neither is a collision to go and tidy.')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('binding the record over it leaves the re-read returning `$null` under normal ' +
-                     'mode and throwing under `Set-StrictMode`')
+            -Phrase ('binding the record over it leaves a later read of the wake returning `$null` ' +
+                     'under normal mode and throwing under `Set-StrictMode`')
         @($script:RouteFences | Where-Object { $_.Contains('$w = Get-CrewWorker') -and
             $_.Contains('waiting_on') }).Count |
             Should -Be 0 -Because 'the wake object must survive the pointer read'
@@ -10435,5 +10473,57 @@ Describe 'a due dependency check is asked about, never run or filed unasked' {
         Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
             -Phrase ('While `regency` or night''s watch is in force, the question waits for his return ' +
                      'like any other.')
+    }
+}
+
+# kh-context-cuts: three cuts to what the Hand's own session re-reads on every call. Each rule below
+# governs something executable as well, and that half is tested through the code in
+# Dispatch-Worker.Tests.ps1, Watch.Tests.ps1, SessionStart.Tests.ps1 and Memory.Tests.ps1; these pin
+# only that the prose stating the rule cannot quietly go.
+Describe 'the Hand pays for less of its own context' {
+    BeforeAll {
+        $script:CutsHand     = Get-HandSection 'Session start'
+        $script:CutsRecovery = Get-HandSection 'Recovery'
+        $script:CutsMuster   = Get-DocText $script:MusterMd
+        $script:CutsRegency  = Get-DocText (Join-Path $script:Root '.claude\skills\regency\SKILL.md')
+        $script:CutsWatch    = Get-DocText (Join-Path $script:Root '.claude\skills\nights-watch\SKILL.md')
+        $script:CutsFief     = Get-DocText (Join-Path $script:Root '.claude\skills\fief\SKILL.md')
+    }
+
+    It 'CLAUDE.md says the digest is built to arrive whole, and what to do with a file it only names' {
+        Assert-Phrase -Text $script:CutsHand -Where 'CLAUDE.md Session start' `
+            -Phrase ('**The digest is built to arrive whole, under the harness''s 10,000-character ' +
+                     'inline limit**')
+        Assert-Phrase -Text $script:CutsHand -Where 'CLAUDE.md Session start' `
+            -Phrase ('**A memory file the digest only names, with `NOT PRINTED`, you read in full ' +
+                     'before acting on anything it might govern.**')
+        Assert-Phrase -Text $script:CutsHand -Where 'CLAUDE.md Session start' `
+            -Phrase ('A digest that is still over the limit says so on its first line, and then you ' +
+                     'read the saved file in full before anything else.')
+    }
+
+    It 'muster Step 2 sends the rules file''s line to the dispatch file, not the brief' {
+        Assert-Phrase -Text $script:CutsMuster -Where 'muster Step 2' `
+            -Phrase 'Dispatch attaches it by itself and names the copy in the dispatch file Step 4 describes'
+    }
+
+    It 'a steered worker is watched again with the Step 4 watch' {
+        Assert-Phrase -Text $script:CutsMuster -Where 'muster Step 7' `
+            -Phrase '**A steered worker is a working worker again, so arm a fresh Step 4 watch on it before going quiet**'
+    }
+
+    It 'regency and night''s watch arm the verbs, never a wait written out by hand' {
+        Assert-Phrase -Text $script:CutsRegency -Where 'the regency skill' `
+            -Phrase ('Arm a watch for every live worker with `bin\Watch.ps1`, exactly as `muster` ' +
+                     'Step 4 describes - one background job per worker, never a wait written out by hand.')
+        Assert-Phrase -Text $script:CutsWatch -Where 'the nights-watch skill' `
+            -Phrase 'watch its gate with `bin\Watch.ps1 gate <id>` rather than a worker watch'
+        Assert-Phrase -Text $script:CutsRecovery -Where 'CLAUDE.md recovery' `
+            -Phrase 'arm a fresh watch - `bin\Watch.ps1` as one background job'
+    }
+
+    It 'fief says the checkout warnings go beside the brief' {
+        Assert-Phrase -Text $script:CutsFief -Where 'the fief skill' `
+            -Phrase 'it writes the checkout warnings into the dispatch file beside the brief'
     }
 }

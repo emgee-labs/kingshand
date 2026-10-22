@@ -23,7 +23,9 @@ Set-StrictMode -Version Latest
 # DERIVATION: the file is produced from something else that is itself listed, so listing it would
 # record the same fact twice. An index does not index itself; a rendered `*.html` surface is
 # regenerated from state; a `read-first\` copy is the snapshot dispatch took of a file that already
-# has its own entry at its own path. An exclusion that cannot answer "derived from what?" is the
+# has its own entry at its own path; and `<name>.dispatch.md` beside `<name>.md` is what dispatch
+# added to that brief, composed from the brief and from files listed at their own paths. An
+# exclusion that cannot answer "derived from what?" is the
 # rejected classification creeping back, and does not belong here.
 #
 # Anything else under data\ that no index lists is drift, and Get-IndexDrift counts it - "this file
@@ -478,6 +480,13 @@ function Get-IndexableFiles {
         if ($f.FullName -eq $rootIdx) { continue }
         if ($f.FullName.StartsWith($indexDir + '\', [System.StringComparison]::OrdinalIgnoreCase)) { continue }
         if ((Split-Path $f.FullName -Parent) -match '(^|\\)read-first$') { continue }
+        # Only beside the brief it was derived from: a `.dispatch.md` with no `<name>.md` next to
+        # it is not dispatch's file and is drift like any other.
+        if ($f.Name.EndsWith('.dispatch.md', [System.StringComparison]::OrdinalIgnoreCase) -and
+            (Test-Path -LiteralPath (Join-Path $f.DirectoryName (
+                $f.Name.Substring(0, $f.Name.Length - '.dispatch.md'.Length) + '.md')) -PathType Leaf)) {
+            continue
+        }
         $f.FullName
     }
 

@@ -89,8 +89,9 @@ batch it and stop.
    Say that plainly before they leave, naming the worker, and let them decide whether to go. Do not
    enter a regency silently over a worker you cannot see.
 
-3. Arm a wait for every live worker, exactly as `muster` Step 4 describes. Nothing else wakes you.
-   One per worker, and re-arm on timeout.
+3. Arm a watch for every live worker with `bin\Watch.ps1`, exactly as `muster` Step 4 describes -
+   one background job per worker, never a wait written out by hand. Nothing else wakes you. Re-arm
+   on `NO OUTCOME`.
 
 4. Say one line and stop talking. No plan, no reassurance, no list of what you will be doing.
 
