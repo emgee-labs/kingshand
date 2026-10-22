@@ -709,7 +709,7 @@ foreach ($s in @(Get-DependencyPinStatus -Root $Root)) {
         }
         continue
     }
-    if ($s.state -eq 'unreadable' -and $s.source -eq 'npm' -and -not (Get-NpmCommand)) {
+    if ($s.state -eq 'unreadable' -and $s.source -eq 'npm' -and $s.name -ne 'claude-code' -and -not (Get-NpmCommand)) {
         # No npm, so no npm version can be read at all. The prerequisite pass above has already
         # named Node.js and every required npm tool as missing, so repeating each here as a MISS
         # only lengthens the list a new user has to read; an optional one is said once, as optional.
