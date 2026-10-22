@@ -2,9 +2,10 @@
 <#
 .SYNOPSIS
   The once-per-session digest: this installation's version, toolchain problems, fleet state, what
-  a restart killed and has to be re-armed, the queue, where the data index is and how far it has
-  drifted, the King's own standing instructions, and the two curated memory files, rendered as one
-  block a session can read and trust.
+  a restart killed and has to be re-armed, the queue, whether the weekly dependency check is due on
+  a maintainer's installation, whether a newer release exists, where the data index is and how far
+  it has drifted, the King's own standing instructions, and the two curated memory files, rendered
+  as one block a session can read and trust.
 .DESCRIPTION
   This is operational input, not a report. It runs from a SessionStart hook and its whole purpose
   is to make a restart a non-event: everything a fresh session needs to orient itself is printed
@@ -15,12 +16,13 @@
   startup facts nobody asked for, read once at session open. Neither calls the other, and nothing
   runs survey on the user's behalf.
 
-  Bounded on purpose. The version is one line, the fleet, re-arm, queue and index sections are
-  counts and one-liners; only `instructions.md` and the two memory files are printed in full, and
-  only the two memory files are accounted against the startup-memory budget. A digest that grew
-  with the fleet would be the session-start bulk this deliberately avoids - the registry line is
-  name, posture and path, never the detail that belongs elsewhere, and the index section is where
-  the index is and how far it has drifted, never what any indexed file says.
+  BOUNDED BY THE HARNESS'S INLINE LIMIT, which the constant near the top owns. A digest over it is
+  cut to a preview, so this one is built to fit: `instructions.md` whole and first; every AWAY,
+  RE-ARM and toolchain line; the projects, workers and queue items with something live or waiting
+  on the King, and counts for the rest; and each memory file whole only where Memory.psm1 says the
+  room is left, named in one line where it is not. A digest that is over anyway says so on its first
+  line. The index section is where the index is and how far it has drifted, never what any indexed
+  file says.
 
   The RE-ARM section is the one that is about what ISN'T there. A background job belongs to the
   session that armed it, so a restart takes the usage pulse and every review-surface poll with it
@@ -68,6 +70,12 @@
   collected. The tool has no command that lists its sessions, so this file is the one place that
   answer exists; it is JSON the tool writes to its own schema, which is why reading it is a parse
   of a bounded format rather than a scan of an open-ended one.
+.PARAMETER MaintainerPath
+  config\maintainer - the machine-local marker saying this installation is a maintainer's. Present,
+  the weekly dependency check is asked about; absent, it is never mentioned. Read, never written.
+.PARAMETER ReleaseRepoPath
+  the checkout whose VERSION, branch and origin remote the new-release notice reads - this
+  installation's root.
 .PARAMETER PrereqScript
   the toolchain check. Detect-only: a clean run prints nothing at all.
 .PARAMETER QueueRoot
@@ -88,6 +96,8 @@ param(
     [string]$InstructionsPath,
     [string]$VersionPath,
     [string]$LavishStatePath,
+    [string]$MaintainerPath,
+    [string]$ReleaseRepoPath,
     [string]$PrereqScript = (Join-Path $PSScriptRoot 'Test-CrewPrereqs.ps1'),
     [string]$QueueRoot,
     [switch]$Json
@@ -105,6 +115,8 @@ if (-not $RegistryPath)     { $RegistryPath     = Join-Path $script:Root 'data\p
 if (-not $BudgetPath)       { $BudgetPath       = Join-Path $script:Root 'config\startup-memory-budget' }
 if (-not $InstructionsPath) { $InstructionsPath = Join-Path $script:Root 'instructions.md' }
 if (-not $QueueRoot)        { $QueueRoot        = $script:Root }
+if (-not $MaintainerPath)   { $MaintainerPath   = Join-Path $script:Root 'config\maintainer' }
+if (-not $ReleaseRepoPath)  { $ReleaseRepoPath  = $script:Root }
 
 # lavish-axi's own store, resolved exactly the way the tool resolves it: LAVISH_AXI_STATE_DIR when
 # it is set, and the home directory otherwise. Both are the tool's own documented pair rather than
@@ -127,7 +139,25 @@ if (-not $LavishStatePath) {
 }
 
 $script:Lines    = [System.Collections.Generic.List[string]]::new()
-$script:ListCap  = 25
+$script:DefaultListCap = 25
+$script:ListCap  = $script:DefaultListCap
+# Workers are capped tighter than other lists, because each line is long and the ones past the cap
+# are the least urgent: the list is sorted live first, then recorded as working, then waiting. A
+# live worker is never cut, because Recovery re-arms a watch on every live worker this list names.
+$script:WorkerCap = 8
+
+# THE HARNESS'S INLINE LIMIT, AND THE NUMBER THIS WHOLE DIGEST IS BUILT AROUND. Claude Code caps a
+# hook's `additionalContext` at 10,000 characters. Over it, the text is saved to a file and the
+# session gets the path and a preview of the first 2,000 characters instead - and nothing asks the
+# session to open the file. That is from Claude Code's hooks documentation ("A hook's
+# additionalContext, systemMessage, and initialUserMessage strings, and its plain stdout, are capped
+# at 10,000 characters"), it has no setting to raise it, and it is what happened to every digest
+# measured between 2026-10-02 and 2026-10-22: 39.9k to 52.0k characters each, every one cut to a
+# preview, and two sessions that never read the saved file ran without the King's instructions.
+#
+# Measured on the string itself, which is the envelope's `additionalContext` - the JSON around it
+# is not counted against the cap, but every character inside it is.
+$script:InlineLimit = 10000
 
 function Add-Line {
     param([string]$Text = '')
@@ -327,6 +357,35 @@ if ($script:NotSetUp) {
 }
 
 # --------------------------------------------------------------------------------
+# 0a. The King's standing instructions, whole and FIRST. What the King stated outranks
+#     everything below it, and it is the one file here that is never cut, never
+#     summarised and never only named: the pulse's off switch lives in it, and a
+#     session that ran without it ran without his word. First, too, because if the
+#     digest is ever over the inline limit the preview the harness keeps is its start.
+# --------------------------------------------------------------------------------
+Add-Line ''
+Add-Line 'CONTEXT'
+Add-Line ''
+Add-Line "----- BEGIN instructions.md ($InstructionsPath) -----"
+try {
+    if (-not (Test-PathQuiet $InstructionsPath)) {
+        # ABSENT is a fact with a meaning, and it is not the same fact as an empty file. The King
+        # has stated no standing preferences - and that is never a reason to create one.
+        Add-Line 'ABSENT - the King has stated no standing instructions. Read it, never write it.'
+    } else {
+        $raw = Get-Content -LiteralPath $InstructionsPath -Raw -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) {
+            Add-Line 'EMPTY - the file exists but holds no content.'
+        } else {
+            foreach ($line in ($raw -replace "`r`n", "`n").TrimEnd("`n").Split("`n")) { Add-Line $line }
+        }
+    }
+} catch {
+    Add-Line ("UNREADABLE - " + (Format-Fault $_.Exception.Message))
+}
+Add-Line '----- END instructions.md -----'
+
+# --------------------------------------------------------------------------------
 # 0b. Version - which release this copy is, in one line.
 #
 #     A user who cannot say which version they are on cannot say whether a fix
@@ -403,6 +462,58 @@ try {
 }
 
 # --------------------------------------------------------------------------------
+# The queue is READ here, ahead of the fleet, because the fleet names every project
+# with a decision of the King's held in it; it is PRINTED in its own section below.
+#
+# tasks-axi answers in TOON, and the answer carries titles and hold reasons that are
+# free text somebody wrote, so it is decoded by the TOON reference implementation
+# GateRun.psm1 already vendors - never split by hand. What is taken out of it is a
+# closed set: the `count` of ready work, and the `held` rows' `id`, `repo` and
+# `hold_kind`. A hold of kind `captain` is a decision waiting on the King.
+#
+# An answer that will not decode is not an empty queue, and is said as unreadable.
+# A `held` group that is not there is none held: tasks-axi omits a group it has
+# nothing for, as it does on an empty backlog.
+# --------------------------------------------------------------------------------
+$script:Queue = [pscustomobject]@{ ok = $false; error = ''; ready = 0; held = @(); captain = @() }
+try {
+    if (-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
+        $script:Queue.error = 'tasks-axi is not on PATH, so the backlog was not read.'
+    } elseif (-not (Test-PathQuiet $QueueRoot)) {
+        $script:Queue.error = "$QueueRoot does not exist, so the backlog was not read."
+    } else {
+        $previous = Get-Location
+        try {
+            Set-Location -LiteralPath $QueueRoot
+            $queueOut = @(& tasks-axi ready --include-held 2>$null | ForEach-Object { "$_" })
+        } finally {
+            Set-Location -LiteralPath $previous
+        }
+        Import-Module (Join-Path $PSScriptRoot 'GateRun.psm1') -Force -ErrorAction Stop
+        $decoded = ConvertFrom-ToonText -Text ($queueOut -join "`n")
+        if (-not $decoded.ok) {
+            $script:Queue.error = ('the backlog answered in a form this digest could not decode (' +
+                                   (Format-Fault "$($decoded.error)") + ')')
+        } else {
+            $doc = $decoded.value | ConvertFrom-Json
+            $n = 0
+            if (-not [int]::TryParse((Get-Field $doc 'count'), [ref]$n)) {
+                $script:Queue.error = 'the backlog answer carried no count of ready work'
+            } else {
+                $held = @()
+                if ($doc.PSObject.Properties['held'] -and $doc.held -isnot [string]) { $held = @($doc.held) }
+                $script:Queue.ok      = $true
+                $script:Queue.ready   = $n
+                $script:Queue.held    = $held
+                $script:Queue.captain = @($held | Where-Object { (Get-Field $_ 'hold_kind') -eq 'captain' })
+            }
+        }
+    }
+} catch {
+    $script:Queue.error = 'could not read the backlog - ' + (Format-Fault $_.Exception.Message)
+}
+
+# --------------------------------------------------------------------------------
 # 2. Fleet - one call to the existing bounded reader. This section never opens a
 #    brief, a report or a project; it says what exists and where, and stops.
 # --------------------------------------------------------------------------------
@@ -449,24 +560,56 @@ try {
 
     $snap = & $snapshotScript -RegistryPath $RegistryPath -DataPath $DataPath -StatePath $StatePath
 
-    # Registry: name, posture, path. Nothing else - the tagging and shorthand detail that belongs
-    # to a project lives with that project, and putting it here is the session-start bulk this
-    # digest exists to avoid.
+    # ONLY WHAT IS LIVE OR WAITING ON THE KING IS NAMED; EVERYTHING ELSE IS COUNTED. The digest has
+    # to arrive whole - the inline limit at the top of this script owns why - and a fleet printed in
+    # full was a quarter of everything this digest ever was: 25 projects with their paths, 227
+    # worker records of which 161 had landed, and 227 report paths nobody was asked to open.
+    # `survey` and Get-CrewStatus still list the rest whenever someone asks.
+    #
+    # A worker is live or waiting when herdr reads it live, or when its stage is not over - whatever
+    # its liveness, so unknown is never read as dead: `dispatched` and `implementing` are recorded as
+    # working, which a
+    # worker that is not live needs `rally` for, and `gating` and `ready` wait on the King. Only
+    # `landed` and `failed` are over. Live ones come first, then the ones recorded as working, then
+    # the ones waiting on approval, so the cap below cuts the least urgent.
+    $workers  = @($snap.crew.workers)
+    $isLive   = { param($w) $w.live -eq $true }
+    $isOver   = { param($w) "$($w.stage)" -in @('landed', 'failed') }
+    $rank     = { param($w)
+        if (& $isLive $w) { 0 } elseif ("$($w.stage)" -in @('dispatched', 'implementing')) { 1 } else { 2 } }
+    $active   = @($workers | Where-Object { (& $isLive $_) -or -not (& $isOver $_) } |
+                  Sort-Object -Stable { & $rank $_ })
+
+    # Projects: listed where something is live or waiting - a worker above, a hold on a decision of
+    # the King's in the queue - or where the entry itself is broken, because a path that is gone or a
+    # name the index cannot resolve fails the next brief for it. Name and posture only; the path is
+    # in the registry, and muster reads the entry when it dispatches.
     $entries = @($snap.registry.entries)
     if ($entries.Count -eq 0) {
         # Before setup has run, /annex is not a linked skill, so naming it here sends a
         # new reader after a command that does not exist. The first-run banner above already
         # named the one step that works.
-        $next = if ($script:NotSetUp) { 'set it up first' } else { 'a project is registered with /annex' }
+        $next = if ($script:NotSetUp) { '"set it up" has run first' } else { 'a project is registered with /annex' }
         if ($snap.registry.present) {
             Add-Line "  Projects: none registered - nothing can be dispatched until $next."
         } else {
             Add-Line "  Projects: no registry at $RegistryPath - nothing can be dispatched until $next."
         }
     } else {
-        Add-Line "  Projects: $($entries.Count) registered"
-        Add-BoundedList -Items @($entries | ForEach-Object {
-            $pathNote = if ($_.pathExists) { $_.path } else { "$($_.path) - PATH MISSING" }
+        $busy = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($w in $active) { if ("$($w.repo)") { $null = $busy.Add("$($w.repo)") } }
+        foreach ($h in $script:Queue.captain) { if ("$($h.repo)") { $null = $busy.Add("$($h.repo)") } }
+
+        $shown = @($entries | Where-Object {
+            $busy.Contains("$($_.name)") -or $busy.Contains("$($_.path)") -or
+            -not $_.pathExists -or -not $_.indexable
+        })
+        $yoloOn = @($entries | Where-Object { "$($_.yolo)" -eq 'on' }).Count
+        $merge  = @($entries | Where-Object { "$($_.merge)" -eq 'on' }).Count
+        Add-Line ("  Projects: $($entries.Count) registered, $yoloOn proceeding without asking, " +
+                  "$merge allowed to merge - $($shown.Count) with something live or waiting:")
+        Add-BoundedList -Items @($shown | ForEach-Object {
+            $pathNote = if ($_.pathExists) { '' } else { " - PATH MISSING: $($_.path)" }
             # A hand-written name the index cannot resolve fails one brief at a time, always after
             # the brief is on disk, so it is said here rather than discovered there.
             $nameNote = if ($_.indexable) { '' } else { ' - NAME NOT INDEXABLE: rename it, or nothing written for it can be listed' }
@@ -476,8 +619,11 @@ try {
             $mergeNote = if ($_.merge -eq 'on') { ' +merge' } else { '' }
             # Night's watch's own merge permission, said only where it is held, like +merge.
             if ((Get-Field $_ 'watchMerge') -eq 'on') { $mergeNote += ' +watch-merge' }
-            "- $($_.name) [$($_.rawMode)] yolo $($_.yolo)$mergeNote - $pathNote$nameNote"
+            "- $($_.name) [$($_.rawMode)] yolo $($_.yolo)$mergeNote$pathNote$nameNote"
         })
+        if ($shown.Count -lt $entries.Count) {
+            Add-Line "    ... and $($entries.Count - $shown.Count) more with nothing live or waiting - the registry lists them."
+        }
     }
 
     # Workers: stage is intent from crew.json, liveness is the join with herdr's agent list.
@@ -494,16 +640,19 @@ try {
     # THE LINE SAYS "last parked on" AND NOT "parked on", AND THE WORD IS LOAD-BEARING. The pointer
     # is never cleared, so it keeps naming that key for the rest of the worker's life - including
     # long after the decision was answered and applied. Asserting a live park here would tell the
-    # King a decision is waiting on him that he settled hours ago, on the one surface CLAUDE.md
-    # tells the Hand to trust without re-reading the fleet behind it. The QUEUE section below is
-    # what says which holds are still open, so the line names the key and leaves the open-or-closed
-    # half to the source that owns it.
-    $workers = @($snap.crew.workers)
+    # King a decision is waiting on him that he settled hours ago. The QUEUE section below is what
+    # says which holds are still open, so the line names the key and leaves the open-or-closed half
+    # to the source that owns it.
     if ($workers.Count -eq 0) {
         Add-Line '  Workers: none recorded.'
     } else {
-        Add-Line "  Workers: $($workers.Count) recorded"
-        Add-BoundedList -Items @($workers | ForEach-Object {
+        $over = @($workers | Where-Object { -not (& $isLive $_) -and (& $isOver $_) })
+        $landed = @($over | Where-Object { "$($_.stage)" -eq 'landed' }).Count
+        $failed = $over.Count - $landed
+        Add-Line ("  Workers: $($workers.Count) recorded - $($active.Count) live or not finished, " +
+                  "$landed landed and $failed failed, none of them read live. Get-CrewStatus lists them all.")
+        $script:ListCap = [Math]::Max($script:WorkerCap, @($active | Where-Object { & $isLive $_ }).Count)
+        Add-BoundedList -Items @($active | ForEach-Object {
             $liveText = if ($null -eq $_.live) { 'liveness unknown' } elseif ($_.live) { 'live' } else { 'not live' }
             $agent    = Get-Field $_ 'agentState'
             if ($agent) { $liveText += "/$agent" }
@@ -513,39 +662,32 @@ try {
             # A `fief` session's warm worker is one line naming every id on its branch, in order,
             # where an ordinary worker names its one ticket. A list that could not be read says so
             # rather than printing as a session with nothing on it.
-            $what = "$($_.ticket)"
+            # The ticket is said only where it differs from the id, which it usually does not.
+            $what = if ("$($_.ticket)" -and "$($_.ticket)" -ne "$($_.id)") { "$($_.ticket) " } else { '' }
             if ((Get-Field $_ 'session') -eq 'True') {
                 $ids = @(@(try { $_.items } catch { @() }) | Where-Object { $_ })
                 $err = Get-Field $_ 'itemsError'
                 $on  = Get-Field $_ 'branch'
                 $where = if ((Get-Field $_ 'checkout') -eq 'True') { " in the checkout on $on" } elseif ($on) { " on $on" } else { '' }
-                $what = if ($err) { "session worker$where, items unreadable ($err)" }
-                        else { "session worker$where carrying $($ids -join ', ')" }
+                $what = if ($err) { "session worker$where, items unreadable ($err) " }
+                        else { "session worker$where carrying $($ids -join ', ') " }
             }
-            "- $($_.id) $what ($($_.repo)) stage $($_.stage), $liveText$park$rep"
+            "- $($_.id) $what($($_.repo)) stage $($_.stage), $liveText$park$rep"
         })
+        $script:ListCap = $script:DefaultListCap
     }
 
+    # Counted, never listed: a brief nobody dispatched is the King's to raise, and survey names them.
     $undispatched = @($snap.data.undispatched)
-    if ($undispatched.Count -eq 0) {
-        Add-Line '  Un-dispatched briefs: none.'
-    } else {
-        Add-Line "  Un-dispatched briefs: $($undispatched.Count)"
-        Add-BoundedList -Items @($undispatched | ForEach-Object {
-            $when = Get-Field $_ 'briefModified'
-            if ($when) { "- $($_.id) - brief written $when" } else { "- $($_.id)" }
-        })
-    }
+    Add-Line ("  Un-dispatched briefs: " + $(if ($undispatched.Count -eq 0) { 'none.' }
+                                             else { "$($undispatched.Count) - survey names them." }))
 
     # A report survives teardown, so a report on disk is readable work even where the worker is
-    # long gone. Paths only: reading one is a deliberate act, not something session start does.
+    # long gone. Counted here, and flagged on the worker lines above; reading one is a deliberate
+    # act, not something session start does, and every one is at data\<id>\report.md.
     $reports = @(@($workers | Where-Object { $_.hasReport }) + @($undispatched | Where-Object { $_.hasReport }))
-    if ($reports.Count -eq 0) {
-        Add-Line '  Reports available: none.'
-    } else {
-        Add-Line "  Reports available: $($reports.Count)"
-        Add-BoundedList -Items @($reports | ForEach-Object { "- $($_.id): $($_.reportPath)" })
-    }
+    Add-Line ("  Reports available: " + $(if ($reports.Count -eq 0) { 'none.' }
+                                          else { "$($reports.Count), each at data\<id>\report.md." }))
 
     foreach ($d in @($snap.diagnostics)) {
         if ($d) { Add-Line ("  FLEET: " + (Format-Fault "$d")) }
@@ -571,7 +713,7 @@ try {
 #
 #     NOTHING HERE DECIDES WHETHER THE PULSE SHOULD RUN. The King turns it off by
 #     writing a line in his own standing instructions, which this digest prints
-#     whole further down, and the Hand honours it by having read them. A script
+#     whole at the top, and the Hand honours it by having read them. A script
 #     matching a phrase in free prose somebody wrote by hand is the open-ended
 #     scanner the standing criteria forbid, so the command is printed unconditionally
 #     and the judgement stays with the reader.
@@ -591,7 +733,7 @@ Add-Line '      Watch-UsagePulse'
 Add-Line '    It runs until the session ends rather than for a set number of ticks, and it speaks'
 Add-Line '    only when something has changed - so say in one line that it is on, because a quiet'
 Add-Line '    pulse and a dead one look the same from the outside.'
-Add-Line '    Whether to arm it at all is yours, from having read instructions.md below. Nothing'
+Add-Line '    Whether to arm it at all is yours, from having read instructions.md above. Nothing'
 Add-Line '    here reads that file and nothing here decides it.'
 
 # WHICH SURFACES ARE STILL HOLDING AN ANSWER, TAKEN FROM THE TOOL'S OWN STORE.
@@ -684,35 +826,158 @@ try {
 }
 
 # --------------------------------------------------------------------------------
-# 3. Queue - what is queued and what is held, from the backlog that belongs to
-#    QueueRoot. Held work is included because a hold nobody sees at session open is
-#    the invisibility the backlog exists to remove.
+# 3. Queue - how much is ready and held, and BY ID every hold on a decision of the
+#    King's, from the backlog that belongs to QueueRoot. A hold nobody sees at
+#    session open is the invisibility the backlog exists to remove, so those are
+#    never cut; everything else is a count, and the command that lists it is named.
 # --------------------------------------------------------------------------------
 Add-Line ''
 Add-Line "QUEUE  (tasks-axi ready --include-held, from $QueueRoot)"
-try {
-    if (-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
-        Add-Line '  QUEUE: tasks-axi is not on PATH, so the backlog was not read.'
-    } elseif (-not (Test-PathQuiet $QueueRoot)) {
-        Add-Line "  QUEUE: $QueueRoot does not exist, so the backlog was not read."
-    } else {
-        $previous = Get-Location
+if (-not $script:Queue.ok) {
+    Add-Line ("  QUEUE: $($script:Queue.error) Nothing here says what is queued - run " +
+              'tasks-axi ready --include-held yourself.')
+} else {
+    $heldCount = @($script:Queue.held).Count
+    $captain   = @($script:Queue.captain)
+    Add-Line ("  $($script:Queue.ready) ready, $heldCount held, $($captain.Count) of them on a " +
+              'decision of yours. tasks-axi ready --include-held lists them all.')
+    if ($captain.Count -gt 0) {
+        Add-Line ('  Waiting on your decision: ' +
+                  (@($captain | ForEach-Object { Get-Field $_ 'id' '(no id)' }) -join ', '))
+    }
+}
+
+# --------------------------------------------------------------------------------
+# 3b. Dependency check - one line, and only when the weekly check is due, and only
+#     on a maintainer's installation.
+#
+#     Moving a pin is a maintainer's job, so someone who only uses kingshand never
+#     hears of it. The marker is config\maintainer, a gitignored file a maintainer
+#     creates by hand - nothing infers it from remotes or push rights, which would be
+#     a guess. Without it this section asks nothing and prints nothing.
+#
+#     Nothing schedules the check, so a machine that was off misses nothing: the
+#     next session that starts after seven days says so. Update-DependencyPins.ps1
+#     owns the record and what due means; this section asks it, and asks the
+#     backlog whether the check is already filed, and is silent when either says
+#     there is nothing to ask. CLAUDE.md's `## Session start` owns the question the
+#     Hand puts to the King.
+#
+#     A record that cannot be read is said as unreadable and asked about as due,
+#     and a backlog that cannot be read is said as unread - asking once too often
+#     costs the King a line, while staying quiet on a guess costs him the check.
+# --------------------------------------------------------------------------------
+# The marker is a file and nothing else: a directory or a path that will not resolve is no marker.
+$script:Maintainer = $false
+try { $script:Maintainer = [bool](Test-Path -LiteralPath $MaintainerPath -PathType Leaf) } catch { }
+
+# Not asked before setup has run either. On a fresh clone the record is always absent, so the check
+# would always read as never run - and the first question a new user heard would be about a weekly
+# maintenance step for tools they have not installed yet, ahead of the one step that works.
+if ($script:Maintainer -and -not $script:NotSetUp) { try {
+    $recordPath = Join-Path (Split-Path $StatePath -Parent) 'dependency-check.json'
+    $pinsScript = Join-Path $PSScriptRoot 'Update-DependencyPins.ps1'
+    if (-not (Test-PathQuiet $pinsScript)) { throw "Update-DependencyPins.ps1 is not at $pinsScript." }
+    $check = & $pinsScript -Due -Root $script:Root -RecordPath $recordPath
+
+    if ($check -and $check.state -ne 'not-due') {
+        # The week the check is for, as the backlog id the Hand files it under. ISO weeks, so the
+        # same week has the same id on every machine and in every culture.
+        $now  = (Get-Date).ToUniversalTime()
+        $week = [System.Globalization.ISOWeek]::GetWeekOfYear($now)
+        $year = [System.Globalization.ISOWeek]::GetYear($now)
+        $id   = 'dep-check-{0}-w{1:00}' -f $year, $week
+
+        # Filed is asked of tasks-axi by kind, and decoded by the TOON decoder that already reads its
+        # output elsewhere - `count` is a number the tool states, never something matched out of a
+        # line. Queued covers a held item too; tasks-axi lists a hold under its queued state.
+        $filed = $null
+        $why   = ''
         try {
-            Set-Location -LiteralPath $QueueRoot
-            $queueOut = @(& tasks-axi ready --include-held 2>&1 | ForEach-Object { "$_" })
-        } finally {
-            Set-Location -LiteralPath $previous
+            if (-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) { throw 'tasks-axi is not on PATH.' }
+            Import-Module (Join-Path $PSScriptRoot 'GateRun.psm1') -Force -ErrorAction Stop
+            $open = 0
+            foreach ($state in 'queued', 'in_flight') {
+                $previous = Get-Location
+                try {
+                    Set-Location -LiteralPath $QueueRoot
+                    $global:LASTEXITCODE = 0
+                    $text = (& tasks-axi list --kind dependency-check --state $state 2>&1 | Out-String)
+                    $code = $LASTEXITCODE
+                } finally {
+                    Set-Location -LiteralPath $previous
+                }
+                if ($code -ne 0) { throw "tasks-axi exited $code." }
+                $decoded = ConvertFrom-ToonText -Text $text
+                if (-not $decoded.ok) { throw $decoded.error }
+                $doc = $decoded.value | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+                $n = 0
+                if ($doc -isnot [System.Collections.IDictionary] -or -not $doc.Contains('count') -or
+                    -not [int]::TryParse("$($doc['count'])", [ref]$n)) {
+                    throw 'its answer carried no count.'
+                }
+                $open += $n
+            }
+            $filed = $open -gt 0
+        } catch {
+            $why = Format-Fault $_.Exception.Message
         }
 
-        $queueOut = @($queueOut | Where-Object { $_.Trim() })
-        if ($queueOut.Count -eq 0) {
-            Add-Line '  QUEUE: the backlog reader returned nothing.'
-        } else {
-            Add-BoundedList -Items $queueOut -Indent '  '
+        if ($filed -ne $true) {
+            $since = switch ($check.state) {
+                'never' { 'has never run on this machine' }
+                'due'   { "last ran $($check.days) days ago, on $($check.lastRun.ToString('yyyy-MM-dd'))" }
+                default { 'cannot be told from its record, so it is treated as due - ' + (Format-Fault "$($check.detail)") }
+            }
+            Add-Line ''
+            Add-Line "DEPENDENCY_CHECK_DUE: the weekly dependency check $since."
+            Add-Line ("  Ask the King: run it now, or file it as $id with " +
+                      "--kind dependency-check. CLAUDE.md ``## Session start`` owns the question.")
+            if ($null -eq $filed) {
+                Add-Line "  Whether it is already filed could not be read - $why"
+            }
         }
     }
 } catch {
-    Add-Line ("  QUEUE: could not read the backlog - " + (Format-Fault $_.Exception.Message))
+    Add-Line ''
+    Add-Line ("DEPENDENCY_CHECK_DUE: whether the weekly dependency check is due could not be read - " +
+              (Format-Fault $_.Exception.Message) + " Treat it as due.")
+} }
+
+# --------------------------------------------------------------------------------
+# 3c. New release - one line, for every installation, when a newer release exists
+#     than the one this checkout is on.
+#
+#     Update.psm1 owns the whole answer: which tag is latest (the same rule /update
+#     moves by), the once-a-day cache under state\, and why a checkout off the
+#     release branch is told nothing. This section prints its answer and nothing
+#     else. CLAUDE.md's `## Session start` owns what the Hand does with the line.
+#
+#     Silent when current, ahead, off the release branch or with no release cut yet.
+#     A check that could not be made says so in one line and never names a version.
+#     Not asked before setup has run, because the cache would be the first thing
+#     written into a fresh clone.
+# --------------------------------------------------------------------------------
+if (-not $script:NotSetUp) {
+    try {
+        Import-Module (Join-Path $PSScriptRoot 'Update.psm1') -Force -ErrorAction Stop
+        $notice = Get-ReleaseNotice -Root $ReleaseRepoPath `
+                      -CachePath (Join-Path (Split-Path $StatePath -Parent) 'release-check.json')
+        if ($notice.state -eq 'newer') {
+            Add-Line ''
+            Add-Line "UPDATE_AVAILABLE: $($notice.installed) -> $($notice.latest) - run /update"
+        } elseif ($notice.state -eq 'unreadable') {
+            $asOf = if ($notice.fromCache -and $notice.checkedAt) {
+                " (as of $($notice.checkedAt.ToString('yyyy-MM-dd HH:mm')) UTC)"
+            } else { '' }
+            Add-Line ''
+            Add-Line ("UPDATE_CHECK: could not check for a newer release$asOf - " +
+                      (Format-Fault "$($notice.detail)"))
+        }
+    } catch {
+        Add-Line ''
+        Add-Line ("UPDATE_CHECK: could not check for a newer release - " + (Format-Fault $_.Exception.Message))
+    }
 }
 
 # --------------------------------------------------------------------------------
@@ -764,82 +1029,102 @@ try {
 }
 
 # --------------------------------------------------------------------------------
-# 5. Context - the King's standing instructions and the two curated memory files, in
-#    full and clearly delimited. This is the part that makes a restart a non-event,
-#    so it is the one place the digest prints file bodies rather than facts about
-#    them. instructions.md comes first on purpose: what the King stated outranks what
-#    the Hand inferred, and reading it after the inferences invites the reverse.
+# 5. Memory - the two curated memory files, printed whole where they fit under the
+#    inline limit and named in one line where they do not. They come last because
+#    they are the part that can give: instructions.md, every RE-ARM, AWAY and
+#    toolchain line, and the fleet's live and waiting work never are.
+#
+#    Memory.psm1 decides which fit, from the room left once everything else and the
+#    closing lines are counted. A file named rather than printed has to be READ IN
+#    FULL before acting on anything it might govern - the line says so, because the
+#    alternative was what happened with the digest itself: a saved file nothing made
+#    anyone open.
 # --------------------------------------------------------------------------------
-Add-Line ''
-Add-Line 'CONTEXT'
+$memoryBlock = [System.Collections.Generic.List[string]]::new()
+$closing     = [System.Collections.Generic.List[string]]::new()
 
-function Add-ContextFile {
-    param(
-        [Parameter(Mandatory)][string]$Name,
-        [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][string]$AbsentMeans
-    )
-    Add-Line ''
-    Add-Line "----- BEGIN $Name ($Path) -----"
-    try {
-        if (-not (Test-PathQuiet $Path)) {
-            # ABSENT is a fact with a meaning, and it is not the same fact as an empty file. One
-            # says nothing has been recorded yet; the other says someone recorded nothing.
-            Add-Line "ABSENT - $AbsentMeans"
-        } else {
-            $raw = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
-            if ([string]::IsNullOrWhiteSpace($raw)) {
-                Add-Line 'EMPTY - the file exists but holds no content.'
-            } else {
-                foreach ($line in ($raw -replace "`r`n", "`n").TrimEnd("`n").Split("`n")) { Add-Line $line }
-            }
-        }
-    } catch {
-        Add-Line ("UNREADABLE - " + (Format-Fault $_.Exception.Message))
-    }
-    Add-Line "----- END $Name -----"
-}
-
-# The King's own words, and the only file here the Hand may not rewrite. Its absence is a state
-# like any other - the King has stated no standing preferences - and never a reason to create one.
-Add-ContextFile -Name 'instructions.md' -Path $InstructionsPath `
-    -AbsentMeans 'the King has stated no standing instructions. Read it, never write it.'
-Add-ContextFile -Name 'king.md' -Path (Join-Path $DataPath 'king.md') `
-    -AbsentMeans 'nothing has been recorded about how the King works yet.'
-Add-ContextFile -Name 'learnings.md' -Path (Join-Path $DataPath 'learnings.md') `
-    -AbsentMeans 'no operational learnings have been recorded yet.'
-
-# The budget is a signal, not a gate: the files above are printed whatever the total comes to, and
-# an overrun says so with the numbers and names the one thing that curates it back down.
-Add-Line ''
+# The budget is a signal, not a gate: an overrun says so with the numbers and names the one thing
+# that curates it back down. It is a token budget for curation; the character limit is separate.
 try {
     Import-Module (Join-Path $PSScriptRoot 'Memory.psm1') -Force -ErrorAction Stop
     $report = Get-MemoryReport -DataPath $DataPath -BudgetPath $BudgetPath
     if ($report.overBudget) {
         $over = $report.total - $report.budget
-        Add-Line ("STARTUP_MEMORY_BUDGET: $($report.total) estimated tokens against a budget of " +
-                  "$($report.budget), over by $over. Run /chronicle to curate it back down. Both files " +
-                  "are printed above regardless - the budget is a signal, not a gate.")
+        $closing.Add("STARTUP_MEMORY_BUDGET: $($report.total) estimated tokens against a budget of " +
+                     "$($report.budget), over by $over. Run /chronicle to curate it back down - the " +
+                     'budget is a signal, not a gate.')
     } else {
-        Add-Line "  Startup memory: $($report.total) of $($report.budget) estimated tokens."
+        $closing.Add("  Startup memory: $($report.total) of $($report.budget) estimated tokens.")
     }
 } catch {
-    Add-Line ("STARTUP_MEMORY_BUDGET: could not be accounted - " + (Format-Fault $_.Exception.Message))
+    $closing.Add("STARTUP_MEMORY_BUDGET: could not be accounted - " + (Format-Fault $_.Exception.Message))
 }
-
-Add-Line ''
+$closing.Add('')
 if ($script:NotSetUp) {
-    Add-Line 'Nothing above is configured yet. The one useful next step is "set it up".'
-    Add-Line ''
+    $closing.Add('Nothing above is configured yet. The one useful next step is "set it up".')
+    $closing.Add('')
 }
-Add-Line 'Read this digest once and trust it as this session''s startup input.'
-Add-Line 'Do not separately re-read the registry, the queue, the fleet or the context files it just'
-Add-Line 'printed unless one of them was reported absent or corrupt, or a targeted piece of work must'
-Add-Line 'inspect before writing. The digest is orientation and durable record; liveness still comes'
-Add-Line 'from herdr, read when it matters rather than assumed from a line printed at session open.'
-Add-Line '=== END KINGSHAND SESSION START ==='
+$closing.Add('Read this digest once and trust it as startup input: it names what is live or waiting and')
+$closing.Add('counts the rest. Read what it only named when the work needs it. Liveness comes from herdr.')
+$closing.Add('=== END KINGSHAND SESSION START ===')
 
+$memoryHead = @('', 'MEMORY  (printed whole where it fits under the inline limit, named where it does not)')
+# Each file printed whole costs its text plus its two delimiter lines and a blank; a file named
+# instead costs one line. Room is what is left once everything else, the closing lines and a named
+# line for each file are counted - so a plan that names both files still fits.
+$pointerMax   = 360
+$soFar        = ($script:Lines -join "`n").Length + ($memoryHead -join "`n").Length +
+                ($closing -join "`n").Length + 4
+$room         = $script:InlineLimit - $soFar - (2 * $pointerMax)
+$absentMeans  = @{
+    'king.md'      = 'nothing has been recorded about how the King works yet.'
+    'learnings.md' = 'no operational learnings have been recorded yet.'
+}
+try {
+    $plan = Get-MemoryDigestPlan -DataPath $DataPath -RoomCharacters $room -PerFileOverhead 200
+    foreach ($f in $plan.files) {
+        $memoryBlock.Add('')
+        if ($f.state -eq 'pointer') {
+            $memoryBlock.Add(("----- NOT PRINTED $($f.name) ($($f.path)) - $($f.characters) characters, " +
+                              'over the inline limit. Read it in full before acting on anything it ' +
+                              'might govern. -----'))
+            continue
+        }
+        $memoryBlock.Add("----- BEGIN $($f.name) ($($f.path)) -----")
+        switch ($f.state) {
+            # ABSENT is a fact with a meaning, and it is not the same fact as an empty file. One
+            # says nothing has been recorded yet; the other says someone recorded nothing.
+            'absent'     { $memoryBlock.Add("ABSENT - $($absentMeans[$f.name])") }
+            'empty'      { $memoryBlock.Add('EMPTY - the file exists but holds no content.') }
+            'unreadable' { $memoryBlock.Add('UNREADABLE - ' + (Format-Fault $f.error)) }
+            default      { foreach ($line in $f.text.Split("`n")) { $memoryBlock.Add($line) } }
+        }
+        $memoryBlock.Add("----- END $($f.name) -----")
+    }
+} catch {
+    $memoryBlock.Add('')
+    $memoryBlock.Add('MEMORY: king.md and learnings.md could not be planned - ' +
+                     (Format-Fault $_.Exception.Message) + ' Read both in full: ' +
+                     (Join-Path $DataPath 'king.md') + ' and ' + (Join-Path $DataPath 'learnings.md') + '.')
+}
+
+foreach ($line in $memoryHead)  { Add-Line $line }
+foreach ($line in $memoryBlock) { Add-Line $line }
+Add-Line ''
+foreach ($line in $closing)     { Add-Line $line }
+
+# THE LIMIT, CHECKED ON WHAT IS ABOUT TO BE SENT. Everything above is shaped to fit, and the parts
+# that cannot give - the King's instructions, the re-arm list, a long toolchain failure - can still
+# carry it over. Where they do, the first line says so, so that the preview the harness keeps is
+# the one place that tells the session to read the saved file in full.
 $digest = ($script:Lines -join "`n")
+if ($digest.Length -gt $script:InlineLimit) {
+    $script:Lines.Insert(1, ("OVER THE INLINE LIMIT: this digest is $($digest.Length) characters " +
+                             "against the harness's $($script:InlineLimit), so only a preview " +
+                             'reaches the session inline. Read the saved file in full before ' +
+                             'anything else.'))
+    $digest = ($script:Lines -join "`n")
+}
 
 if ($Json) {
     # The SessionStart hook envelope: the digest reaches the session as additional context rather

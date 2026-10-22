@@ -300,8 +300,8 @@ budget and archives what goes stale; this file is outside that budget and outsid
 it stands until the King changes or removes it.
 
 Every dispatch into this project attaches the file automatically - `bin\Dispatch-Worker.ps1` stages
-it beside the brief and names the copy under `Read first` - so nobody has to remember to pass it,
-and editing the file is the whole of changing what workers are told.
+it beside the brief and names the copy under `Read first` in the dispatch file it writes there -
+so nobody has to remember to pass it, and editing the file is the whole of changing what workers are told.
 
 ## Step 5 - Show what is registered
 

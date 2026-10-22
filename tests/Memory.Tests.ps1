@@ -258,3 +258,55 @@ Write-Host "MEMORY_BOUND=`$([bool](Get-Command Get-MemoryReport -ErrorAction Sil
         $script:MemoryImportOut | Should -BeLike '*MEMORY_BOUND=True*'
     }
 }
+
+# The session-start digest has a hard character limit, so it asks which memory files fit whole and
+# names the rest. A file that cannot be read is said as unreadable - never as absent or empty, which
+# are different facts.
+Describe 'Get-MemoryDigestPlan prints whole what fits and names the rest' {
+    It 'prints both whole when both fit, king.md first' {
+        $d = Join-Path $TestDrive 'plan-both'
+        New-FixtureFile -Path (Join-Path $d 'king.md') -Content 'abc' | Out-Null
+        New-FixtureFile -Path (Join-Path $d 'learnings.md') -Content "de`r`nfg`r`n" | Out-Null
+        $plan = Get-MemoryDigestPlan -DataPath $d -RoomCharacters 100
+        @($plan.files.name)  | Should -Be @('king.md', 'learnings.md')
+        @($plan.files.state) | Should -Be @('whole', 'whole')
+        $plan.files[1].text  | Should -Be "de`nfg" -Because 'line endings are normalised and the trailing one dropped'
+        $plan.used | Should -Be 8
+    }
+
+    It 'names a file that would not fit, and still prints a later one that does' {
+        $d = Join-Path $TestDrive 'plan-one'
+        New-FixtureFile -Path (Join-Path $d 'king.md') -Content ('k' * 50) | Out-Null
+        New-FixtureFile -Path (Join-Path $d 'learnings.md') -Content ('l' * 10) | Out-Null
+        $plan = Get-MemoryDigestPlan -DataPath $d -RoomCharacters 40
+        $plan.files[0].state      | Should -Be 'pointer'
+        $plan.files[0].characters | Should -Be 50
+        $plan.files[0].text       | Should -Be ''
+        $plan.files[1].state      | Should -Be 'whole'
+    }
+
+    It 'counts the overhead of printing each file whole' {
+        $d = Join-Path $TestDrive 'plan-overhead'
+        New-FixtureFile -Path (Join-Path $d 'king.md') -Content ('k' * 30) | Out-Null
+        (Get-MemoryDigestPlan -DataPath $d -RoomCharacters 40 -PerFileOverhead 20).files[0].state |
+            Should -Be 'pointer'
+    }
+
+    It 'says absent, empty and unreadable as three different states' {
+        $d = Join-Path $TestDrive 'plan-states'
+        New-FixtureFile -Path (Join-Path $d 'king.md') -Content "  `n" | Out-Null
+        New-Item -ItemType Directory -Force -Path (Join-Path $d 'learnings.md') | Out-Null
+        $plan = Get-MemoryDigestPlan -DataPath $d -RoomCharacters 1000
+        $plan.files[0].state | Should -Be 'empty'
+        $plan.files[1].state | Should -Be 'unreadable'
+        $plan.files[1].error | Should -BeLike '*directory*'
+        (Get-MemoryDigestPlan -DataPath (Join-Path $TestDrive 'plan-none') -RoomCharacters 10).files[0].state |
+            Should -Be 'absent'
+    }
+
+    It 'names everything when there is no room at all' {
+        $d = Join-Path $TestDrive 'plan-noroom'
+        New-FixtureFile -Path (Join-Path $d 'king.md') -Content 'a' | Out-Null
+        (Get-MemoryDigestPlan -DataPath $d -RoomCharacters -50).files[0].state | Should -Be 'pointer'
+    }
+}

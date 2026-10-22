@@ -15,7 +15,8 @@ BeforeAll {
             [Parameter(Mandatory)][string]$Name,
             [switch]$NoDataDirectory,
             [switch]$FailingPrereqs,
-            [switch]$NoVersionFile
+            [switch]$NoVersionFile,
+            [switch]$Maintainer
         )
         $root = Join-Path $TestDrive $Name
         New-Item -ItemType Directory -Force -Path $root | Out-Null
@@ -30,6 +31,10 @@ BeforeAll {
         }
         New-Item -ItemType Directory -Force -Path (Join-Path $root 'state')  | Out-Null
         New-Item -ItemType Directory -Force -Path (Join-Path $root 'config') | Out-Null
+        # The maintainer marker. Absent by default, as it is on every installation but a maintainer's.
+        if ($Maintainer) {
+            New-Item -ItemType File -Force -Path (Join-Path $root 'config\maintainer') | Out-Null
+        }
 
         # A real toolchain check reads this machine, so its verdict would vary between machines and
         # between days. Both shapes are faked here so each case chooses the verdict it is testing.
@@ -62,6 +67,12 @@ BeforeAll {
             Instructions = Join-Path $root 'instructions.md'
             Version      = Join-Path $root 'VERSION'
             Prereq       = $prereq
+            Maintainer   = Join-Path $root 'config\maintainer'
+            # The checkout the new-release notice reads. The fixture root is not a git repository,
+            # so by default the notice says it could not check; a case about the notice points this
+            # at a real clone with its own bare remote instead. Never the live installation, whose
+            # remote is a real server.
+            ReleaseRepo  = $root
             # Absent unless a case writes one, which is the ordinary state on a machine where no
             # review surface has ever been opened. Passed explicitly by Get-Digest for the same
             # reason every other path is: unset, it would resolve to the live store belonging to
@@ -114,10 +125,25 @@ BeforeAll {
     # falls back to Get-KingshandHome, which would read the live instructions.md belonging to
     # whoever is running the suite - their own standing preferences, printed into test output - and
     # the live VERSION, which would make the version line pass whatever the fixture holds.
+    #
+    # -QueueToon puts a stand-in tasks-axi first on PATH that answers with exactly those lines, so a
+    # case can drive the queue - held decisions, an answer that will not decode - without a backlog.
+    # Without it the real tasks-axi reads the fixture's own empty root.
     function Get-Digest {
-        param([Parameter(Mandatory)]$Fixture, [switch]$Json, [switch]$ResolveLavishStatePath)
+        param([Parameter(Mandatory)]$Fixture, [switch]$Json, [switch]$ResolveLavishStatePath,
+              [string[]]$QueueToon)
         $lavish = @{}
         if (-not $ResolveLavishStatePath) { $lavish['LavishStatePath'] = $Fixture.LavishState }
+        $savedPath = $env:PATH
+        if ($PSBoundParameters.ContainsKey('QueueToon')) {
+            $shim = Join-Path $Fixture.Root 'queue-shim'
+            New-Item -ItemType Directory -Force -Path $shim | Out-Null
+            Set-Content -LiteralPath (Join-Path $shim 'queue.txt') -Value $QueueToon -Encoding utf8
+            Set-Content -LiteralPath (Join-Path $shim 'tasks-axi.cmd') -Encoding ascii -Value @(
+                '@echo off', "type `"$(Join-Path $shim 'queue.txt')`"")
+            $env:PATH = $shim + [IO.Path]::PathSeparator + $env:PATH
+        }
+        try {
         & $script:DigestScript `
             -DataPath         $Fixture.Data `
             -StatePath        $Fixture.State `
@@ -127,8 +153,11 @@ BeforeAll {
             -VersionPath      $Fixture.Version `
             -PrereqScript     $Fixture.Prereq `
             -QueueRoot        $Fixture.Root `
+            -MaintainerPath   $Fixture.Maintainer `
+            -ReleaseRepoPath  $Fixture.ReleaseRepo `
             @lavish `
             -Json:$Json
+        } finally { $env:PATH = $savedPath }
     }
 
     # Same shape the registry parser expects: one entry line, with its indented path: line
@@ -355,7 +384,20 @@ Describe 'a fresh clone is told to set up, and is not sent after a skill that ca
     It 'does not name /annex while it is still unreachable' {
         $script:FreshText.Contains('/annex') |
             Should -BeFalse -Because 'the registry and toolchain it needs are created by install.ps1, which has not run'
-        $script:FreshText.Contains('set it up first') | Should -BeTrue
+        $script:FreshText.Contains('nothing can be dispatched until "set it up" has run first.') |
+            Should -BeTrue -Because 'the registry line names the same step the banner does, as a sentence'
+        $script:FreshText.Contains('until set it up first') |
+            Should -BeFalse -Because 'a new reader''s first screen should not read as a typo'
+    }
+
+    # A fresh clone has no check record, so without this the digest always asked a brand-new user
+    # about the weekly dependency check before they had installed anything it checks.
+    It 'does not ask about the weekly dependency check before setup has run' {
+        $script:FreshText.Contains('DEPENDENCY_CHECK_DUE') |
+            Should -BeFalse -Because 'the one step that works on a fresh clone is "set it up"'
+        $installed = New-Fixture 'installed-never-checked' -Maintainer
+        (Get-Digest $installed).Contains('DEPENDENCY_CHECK_DUE: the weekly dependency check has never run on this machine.') |
+            Should -BeTrue -Because 'once installed, a check that never ran is due again'
     }
 
     It 'still renders every other section rather than stopping at the banner' {
@@ -374,20 +416,40 @@ Describe 'a fresh clone is told to set up, and is not sent after a skill that ca
     }
 }
 
-Describe 'the registry is named project by project, with its posture' {
+# The registry is named only where something is live or waiting there - a worker not yet finished,
+# a decision of the King's held in the queue - or where the entry itself is broken. Everything else
+# is a count, because a digest that lists every project with its path does not fit the harness's
+# inline limit, and a digest that does not fit is cut to a preview.
+Describe 'the registry names the projects with something live or waiting, with their posture' {
     BeforeAll {
+        # One worker record per project, so each is live or waiting in the digest's terms. Liveness
+        # is unknown in a fixture, and unknown is never read as dead.
+        function Add-FixtureWorkers {
+            param([Parameter(Mandatory)]$Fixture, [Parameter(Mandatory)][string[]]$Projects)
+            $w = @{}
+            foreach ($n in $Projects) { $w["w-$n"] = @{ ticket = "w-$n"; kind = 'adhoc'; repo = $n; stage = 'gating' } }
+            @{ workers = $w } | ConvertTo-Json -Depth 10 | Set-Content -Path $Fixture.State -Encoding utf8
+        }
+        function Get-ProjectLine {
+            param([Parameter(Mandatory)][string]$Text, [Parameter(Mandatory)][string]$Name)
+            @($Text -split "`r?`n" | Where-Object { $_ -match "^\s*- $([regex]::Escape($Name)) \[" })[0]
+        }
+
         $script:Reg = New-Fixture 'registry'
-        foreach ($n in @('alpha', 'beta', 'gamma')) {
+        foreach ($n in @('alpha', 'beta', 'gamma', 'delta')) {
             New-Item -ItemType Directory -Force -Path (Join-Path $script:Reg.Root "repos\$n") | Out-Null
         }
         Add-RegistryEntry $script:Reg '- alpha [direct-PR] - alpha repo (added 2026-01-01)' (Join-Path $script:Reg.Root 'repos\alpha')
         Add-RegistryEntry $script:Reg '- beta [no-mistakes +yolo] - beta repo (added 2026-01-02)' (Join-Path $script:Reg.Root 'repos\beta')
         Add-RegistryEntry $script:Reg '- gamma [local-only] - gamma repo (added 2026-01-03)' (Join-Path $script:Reg.Root 'repos\gamma')
+        Add-RegistryEntry $script:Reg '- delta [local-only] - nothing under way (added 2026-01-04)' (Join-Path $script:Reg.Root 'repos\delta')
+        Add-FixtureWorkers $script:Reg @('alpha', 'beta', 'gamma')
         $script:RegText = Get-Digest $script:Reg
     }
 
-    It 'counts the registered projects' {
-        $script:RegText.Contains('Projects: 3 registered') | Should -BeTrue
+    It 'counts every registered project, and how many have something live or waiting' {
+        $script:RegText.Contains('Projects: 4 registered') | Should -BeTrue
+        $script:RegText.Contains('3 with something live or waiting') | Should -BeTrue
     }
 
     It 'names <name> with its posture and yolo standing' -ForEach @(
@@ -395,8 +457,25 @@ Describe 'the registry is named project by project, with its posture' {
         @{ name = 'beta';  line = '- beta [no-mistakes] yolo on' }
         @{ name = 'gamma'; line = '- gamma [local-only] yolo off' }
     ) {
-        $script:RegText.Contains($line) |
-            Should -BeTrue -Because "the registry line is name, posture and path, and $name must carry all three"
+        (Get-ProjectLine $script:RegText $name).Trim() | Should -Be $line
+    }
+
+    It 'counts a project with nothing live or waiting instead of naming it' {
+        Get-ProjectLine $script:RegText 'delta' | Should -BeNullOrEmpty
+        $script:RegText.Contains('... and 1 more with nothing live or waiting') | Should -BeTrue
+    }
+
+    It 'names a project whose decision is held in the queue, though no worker is there' {
+        $f = New-Fixture 'registry-held'
+        New-Item -ItemType Directory -Force -Path (Join-Path $f.Root 'repos\delta') | Out-Null
+        Add-RegistryEntry $f '- delta [local-only] - held decision (added 2026-01-04)' (Join-Path $f.Root 'repos\delta')
+        $text = Get-Digest $f -QueueToon @(
+            'count: 0'
+            'ready: 0 unblocked queued tasks'
+            'held[1]{id,state,kind,repo,title,hold_reason,hold_kind,hold_until}:'
+            '  delta-which-way,queued,task,delta,Which way,"The question is the King''s",captain,"-"'
+        )
+        (Get-ProjectLine $text 'delta').Trim() | Should -Be '- delta [local-only] yolo off'
     }
 
     # The permission is standing authority to merge to a branch that may deploy on merge, and the
@@ -409,11 +488,11 @@ Describe 'the registry is named project by project, with its posture' {
         }
         Add-RegistryEntry $f '- alpha [no-mistakes +yolo +merge] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
         Add-RegistryEntry $f '- beta [no-mistakes +yolo] - beta repo (added 2026-01-02)' (Join-Path $f.Root 'repos\beta')
+        Add-FixtureWorkers $f @('alpha', 'beta')
         $text = Get-Digest $f
-        $text.Contains('- alpha [no-mistakes] yolo on +merge') | Should -BeTrue
-        $text.Contains('- beta [no-mistakes] yolo on -') |
-            Should -BeTrue -Because 'a project without the permission prints exactly as it always has'
-        $text.Contains('- beta [no-mistakes] yolo on +merge') | Should -BeFalse
+        (Get-ProjectLine $text 'alpha').Trim() | Should -Be '- alpha [no-mistakes] yolo on +merge'
+        (Get-ProjectLine $text 'beta').Trim() |
+            Should -Be '- beta [no-mistakes] yolo on' -Because 'a project without the permission prints exactly as it always has'
     }
 
     # An annotation the parser could not read in full never yields the permission, so the digest
@@ -422,20 +501,16 @@ Describe 'the registry is named project by project, with its posture' {
         $f = New-Fixture 'registry-merge-unreadable'
         New-Item -ItemType Directory -Force -Path (Join-Path $f.Root 'repos\alpha') | Out-Null
         Add-RegistryEntry $f '- alpha [no-mistakes garbage +merge] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        Add-FixtureWorkers $f @('alpha')
         (Get-Digest $f).Contains('+merge') | Should -BeFalse
     }
 
-    It 'records each project''s path rather than the detail that belongs to the project' {
-        $script:RegText.Contains((Join-Path $script:Reg.Root 'repos\alpha')) | Should -BeTrue
-        $script:RegText.Contains('PATH MISSING') |
-            Should -BeFalse -Because 'every fixture path was created on disk'
-    }
-
-    It 'flags a registered project whose path is gone' {
+    It 'flags a registered project whose path is gone, naming the path, with nothing under way' {
         $f = New-Fixture 'registry-gone'
-        Add-RegistryEntry $f '- vanished [local-only] - deleted repo (added 2026-01-01)' (Join-Path $f.Root 'repos\vanished')
-        (Get-Digest $f).Contains('PATH MISSING') |
-            Should -BeTrue -Because 'a posture that points nowhere cannot be dispatched into'
+        $gone = Join-Path $f.Root 'repos\vanished'
+        Add-RegistryEntry $f '- vanished [local-only] - deleted repo (added 2026-01-01)' $gone
+        $line = Get-ProjectLine (Get-Digest $f) 'vanished'
+        $line | Should -BeLike "*PATH MISSING: $gone*" -Because 'a posture that points nowhere cannot be dispatched into'
     }
 
     # The registry is maintained by hand as well as by /annex, and a name the index cannot turn into
@@ -457,6 +532,8 @@ Describe 'the registry is named project by project, with its posture' {
     It 'leaves a slug-shaped name unflagged' {
         $script:RegText.Contains('NAME NOT INDEXABLE') |
             Should -BeFalse -Because 'every fixture name here is one the index can resolve'
+        $script:RegText.Contains('PATH MISSING') |
+            Should -BeFalse -Because 'every fixture path was created on disk'
     }
 }
 
@@ -630,7 +707,7 @@ Describe 'a broken section loses only itself' {
 
     It 'still renders the registry the broken file never touched' {
         $script:BrokenText.Contains('Projects: 1 registered') | Should -BeTrue
-        $script:BrokenText.Contains('- alpha [direct-PR]')    | Should -BeTrue
+        $script:BrokenText.Contains('1 registered') | Should -BeTrue
     }
 
     It 'still renders the context section' {
@@ -1379,6 +1456,350 @@ Describe 'a session worker is printed as one worker with its list of items' {
 
     It 'prints an ordinary worker exactly as before' {
         $line = @($script:SessText -split "`r?`n" | Where-Object { $_ -match '^\s*- T-3001 ' })[0]
-        $line.Trim() | Should -Be '- T-3001 T-3001 (acme-docs) stage ready, liveness unknown'
+        # The ticket is said only where it differs from the worker id, which it does not here.
+        $line.Trim() | Should -Be '- T-3001 (acme-docs) stage ready, liveness unknown'
+    }
+}
+
+# THE DIGEST HAS TO ARRIVE WHOLE. Claude Code caps a hook's additionalContext at 10,000 characters
+# and replaces anything longer with a saved file and a 2,000-character preview that nothing makes the
+# session open - every digest measured between 2026-10-02 and 2026-10-22 was 39.9k to 52.0k
+# characters and every one was cut, and two sessions ran without the King's instructions because of
+# it. The realistic fixture below is this installation's own shape on 2026-10-22, in counts and
+# sizes rather than content: a 4,200-character instructions.md, memory files of 12,400 and 10,000
+# characters, 25 projects, 228 workers of which 163 landed, 26 un-dispatched briefs, 99 ready items,
+# 45 held of which 27 are on a decision of the King's, and a regency in force.
+Describe 'the digest arrives whole, under the harness''s inline limit' {
+    BeforeAll {
+        $script:Limit = 10000
+
+        function New-RealisticFixture {
+            param([Parameter(Mandatory)][string]$Name, [int]$InstructionsChars = 4200)
+            $f = New-Fixture $Name
+            $para = 'The King states a standing preference here, in his own words, with its reason. '
+            $text = ($para * [Math]::Ceiling($InstructionsChars / $para.Length)).Substring(0, $InstructionsChars)
+            Set-Content -LiteralPath $f.Instructions -Value $text -Encoding utf8
+            $mem = 'A curated memory line about how the King works, dated and backed by evidence. '
+            Set-Content -LiteralPath (Join-Path $f.Data 'king.md') -Encoding utf8 `
+                -Value ($mem * 160).Substring(0, 12400)
+            Set-Content -LiteralPath (Join-Path $f.Data 'learnings.md') -Encoding utf8 `
+                -Value ($mem * 130).Substring(0, 10000)
+            Set-Content -Path (Join-Path $f.Root 'state\.afk') -Encoding utf8 `
+                -Value @('since: 2026-10-21T18:01:30.4884001Z')
+
+            for ($i = 1; $i -le 25; $i++) {
+                $repo = Join-Path $f.Root "repos\project-$i"
+                New-Item -ItemType Directory -Force -Path $repo | Out-Null
+                $mode = if ($i % 4 -eq 0) { 'no-mistakes +yolo +merge' } else { 'direct-PR' }
+                Add-RegistryEntry $f "- project-$i [$mode] - project number $i (added 2026-01-01)" $repo
+            }
+
+            $w = @{}
+            $stages = @('dispatched') * 6 + @('implementing') * 8 + @('gating') * 37 + @('ready') * 14 +
+                      @('landed') * 163
+            for ($i = 0; $i -lt $stages.Count; $i++) {
+                $id = "worker-task-number-$i"
+                # Unfinished work sits in 11 of the 25 projects, as it did here; landed work in all.
+                $spread = if ($stages[$i] -eq 'landed') { 25 } else { 11 }
+                $w[$id] = @{ ticket = $id; kind = 'adhoc'; repo = "project-$(($i % $spread) + 1)"
+                             stage = $stages[$i] }
+                if ($i % 3 -eq 0) { $w[$id].waiting_on = "$id-a-decision-it-parked-on" }
+                New-Item -ItemType Directory -Force -Path (Join-Path $f.Data $id) | Out-Null
+                Set-Content -LiteralPath (Join-Path $f.Data "$id\report.md") -Value 'findings' -Encoding utf8
+            }
+            @{ workers = $w } | ConvertTo-Json -Depth 10 | Set-Content -Path $f.State -Encoding utf8
+            for ($i = 0; $i -lt 26; $i++) {
+                New-Item -ItemType Directory -Force -Path (Join-Path $f.Data "brief-not-sent-$i") | Out-Null
+                Set-Content -LiteralPath (Join-Path $f.Data "brief-not-sent-$i\brief.md") -Value '# b' -Encoding utf8
+            }
+            $f
+        }
+
+        function New-RealisticQueue {
+            $lines = @('count: 99', 'ready[99]{id,state,kind,repo,title}:')
+            for ($i = 0; $i -lt 99; $i++) {
+                $lines += "  ready-item-number-$i,queued,task,project-$(($i % 25) + 1),A queued piece of work number $i"
+            }
+            $lines += 'held[45]{id,state,kind,repo,title,hold_reason,hold_kind,hold_until}:'
+            for ($i = 0; $i -lt 45; $i++) {
+                $kind = if ($i -lt 27) { 'captain' } else { 'future' }
+                $lines += "  held-decision-number-$i,queued,task,project-$(($i % 11) + 1),A held item,Held for a reason,$kind,`"-`""
+            }
+            $lines
+        }
+
+        $script:Real     = New-RealisticFixture 'realistic'
+        $script:RealText = Get-Digest $script:Real -QueueToon (New-RealisticQueue)
+    }
+
+    It 'stays under the limit at this installation''s own size' {
+        $script:RealText.Length | Should -BeLessOrEqual $script:Limit -Because (
+            "the harness cuts anything over $($script:Limit) characters to a preview; this was " +
+            "$($script:RealText.Length)")
+        $script:RealText.Contains('OVER THE INLINE LIMIT') | Should -BeFalse
+    }
+
+    It 'prints instructions.md whole, and before anything else in the digest' {
+        $start = $script:RealText.IndexOf('----- BEGIN instructions.md')
+        $end   = $script:RealText.IndexOf('----- END instructions.md -----')
+        $start | Should -BeGreaterThan -1
+        $end - $start | Should -BeGreaterThan 4200 -Because 'all of it is there, not a summary'
+        $start | Should -BeLessThan $script:RealText.IndexOf('VERSION:')
+        $start | Should -BeLessThan $script:RealText.IndexOf('FLEET')
+    }
+
+    It 'keeps the away block and every re-arm line' {
+        $script:RealText.Contains('AWAY: a regency is in force') | Should -BeTrue
+        $script:RealText.Contains('Watch-UsagePulse') | Should -BeTrue
+        $script:RealText.Contains('Whether to arm it at all is yours') | Should -BeTrue
+    }
+
+    It 'names a memory file that does not fit, with its path, and tells the reader to read it' {
+        $line = @($script:RealText -split "`r?`n" | Where-Object { $_ -like '----- NOT PRINTED king.md*' })[0]
+        $line | Should -Not -BeNullOrEmpty
+        $line | Should -BeLike "*$(Join-Path $script:Real.Data 'king.md')*Read it in full*"
+    }
+
+    It 'names every hold on a decision of the King''s, by id, and counts the rest' {
+        $script:RealText.Contains('99 ready, 45 held, 27 of them on a decision of yours') | Should -BeTrue
+        $ids = (0..26 | ForEach-Object { "held-decision-number-$_" }) -join ', '
+        $script:RealText.Contains("Waiting on your decision: $ids") | Should -BeTrue
+        $script:RealText.Contains('held-decision-number-27') | Should -BeFalse -Because 'not a decision of his'
+        $script:RealText.Contains('ready-item-number-0') | Should -BeFalse -Because 'ready work is a count'
+    }
+
+    It 'lists live and unfinished workers up to its cap and counts the rest' {
+        $script:RealText.Contains('Workers: 228 recorded - 65 live or not finished, 163 landed') |
+            Should -BeTrue
+        $script:RealText.Contains('... and 57 more') | Should -BeTrue
+    }
+
+    It 'says so on its first line when what cannot give still carries it over the limit' {
+        $f = New-RealisticFixture 'over-limit' -InstructionsChars 12000
+        $text = Get-Digest $f -QueueToon (New-RealisticQueue)
+        $text.Length | Should -BeGreaterThan $script:Limit
+        @($text -split "`r?`n")[1] | Should -BeLike 'OVER THE INLINE LIMIT*Read the saved file in full*'
+        $text.Contains('----- END instructions.md -----') | Should -BeTrue -Because 'it is never cut'
+    }
+
+    It 'prints a memory file whole where it fits' {
+        $f = New-Fixture 'memory-fits'
+        Set-Content -LiteralPath (Join-Path $f.Data 'king.md') -Value 'The King prefers plain words.' -Encoding utf8
+        $text = Get-Digest $f
+        $text.Contains('----- BEGIN king.md') | Should -BeTrue
+        $text.Contains('The King prefers plain words.') | Should -BeTrue
+        $text.Contains('NOT PRINTED') | Should -BeFalse
+    }
+}
+
+# A backlog answer this digest cannot decode is not an empty backlog. Saying "0 ready" over it would
+# be a state word made up from a failed read.
+Describe 'a queue answer that cannot be read says so rather than reading as empty' {
+    It 'names the failure and the command to run instead' {
+        $text = Get-Digest (New-Fixture 'queue-garbled') -QueueToon @('ready[3]{id,state}:', '  only-one,queued')
+        $line = @($text -split "`r?`n" | Where-Object { $_ -like '  QUEUE:*' })[0]
+        $line | Should -BeLike '*could not decode*'
+        $line | Should -BeLike '*run tasks-axi ready --include-held yourself*'
+        $text.Contains(' ready, ') | Should -BeFalse
+    }
+
+    It 'reads an answer with no held group as nothing held' {
+        $text = Get-Digest (New-Fixture 'queue-none-held') -QueueToon @('count: 0', 'ready: 0 unblocked queued tasks')
+        $text.Contains('0 ready, 0 held, 0 of them on a decision of yours') | Should -BeTrue
+    }
+}
+
+# The weekly dependency check is due-based: nothing schedules it, and the next session to start after
+# seven days says so. Each case writes its own record into the fixture's state\ - the live one is
+# never read - and the filed case builds a real backlog in the fixture root with tasks-axi itself,
+# because whether an item is open is that tool's answer and not something this suite should fake.
+Describe 'the digest says when the weekly dependency check is due' {
+    BeforeAll {
+        function Set-CheckRecord {
+            param($Fixture, [string]$Text)
+            Set-Content -LiteralPath (Join-Path $Fixture.Root 'state\dependency-check.json') -Value $Text -Encoding utf8
+        }
+        function Set-CheckAge {
+            param($Fixture, [double]$Days)
+            $when = [datetime]::UtcNow.AddDays(-$Days).ToString('o')
+            Set-CheckRecord $Fixture "{`"owner`":`"kingshand-dependency-check`",`"lastRun`":`"$when`"}"
+        }
+    }
+
+    It 'says how long it has been when the last run is past seven days' {
+        $f = New-Fixture 'dep-due' -Maintainer
+        Set-CheckAge $f 12.5
+        $text = Get-Digest $f
+        $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check last ran 12 days ago'
+        $text.Contains('Ask the King: run it now, or file it as dep-check-') | Should -BeTrue
+    }
+
+    It 'says nothing when the check is not due' {
+        $f = New-Fixture 'dep-fresh' -Maintainer
+        Set-CheckAge $f 2
+        (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') | Should -BeFalse
+    }
+
+    It 'says so when the check has never run' {
+        $text = Get-Digest (New-Fixture 'dep-never' -Maintainer)
+        $text.Contains('DEPENDENCY_CHECK_DUE: the weekly dependency check has never run on this machine.') |
+            Should -BeTrue
+    }
+
+    It 'reads a record it cannot read as unreadable and asks about it as due' {
+        $f = New-Fixture 'dep-garbled' -Maintainer
+        Set-CheckRecord $f 'not json at all'
+        $text = Get-Digest $f
+        $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check cannot be told from its record, so it is treated as due'
+        $text | Should -Not -Match 'last ran \d+ days ago' -Because 'an unreadable record never becomes a date'
+    }
+
+    It 'stays quiet when the check is already filed and open' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
+        $f = New-Fixture 'dep-filed' -Maintainer
+        Set-CheckAge $f 12
+        Push-Location $f.Root
+        try { $null = tasks-axi add dep-check-2026-w01 'Weekly dependency check' --kind dependency-check 2>&1 }
+        finally { Pop-Location }
+        (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') |
+            Should -BeFalse -Because 'an open item means the King has already answered this week'
+    }
+
+    It 'asks again once the filed item is done' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
+        $f = New-Fixture 'dep-filed-done' -Maintainer
+        Set-CheckAge $f 12
+        Push-Location $f.Root
+        try {
+            $null = tasks-axi add dep-check-2026-w01 'Weekly dependency check' --kind dependency-check 2>&1
+            $null = tasks-axi done dep-check-2026-w01 2>&1
+        } finally { Pop-Location }
+        (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') | Should -BeTrue
+    }
+
+    It 'asks, and says so, when whether it is filed could not be read' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
+        $f = New-Fixture 'dep-queue-broken' -Maintainer
+        Set-CheckAge $f 12
+        Set-Content -LiteralPath (Join-Path $f.Root '.tasks.toml') -Value 'backend = "nonsense"' -Encoding utf8
+        $text = Get-Digest $f
+        $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check last ran 12 days ago'
+        $text.Contains('Whether it is already filed could not be read - tasks-axi exited 1.') | Should -BeTrue
+    }
+
+    It 'still prints the rest of the digest when the check cannot be asked' {
+        $f = New-Fixture 'dep-dir' -Maintainer
+        New-Item -ItemType Directory -Path (Join-Path $f.Root 'state\dependency-check.json') | Out-Null
+        $text = Get-Digest $f
+        $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check cannot be told from its record'
+        $text.Contains('=== END KINGSHAND SESSION START ===') | Should -BeTrue
+    }
+}
+
+# Moving a pin is a maintainer's job, so only an installation marked as a maintainer's is asked about
+# it. Every case here would be due if it were asked, so silence can only come from the marker.
+Describe 'the weekly dependency check is asked only on a maintainer''s installation' {
+    It 'says nothing without the marker, even when the check has never run' {
+        $text = Get-Digest (New-Fixture 'dep-user')
+        $text.Contains('DEPENDENCY_CHECK_DUE') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $TestDrive 'dep-user\state\dependency-check.json') | Should -BeFalse
+    }
+
+    It 'says nothing without the marker when the record cannot be read either' {
+        $f = New-Fixture 'dep-user-garbled'
+        Set-Content -LiteralPath (Join-Path $f.Root 'state\dependency-check.json') -Value 'not json' -Encoding utf8
+        (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') | Should -BeFalse
+    }
+
+    It 'takes only a file as the marker, not a directory of that name' {
+        $f = New-Fixture 'dep-user-dir'
+        New-Item -ItemType Directory -Path $f.Maintainer | Out-Null
+        (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') | Should -BeFalse
+    }
+
+    It 'asks once the marker is there' {
+        (Get-Digest (New-Fixture 'dep-maintainer' -Maintainer)).Contains(
+            'DEPENDENCY_CHECK_DUE: the weekly dependency check has never run on this machine.') | Should -BeTrue
+    }
+}
+
+# Every installation is told when a newer release exists. bin\Update.psm1 and tests\Update.Tests.ps1
+# own the answer and its cache; these cases hold the digest's half - the one line, its wording, and
+# silence where there is nothing to say. Each notice case points the digest at a throwaway clone of
+# its own bare remote, so nothing reaches a server.
+Describe 'the digest says when a newer release exists, for every installation' {
+    BeforeAll {
+        function New-ReleaseClone {
+            param([Parameter(Mandatory)][string]$Name, [string[]]$Releases = @(), [string]$Installed = '0.1.0')
+            $base   = Join-Path $TestDrive "rel-$Name"
+            $remote = Join-Path $base 'remote'
+            $seed   = Join-Path $base 'seed'
+            $clone  = Join-Path $base 'clone'
+            git init --bare -b main $remote -q
+            git init -b main $seed -q
+            git -C $seed config user.name 'Test'
+            git -C $seed config user.email 'test@example.invalid'
+            Set-Content -LiteralPath (Join-Path $seed 'VERSION') -Value $Installed -Encoding utf8
+            git -C $seed add -A
+            git -C $seed commit -q -m 'Seed'
+            foreach ($r in $Releases) { git -C $seed tag $r }
+            git -C $seed remote add origin $remote
+            git -C $seed push -q origin main --tags 2>&1 | Out-Null
+            git clone -q $remote $clone 2>&1 | Out-Null
+            $clone
+        }
+    }
+
+    It 'prints one line naming both versions and /update when a newer release exists' {
+        $f = New-Fixture 'rel-newer'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'newer' -Releases @('v0.1.0', 'v0.2.0')
+        $text = Get-Digest $f
+        $text.Contains('UPDATE_AVAILABLE: 0.1.0 -> 0.2.0 - run /update') | Should -BeTrue
+        @($text -split "`r?`n" | Where-Object { $_ -like '*UPDATE_*' }).Count | Should -Be 1
+        Test-Path -LiteralPath (Join-Path $f.Root 'state\release-check.json') |
+            Should -BeTrue -Because 'the answer is cached beside the other state, so the next session today does not ask'
+    }
+
+    It 'says nothing when the installed release is the latest' {
+        $f = New-Fixture 'rel-same'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'same' -Releases @('v0.1.0')
+        (Get-Digest $f).Contains('UPDATE_') | Should -BeFalse
+    }
+
+    It 'says nothing when the installed version is ahead of every release' {
+        $f = New-Fixture 'rel-older'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'older' -Releases @('v0.0.9') -Installed '0.1.0'
+        (Get-Digest $f).Contains('UPDATE_') | Should -BeFalse
+    }
+
+    It 'says nothing on a checkout off the release branch' {
+        $f = New-Fixture 'rel-dev'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'dev' -Releases @('v0.1.0', 'v0.2.0')
+        git -C $f.ReleaseRepo checkout -q -b dev 2>&1 | Out-Null
+        (Get-Digest $f).Contains('UPDATE_') | Should -BeFalse
+    }
+
+    It 'says in one line that it could not check, naming no version, when the tags cannot be read' {
+        $f = New-Fixture 'rel-unreadable'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'unreadable' -Releases @('v0.1.0', 'v0.2.0')
+        git -C $f.ReleaseRepo remote set-url origin (Join-Path $TestDrive 'rel-nowhere')
+        $text = Get-Digest $f
+        $line = @($text -split "`r?`n" | Where-Object { $_ -like 'UPDATE_CHECK:*' })
+        $line.Count | Should -Be 1
+        $line[0] | Should -BeLike 'UPDATE_CHECK: could not check for a newer release - *'
+        $text.Contains('UPDATE_AVAILABLE') | Should -BeFalse
+        $text.Contains('=== END KINGSHAND SESSION START ===') | Should -BeTrue
+    }
+
+    It 'says when a failed check was made once it is answered from the cache' {
+        $f = New-Fixture 'rel-cachedfail'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'cachedfail' -Releases @('v0.1.0')
+        git -C $f.ReleaseRepo remote set-url origin (Join-Path $TestDrive 'rel-nowhere-either')
+        $null = Get-Digest $f
+        (Get-Digest $f) | Should -Match 'UPDATE_CHECK: could not check for a newer release \(as of \d{4}-\d\d-\d\d \d\d:\d\d UTC\) - '
+    }
+
+    It 'asks nothing and writes nothing before setup has run' {
+        $f = New-Fixture 'rel-fresh' -NoDataDirectory
+        $f.ReleaseRepo = New-ReleaseClone -Name 'fresh' -Releases @('v0.1.0', 'v0.2.0')
+        (Get-Digest $f).Contains('UPDATE_') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $f.Root 'state\release-check.json') | Should -BeFalse
     }
 }

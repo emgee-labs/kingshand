@@ -76,13 +76,22 @@ exists to prevent.
 ## Session start
 
 A `SessionStart` hook runs `bin\Get-SessionStart.ps1` and injects its digest as this session's
-first input. The digest carries seven things: this installation's version on one `VERSION:` line,
-any actionable toolchain problem, the fleet - registered projects with their posture, recorded
-workers with stage and liveness, un-dispatched briefs and available reports - a `RE-ARM:` section
-carrying what the last session's restart killed, the queue from `tasks-axi ready --include-held`,
-the data index as counts alone - how much it covers and how many files under `data\` it has lost
-track of - and the full contents of `instructions.md`, `data\king.md` and `data\learnings.md`. A
-clean toolchain prints nothing at all, so silence there is the good outcome.
+first input. The digest carries ten things: the full contents of `instructions.md`, first; this
+installation's version on one `VERSION:` line; any actionable toolchain problem; the fleet -
+registered projects, recorded workers, un-dispatched briefs and available reports; a `RE-ARM:`
+section carrying what the last session's restart killed; the queue from `tasks-axi ready
+--include-held`; a `DEPENDENCY_CHECK_DUE:` line when the weekly dependency check is due on a
+maintainer's installation; an `UPDATE_AVAILABLE:` line when a newer release exists; the data
+index as counts alone - how much it covers and how many files under `data\` it has lost track of -
+and `data\king.md` and `data\learnings.md`. A clean toolchain prints nothing at all, so silence
+there is the good outcome.
+
+**The digest is built to arrive whole, under the harness's 10,000-character inline limit** -
+anything longer is cut to a preview nobody is made to open. So it names only the projects, workers
+and queue items with something live or waiting on the King, and counts the rest; and it prints each
+memory file whole only where it fits. **A memory file the digest only names, with `NOT PRINTED`,
+you read in full before acting on anything it might govern.** A digest that is still over the limit
+says so on its first line, and then you read the saved file in full before anything else.
 
 **The digest is invisible to the King.** It arrives as injected context, not as terminal output, and
 Claude Code says nothing at all until they type. So their first sight of kingshand is an empty
@@ -94,10 +103,9 @@ that first and point at `setup`. Keep it to a couple of lines: it is orientation
 
 **Read the digest once and trust it as this turn's startup input. Do not separately re-read the
 registry, the queue, the fleet or the context files it just printed.** The exceptions are narrow:
-a source the digest reported absent or corrupt, and a targeted piece of work that must inspect a
-file before writing to it. Re-reading what the digest already printed turns a startup budget into
-a startup tax, and that is the whole reason it is bounded.
-
+a source the digest reported absent or corrupt, one it only named or counted, and a targeted piece
+of work that must inspect a file before writing to it. Re-reading what the digest already printed
+turns a startup budget into a startup tax, and that is the whole reason it is bounded. 
 The digest is orientation and durable record, not a live feed. **Liveness still comes from herdr**,
 read through `bin\Herdr.psm1`, and a worker's current state is read when it matters rather than
 assumed from a line printed at session open.
@@ -114,6 +122,19 @@ to zero stops being read. A `STARTUP_MEMORY_BUDGET:` line means the two memory f
 their budget - invoke `chronicle` to curate them back down, and read them anyway, because the
 budget is a signal and not a gate. `ABSENT` against `instructions.md` reads the same way: the King
 has stated no standing instructions, which is an ordinary state and not a prompt to create the file.
+
+**A `DEPENDENCY_CHECK_DUE:` line means the weekly dependency check is due: ask the King in one line,
+run it now or file it.** **Now** runs it under `statute`'s dependency-pins procedure; **file it**
+adds the one backlog item the line names, with `--kind dependency-check`, so it waits in the queue.
+**Never run the check or file the item without his answer.** It is a line in chat rather than a
+rendered page - two fixed answers, nothing to compare. The digest prints nothing while an item of
+that kind is open, so a filed check is not asked about again. While `regency` or night's watch is
+in force, the question waits for his return like any other. Only an installation carrying the
+maintainer marker is ever asked; `statute`'s Dependency pins section owns the marker.
+
+**An `UPDATE_AVAILABLE:` line means a newer release exists: say so once, in the orientation line,
+and point at `/update` - never run it, and never raise it again that session.** An `UPDATE_CHECK:`
+line means the check could not be made: it names no version, so mention it only if he asks.
 
 The digest is not `survey` and neither runs the other. This is mechanical startup input nobody
 asked for; `survey` is a curated answer to "what needs me" that only the user ever asks for.
@@ -139,7 +160,8 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
   `annex` owns its format and offers to create it at import.
 
 **Both of those reach a worker mechanically. `bin\Dispatch-Worker.ps1` attaches whichever of the
-two exists to every brief for that project and names each copy under `Read first` itself,** so
+two exists to every brief for that project and names each copy in the file it writes beside the
+brief,** so
 delivery never depends on your remembering to pass it. A settled brand spec once sat in `data\`
 naming itself the input to the website brief while the site shipped without its logo, favicon,
 tagline or palette, because no brief named the file. Never store a credential value in either one:
@@ -207,18 +229,19 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Get-SurveySnapshot.ps1` | the one bounded gather behind `/survey`: registry, workers joined with live state, reports, un-dispatched briefs. Returns structured data, renders nothing, never throws |
 | `bin\Render-Review.ps1` | structured data to reviewable HTML for lavish |
 | `bin\Test-CrewPrereqs.ps1` | verifies the toolchain; run it if anything behaves oddly |
-| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook: version, toolchain problems, fleet, what a restart killed and has to be re-armed, queue, index counts, and both context files in full. Never throws |
+| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook, under the harness's inline limit: instructions.md whole and first, version, toolchain problems, what is live or waiting in the fleet and the queue with counts for the rest, what a restart killed and has to be re-armed, the weekly dependency check on a maintainer's installation, a newer release, index counts, and each memory file whole where it fits. Never throws |
 | `bin\Version.psm1` | the `VERSION` file at the repo root: this installation's version, read and validated in one place, and never fabricated when it cannot be read |
-| `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the latest release tag, the commit subjects between two releases, and the installer run that moves every dependency to the release's pins |
+| `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the latest release tag, the commit subjects between two releases, and the installer run that moves every dependency to the release's pins - and the once-a-day new-release notice the digest prints |
 | `bin\Dependencies.psm1` | the pins in `dependencies.json`: each one read and checked, the installed and the latest published version of each read from the tool that owns it, and whether herdr may be replaced right now |
-| `bin\Update-DependencyPins.ps1` | the weekly pin refresh as data, writing nothing: for each pin, the pinned version, the latest published one, and whether moving crosses a breaking line |
-| `bin\Memory.psm1` | the startup-memory budget: what the two memory files cost, against what is allowed |
+| `bin\Update-DependencyPins.ps1` | the weekly pin refresh as data, writing nothing unless told the run is the weekly check: for each pin, the pinned version, the latest published one, and whether moving crosses a breaking line - and the one owner of when that check last ran and whether it is due |
+| `bin\Memory.psm1` | the startup-memory budget: what the two memory files cost, against what is allowed, and which of them the digest has room to print whole |
 | `bin\Index.psm1` | the data index: write a file and index it in one call, add an entry for a file another tool wrote, read a project's index, count the drift, drop an entry whose file is gone |
 | `bin\BrowserVerify.psm1` | the three answers a browser check must not give from memory: whether the browser tools all loaded, where a login is set without ever writing it down, and what a run of checks verified, failed or could not check |
 | `bin\Usage.psm1` | how much of the current usage window is spent, and the one-line pulse: three answers where a percentage that could not be read is never a number, a baseline held in memory and written nowhere, and the pulse on its timer |
 | `bin\NightsWatch.psm1` | night's watch's guards: which queued items are provably decided, whether a pull request may be merged now and the head it is bound to, what the usage window says to do next, the gate-commit rescue, the timer across a reset, and the restart prompt |
 | `bin\AwayJournal.psm1` | the away journal: the away flag's `since:` read in one place, one journal opened per away period, one record written as each outcome happens, and a return digest that reads that file or says plainly it could not |
 | `bin\GateRun.psm1` | what a no-mistakes gate run is doing, read from the fields that say so: the run, each step with its own status, whether it is parked and on what, and the findings to decide on - decoded rather than matched, and an output it cannot read comes back as unreadable rather than as a state word |
+| `bin\Watch.ps1`, `bin\Watch.psm1` | the Hand's three watches as short verbs - a worker, the gate run on its branch, or both - each one background job that prints nothing while it waits and one line naming the outcome and what to do next |
 | `bin\GateRunWait.psm1` | the one wait on a gate run, built on that reader: block until the run moves away from the baseline taken at the first readable read, and say why the wait ended - a read it could not take is counted rather than taken for a change or for quiet, and a timeout is the absence of an outcome rather than one |
 
 ## Skills
@@ -459,7 +482,7 @@ wait is a background job belonging to the session that armed it, so a restart ki
 while the worker carries on. The worker is then running with nothing watching it, and the first you
 would know is the user asking - which is the exact failure this whole layer exists to prevent, and
 the digest cannot spot it because a live worker looks identical either way. So: for every worker the
-digest reports live, arm a fresh `Wait-HerdrAgentProgress` background job as `muster` Step 4
+digest reports live, arm a fresh watch - `bin\Watch.ps1` as one background job - as `muster` Step 4
 describes, then say in one line which workers you picked back up.
 
 **The usage pulse and any review surface holding an answer need re-arming in the same breath, and

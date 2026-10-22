@@ -102,8 +102,9 @@ the skill which of the two is meant to load it and when.
 
 Briefs for tasks that touch kingshand's own tracked material should tell the worker to load this
 skill. Nothing in the dispatcher acts on that case. `Dispatch-Worker.ps1` does match the repo path
-against `data\projects.md`, and it does add lines to a brief - one `Read first` line per standing
-file it attached for the resolved project - but it composes those lines itself and knows nothing
+against `data\projects.md`, and it does add lines for a brief - one `Read first` line per standing
+file it attached for the resolved project, in the dispatch file beside the brief rather than in the
+brief itself - but it composes those lines itself and knows nothing
 about what a task touches. Add the instruction to kingshand-repo briefs by hand instead, or put it
 in `data\rules-kingshand.md`, which reaches every worker dispatched here without anyone passing it.
 
@@ -158,10 +159,17 @@ minimum for Claude Code, which updates itself. `install.ps1 -SyncPins` moves a u
 and `/update` runs it, so **a pin is what every user ends up on, and is never moved past.**
 `bin\Dependencies.psm1` owns the manifest's fields and how each version is read.
 
-**Moving a pin is a maintainer's job, done weekly, and it ships only in a release.** The refresh:
+**Moving a pin is a maintainer's job, done weekly, and it ships only in a release.** **Only an
+installation carrying the maintainer marker is asked about it**: the session-start digest raises the
+weekly check only where the gitignored file `config\maintainer` exists, and says nothing of it
+anywhere else. Nothing infers the marker from remotes or push rights. A maintainer turns it on
+once, with `New-Item -ItemType File -Force "$env:KINGSHAND_HOME\config\maintainer"`, and deleting
+the file turns it off. The refresh:
 
-1. Run `bin\Update-DependencyPins.ps1`. It writes nothing; it lists each pin, the latest published
-   version, and whether moving to it crosses a breaking line.
+1. Run `bin\Update-DependencyPins.ps1 -Record`. It lists each pin, the latest published version,
+   and whether moving to it crosses a breaking line, and records that the weekly check ran - **a
+   run without `-Record` is a look and does not reset the clock** the session-start digest reads.
+   If the check was filed as a backlog item, close that item with `tasks-axi done`.
 2. For each move that is not breaking, bump the pin in `dependencies.json` on a branch - for herdr,
    the version, the protocol and every platform's SHA-256, copied from `https://herdr.dev/latest.json`.
 3. Run the whole suite, and for herdr the live checks against a separate test server that
