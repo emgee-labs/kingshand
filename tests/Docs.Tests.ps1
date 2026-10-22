@@ -7333,7 +7333,7 @@ Describe 'the installation has a version, and one command moves it to a release'
 
     It 'names the version as one line of the session-start digest' {
         Assert-Phrase -Text (Get-HandSection 'Session start') -Where 'CLAUDE.md Session start' `
-            -Phrase 'The digest carries seven things: this installation''s version on one `VERSION:` line'
+            -Phrase 'The digest carries eight things: this installation''s version on one `VERSION:` line'
     }
 
     It 'declares the update skill trigger inline, with its refusals' {
@@ -7372,7 +7372,8 @@ Describe 'the installation has a version, and one command moves it to a release'
         Assert-Phrase -Text $tooling -Where 'the CLAUDE.md tooling table' `
             -Phrase '| `bin\Dependencies.psm1` | the pins in `dependencies.json`'
         Assert-Phrase -Text $tooling -Where 'the CLAUDE.md tooling table' `
-            -Phrase '| `bin\Update-DependencyPins.ps1` | the weekly pin refresh as data, writing nothing'
+            -Phrase ('| `bin\Update-DependencyPins.ps1` | the weekly pin refresh as data, writing nothing ' +
+                     'unless told the run is the weekly check')
     }
 
     It 'has frontmatter that parses, with the trigger in the description' {
@@ -10380,7 +10381,11 @@ Describe 'the dependency pins are a contract with one owner' {
         Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
             -Phrase '**Moving a pin is a maintainer''s job, done weekly, and it ships only in a release.**'
         Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
-            -Phrase 'Run `bin\Update-DependencyPins.ps1`. It writes nothing'
+            -Phrase 'Run `bin\Update-DependencyPins.ps1 -Record`.'
+        Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
+            -Phrase '**a run without `-Record` is a look and does not reset the clock**'
+        Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
+            -Phrase 'If the check was filed as a backlog item, close that item with `tasks-axi done`.'
         Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
             -Phrase 'Ship only what passes, in that week''s release.'
     }
@@ -10395,5 +10400,40 @@ Describe 'the dependency pins are a contract with one owner' {
             -Phrase 'the `statute` skill''s Dependency pins section owns that contract'
         Assert-Phrase -Text $script:UpdatePins -Where 'the update skill' `
             -Phrase 'herdr is never replaced while its server is running'
+    }
+}
+
+# The weekly dependency check is due-based, and the Hand asks rather than acts. The digest's half is
+# tested through the code in SessionStart.Tests.ps1; these pin the rule the Hand reads.
+Describe 'a due dependency check is asked about, never run or filed unasked' {
+    BeforeAll { $script:DepStart = Get-HandSection 'Session start' }
+
+    It 'names the digest line and the one-line question with its two answers' {
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase ('**A `DEPENDENCY_CHECK_DUE:` line means the weekly dependency check is due: ask ' +
+                     'the King in one line, run it now or file it.**')
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase '**Now** runs it under `statute`''s dependency-pins procedure'
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase ('**file it** adds the one backlog item the line names, with ' +
+                     '`--kind dependency-check`, so it waits in the queue.')
+    }
+
+    It 'forbids running or filing it without his answer' {
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase '**Never run the check or file the item without his answer.**'
+    }
+
+    It 'keeps it a line in chat, and says why that is not a rendered decision' {
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase 'It is a line in chat rather than a rendered page'
+    }
+
+    It 'does not ask again about a filed check, and waits while the King is away' {
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase 'so a filed check is not asked about again'
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase ('While `regency` or night''s watch is in force, the question waits for his return ' +
+                     'like any other.')
     }
 }

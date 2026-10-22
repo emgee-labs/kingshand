@@ -2,9 +2,9 @@
 <#
 .SYNOPSIS
   The once-per-session digest: this installation's version, toolchain problems, fleet state, what
-  a restart killed and has to be re-armed, the queue, where the data index is and how far it has
-  drifted, the King's own standing instructions, and the two curated memory files, rendered as one
-  block a session can read and trust.
+  a restart killed and has to be re-armed, the queue, whether the weekly dependency check is due,
+  where the data index is and how far it has drifted, the King's own standing instructions, and the
+  two curated memory files, rendered as one block a session can read and trust.
 .DESCRIPTION
   This is operational input, not a report. It runs from a SessionStart hook and its whole purpose
   is to make a restart a non-event: everything a fresh session needs to orient itself is printed
@@ -713,6 +713,90 @@ try {
     }
 } catch {
     Add-Line ("  QUEUE: could not read the backlog - " + (Format-Fault $_.Exception.Message))
+}
+
+# --------------------------------------------------------------------------------
+# 3b. Dependency check - one line, and only when the weekly check is due.
+#
+#     Nothing schedules the check, so a machine that was off misses nothing: the
+#     next session that starts after seven days says so. Update-DependencyPins.ps1
+#     owns the record and what due means; this section asks it, and asks the
+#     backlog whether the check is already filed, and is silent when either says
+#     there is nothing to ask. CLAUDE.md's `## Session start` owns the question the
+#     Hand puts to the King.
+#
+#     A record that cannot be read is said as unreadable and asked about as due,
+#     and a backlog that cannot be read is said as unread - asking once too often
+#     costs the King a line, while staying quiet on a guess costs him the check.
+# --------------------------------------------------------------------------------
+try {
+    $recordPath = Join-Path (Split-Path $StatePath -Parent) 'dependency-check.json'
+    $pinsScript = Join-Path $PSScriptRoot 'Update-DependencyPins.ps1'
+    if (-not (Test-PathQuiet $pinsScript)) { throw "Update-DependencyPins.ps1 is not at $pinsScript." }
+    $check = & $pinsScript -Due -Root $script:Root -RecordPath $recordPath
+
+    if ($check.state -ne 'not-due') {
+        # The week the check is for, as the backlog id the Hand files it under. ISO weeks, so the
+        # same week has the same id on every machine and in every culture.
+        $now  = (Get-Date).ToUniversalTime()
+        $week = [System.Globalization.ISOWeek]::GetWeekOfYear($now)
+        $year = [System.Globalization.ISOWeek]::GetYear($now)
+        $id   = 'dep-check-{0}-w{1:00}' -f $year, $week
+
+        # Filed is asked of tasks-axi by kind, and decoded by the TOON decoder that already reads its
+        # output elsewhere - `count` is a number the tool states, never something matched out of a
+        # line. Queued covers a held item too; tasks-axi lists a hold under its queued state.
+        $filed = $null
+        $why   = ''
+        try {
+            if (-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) { throw 'tasks-axi is not on PATH.' }
+            Import-Module (Join-Path $PSScriptRoot 'GateRun.psm1') -Force -ErrorAction Stop
+            $open = 0
+            foreach ($state in 'queued', 'in_flight') {
+                $previous = Get-Location
+                try {
+                    Set-Location -LiteralPath $QueueRoot
+                    $global:LASTEXITCODE = 0
+                    $text = (& tasks-axi list --kind dependency-check --state $state 2>&1 | Out-String)
+                    $code = $LASTEXITCODE
+                } finally {
+                    Set-Location -LiteralPath $previous
+                }
+                if ($code -ne 0) { throw "tasks-axi exited $code." }
+                $decoded = ConvertFrom-ToonText -Text $text
+                if (-not $decoded.ok) { throw $decoded.error }
+                $doc = $decoded.value | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+                $n = 0
+                if ($doc -isnot [System.Collections.IDictionary] -or -not $doc.Contains('count') -or
+                    -not [int]::TryParse("$($doc['count'])", [ref]$n)) {
+                    throw 'its answer carried no count.'
+                }
+                $open += $n
+            }
+            $filed = $open -gt 0
+        } catch {
+            $why = Format-Fault $_.Exception.Message
+        }
+
+        if ($filed -ne $true) {
+            $since = switch ($check.state) {
+                'never' { 'has never run on this machine' }
+                'due'   { "last ran $($check.days) days ago, on $($check.lastRun.ToString('yyyy-MM-dd'))" }
+                default { 'cannot be told from its record, so it is treated as due - ' + (Format-Fault "$($check.detail)") }
+            }
+            Add-Line ''
+            Add-Line "DEPENDENCY_CHECK_DUE: the weekly dependency check $since."
+            Add-Line ("  Ask the King: run it now, or file it as $id with " +
+                      "--kind dependency-check. CLAUDE.md ``## Session start`` owns the question.")
+            if ($null -eq $filed) {
+                Add-Line "  Whether it is already filed could not be read - $why"
+            }
+        }
+    }
+} catch {
+    Add-Line ''
+    Add-Line ("DEPENDENCY_CHECK_DUE: whether the weekly dependency check is due could not be read - " +
+              (Format-Fault $_.Exception.Message) + " Treat it as due.")
 }
 
 # --------------------------------------------------------------------------------

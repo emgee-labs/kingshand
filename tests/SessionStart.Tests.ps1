@@ -1382,3 +1382,87 @@ Describe 'a session worker is printed as one worker with its list of items' {
         $line.Trim() | Should -Be '- T-3001 T-3001 (acme-docs) stage ready, liveness unknown'
     }
 }
+
+# The weekly dependency check is due-based: nothing schedules it, and the next session to start after
+# seven days says so. Each case writes its own record into the fixture's state\ - the live one is
+# never read - and the filed case builds a real backlog in the fixture root with tasks-axi itself,
+# because whether an item is open is that tool's answer and not something this suite should fake.
+Describe 'the digest says when the weekly dependency check is due' {
+    BeforeAll {
+        function Set-CheckRecord {
+            param($Fixture, [string]$Text)
+            Set-Content -LiteralPath (Join-Path $Fixture.Root 'state\dependency-check.json') -Value $Text -Encoding utf8
+        }
+        function Set-CheckAge {
+            param($Fixture, [double]$Days)
+            $when = [datetime]::UtcNow.AddDays(-$Days).ToString('o')
+            Set-CheckRecord $Fixture "{`"owner`":`"kingshand-dependency-check`",`"lastRun`":`"$when`"}"
+        }
+    }
+
+    It 'says how long it has been when the last run is past seven days' {
+        $f = New-Fixture 'dep-due'
+        Set-CheckAge $f 12.5
+        $text = Get-Digest $f
+        $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check last ran 12 days ago'
+        $text.Contains('Ask the King: run it now, or file it as dep-check-') | Should -BeTrue
+    }
+
+    It 'says nothing when the check is not due' {
+        $f = New-Fixture 'dep-fresh'
+        Set-CheckAge $f 2
+        (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') | Should -BeFalse
+    }
+
+    It 'says so when the check has never run' {
+        $text = Get-Digest (New-Fixture 'dep-never')
+        $text.Contains('DEPENDENCY_CHECK_DUE: the weekly dependency check has never run on this machine.') |
+            Should -BeTrue
+    }
+
+    It 'reads a record it cannot read as unreadable and asks about it as due' {
+        $f = New-Fixture 'dep-garbled'
+        Set-CheckRecord $f 'not json at all'
+        $text = Get-Digest $f
+        $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check cannot be told from its record, so it is treated as due'
+        $text | Should -Not -Match 'last ran \d+ days ago' -Because 'an unreadable record never becomes a date'
+    }
+
+    It 'stays quiet when the check is already filed and open' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
+        $f = New-Fixture 'dep-filed'
+        Set-CheckAge $f 12
+        Push-Location $f.Root
+        try { $null = tasks-axi add dep-check-2026-w01 'Weekly dependency check' --kind dependency-check 2>&1 }
+        finally { Pop-Location }
+        (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') |
+            Should -BeFalse -Because 'an open item means the King has already answered this week'
+    }
+
+    It 'asks again once the filed item is done' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
+        $f = New-Fixture 'dep-filed-done'
+        Set-CheckAge $f 12
+        Push-Location $f.Root
+        try {
+            $null = tasks-axi add dep-check-2026-w01 'Weekly dependency check' --kind dependency-check 2>&1
+            $null = tasks-axi done dep-check-2026-w01 2>&1
+        } finally { Pop-Location }
+        (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') | Should -BeTrue
+    }
+
+    It 'asks, and says so, when whether it is filed could not be read' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
+        $f = New-Fixture 'dep-queue-broken'
+        Set-CheckAge $f 12
+        Set-Content -LiteralPath (Join-Path $f.Root '.tasks.toml') -Value 'backend = "nonsense"' -Encoding utf8
+        $text = Get-Digest $f
+        $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check last ran 12 days ago'
+        $text.Contains('Whether it is already filed could not be read - tasks-axi exited 1.') | Should -BeTrue
+    }
+
+    It 'still prints the rest of the digest when the check cannot be asked' {
+        $f = New-Fixture 'dep-dir'
+        New-Item -ItemType Directory -Path (Join-Path $f.Root 'state\dependency-check.json') | Out-Null
+        $text = Get-Digest $f
+        $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check cannot be told from its record'
+        $text.Contains('=== END KINGSHAND SESSION START ===') | Should -BeTrue
+    }
+}

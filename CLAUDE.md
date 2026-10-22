@@ -76,13 +76,14 @@ exists to prevent.
 ## Session start
 
 A `SessionStart` hook runs `bin\Get-SessionStart.ps1` and injects its digest as this session's
-first input. The digest carries seven things: this installation's version on one `VERSION:` line,
+first input. The digest carries eight things: this installation's version on one `VERSION:` line,
 any actionable toolchain problem, the fleet - registered projects with their posture, recorded
 workers with stage and liveness, un-dispatched briefs and available reports - a `RE-ARM:` section
 carrying what the last session's restart killed, the queue from `tasks-axi ready --include-held`,
-the data index as counts alone - how much it covers and how many files under `data\` it has lost
-track of - and the full contents of `instructions.md`, `data\king.md` and `data\learnings.md`. A
-clean toolchain prints nothing at all, so silence there is the good outcome.
+a `DEPENDENCY_CHECK_DUE:` line when the weekly dependency check is due, the data index as counts
+alone - how much it covers and how many files under `data\` it has lost track of - and the full
+contents of `instructions.md`, `data\king.md` and `data\learnings.md`. A clean toolchain prints
+nothing at all, so silence there is the good outcome.
 
 **The digest is invisible to the King.** It arrives as injected context, not as terminal output, and
 Claude Code says nothing at all until they type. So their first sight of kingshand is an empty
@@ -114,6 +115,14 @@ to zero stops being read. A `STARTUP_MEMORY_BUDGET:` line means the two memory f
 their budget - invoke `chronicle` to curate them back down, and read them anyway, because the
 budget is a signal and not a gate. `ABSENT` against `instructions.md` reads the same way: the King
 has stated no standing instructions, which is an ordinary state and not a prompt to create the file.
+
+**A `DEPENDENCY_CHECK_DUE:` line means the weekly dependency check is due: ask the King in one line,
+run it now or file it.** **Now** runs it under `statute`'s dependency-pins procedure; **file it**
+adds the one backlog item the line names, with `--kind dependency-check`, so it waits in the queue.
+**Never run the check or file the item without his answer.** It is a line in chat rather than a
+rendered page - two fixed answers, nothing to compare. The digest prints nothing while an item of
+that kind is open, so a filed check is not asked about again. While `regency` or night's watch is
+in force, the question waits for his return like any other.
 
 The digest is not `survey` and neither runs the other. This is mechanical startup input nobody
 asked for; `survey` is a curated answer to "what needs me" that only the user ever asks for.
@@ -211,7 +220,7 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Version.psm1` | the `VERSION` file at the repo root: this installation's version, read and validated in one place, and never fabricated when it cannot be read |
 | `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the latest release tag, the commit subjects between two releases, and the installer run that moves every dependency to the release's pins |
 | `bin\Dependencies.psm1` | the pins in `dependencies.json`: each one read and checked, the installed and the latest published version of each read from the tool that owns it, and whether herdr may be replaced right now |
-| `bin\Update-DependencyPins.ps1` | the weekly pin refresh as data, writing nothing: for each pin, the pinned version, the latest published one, and whether moving crosses a breaking line |
+| `bin\Update-DependencyPins.ps1` | the weekly pin refresh as data, writing nothing unless told the run is the weekly check: for each pin, the pinned version, the latest published one, and whether moving crosses a breaking line - and the one owner of when that check last ran and whether it is due |
 | `bin\Memory.psm1` | the startup-memory budget: what the two memory files cost, against what is allowed |
 | `bin\Index.psm1` | the data index: write a file and index it in one call, add an entry for a file another tool wrote, read a project's index, count the drift, drop an entry whose file is gone |
 | `bin\BrowserVerify.psm1` | the three answers a browser check must not give from memory: whether the browser tools all loaded, where a login is set without ever writing it down, and what a run of checks verified, failed or could not check |
