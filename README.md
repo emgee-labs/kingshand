@@ -147,9 +147,9 @@ The manual equivalent:
 **`-InstallMissing` is opt-in.** Without it, nothing is installed and each missing tool is reported
 with the exact command that fixes it. Nothing self-elevates. `herdr` is the one thing fetched
 directly: it is checked against the SHA-256 `dependencies.json` pins and the one published in
-`https://herdr.dev/latest.json` before it is extracted, a mismatch deletes the download and installs nothing, and an offline machine is told
-so in one line rather than shown a web exception. Open a new shell afterwards so `KINGSHAND_HOME`
-is picked up.
+`https://herdr.dev/latest.json` before it is extracted, a mismatch deletes the download and
+installs nothing, and an offline machine is told so in one line rather than shown a web exception.
+Open a new shell afterwards so `KINGSHAND_HOME` is picked up.
 
 **Every dependency is pinned.** `dependencies.json` records the exact version of herdr, the review
 gate, `lavish-axi`, `tasks-axi` and `quota-axi` that this release was verified with, and the
