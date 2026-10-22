@@ -604,7 +604,7 @@ if ($InstallMissing -and ($missing.Count + $optional.Count) -gt 0) {
                 Write-Did 'npm is available.'
             }
         } else {
-            $blocked['npm'] = 'Install Node.js from https://nodejs.org, then run this again.'
+            $blocked['npm'] = 'Install Node.js from https://nodejs.org, open a new shell so PATH picks it up, then run this again.'
         }
     }
 

@@ -4557,7 +4557,7 @@ Describe 'install.ps1 reports rather than installs unless it is told to' {
     It 'gives a short instruction for each thing it genuinely cannot install' {
         $text = Get-DocText $script:InstallPs1
         Assert-Phrase -Text $text -Where 'install.ps1' `
-            -Phrase 'Install Node.js from https://nodejs.org, then run this again.'
+            -Phrase 'Install Node.js from https://nodejs.org, open a new shell so PATH picks it up, then run this again.'
         Assert-Phrase -Text $text -Where 'install.ps1' `
             -Phrase 'Install App Installer from the Microsoft Store, then run this again.'
     }

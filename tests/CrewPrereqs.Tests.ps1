@@ -105,6 +105,31 @@ Describe 'the prereq check fails only on what dispatch cannot work without' {
             Should -BeTrue -Because 'an unpinned hint installs past the version this release was verified with'
     }
 
+    # The pinned commands come from dependencies.json. A manifest that cannot be read must say so
+    # as a failure of its own, never vanish into hints that quietly lost their versions.
+    It 'names an unreadable dependencies.json as its own failure' {
+        $home_ = Join-Path ([IO.Path]::GetTempPath()) ('prereq-home-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $home_ | Out-Null
+        Set-Content -LiteralPath (Join-Path $home_ 'dependencies.json') -Value '{ not json' -Encoding utf8
+        $gitDir = Split-Path $script:Git.Source -Parent
+        $driver = Join-Path $home_ 'driver.ps1'
+        Set-Content -LiteralPath $driver -Encoding utf8 -Value @"
+`$env:PATH           = '$gitDir'
+`$env:PSModulePath   = Join-Path `$PSHOME 'Modules'
+`$env:KINGSHAND_HOME = '$home_'
+& '$($script:Prereqs)'
+Write-Host "PREREQ_EXIT=`$LASTEXITCODE"
+"@
+        try {
+            $out = & (Get-Process -Id $PID).Path -NoProfile -File $driver 2>&1 | Out-String
+            (Get-FailureBlock $out).Contains('dependencies.json could not be read') |
+                Should -BeTrue -Because 'an unreadable manifest is a failure that names itself'
+            $out | Should -Match 'PREREQ_EXIT=1'
+        } finally {
+            Remove-Item -LiteralPath $home_ -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     It 'names install.ps1 as the fix for the global gitignore rather than a manual edit' {
         # The check used to say "add the line by hand" and nothing in the repository ever wrote it,
         # so every new machine failed this by definition. install.ps1 does it now, and the hint has
