@@ -1651,6 +1651,8 @@ Describe 'the ported reference skills are loadable and keep their load-bearing r
                Phrase  = 'the rule that a prose rule needs a test' }
             @{ Heading = 'Match the form to the failure'
                Phrase  = 'matching a new rule''s form to the failure it is for' }
+            @{ Heading = 'Dependency pins'
+               Phrase  = 'the dependency pins and their weekly refresh' }
             @{ Heading = 'Style rules'
                Phrase  = 'kingshand''s style rules' }
         )
@@ -7361,7 +7363,16 @@ Describe 'the installation has a version, and one command moves it to a release'
                      'version, read and validated in one place, and never fabricated when it cannot be read |')
         Assert-Phrase -Text $tooling -Where 'the CLAUDE.md tooling table' `
             -Phrase ('| `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the ' +
-                     'latest release tag, and the commit subjects between two releases |')
+                     'latest release tag, the commit subjects between two releases, and the installer ' +
+                     'run that moves every dependency to the release''s pins |')
+    }
+
+    It 'lists the pin reader and the weekly pin refresh in the tooling table' {
+        $tooling = Get-HandSection 'Tooling'
+        Assert-Phrase -Text $tooling -Where 'the CLAUDE.md tooling table' `
+            -Phrase '| `bin\Dependencies.psm1` | the pins in `dependencies.json`'
+        Assert-Phrase -Text $tooling -Where 'the CLAUDE.md tooling table' `
+            -Phrase '| `bin\Update-DependencyPins.ps1` | the weekly pin refresh as data, writing nothing'
     }
 
     It 'has frontmatter that parses, with the trigger in the description' {
@@ -10348,5 +10359,41 @@ Describe 'night''s watch is regency plus queue-working, and merges only under +w
             -Phrase ('**This supersedes the September decision that merging while away is an option ' +
                      'defaulting to on everywhere, passed at invocation.**')
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' -Phrase '`docs\2026-10-21-nights-watch.md`'
+    }
+}
+
+# The pins every user is moved to, and the weekly refresh that moves them. The statute skill owns the
+# contract and the procedure; the update skill carries a one-line pointer and the one refusal a user
+# meets. bin\Dependencies.psm1 and its tests own the behaviour - these pin the rules as written.
+Describe 'the dependency pins are a contract with one owner' {
+    BeforeAll {
+        $script:StatutePins = Get-DocText $script:GuidelinesMd
+        $script:UpdatePins  = Get-DocText (Join-Path $script:Root '.claude\skills\update\SKILL.md')
+    }
+
+    It 'says a pin is what every user ends up on, and is never moved past' {
+        Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
+            -Phrase '**a pin is what every user ends up on, and is never moved past.**'
+    }
+
+    It 'makes moving a pin a weekly maintainer job that ships only in a release' {
+        Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
+            -Phrase '**Moving a pin is a maintainer''s job, done weekly, and it ships only in a release.**'
+        Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
+            -Phrase 'Run `bin\Update-DependencyPins.ps1`. It writes nothing'
+        Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
+            -Phrase 'Ship only what passes, in that week''s release.'
+    }
+
+    It 'keeps a breaking move pinned as its own task' {
+        Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
+            -Phrase '**A breaking move stays pinned and becomes its own task**'
+    }
+
+    It 'points the update skill at the owner rather than restating it' {
+        Assert-Phrase -Text $script:UpdatePins -Where 'the update skill' `
+            -Phrase 'the `statute` skill''s Dependency pins section owns that contract'
+        Assert-Phrase -Text $script:UpdatePins -Where 'the update skill' `
+            -Phrase 'herdr is never replaced while its server is running'
     }
 }

@@ -209,7 +209,9 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Test-CrewPrereqs.ps1` | verifies the toolchain; run it if anything behaves oddly |
 | `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook: version, toolchain problems, fleet, what a restart killed and has to be re-armed, queue, index counts, and both context files in full. Never throws |
 | `bin\Version.psm1` | the `VERSION` file at the repo root: this installation's version, read and validated in one place, and never fabricated when it cannot be read |
-| `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the latest release tag, and the commit subjects between two releases |
+| `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the latest release tag, the commit subjects between two releases, and the installer run that moves every dependency to the release's pins |
+| `bin\Dependencies.psm1` | the pins in `dependencies.json`: each one read and checked, the installed and the latest published version of each read from the tool that owns it, and whether herdr may be replaced right now |
+| `bin\Update-DependencyPins.ps1` | the weekly pin refresh as data, writing nothing: for each pin, the pinned version, the latest published one, and whether moving crosses a breaking line |
 | `bin\Memory.psm1` | the startup-memory budget: what the two memory files cost, against what is allowed |
 | `bin\Index.psm1` | the data index: write a file and index it in one call, add an entry for a file another tool wrote, read a project's index, count the drift, drop an entry whose file is gone |
 | `bin\BrowserVerify.psm1` | the three answers a browser check must not give from memory: whether the browser tools all loaded, where a login is set without ever writing it down, and what a run of checks verified, failed or could not check |
