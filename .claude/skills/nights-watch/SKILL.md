@@ -97,7 +97,8 @@ unchanged** - load it, apply it, and never restate it here. Record each one the 
 **A worker legitimately parked is not wedged.** Once `muster` Step 6 has found it parked, record it
 once with `Write-WatchRecordOnce` and watch its gate with `bin\Watch.ps1 gate <id>` rather than a
 worker watch, so a parked lane is one record, not a stall report every threshold. A blocked
-worker's prompt stays regency's case and is never answered.
+worker's prompt stays regency's case - its `A worker is blocked on a prompt` owns whether it is
+answered, and night's watch adds nothing to it.
 
 ## The usage window
 
