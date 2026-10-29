@@ -450,9 +450,10 @@ function Resolve-WatchTarget {
 # Watching the worker alone reported a worker that handed its run to a background shell and went
 # back to its prompt as settled within seconds, with the gate still running and nobody watching it.
 # So when the worker settles, the gate on its branch is read once: a run still going is watched to
-# its park or its end, and the line says the worker went idle while it ran. Anything that is not a
-# clean settle - blocked, unsent, stalled, gone, a failed or timed-out watch - is reported as the
-# worker's own outcome, because the gate is not the question then.
+# its park or its end, and the line says the worker went idle while it ran. A settle over unsent
+# text is reported as unsent at once, with the gate's state read once and named on the same line but
+# never waited on. Anything else that is not a clean settle - blocked, stalled, gone, a failed or
+# timed-out watch - is reported as the worker's own outcome, because the gate is not the question then.
 function Watch-Delivery {
     [CmdletBinding()]
     param(
@@ -465,11 +466,11 @@ function Watch-Delivery {
 
     $worker = Invoke-WorkerWait -Name $Name -TimeoutMinutes $TimeoutMinutes -StallMinutes $StallMinutes
     $wake   = $worker.wake
-    $clean  = "$(Get-WatchField $wake 'reason')" -eq 'settled' -and
+    $ended  = "$(Get-WatchField $wake 'reason')" -eq 'settled' -and
               (Get-WatchField $wake 'awaitingInput') -ne $true -and
-              "$(Get-WatchField $wake 'state')" -ne 'blocked' -and
-              -not (Test-WorkerWakeUnsent $wake)
-    if (-not $clean) { return $worker.line }
+              "$(Get-WatchField $wake 'state')" -ne 'blocked'
+    if (-not $ended) { return $worker.line }
+    $unsent = Test-WorkerWakeUnsent $wake
 
     $gate = $null
     try { $gate = Get-GateRunState -RepoPath $RepoPath -Branch $Branch }
@@ -487,6 +488,10 @@ function Watch-Delivery {
     if ($null -ne $stub) {
         return "$($worker.line) Its gate: " +
                (Format-GateWatch -Label "on $Branch" -Wait $stub -ReadCommand $read)
+    }
+    if ($unsent) {
+        return ("$($worker.line) Its gate run on $Branch is still running - arm " +
+                "``Watch.ps1 gate $Name`` to watch it.")
     }
 
     $gateLine = Watch-GateRun -RepoPath $RepoPath -Branch $Branch -TimeoutMinutes $TimeoutMinutes `

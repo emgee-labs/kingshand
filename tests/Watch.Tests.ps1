@@ -397,17 +397,28 @@ Describe 'Watch-Delivery' {
     }
 
     # Text in the box means the turn that ended is not the one for that text, so the worker has not
-    # settled and its gate is not the question yet - the same as a blocked or stalled worker.
-    It 'reports a worker that stopped over text in its box as unsent and reads no gate' {
-        Mock -ModuleName Watch Get-GateRunState { throw 'should not read' }
+    # settled - but a gate it started is still named, read once and never waited on.
+    It 'reports a worker that stopped over text in its box as unsent, naming its running gate' {
+        Mock -ModuleName Watch Get-GateRunState { $script:Running }
+        Mock -ModuleName Watch Wait-GateRunChange { throw 'should not wait' }
         foreach ($w in @((New-Wake -State 'done' -Box 'half-typed reply'),
                          (New-Wake -State 'done' -Paste $true))) {
             Mock -ModuleName Watch Wait-HerdrAgentProgress { $w }.GetNewClosure()
             $l = Watch-Delivery -Name 'T-1' -RepoPath 'C:\wt' -Branch 'feature-x'
             Assert-OneLine $l
-            $l | Should -BeLike 'UNSENT T-1*'
+            $l | Should -BeLike 'UNSENT T-1*gate run on feature-x is still running*Watch.ps1 gate T-1*'
+            $l | Should -Not -BeLike '*SETTLED*'
         }
-        Should -Invoke -ModuleName Watch Get-GateRunState -Times 0
+        Should -Invoke -ModuleName Watch Wait-GateRunChange -Times 0
+    }
+
+    It 'reports a worker that stopped over text in its box as unsent when no gate run is recorded' {
+        Mock -ModuleName Watch Wait-HerdrAgentProgress { New-Wake -State 'done' -Box 'half-typed reply' }
+        Mock -ModuleName Watch Get-GateRunState {
+            $s = ConvertFrom-GateRunOutput -Text ''; $s.status = 'no-run'; $s }
+        $l = Watch-Delivery -Name 'T-1' -RepoPath 'C:\wt' -Branch 'feature-x'
+        Assert-OneLine $l
+        $l | Should -BeLike 'UNSENT T-1*No gate run is recorded on feature-x.'
     }
 
     It 'reports a gate that was already parked when the worker stopped, with its findings' {
