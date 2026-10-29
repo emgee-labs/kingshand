@@ -519,6 +519,41 @@ function Get-HerdrPromptBoxText {
     ''
 }
 
+# The hint Claude Code prints under the box for a few seconds after a paste, quoted as the shipped
+# 2.1.309 binary emits it. Bound to a harness version like the placeholders above: a later wording
+# is simply not seen, which leaves the watch where it was before this existed.
+$script:PasteHint = 'paste again to expand'
+
+# True when the line under the box is the paste hint - a paste landed in the box seconds ago.
+#
+# A LONG PASTE IS DRAWN COLLAPSED, as `[Pasted text #1 +12 lines]`, and the box reader above already
+# returns that as box text. What it cannot see is the moment after: measured on a live worker, the
+# box empties when the paste is submitted, and herdr still reads the worker idle for a fraction of a
+# second before its turn starts - and on 2026-10-23 a watch woke `done` with exactly that screen, an
+# empty `❯` and this hint, and the worker started working seconds later. The hint is the one thing
+# on the screen that says a paste has only just gone in.
+#
+# Only a line AFTER the box line counts, and only when it is the hint and nothing else - the same
+# words in a worker's own output above the box are not the footer. Nothing reads what was pasted.
+function Test-HerdrPasteHint {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+
+    $anchor = "$($script:PromptBoxCaret)$($script:PromptBoxSpace)"
+    $inBox = $false
+    foreach ($line in ($Text -split "`r?`n")) {
+        $inner = $line.Trim().Trim($script:PromptBoxRule).TrimStart()
+        if (-not $inBox) {
+            # The box line itself, which may be empty: a trailing no-break space is trimmed away
+            # with the rest, so the bare caret is the box too.
+            $inBox = $inner.StartsWith($anchor) -or $inner -eq "$($script:PromptBoxCaret)"
+            continue
+        }
+        if ($inner -eq $script:PasteHint) { return $true }
+    }
+    $false
+}
+
 # What is sitting in a worker's prompt box right now, or '' when it is empty or could not be read.
 #
 # FAILS OPEN, and that is the opposite of Get-HerdrAgentProgressSignal below on purpose. There the
@@ -937,6 +972,9 @@ $script:VolatileScreenPatterns = @(
 # with text in it is not an interactive prompt, and folding it into Test-HerdrAgentAwaitingInput
 # would make every finished worker read `blocked`. All three sightings of an unexplained box were
 # found by chance, which is what this exists to stop.
+#
+# .pastePending rides beside it for the same reason and at the same cost: the paste hint under the
+# box, which Test-HerdrPasteHint owns.
 function Get-HerdrAgentProgressSignal {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Name)
@@ -945,11 +983,14 @@ function Get-HerdrAgentProgressSignal {
     # so a signal taken over `recent` would look static on a worker that is working perfectly.
     $read = Read-HerdrAgentScreen -Name $Name
     if (-not $read.ok) {
-        return [pscustomobject]@{ readable = $false; signal = ''; lastActivity = ''; promptBox = '' }
+        return [pscustomobject]@{
+            readable = $false; signal = ''; lastActivity = ''; promptBox = ''; pastePending = $false
+        }
     }
 
     # Read off the RAW screen, before the normalisation below folds the lines together.
-    $promptBox = Get-HerdrPromptBoxText -Text $read.text
+    $promptBox    = Get-HerdrPromptBoxText -Text $read.text
+    $pastePending = Test-HerdrPasteHint -Text $read.text
 
     $text = $read.text
     foreach ($p in $script:VolatileScreenPatterns) { $text = $text -replace $p, ' ' }
@@ -975,6 +1016,7 @@ function Get-HerdrAgentProgressSignal {
         signal       = $digest
         lastActivity = ($tail -join ' | ')
         promptBox    = $promptBox
+        pastePending = $pastePending
     }
 }
 
@@ -1018,6 +1060,7 @@ function Wait-HerdrAgentProgress {
     $signal     = $first.signal
     $activity   = $first.lastActivity
     $promptBox  = $first.promptBox
+    $pasted     = $first.pastePending
     $readable   = $first.readable
     $lastChange = $started
     $samples    = 1
@@ -1045,6 +1088,7 @@ function Wait-HerdrAgentProgress {
             # stalled, gone and timeout alike - so an unexplained box is seen on the wake the Hand
             # already handles rather than stumbled on later.
             promptBox      = $promptBox
+            pastePending   = $pasted
             signalReadable = $readable
             samples        = $samples
             stallMinutes   = $StallMinutes
@@ -1070,6 +1114,7 @@ function Wait-HerdrAgentProgress {
             $readable  = $final.readable
             $activity  = if ($final.readable) { $final.lastActivity } else { '' }
             $promptBox = if ($final.readable) { $final.promptBox }    else { '' }
+            $pasted    = $final.readable -and $final.pastePending
 
             return & $report $true $state $awaiting $false 'settled'
         }
@@ -1121,6 +1166,7 @@ function Wait-HerdrAgentProgress {
         $readable  = $true
         $activity  = $sample.lastActivity
         $promptBox = $sample.promptBox
+        $pasted    = $sample.pastePending
         if ($sample.signal -ne $signal) {
             $signal     = $sample.signal
             $lastChange = Get-Date

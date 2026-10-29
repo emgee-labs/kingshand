@@ -177,7 +177,7 @@ exit $code
     # The same box shape as SuggestionScreen and EmptyBoxScreen, with whatever line the case needs
     # sitting in the box. The placeholder cases below all differ only in that one line.
     function New-BoxScreen {
-        param([string]$Box = '')
+        param([string]$Box = '', [string]$Footer = '? for shortcuts')
         $rule = ([string][char]0x2500) * 92
         @"
   Done. Committed 3 files and wrote report.md.
@@ -185,7 +185,7 @@ exit $code
 $rule
 `u{276F}`u{00A0}$Box
 $rule
-    ? for shortcuts
+    $Footer
 "@
     }
 
@@ -1248,6 +1248,46 @@ Describe 'Get-HerdrAgentProgressSignal ignores what Claude Code repaints on its 
         @(Get-HerdrStubArgs).Count |
             Should -Be 1 -Because 'the box comes off text already in memory, not off a second read'
     }
+
+    # A long paste is drawn collapsed in the box, with Claude Code's hint on the footer line under
+    # it. Both shapes are copied off a live worker sampled while a long prompt went in: first the
+    # collapsed paste sitting unsent, then - a fraction of a second later, with herdr still reading
+    # the worker idle - an empty box with the hint still showing. The second is the screen a watch
+    # woke on and called settled on 2026-10-23.
+    It 'reports a collapsed paste as text in the box, and the hint under it' {
+        Set-HerdrScreen (New-BoxScreen -Box '[Pasted text #1 +12 lines]' -Footer 'paste again to expand')
+        $r = Get-HerdrAgentProgressSignal -Name 'T-9001'
+        $r.promptBox    | Should -Be '[Pasted text #1 +12 lines]'
+        $r.pastePending | Should -BeTrue
+    }
+
+    It 'reports the hint under an empty box, where the paste has gone in but the turn has not started' {
+        Set-HerdrScreen (New-BoxScreen -Footer 'paste again to expand')
+        $r = Get-HerdrAgentProgressSignal -Name 'T-9001'
+        $r.promptBox    | Should -Be ''
+        $r.pastePending | Should -BeTrue -Because 'the hint is the only sign a paste just went in'
+    }
+
+    It 'reports no paste for an ordinary empty box' {
+        Set-HerdrScreen $script:EmptyBoxScreen
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').pastePending | Should -BeFalse
+    }
+
+    # The words in a worker's own output above the box are not the footer - this very change put
+    # them on a worker's screen while it was being written.
+    It 'does not take the hint''s words in the worker''s output above the box as the hint' {
+        $screen = (New-BoxScreen) -replace 'Done\. Committed 3 files and wrote report\.md\.',
+                                           'paste again to expand'
+        Set-HerdrScreen $screen
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').pastePending | Should -BeFalse
+    }
+
+    It 'reports no paste when the screen could not be read' {
+        Set-HerdrScreenFailure -Text 'paste again to expand'
+        $r = Get-HerdrAgentProgressSignal -Name 'T-9001'
+        $r.readable     | Should -BeFalse
+        $r.pastePending | Should -BeFalse -Because 'a failed read is not a screen, so it shows no hint'
+    }
 }
 
 Describe 'Test-HerdrAgentReadable never confirms a pane out of herdr''s own error text' {
@@ -1285,7 +1325,7 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         Mock -ModuleName Herdr Test-HerdrAgentAwaitingInput { $false }
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
             [pscustomobject]@{
-                readable = $true; signal = 'aaaa'; promptBox = ''
+                readable = $true; signal = 'aaaa'; promptBox = ''; pastePending = $false
                 lastActivity = 'Bash(no-mistakes axi status) | waiting for checks'
             }
         }
@@ -1319,7 +1359,7 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
             $script:sample++
             [pscustomobject]@{
-                readable = $true; signal = "s$script:sample"; promptBox = ''
+                readable = $true; signal = "s$script:sample"; promptBox = ''; pastePending = $false
                 lastActivity = "screen $script:sample"
             }
         }
@@ -1339,13 +1379,31 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
             [pscustomobject]@{
                 readable = $true; signal = 'aaaa'; lastActivity = 'Done'
-                promptBox = 'show me the getting started section rendered'
+                promptBox = 'show me the getting started section rendered'; pastePending = $false
             }
         }
 
         $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 5000 -SampleSeconds 1
         @($r.PSObject.Properties.Name) | Should -Contain 'promptBox'
         $r.promptBox | Should -Be 'show me the getting started section rendered'
+    }
+
+    It 'carries a paste that only just went in out of a settled wake, read off the final screen' {
+        Mock -ModuleName Herdr Wait-HerdrAgent {
+            [pscustomobject]@{ name = 't-9001'; agent_status = 'done'; pane_id = 'p1' }
+        }
+        $script:sample = 0
+        Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
+            $script:sample++
+            [pscustomobject]@{
+                readable = $true; signal = "s$script:sample"; promptBox = ''; lastActivity = 'x'
+                pastePending = ($script:sample -gt 1)
+            }
+        }
+
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 5000 -SampleSeconds 1
+        $r.reason       | Should -Be 'settled'
+        $r.pastePending | Should -BeTrue -Because 'the wake reports the screen the worker stopped on'
     }
 
     It 'carries the prompt box out of a stall report too' {
@@ -1360,7 +1418,7 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
             [pscustomobject]@{ name = 't-9001'; agent_status = 'done'; pane_id = 'p1' }
         }
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
-            [pscustomobject]@{ readable = $false; signal = ''; lastActivity = ''; promptBox = '' }
+            [pscustomobject]@{ readable = $false; signal = ''; lastActivity = ''; promptBox = ''; pastePending = $false }
         }
 
         $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 5000 -SampleSeconds 1
@@ -1395,7 +1453,7 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         $script:tick = 0
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
             $script:tick++
-            [pscustomobject]@{ readable = $true; signal = "s$script:tick"; lastActivity = 'still going'; promptBox = '' }
+            [pscustomobject]@{ readable = $true; signal = "s$script:tick"; lastActivity = 'still going'; promptBox = ''; pastePending = $false }
         }
 
         $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 2000 -SampleSeconds 1 -StallMinutes 0
@@ -1407,7 +1465,7 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
     # not see, and the Hand is told that rather than told the worker is stuck.
     It 'never claims a stall from a screen it could not read' {
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
-            [pscustomobject]@{ readable = $false; signal = ''; lastActivity = ''; promptBox = '' }
+            [pscustomobject]@{ readable = $false; signal = ''; lastActivity = ''; promptBox = ''; pastePending = $false }
         }
 
         $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 2000 -SampleSeconds 1 -StallMinutes 0

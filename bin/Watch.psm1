@@ -25,11 +25,11 @@ Import-Module (Join-Path $PSScriptRoot 'Crew.psm1')
 # anything going silent.
 #
 # EVERY OUTCOME THE WAITS CAN REPORT HAS ITS OWN LINE, and none is folded into another: a worker
-# blocked, stalled, gone, settled, its watch failing or timing out, a screen the watch could not
-# read, text in its input box; a gate run parked with its findings, passed, failed, unreadable or
-# quiet until the clock ran out; and a worker gone idle while the gate it started keeps running. A
-# line that cannot be composed is never replaced by a quieter one - an unreadable input reads as
-# unreadable, never as a state word.
+# blocked, stalled, gone, settled, settled over text it never took, its watch failing or timing
+# out, a screen the watch could not read, text in its input box; a gate run parked with its
+# findings, passed, failed, unreadable or quiet until the clock ran out; and a worker gone idle
+# while the gate it started keeps running. A line that cannot be composed is never replaced by a
+# quieter one - an unreadable input reads as unreadable, never as a state word.
 #
 # Nothing here acts on what it sees. No prompt is answered, no key is sent, no run is driven: a
 # watch reports, and `muster`, `rally` and `petition` own what happens next.
@@ -88,11 +88,23 @@ function Get-WatchField {
     $null
 }
 
+# Whether a settled wake is a turn ending over text the worker has not taken: anything in its input
+# box, or the hint that a paste went in seconds ago. Either way the turn that ended is not the one
+# for that text, so it is never reported as settled. Only whether the box is empty is asked here -
+# nothing reads what the text says.
+function Test-WorkerWakeUnsent {
+    param($Wake)
+    [bool](ConvertTo-WatchText "$(Get-WatchField $Wake 'promptBox')") -or
+        (Get-WatchField $Wake 'pastePending') -eq $true
+}
+
 # One worker wake as one line. Exported so every outcome can be driven with the wake forced.
 #
 # The order of the checks is the order of what outranks what: a prompt on the screen outranks every
 # state word, and a box with text in it is reported on every outcome rather than only one, because
-# it is never the worker's output and a bare Enter would submit it.
+# it is never the worker's output and a bare Enter would submit it. On a settle it outranks the
+# settle itself: a worker whose box still holds text, or a paste that only just went in, has not
+# finished - on 2026-10-23 one was reported settled seconds before it started work on the prompt.
 function Format-WorkerWake {
     [CmdletBinding()]
     param(
@@ -128,9 +140,22 @@ function Format-WorkerWake {
                         'Next: tell the King now what it is asking and load rally; never answer ' +
                         "the prompt blind.$boxNote$tail")
             }
+            if ($box) {
+                return ("UNSENT $Name state=$state - its input box holds text that was never " +
+                        "submitted: '$box'. That is not the worker's output, and a turn " +
+                        'ending with it there is not a finish. Next: re-arm this watch once; ' +
+                        'if the same text is still there, quote it to the King and load ' +
+                        "rally - never submit or clear it.$blind$tail")
+            }
+            if ((Get-WatchField $Wake 'pastePending') -eq $true) {
+                return ("UNSENT $Name state=$state - a paste went into its input box seconds " +
+                        "ago ('paste again to expand' is showing), so this turn ending is not " +
+                        'evidence it worked on that text - it may not have started. Next: ' +
+                        "re-arm this watch; never submit or clear the box.$blind$tail")
+            }
             return ("SETTLED $Name state=$state - its turn ended, which is not proof it finished. " +
                     'Next: muster Step 6 - read its record and report.md before calling it ' +
-                    "delivered.$boxNote$blind$tail")
+                    "delivered.$blind$tail")
         }
         'stalled' {
             $quiet = Get-WatchField $Wake 'quietMinutes'
@@ -425,9 +450,10 @@ function Resolve-WatchTarget {
 # Watching the worker alone reported a worker that handed its run to a background shell and went
 # back to its prompt as settled within seconds, with the gate still running and nobody watching it.
 # So when the worker settles, the gate on its branch is read once: a run still going is watched to
-# its park or its end, and the line says the worker went idle while it ran. Anything that is not a
-# clean settle - blocked, stalled, gone, a failed or timed-out watch - is reported as the worker's
-# own outcome, because the gate is not the question then.
+# its park or its end, and the line says the worker went idle while it ran. A settle over unsent
+# text is reported as unsent at once, with the gate's state read once and named on the same line but
+# never waited on. Anything else that is not a clean settle - blocked, stalled, gone, a failed or
+# timed-out watch - is reported as the worker's own outcome, because the gate is not the question then.
 function Watch-Delivery {
     [CmdletBinding()]
     param(
@@ -440,10 +466,11 @@ function Watch-Delivery {
 
     $worker = Invoke-WorkerWait -Name $Name -TimeoutMinutes $TimeoutMinutes -StallMinutes $StallMinutes
     $wake   = $worker.wake
-    $clean  = "$(Get-WatchField $wake 'reason')" -eq 'settled' -and
+    $ended  = "$(Get-WatchField $wake 'reason')" -eq 'settled' -and
               (Get-WatchField $wake 'awaitingInput') -ne $true -and
               "$(Get-WatchField $wake 'state')" -ne 'blocked'
-    if (-not $clean) { return $worker.line }
+    if (-not $ended) { return $worker.line }
+    $unsent = Test-WorkerWakeUnsent $wake
 
     $gate = $null
     try { $gate = Get-GateRunState -RepoPath $RepoPath -Branch $Branch }
@@ -461,6 +488,10 @@ function Watch-Delivery {
     if ($null -ne $stub) {
         return "$($worker.line) Its gate: " +
                (Format-GateWatch -Label "on $Branch" -Wait $stub -ReadCommand $read)
+    }
+    if ($unsent) {
+        return ("$($worker.line) Its gate run on $Branch is still running - arm " +
+                "``Watch.ps1 gate $Name`` to watch it.")
     }
 
     $gateLine = Watch-GateRun -RepoPath $RepoPath -Branch $Branch -TimeoutMinutes $TimeoutMinutes `
