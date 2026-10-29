@@ -1188,8 +1188,9 @@ the worker settles, reads the gate run on its branch: a run still going is watch
 its end, because a worker that hands its run to a background shell and goes back to its prompt
 reads settled within seconds while nothing watches the gate. `gate <id>` watches that run alone,
 until it parks or ends. Each takes the worker's worktree and branch from `state\crew.json`, so the
-command is
-one id long.
+command is one id long. **`report <id>` waits for the worker to write `data\<id>\report.md`** - the
+file changing after the watch was armed, never what it says - so arm it instead of polling the file
+by hand.
 
 **The command prints nothing while it waits and exactly one line when it ends** - the outcome in
 capitals, the evidence, and `Next:` with what to do. That line is the whole report, and
@@ -1228,7 +1229,8 @@ This is an event, not a poll. Both wakes block inside herdr until the worker sto
 and return the moment it does. Nothing here sleeps in a loop and nothing re-reads state on a
 timer; if you find yourself writing a `while` loop around `Get-HerdrAgent`, you have rebuilt the
 thing this replaced. The progress wake samples the screen once per minute between those blocks,
-because "nothing happened" is not an event anything can push at you.
+because "nothing happened" is not an event anything can push at you, and so does a worker watch
+holding on a worker idle on its own background shells, because herdr's wait returns at once there.
 
 - Run it as **one harness-tracked background job**, never with `&` and never as a detached process.
   Its completion is what wakes you; an untracked process wakes nothing and you will not notice it
@@ -1262,6 +1264,10 @@ because "nothing happened" is not an event anything can push at you.
   completion.** Its input box holds text, or a paste went in seconds ago - often the prompt you just
   sent, not yet started on. Re-arm the watch once; if the same text is still in the box after that,
   the bullet above applies.
+- **`WAITING ON SHELL` is a turn that ended on background shells of the worker's own, and it is
+  never a completion.** The worker parks on its own long run - a test suite, say - and carries on
+  when it finishes, while herdr reads it `done`. The watch waits through that itself, so this line
+  means its clock ran out with the shells still going. Re-arm the watch, or arm `report <id>`.
 - **`GONE` means herdr has no such worker any more.** That is not a timeout and not a
   stall: the process is not there. It is confirmed by a second read and by the server still
   answering, so neither one transient error nor a server that is down produces it. Load `rally` and

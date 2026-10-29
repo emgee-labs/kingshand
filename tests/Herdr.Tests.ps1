@@ -1288,6 +1288,35 @@ Describe 'Get-HerdrAgentProgressSignal ignores what Claude Code repaints on its 
         $r.readable     | Should -BeFalse
         $r.pastePending | Should -BeFalse -Because 'a failed read is not a screen, so it shows no hint'
     }
+
+    # The footer under the box while a worker that ended its turn still has background shells of its
+    # own running, copied off a live worker: herdr read it `done`, and this was the only sign it
+    # would carry on.
+    It 'reads the count of the worker''s own background shells off the footer under the box' {
+        Set-HerdrScreen (New-BoxScreen -Footer "`u{23F8} manual mode on `u{00B7} 2 shells `u{00B7} `u{2193} to manage")
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').backgroundShells | Should -Be 2
+        Set-HerdrScreen (New-BoxScreen -Footer "`u{23F8} manual mode on `u{00B7} 1 shell `u{00B7} esc to interrupt")
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').backgroundShells | Should -Be 1
+    }
+
+    It 'reads no background shells off an ordinary footer' {
+        Set-HerdrScreen $script:EmptyBoxScreen
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').backgroundShells | Should -Be 0
+    }
+
+    It 'does not take a shell count in the worker''s output above the box as the footer' {
+        $screen = (New-BoxScreen) -replace 'Done\. Committed 3 files and wrote report\.md\.',
+                                           "mode on `u{00B7} 3 shells"
+        Set-HerdrScreen $screen
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').backgroundShells | Should -Be 0
+    }
+
+    It 'reports no count at all, not zero, when the screen could not be read' {
+        Set-HerdrScreenFailure
+        $r = Get-HerdrAgentProgressSignal -Name 'T-9001'
+        ($null -eq $r.backgroundShells) |
+            Should -BeTrue -Because 'an unread footer is not a footer saying none'
+    }
 }
 
 Describe 'Test-HerdrAgentReadable never confirms a pane out of herdr''s own error text' {

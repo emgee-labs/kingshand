@@ -1140,6 +1140,21 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
             -Phrase 'Re-arm the watch once; if the same text is still in the box after that,'
     }
 
+    It 'never reads a turn that ended on the worker''s own background shells as a completion' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('**`WAITING ON SHELL` is a turn that ended on background shells of the ' +
+                     'worker''s own, and it is')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase 'Re-arm the watch, or arm `report <id>`.'
+    }
+
+    It 'waits for a report with the report verb rather than polling the file by hand' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase '**`report <id>` waits for the worker to write `data\<id>\report.md`**'
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase 'the file changing after the watch was armed, never what it says'
+    }
+
     It 're-arms a timed-out watch rather than assuming the worker is fine' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase 'If the watch comes back `NO OUTCOME`, re-arm it.'

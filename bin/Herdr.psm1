@@ -554,6 +554,42 @@ function Test-HerdrPasteHint {
     $false
 }
 
+# How many background shells Claude Code's footer says the worker has running, quoted as the shipped
+# 2.1.309 binary draws it: the mode line under the box is ` · `-separated segments, and while the
+# worker's own background shells run one of them is exactly `1 shell` or `<n> shells`. Measured on
+# a live worker that had ended its turn with two still running: herdr read it `done`, and that
+# footer segment was the only thing on the screen saying the worker would carry on.
+#
+# Bound to a harness version like the paste hint: a later wording is simply not seen, which leaves
+# the watch where it was before this existed.
+$script:FooterSeparator    = " $([char]0x00B7) "
+$script:ShellCountSegment  = '^(\d+) shells?$'
+
+# The count, or 0 when no footer segment says one is running. Only lines after the LAST box line
+# count - the footer is drawn under the box, and a worker's own output above it is not the footer -
+# and only a segment that is the count and nothing else. Nothing reads what the shells are doing.
+function Get-HerdrBackgroundShellCount {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+
+    $lines = @($Text -split "`r?`n" | ForEach-Object { $_.Trim().Trim($script:PromptBoxRule).Trim() })
+    $box = -1
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $l = $lines[$i]
+        if ($l.StartsWith("$($script:PromptBoxCaret)$($script:PromptBoxSpace)") -or
+            $l -eq "$($script:PromptBoxCaret)") { $box = $i }
+    }
+    if ($box -lt 0) { return 0 }
+
+    for ($i = $box + 1; $i -lt $lines.Count; $i++) {
+        foreach ($seg in ($lines[$i] -split [regex]::Escape($script:FooterSeparator))) {
+            $m = [regex]::Match($seg.Trim(), $script:ShellCountSegment)
+            if ($m.Success) { return [int]$m.Groups[1].Value }
+        }
+    }
+    0
+}
+
 # What is sitting in a worker's prompt box right now, or '' when it is empty or could not be read.
 #
 # FAILS OPEN, and that is the opposite of Get-HerdrAgentProgressSignal below on purpose. There the
@@ -974,7 +1010,9 @@ $script:VolatileScreenPatterns = @(
 # found by chance, which is what this exists to stop.
 #
 # .pastePending rides beside it for the same reason and at the same cost: the paste hint under the
-# box, which Test-HerdrPasteHint owns.
+# box, which Test-HerdrPasteHint owns. So does .backgroundShells, the footer's count of the worker's
+# own background shells, which Get-HerdrBackgroundShellCount owns - $null on a screen that could not
+# be read, because an unread footer is not a footer saying none.
 function Get-HerdrAgentProgressSignal {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Name)
@@ -985,12 +1023,14 @@ function Get-HerdrAgentProgressSignal {
     if (-not $read.ok) {
         return [pscustomobject]@{
             readable = $false; signal = ''; lastActivity = ''; promptBox = ''; pastePending = $false
+            backgroundShells = $null
         }
     }
 
     # Read off the RAW screen, before the normalisation below folds the lines together.
     $promptBox    = Get-HerdrPromptBoxText -Text $read.text
     $pastePending = Test-HerdrPasteHint -Text $read.text
+    $shells       = Get-HerdrBackgroundShellCount -Text $read.text
 
     $text = $read.text
     foreach ($p in $script:VolatileScreenPatterns) { $text = $text -replace $p, ' ' }
@@ -1017,7 +1057,17 @@ function Get-HerdrAgentProgressSignal {
         lastActivity = ($tail -join ' | ')
         promptBox    = $promptBox
         pastePending = $pastePending
+        backgroundShells = $shells
     }
+}
+
+# A signal's shell count, or $null where it carries none - a signal from before the field existed,
+# or one off a screen that could not be read. Never 0 for "not known".
+function Get-HerdrSignalShells {
+    param($Signal)
+    if ($null -eq $Signal) { return $null }
+    if ($Signal.PSObject.Properties.Name -notcontains 'backgroundShells') { return $null }
+    $Signal.backgroundShells
 }
 
 # Waits for a worker to stop, and gives up on it when it stops advancing instead.
@@ -1061,6 +1111,7 @@ function Wait-HerdrAgentProgress {
     $activity   = $first.lastActivity
     $promptBox  = $first.promptBox
     $pasted     = $first.pastePending
+    $shells     = Get-HerdrSignalShells $first
     $readable   = $first.readable
     $lastChange = $started
     $samples    = 1
@@ -1089,6 +1140,7 @@ function Wait-HerdrAgentProgress {
             # already handles rather than stumbled on later.
             promptBox      = $promptBox
             pastePending   = $pasted
+            backgroundShells = $shells
             signalReadable = $readable
             samples        = $samples
             stallMinutes   = $StallMinutes
@@ -1115,6 +1167,7 @@ function Wait-HerdrAgentProgress {
             $activity  = if ($final.readable) { $final.lastActivity } else { '' }
             $promptBox = if ($final.readable) { $final.promptBox }    else { '' }
             $pasted    = $final.readable -and $final.pastePending
+            $shells    = if ($final.readable) { Get-HerdrSignalShells $final } else { $null }
 
             return & $report $true $state $awaiting $false 'settled'
         }
@@ -1167,6 +1220,7 @@ function Wait-HerdrAgentProgress {
         $activity  = $sample.lastActivity
         $promptBox = $sample.promptBox
         $pasted    = $sample.pastePending
+        $shells    = Get-HerdrSignalShells $sample
         if ($sample.signal -ne $signal) {
             $signal     = $sample.signal
             $lastChange = Get-Date
@@ -1298,4 +1352,5 @@ Export-ModuleMember -Function Get-HerdrCommandPath, Get-HerdrCommandHint, Conver
                               Remove-HerdrPane, Test-HerdrAgentAwaitingInput, Get-HerdrAgentState,
                               Wait-HerdrAgentSettled, Test-HerdrAgentReadable,
                               Get-HerdrAgentProgressSignal, Wait-HerdrAgentProgress,
-                              Get-HerdrAgentPromptBox, Read-HerdrAgentScreen
+                              Get-HerdrAgentPromptBox, Read-HerdrAgentScreen,
+                              Get-HerdrBackgroundShellCount
