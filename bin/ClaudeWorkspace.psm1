@@ -28,6 +28,7 @@ Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
 #   additionalDirectories: [...]     was --add-dir <briefdir>
 #
 #   hooks.PermissionRequest          the folder-edit grant, never a flag - see below
+#   permissions.allow: ['Monitor']   the Monitor tool, never a flag - see $script:WorkerAllowRules
 #
 # It must be written INTO THE WORKTREE, not the repo. A worktree is a fresh checkout with no
 # .claude directory of its own, and settings.local.json is untracked, so nothing carries across
@@ -41,6 +42,15 @@ Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
 # grant from it. A worker therefore runs in Manual mode, where the user's own allow rules carry
 # ordinary edits and a write under .claude\ - a protected path no allow rule pre-approves - stops on
 # a menu. The third grant below, the folder-edit hook, is what answers that menu.
+
+# The allow rules every worker gets, and nothing more. Manual mode prompts for any tool no allow
+# rule covers, and the Monitor tool is not covered by the user's own list, so a worker reaching for
+# it stopped on a menu with nobody there. A bare tool name with no parentheses matches every use of
+# that tool (Claude Code's permissions documentation, "Match all uses of a tool"), and an untracked
+# settings.local.json applies its allow rules without the folder-trust step. Widening this list is
+# a decision of its own, not a convenience.
+$script:WorkerAllowRules = @('Monitor')
+
 function Set-WorkerWorkspaceSettings {
     [CmdletBinding()]
     param(
@@ -61,6 +71,7 @@ function Set-WorkerWorkspaceSettings {
         permissions = [ordered]@{
             defaultMode           = 'bypassPermissions'
             additionalDirectories = @($AdditionalDirectories)
+            allow                 = @($script:WorkerAllowRules)
         }
         hooks       = [ordered]@{
             PermissionRequest = @(New-ClaudeFolderEditHook -ClaudeDir $claudeDir)
@@ -260,7 +271,7 @@ function Grant-ClaudeFolderTrust {
 # ---------------------------------------------------------------------------------------------
 # A worker in the project's OWN checkout, with no worktree: the `fief` skill's warm worker.
 #
-# The grants are the same three, and the difference is whose file they land in. A worktree is a
+# The grants are the same four, and the difference is whose file they land in. A worktree is a
 # fresh checkout kingshand made, so its settings.local.json is kingshand's to write whole. A checkout
 # is the King's, and its settings.local.json may already hold his own `allow` list and anything else
 # he put there. So the file is EDITED rather than written - every key he had survives, the grants
@@ -273,7 +284,8 @@ function Grant-ClaudeFolderTrust {
 #   - Afterwards nobody could tell whether there had been a file at all. The record says so, and a
 #     file that did not exist before is DELETED at cleanup rather than restored as an empty one.
 #   - The allow list was dropped. The file is parsed as JSON through JsonNode and only the grant keys
-#     are touched, so `allow` and everything else are carried across untouched.
+#     are touched, so everything else is carried across untouched - and `allow` keeps every rule it
+#     had, with the worker's own rules appended where it lacks them.
 #   - A failed read was built from. `$orig.permissions.allow` on a Get-Content that threw produced
 #     `allow: [null]`, which Claude Code meets with a settings-warning prompt the worker then sits
 #     blocked on. Here a file that is there and cannot be read, or is not a JSON object, REFUSES -
@@ -375,6 +387,25 @@ function New-CheckoutSettingsPlan {
     }
     foreach ($d in @($AdditionalDirectories | Where-Object { $_ })) {
         if ($have.Add($d)) { $dirs.Add([System.Text.Json.Nodes.JsonNode][System.Text.Json.Nodes.JsonValue]::Create($d)) }
+    }
+
+    # The worker's allow rules, appended to the King's own list rather than replacing it. Rules are
+    # compared exactly, as Claude Code matches tool names, so one he already has is not added twice.
+    $allow = $perms['allow']
+    if ($null -eq $allow) {
+        $allow = [System.Text.Json.Nodes.JsonArray]::new()
+        $perms['allow'] = $allow
+    } elseif ($allow -isnot [System.Text.Json.Nodes.JsonArray]) {
+        throw "$settingsPath has an 'allow' value that is not a list. Nothing was changed."
+    }
+    $rules = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($n in $allow) {
+        if ($null -ne $n -and $n.GetValueKind() -eq [System.Text.Json.JsonValueKind]::String) {
+            $null = $rules.Add($n.GetValue[string]())
+        }
+    }
+    foreach ($rule in $script:WorkerAllowRules) {
+        if ($rules.Add($rule)) { $allow.Add([System.Text.Json.Nodes.JsonNode][System.Text.Json.Nodes.JsonValue]::Create($rule)) }
     }
 
     # The folder-edit grant, scoped to this checkout's own .claude folder and appended beside any
