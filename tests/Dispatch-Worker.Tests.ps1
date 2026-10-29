@@ -704,11 +704,21 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
         # One canned answer per `herdr <verb> <noun>`, so a single shim serves the whole dispatch
         # sequence: status, pane list, pane split, agent start, agent prompt.
+        #
+        # Once `agent prompt` has run, a `<verb>-<noun>-prompted.json` answer wins where one exists,
+        # so the worker can read one way before its start prompt and another after it - which is
+        # what confirming the prompt was taken reads. The marker sits beside the fixture's own call
+        # log, so every fixture starts unprompted.
         Set-Content -Path (Join-Path $script:ShimDir 'herdr.cmd') -Encoding ascii -Value @(
             '@echo off',
             '>>"%KINGSHAND_TEST_HERDR_CALLS%" echo %*',
             'if "%1"=="status" goto :status',
+            'if "%1 %2"=="agent prompt" type nul > "%KINGSHAND_TEST_HERDR_CALLS%.prompted"',
+            'if exist "%KINGSHAND_TEST_HERDR_CALLS%.prompted" if exist "%KINGSHAND_TEST_HERDR_DIR%\%1-%2-prompted.json" goto :prompted',
             'type "%KINGSHAND_TEST_HERDR_DIR%\%1-%2.json"',
+            'exit /b 0',
+            ':prompted',
+            'type "%KINGSHAND_TEST_HERDR_DIR%\%1-%2-prompted.json"',
             'exit /b 0',
             ':status',
             'type "%KINGSHAND_TEST_HERDR_DIR%\status.txt"',
@@ -726,11 +736,48 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             'exit /b 0'
         )
 
-        # How much of the window this dispatch will believe is spent. A percentage produces a real
-        # reading; -Broken makes the tool exit non-zero, which is the unknown the refusal must fail
-        # open on; -NoWindows is the settled "nothing here reports this".
+        # The usage probe is a stand-in too, named through the one variable Usage.psm1 reads for it,
+        # because this script re-imports that module with -Force and no mock survives that - without
+        # it every dispatch below would spend real usage. It types a canned stream-json reply, or
+        # exits 1 with nothing, which is a probe that could not answer.
+        Set-Content -Path (Join-Path $script:ShimDir 'claude-probe.cmd') -Encoding ascii -Value @(
+            '@echo off',
+            'if exist "%KINGSHAND_TEST_HERDR_DIR%\probe.fail" exit /b 1',
+            'type "%KINGSHAND_TEST_HERDR_DIR%\probe.txt"',
+            'exit /b 0'
+        )
+        $script:SavedProbe = $env:KINGSHAND_USAGE_PROBE_COMMAND
+        $env:KINGSHAND_USAGE_PROBE_COMMAND = Join-Path $script:ShimDir 'claude-probe.cmd'
+
+        # The reader's gate file lands under KINGSHAND_HOME\state\, so the whole context runs with
+        # KINGSHAND_HOME on a root of its own. Nothing dispatch reads hangs off it otherwise: every
+        # call passes -DataPath, and herdr is the shim on PATH.
+        $script:SavedHome = $env:KINGSHAND_HOME
+        $script:UsageHome = New-TempFixturePath -Prefix 'dispatch-home-'
+        New-Item -ItemType Directory -Force -Path $script:UsageHome | Out-Null
+        $env:KINGSHAND_HOME = $script:UsageHome
+
+        # How much of the window this dispatch will believe is spent. A percentage is what the probe
+        # answers; -Broken makes the probe and quota-axi both fail, which is the unknown the refusal
+        # must fail open on. -Stale and -NoWindows are quota-axi's answers, so the probe fails first
+        # for those and the fallback gives them. The gate file is removed every time, so a hold or a
+        # fallback stamp one case left behind never decides the next.
         function Set-UsageReply {
             param([double]$Percent = 5, [switch]$Broken, [switch]$NoWindows, [switch]$Stale)
+
+            $gate = Join-Path $script:UsageHome 'state\usage-gate.json'
+            if (Test-Path -LiteralPath $gate) { Remove-Item -LiteralPath $gate -Force }
+
+            $probeFail = Join-Path $script:ShimDir 'probe.fail'
+            if ($Broken -or $Stale -or $NoWindows) { Set-Content -Path $probeFail -Value 'x' -Encoding ascii }
+            elseif (Test-Path -LiteralPath $probeFail) { Remove-Item -LiteralPath $probeFail -Force }
+            $reset = [datetimeoffset]::UtcNow.AddHours(3).ToUnixTimeSeconds()
+            $reply = @{ type = 'rate_limit_event'; rate_limit_info = @{ status = 'allowed'
+                        unifiedWindows = @{ five_hour = @{ utilization = $Percent / 100; resetsAt = $reset }
+                                            seven_day = @{ utilization = 0.01
+                                                           resetsAt = $reset + 86400 } } } }
+            ($reply | ConvertTo-Json -Depth 8 -Compress) |
+                Set-Content -Path (Join-Path $script:ShimDir 'probe.txt') -Encoding utf8
 
             $fail = Join-Path $script:ShimDir 'quota-axi.fail'
             if ($Broken) { Set-Content -Path $fail -Value 'x' -Encoding ascii }
@@ -777,11 +824,24 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         # because that is the prompt a fresh worktree really stops on, and its footer says "Enter
         # to confirm" where the menus say "Enter to select" - a guard that only knew the menu
         # wording would sail straight past the one dialog dispatch exists to catch.
+        #
+        # After the start prompt the worker reads -AfterPrompt, `working` by default - the prompt
+        # taken - and -AfterPromptScreen replaces its screen where a case needs the box to differ.
         function Set-AgentStartState {
-            param([string]$State = 'idle')
+            param([string]$State = 'idle', [string]$AfterPrompt = 'working',
+                  [string[]]$AfterPromptScreen = @())
             Set-HerdrReply -Verb 'agent-start'  -Result @{ agent = @{ name = 'x'; pane_id = 'p2'; agent_status = $State } }
             Set-HerdrReply -Verb 'agent-prompt' -Result @{ agent = @{ name = 'x'; pane_id = 'p2'; agent_status = 'idle' } }
             Set-HerdrReply -Verb 'agent-get'    -Result @{ agent = @{ name = 'x'; pane_id = 'p2'; agent_status = $State } }
+            Set-HerdrReply -Verb 'agent-get-prompted' `
+                -Result @{ agent = @{ name = 'x'; pane_id = 'p2'; agent_status = $AfterPrompt } }
+
+            $after = Join-Path $script:ShimDir 'agent-read-prompted.json'
+            if ($AfterPromptScreen.Count) {
+                Set-Content -Path $after -Encoding utf8 -Value $AfterPromptScreen
+            } elseif (Test-Path -LiteralPath $after) {
+                Remove-Item -LiteralPath $after -Force
+            }
 
             $screen = if ($State -eq 'blocked') {
                 @(' Quick safety check: Is this a project you created or one you trust?',
@@ -919,6 +979,20 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             @(Get-Content -LiteralPath $Fixture.CallLog | Where-Object { $_.Trim() })
         }
 
+        # What dispatch adds to a brief goes to <stem>.dispatch.md beside it, never into the brief,
+        # and the worker is pointed at it by its start prompt. These read that file the way a
+        # worker does - whole - and say '' rather than throwing when there is none.
+        function Get-DispatchFilePath {
+            param([Parameter(Mandatory)]$Fixture)
+            Join-Path $Fixture.BriefDir 'brief.dispatch.md'
+        }
+        function Get-DispatchText {
+            param([Parameter(Mandatory)]$Fixture)
+            $p = Get-DispatchFilePath $Fixture
+            if (-not (Test-Path -LiteralPath $p)) { return '' }
+            [System.IO.File]::ReadAllText($p)
+        }
+
         # A brief with a real `Read first` section, in the shape muster's template writes: the copy
         # named as read-first\<leaf>, with the original repeated in the same line as provenance.
         # Any fixture that stages a file has to name it, because dispatch now refuses a staged copy
@@ -950,6 +1024,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
     AfterAll {
         $env:PATH        = $script:SavedPath
         $env:USERPROFILE = $script:SavedProfile
+        $env:KINGSHAND_HOME = $script:SavedHome
+        $env:KINGSHAND_USAGE_PROBE_COMMAND = $script:SavedProbe
         Remove-Item Env:\KINGSHAND_TEST_HERDR_DIR   -ErrorAction SilentlyContinue
         Remove-Item Env:\KINGSHAND_TEST_HERDR_CALLS -ErrorAction SilentlyContinue
     }
@@ -983,13 +1059,14 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $script:FirstResult.id | Should -Be 'T-1001'
         }
 
-        # Four crew.json fields plus one dispatch-time observation, and nothing else. `readable`
+        # Four crew.json fields plus two dispatch-time observations, and nothing else. `readable`
         # is deliberately not crew state: it says whether the guard could see this worker's screen
         # at the moment it started, which the caller has to know because "no prompt found" and
         # "could not look" are different answers and only one means the worker is healthy.
-        It 'returns the four fields crew.json is built from, plus the readability answer' {
+        # `startPrompt` is what the start-prompt confirmation saw, `taken` on the ordinary path.
+        It 'returns the four fields crew.json is built from, plus the readability and start answers' {
             @($script:FirstResult.Keys | Sort-Object) |
-                Should -Be @('base', 'branch', 'id', 'readable', 'worktree')
+                Should -Be @('base', 'branch', 'id', 'readable', 'startPrompt', 'worktree')
         }
 
         It 'reports the worker as readable when its terminal is wide enough for the guard' {
@@ -1005,6 +1082,20 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $json = Get-Content -LiteralPath $settings -Raw | ConvertFrom-Json
             $json.permissions.defaultMode | Should -Be 'bypassPermissions'
             @($json.permissions.additionalDirectories) | Should -Contain $script:First.BriefDir
+        }
+
+        # The mode grant above no longer takes effect from this file, so a write under the
+        # worktree's own .claude folder is answered by a hook instead - scoped to that folder.
+        It 'writes the grant to edit the worktree''s own .claude folder, and no other' {
+            $settings = Join-Path $script:FirstResult.worktree '.claude\settings.local.json'
+            $json  = Get-Content -LiteralPath $settings -Raw | ConvertFrom-Json
+            $group = @($json.hooks.PermissionRequest)
+            $group.Count | Should -Be 1
+            $group[0].matcher -split '\|' | Should -Contain 'Edit'
+            $line = @($group[0].hooks)[0].args -join ' '
+            $scope = [IO.Path]::GetFullPath((Join-Path $script:FirstResult.worktree '.claude'))
+            $line.Contains("-ClaudeDir '$scope'") |
+                Should -BeTrue -Because 'the grant names the worktree''s folder, never the main checkout''s'
         }
 
         It 'records folder trust for the worktree, so the agent never meets the dialog' {
@@ -1038,6 +1129,262 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
     # integrates on `dev`. Resolve-BaseRef is exercised on its own above; what a worker is actually
     # handed is decided here, where the resolved ref becomes both the branch point and the recorded
     # base. So this asserts the tree the worker opens, not just the string that came back.
+    # A `fief` session's warm worker runs in the project's own checkout, on the branch the King
+    # named, with no worktree. Nothing here may create or switch a branch, and every refusal comes
+    # before anything is created - the King's checkout is the one place a half-done dispatch costs
+    # him something.
+    Context 'a dispatch into the project''s own checkout' {
+        BeforeAll {
+            Set-AgentStartState
+
+            function Invoke-CheckoutDispatch {
+                # -Base main by default: these fixtures have no remote, and with nothing recorded the
+                # resolver's answer for a checkout is the session branch itself, which is refused.
+                # The case that drives that refusal passes -NoBase.
+                param([Parameter(Mandatory)]$Fixture, [string]$Name = 'acme-api-session',
+                      [string]$Branch = 'feature-x', [string]$RepoPath, [switch]$NoBase)
+                if (-not $RepoPath) { $RepoPath = $Fixture.Repo }
+                if ($NoBase) {
+                    & $script:DispatchScript -RepoPath $RepoPath -Name $Name -BriefPath $Fixture.BriefPath `
+                        -DataPath $Fixture.DataPath -InCheckout -Branch $Branch
+                } else {
+                    & $script:DispatchScript -RepoPath $RepoPath -Name $Name -BriefPath $Fixture.BriefPath `
+                        -DataPath $Fixture.DataPath -InCheckout -Branch $Branch -Base 'main' 3>$null
+                }
+            }
+
+            # The baseline is indexed and outlives a cleanup, so a re-dispatch meets a listed
+            # file - as a real session brief always does - and says the index was checked.
+            function Set-IndexCheckedBrief {
+                param([Parameter(Mandatory)]$Fixture)
+                $text = [System.IO.File]::ReadAllText($Fixture.BriefPath).Replace(
+                    '- Nothing beyond this brief.',
+                    '- Nothing beyond this brief - the index was checked and nothing in it applies.')
+                [System.IO.File]::WriteAllText($Fixture.BriefPath, $text)
+            }
+
+            function Get-LocalBranches {
+                param([Parameter(Mandatory)][string]$Repo)
+                @(& git -C $Repo for-each-ref --format='%(refname:short)' refs/heads | Sort-Object)
+            }
+
+            # Nothing created: no settings file, no record, no dispatch file, no spawn, the brief as
+            # it was.
+            function Assert-NothingCreated {
+                param([Parameter(Mandatory)]$Fixture, [Parameter(Mandatory)][string]$BriefBefore)
+                Test-Path -LiteralPath (Join-Path $Fixture.Repo '.claude') | Should -BeFalse
+                Test-Path -LiteralPath (Join-Path $Fixture.BriefDir 'checkout-settings.json') |
+                    Should -BeFalse
+                Test-Path -LiteralPath (Get-DispatchFilePath $Fixture) | Should -BeFalse
+                @(Get-CallLines $Fixture | Where-Object { $_ -like 'agent start*' }).Count | Should -Be 0
+                [System.IO.File]::ReadAllText($Fixture.BriefPath) | Should -Be $BriefBefore
+            }
+
+            $script:Co = New-DispatchFixture 'checkout'
+            git -C $script:Co.Repo checkout -q -b 'feature-x'
+            Set-Content -Path (Join-Path $script:Co.Repo 'wip.txt') -Value 'the owner''s' -Encoding utf8
+            Set-Content -Path (Join-Path $script:Co.Repo 'base.txt') -Value 'edited' -Encoding utf8
+            $script:CoBranches = Get-LocalBranches $script:Co.Repo
+            $script:CoBriefWas = [System.IO.File]::ReadAllText($script:Co.BriefPath)
+            $script:CoResult   = Invoke-CheckoutDispatch -Fixture $script:Co
+            $script:CoBrief    = Get-DispatchText $script:Co
+        }
+
+        It 'runs the worker in the checkout itself, on the named branch' {
+            $script:CoResult.worktree | Should -Be $script:Co.Repo
+            $script:CoResult.branch   | Should -Be 'feature-x'
+            $script:CoResult.checkout | Should -BeTrue
+            (& git -C $script:Co.Repo rev-parse --abbrev-ref HEAD).Trim() | Should -Be 'feature-x'
+        }
+
+        It 'cuts no worktree and creates no branch' {
+            Test-Path -LiteralPath (Join-Path $script:Co.Repo '.claude\worktrees') | Should -BeFalse
+            @(& git -C $script:Co.Repo worktree list --porcelain | Where-Object { $_ -like 'worktree *' }).Count |
+                Should -Be 1
+            Get-LocalBranches $script:Co.Repo | Should -Be $script:CoBranches
+        }
+
+        It 'records the base the landing measures the whole branch against' {
+            $script:CoResult.base | Should -Be 'main'
+        }
+
+        # With nothing recorded, the resolver falls back to the branch the checkout is on - right
+        # for a worktree, where that is the default branch, and wrong here, where it is the session
+        # branch: a diff of the branch against itself is empty, and empty reads as clean.
+        It 'refuses a base that resolves to the session branch itself, before creating anything' {
+            $f = New-DispatchFixture 'checkout-selfbase'
+            git -C $f.Repo checkout -q -b 'feature-x'
+            $before = [System.IO.File]::ReadAllText($f.BriefPath)
+            { Invoke-CheckoutDispatch -Fixture $f -NoBase } | Should -Throw '*session branch feature-x itself*'
+            Assert-NothingCreated -Fixture $f -BriefBefore $before
+        }
+
+        It 'takes the base from the repository when it records one' {
+            $f = New-DispatchFixture 'checkout-origin'
+            $bare = "$($f.Repo)-remote.git"
+            $script:TempFixtures.Add($bare)
+            git init --bare -q -b main $bare
+            git -C $f.Repo remote add origin $bare
+            git -C $f.Repo push -q origin main 2>&1 | Out-Null
+            git -C $f.Repo remote set-head origin -a 2>&1 | Out-Null
+            git -C $f.Repo checkout -q -b 'feature-x'
+            (Invoke-CheckoutDispatch -Fixture $f -NoBase).base | Should -Be 'origin/main'
+        }
+
+        It 'grants the two settings in the checkout and records that no file existed before' {
+            $settings = Join-Path $script:Co.Repo '.claude\settings.local.json'
+            $json = Get-Content -LiteralPath $settings -Raw | ConvertFrom-Json
+            $json.permissions.defaultMode | Should -Be 'bypassPermissions'
+            @($json.permissions.additionalDirectories) | Should -Contain $script:Co.BriefDir
+            $script:CoResult.settingsRecord | Should -Be (Join-Path $script:Co.BriefDir 'checkout-settings.json')
+            (Get-Content -LiteralPath $script:CoResult.settingsRecord -Raw | ConvertFrom-Json).existed |
+                Should -BeFalse
+        }
+
+        It 'indexes the record it wrote, like every durable file under data' {
+            @(Get-IndexEntries -All -DataPath $script:Co.DataPath | ForEach-Object { $_.path }) |
+                Should -Contain 'data\brief\checkout-settings.json'
+        }
+
+        It 'writes the checkout warnings beside the brief, with what was already uncommitted' {
+            [System.IO.File]::ReadAllText($script:Co.BriefPath) | Should -Be $script:CoBriefWas
+            $script:CoBrief.Contains('## Working in the checkout, not a worktree') | Should -BeTrue
+            $script:CoBrief.Contains('**You are not in a worktree.**') | Should -BeTrue
+            $script:CoBrief.Contains('**Stay on branch `feature-x`.**') | Should -BeTrue
+            $script:CoBrief.Contains('**Never stash, reset, checkout, restore or clean anything**') |
+                Should -BeTrue
+            $script:CoBrief.Contains('**Do not commit, push or open a pull request until a prompt tells you to.**') |
+                Should -BeTrue
+            $script:CoBrief.Contains('**not yours**') | Should -BeTrue
+            $script:CoBrief.Contains('- `?? wip.txt`') | Should -BeTrue
+            $script:CoBrief.Contains('- ` M base.txt`') | Should -BeTrue
+        }
+
+        It 'says plainly when nothing was uncommitted' {
+            $f = New-DispatchFixture 'checkout-clean'
+            git -C $f.Repo checkout -q -b 'feature-x'
+            $null = Invoke-CheckoutDispatch -Fixture $f
+            (Get-DispatchText $f).Contains(
+                'Nothing was uncommitted in this checkout when you were dispatched.') | Should -BeTrue
+        }
+
+        It 'refuses a checkout that is on another branch, before creating anything' {
+            $f = New-DispatchFixture 'checkout-wrong'
+            $before = [System.IO.File]::ReadAllText($f.BriefPath)
+            { Invoke-CheckoutDispatch -Fixture $f } | Should -Throw '*is on main*told to work on feature-x*'
+            Assert-NothingCreated -Fixture $f -BriefBefore $before
+            (& git -C $f.Repo rev-parse --abbrev-ref HEAD).Trim() | Should -Be 'main'
+        }
+
+        It 'refuses a detached HEAD, before creating anything' {
+            $f = New-DispatchFixture 'checkout-detached'
+            git -C $f.Repo checkout -q --detach
+            $before = [System.IO.File]::ReadAllText($f.BriefPath)
+            { Invoke-CheckoutDispatch -Fixture $f } | Should -Throw '*not on any branch*'
+            Assert-NothingCreated -Fixture $f -BriefBefore $before
+        }
+
+        It 'refuses a path below the top of the checkout' {
+            $f = New-DispatchFixture 'checkout-subdir'
+            git -C $f.Repo checkout -q -b 'feature-x'
+            $sub = Join-Path $f.Repo 'src'
+            New-Item -ItemType Directory -Force -Path $sub | Out-Null
+            { Invoke-CheckoutDispatch -Fixture $f -RepoPath $sub } | Should -Throw '*not one*'
+            Test-Path -LiteralPath (Join-Path $sub '.claude') | Should -BeFalse
+        }
+
+        It 'refuses -InCheckout with no branch, and a branch with no -InCheckout' {
+            $f = New-DispatchFixture 'checkout-args'
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'x1' -BriefPath $f.BriefPath `
+                  -DataPath $f.DataPath -InCheckout } | Should -Throw '*needs -Branch*'
+            { & $script:DispatchScript -RepoPath $f.Repo -Name 'x1' -BriefPath $f.BriefPath `
+                  -DataPath $f.DataPath -Branch 'main' } | Should -Throw '*-InCheckout was not passed*'
+            Test-Path -LiteralPath (Join-Path $f.Repo '.claude') | Should -BeFalse
+        }
+
+        It 'refuses a settings file it cannot read, before creating anything' {
+            $f = New-DispatchFixture 'checkout-badjson'
+            git -C $f.Repo checkout -q -b 'feature-x'
+            New-Item -ItemType Directory -Force -Path (Join-Path $f.Repo '.claude') | Out-Null
+            Set-Content -Path (Join-Path $f.Repo '.claude\settings.local.json') -Value '{ "permissions": '
+            $before = [System.IO.File]::ReadAllText($f.BriefPath)
+            { Invoke-CheckoutDispatch -Fixture $f } | Should -Throw '*not valid JSON*'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'checkout-settings.json') | Should -BeFalse
+            [System.IO.File]::ReadAllText($f.BriefPath) | Should -Be $before
+        }
+
+        # The record is the only copy of the King's original settings file. A second dispatch into
+        # a checkout nobody cleaned up would record the first worker's edit as the original.
+        It 'refuses a second dispatch while the first one''s record is still there' {
+            $before = [System.IO.File]::ReadAllText($script:Co.BriefPath)
+            $record = [System.IO.File]::ReadAllText($script:CoResult.settingsRecord)
+            { Invoke-CheckoutDispatch -Fixture $script:Co } | Should -Throw '*record already exists*'
+            [System.IO.File]::ReadAllText($script:CoResult.settingsRecord) | Should -Be $record
+            [System.IO.File]::ReadAllText($script:Co.BriefPath) | Should -Be $before
+        }
+
+        It 'replaces its own section on a re-dispatch rather than adding a second' {
+            $f = New-DispatchFixture 'checkout-again'
+            git -C $f.Repo checkout -q -b 'feature-x'
+            Set-IndexCheckedBrief -Fixture $f
+            $briefWas = [System.IO.File]::ReadAllText($f.BriefPath)
+            $r = Invoke-CheckoutDispatch -Fixture $f
+            $null = Restore-CheckoutWorkerSettings -RecordPath $r.settingsRecord
+            $null = Remove-IndexEntry -Path $r.settingsRecord -DataPath $f.DataPath
+            Set-Content -Path (Join-Path $f.Repo 'later.txt') -Value 'x' -Encoding utf8
+            $null = Invoke-CheckoutDispatch -Fixture $f
+            $text = Get-DispatchText $f
+            ([regex]::Matches($text, '(?m)^## Working in the checkout, not a worktree')).Count | Should -Be 1
+            $text.Contains('- `?? later.txt`') | Should -BeTrue
+            [System.IO.File]::ReadAllText($f.BriefPath) | Should -Be $briefWas `
+                -Because 'dispatch never edits the brief'
+        }
+
+        # A session's fixes stay uncommitted until the King says commit, so a relaunched warm worker
+        # finds them beside his own work - and must be told which is which.
+        It 'tells a relaunched session worker its own earlier fixes from the King''s uncommitted work' {
+            $f = New-DispatchFixture 'checkout-relaunch'
+            git -C $f.Repo checkout -q -b 'feature-x'
+            Set-IndexCheckedBrief -Fixture $f
+            Set-Content -Path (Join-Path $f.Repo 'wip.txt') -Value 'the owner''s' -Encoding utf8
+            $r = Invoke-CheckoutDispatch -Fixture $f
+            @(Get-IndexEntries -All -DataPath $f.DataPath | ForEach-Object { $_.path }) |
+                Should -Contain 'data\brief\checkout-baseline.json'
+            $null = Restore-CheckoutWorkerSettings -RecordPath $r.settingsRecord
+            $null = Remove-IndexEntry -Path $r.settingsRecord -DataPath $f.DataPath
+            Set-Content -Path (Join-Path $f.Repo 'fix.txt') -Value 'the session''s' -Encoding utf8
+
+            $null = Invoke-CheckoutDispatch -Fixture $f
+            $text = Get-DispatchText $f
+            $mine   = $text.IndexOf('**this session''s own earlier fixes**')
+            $theirs = $text.IndexOf('**not yours**')
+            $theirs | Should -BeGreaterThan -1
+            $mine   | Should -BeGreaterThan $theirs
+            $text.IndexOf('- `?? wip.txt`') | Should -BeGreaterThan $theirs
+            $text.IndexOf('- `?? wip.txt`') | Should -BeLessThan $mine
+            $text.IndexOf('- `?? fix.txt`') | Should -BeGreaterThan $mine
+        }
+
+        It 'refuses a baseline a different first dispatch left, before creating anything' {
+            $f = New-DispatchFixture 'checkout-otherbaseline'
+            git -C $f.Repo checkout -q -b 'feature-x'
+            Set-Content -Path (Join-Path $f.BriefDir 'checkout-baseline.json') -Encoding utf8 `
+                -Value '{ "worker": "acme-web-session", "checkout": "C:\\repos\\acme-web", "branch": "feature-x", "dirty": [] }'
+            $before = [System.IO.File]::ReadAllText($f.BriefPath)
+            { Invoke-CheckoutDispatch -Fixture $f } | Should -Throw '*different first dispatch*'
+            Assert-NothingCreated -Fixture $f -BriefBefore $before
+        }
+
+        It 'never writes the checkout section into an ordinary worktree brief' {
+            $f = New-DispatchFixture 'worktree-plain'
+            $null = Invoke-Dispatch -Fixture $f -Name 'T-1901'
+            [System.IO.File]::ReadAllText($f.BriefPath).Contains('## Working in the checkout') |
+                Should -BeFalse
+            Test-Path -LiteralPath (Get-DispatchFilePath $f) | Should -BeFalse `
+                -Because 'a worktree dispatch with nothing to attach has nothing to add'
+        }
+    }
+
     Context 'a repository whose integration branch is not its default branch' {
         BeforeAll {
             Set-AgentStartState
@@ -1397,6 +1744,70 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         AfterAll { Set-AgentStartState }
     }
 
+    # `agent prompt` returns once the text is written, not once the worker has taken it. A start
+    # prompt left sitting in the box used to come back as a successful dispatch of a worker that
+    # had not started, so dispatch now confirms it and names what it saw when it was not taken.
+    Context 'a start prompt that is not taken' {
+        BeforeAll {
+            # The box drawn the way Claude Code really draws it - the caret and a NO-BREAK space -
+            # holding a collapsed paste, which is how a long start prompt sits in it unsent.
+            $rule = ([string][char]0x2500) * 92
+            $script:UnsentScreen = @(
+                '* Claude Code v2.1.220 - Opus - E:\repo', '', $rule,
+                "$([char]0x276F)$([char]0x00A0)[Pasted text #1 +3 lines]", $rule,
+                '  bypass permissions on (shift+tab to cycle) - left arrow for agents')
+            Set-HerdrReply -Verb 'agent-send-keys' -Result @{ ok = $true }
+
+            function Invoke-ShortConfirmDispatch {
+                param([Parameter(Mandatory)]$Fixture, [Parameter(Mandatory)][string]$Name)
+                & $script:DispatchScript -RepoPath $Fixture.Repo -Name $Name `
+                    -BriefPath $Fixture.BriefPath -DataPath $Fixture.DataPath `
+                    -PromptConfirmSeconds 2
+            }
+        }
+
+        It 'refuses by name when the prompt is still in the box, and never sends it twice' {
+            Set-AgentStartState -AfterPrompt 'idle' -AfterPromptScreen $script:UnsentScreen
+            $f = New-DispatchFixture 'unsent'
+
+            { Invoke-ShortConfirmDispatch -Fixture $f -Name 'T-3101' } | Should -Throw '*(UNSENT)*'
+
+            $lines = Get-CallLines $f
+            @($lines | Where-Object { $_ -like 'agent prompt*' }).Count |
+                Should -Be 1 -Because 'a second copy of the brief would be submitted with the first'
+            @($lines | Where-Object { $_ -like 'agent send-keys * enter' }).Count |
+                Should -Be 1 -Because 'the one resend is a bare Enter on the text already there'
+        }
+
+        It 'returns with a warning when the box empties but the worker has not started, and resends nothing' {
+            Set-AgentStartState -AfterPrompt 'idle'
+            $f = New-DispatchFixture 'not-started'
+
+            $out = @(Invoke-ShortConfirmDispatch -Fixture $f -Name 'T-3102' 3>&1)
+            $warnings = @($out | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+            $r = $out | Where-Object { $_ -is [hashtable] }
+            $r.id          | Should -Be 'T-3102'
+            $r.startPrompt | Should -Be 'not-started'
+            @($warnings | Where-Object { "$_" -like '*(NOT-STARTED)*' }).Count | Should -Be 1
+
+            $lines = Get-CallLines $f
+            @($lines | Where-Object { $_ -like 'agent prompt*' }).Count | Should -Be 1
+            @($lines | Where-Object { $_ -like 'agent send-keys*' }).Count |
+                Should -Be 0 -Because 'with the box empty the brief may already be submitted'
+        }
+
+        It 'returns once the worker is working with its box empty, on the default wait' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'taken'
+            $r = Invoke-Dispatch -Fixture $f -Name 'T-3103'
+            $r.id          | Should -Be 'T-3103'
+            $r.startPrompt | Should -Be 'taken'
+            @(Get-CallLines $f | Where-Object { $_ -like 'agent send-keys*' }).Count | Should -Be 0
+        }
+
+        AfterAll { Set-AgentStartState }
+    }
+
     Context 'refusing before anything is spawned' {
         # Resolve-BaseRef refuses rather than inventing a ref, and it is called first for exactly
         # this reason: a refusal after the spawn would leave an agent running with nothing recorded.
@@ -1495,6 +1906,31 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4105' `
                 -BriefPath $f.BriefPath -DataPath $f.DataPath -UsageThresholdPercent 99
             $r.id | Should -Be 'T-4105'
+        }
+
+        # A HELD WINDOW IS AT THE LIMIT WHATEVER THE THRESHOLD. The first dispatch reads 91 and is
+        # refused, which holds the window; the probe then answers 5, and a dispatch that may go out
+        # up to 99 must still be refused, because nothing reads a held window before its reset.
+        It 'refuses on a held window even when the caller allows up to 99 percent' {
+            Set-AgentStartState
+            Set-UsageReply -Percent 91
+            $f = New-DispatchFixture 'usage-held'
+            { Invoke-Dispatch -Fixture $f -Name 'T-4107' } | Should -Throw '*refused from 90 percent*'
+
+            ($reply = @{ type = 'rate_limit_event'; rate_limit_info = @{ status = 'allowed'
+                unifiedWindows = @{ five_hour = @{ utilization = 0.05
+                    resetsAt = [datetimeoffset]::UtcNow.AddHours(3).ToUnixTimeSeconds() } } } }) | Out-Null
+            ($reply | ConvertTo-Json -Depth 8 -Compress) |
+                Set-Content -Path (Join-Path $script:ShimDir 'probe.txt') -Encoding utf8
+
+            $err = { & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4108' `
+                        -BriefPath $f.BriefPath -DataPath $f.DataPath -UsageThresholdPercent 99 } |
+                Should -Throw -PassThru
+            "$($err.Exception.Message)" | Should -BeLike '*held from 90 percent until its reset*'
+            "$($err.Exception.Message)" | Should -BeLike '*at least 91 percent*'
+            "$($err.Exception.Message)" | Should -BeLike '*It resets at*'
+            "$($err.Exception.Message)" | Should -BeLike '*Nothing was created*'
+            (Get-CallLines $f).Count | Should -Be 0
         }
 
         # The prompt-box guards already made this call for an unreadable screen and the reasoning
@@ -2526,10 +2962,10 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             # The whole documented order in one reading, so an ordering test cannot pass on a partial
             # one: the heading, then the lead-in that scopes the bullets, then the criteria file,
-            # then the rules file - the order $standing composes and every brief is meant to carry.
+            # then the rules file - the order $standing composes and every dispatch file carries.
             function Get-ReadFirstOrder {
                 param([Parameter(Mandatory)]$Fixture, [Parameter(Mandatory)][string]$Project)
-                $lines = @(Get-Content -LiteralPath $Fixture.BriefPath)
+                $lines = @(Get-Content -LiteralPath (Get-DispatchFilePath $Fixture))
                 $mark  = '*attached by dispatch from this project*'
                 $at    = {
                     param($pattern)
@@ -2560,9 +2996,10 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             (Get-Content -LiteralPath $copy -Raw) | Should -BeLike '*NG-*'
         }
 
-        # Staging alone is the original failure with an extra step: a worker reads its brief and
-        # nothing else, so a copy no line names reaches it not at all.
-        It 'names the attached copy in the brief, under Read first' {
+        # Staging alone is the original failure with an extra step: a worker reads what it is told
+        # to read and nothing else, so a copy no line names reaches it not at all. The line is in
+        # the dispatch file, and the start prompt names that file beside the brief.
+        It 'names the attached copy in the dispatch file, under Read first' {
             Set-AgentStartState
             $f = New-DispatchFixture 'standing-named'
             $name = Register-FixtureProject -Fixture $f
@@ -2570,14 +3007,14 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
 
             Invoke-Dispatch -Fixture $f -Name 'T-9002' | Out-Null
-            $text = Get-BriefText -Fixture $f
+            $text = Get-DispatchText -Fixture $f
             $text.Contains((Join-Path $f.BriefDir "read-first\rules-$name.md")) | Should -BeTrue
             $text | Should -BeLike '*attached automatically at dispatch*'
         }
 
-        # The line goes under the heading rather than at the end of the file, so it is inside the
-        # section a worker is told to work through rather than loose after the last one.
-        It 'puts the line inside the Read first section rather than after the brief' {
+        # The line sits under a Read first heading, so it is inside a section a worker is told to
+        # work through rather than loose in the file.
+        It 'puts the line under the dispatch file''s own Read first heading' {
             Set-AgentStartState
             $f = New-DispatchFixture 'standing-position'
             $name = Register-FixtureProject -Fixture $f
@@ -2585,13 +3022,91 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
 
             Invoke-Dispatch -Fixture $f -Name 'T-9003' | Out-Null
-            $lines   = @(Get-Content -LiteralPath $f.BriefPath)
+            $lines   = @(Get-Content -LiteralPath (Get-DispatchFilePath $f))
             $heading = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Read first\s*$' })[0]
             $named   = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like '*read-first\rules-*' })[0]
-            $scope   = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Scope\s*$' })[0]
             ($null -ne $heading) | Should -BeTrue
             ($named -gt $heading) | Should -BeTrue
-            ($named -lt $scope)   | Should -BeTrue
+            @($lines[$heading..$named] | Where-Object { $_ -match '^\s*#{1,6}\s' }).Count |
+                Should -Be 1 -Because 'no other heading falls between the section and its line'
+        }
+
+        # THE BRIEF IS NEVER EDITED. Every line dispatch adds goes beside it, because an edit to the
+        # file the Hand just wrote is handed back into the Hand's own context on every dispatch.
+        It 'leaves the brief byte for byte as the Hand wrote it' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-brief-untouched'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.' | Out-Null
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+            $before = [System.IO.File]::ReadAllBytes($f.BriefPath)
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9035' | Out-Null
+            [System.IO.File]::ReadAllBytes($f.BriefPath) | Should -Be $before
+            (Get-DispatchText -Fixture $f).Contains("read-first\rules-$name.md") | Should -BeTrue
+        }
+
+        # The worker is told about the file by the one thing it is certain to read first. Nothing
+        # in the brief names it, so a prompt that left it out would hand the worker none of it.
+        It 'names the dispatch file in the worker''s start prompt, beside the brief' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-prompt-names'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9036' | Out-Null
+            $prompt = @(Get-CallLines $f | Where-Object { $_ -like 'agent prompt*' })
+            $prompt.Count | Should -Be 1
+            $prompt[0] | Should -BeLike "*$($f.BriefPath)*"
+            $prompt[0] | Should -BeLike "*$(Get-DispatchFilePath $f)*"
+        }
+
+        It 'names no dispatch file in the prompt when it wrote none' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-prompt-plain'
+            Register-FixtureProject -Fixture $f | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+
+            Invoke-Dispatch -Fixture $f -Name 'T-9037' | Out-Null
+            Test-Path -LiteralPath (Get-DispatchFilePath $f) | Should -BeFalse
+            $prompt = @(Get-CallLines $f | Where-Object { $_ -like 'agent prompt*' })
+            $prompt[0] | Should -Not -BeLike '*.dispatch.md*'
+        }
+
+        # The path is this script's own only when its first line says so. A file somebody else put
+        # there is refused rather than overwritten, with nothing created.
+        It 'refuses a file at the dispatch path that dispatch did not write' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-foreign-dispatch-file'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+            $foreign = Get-DispatchFilePath $f
+            Set-Content -LiteralPath $foreign -Value '# My own notes' -Encoding utf8
+
+            { Invoke-Dispatch -Fixture $f -Name 'T-9038' } | Should -Throw '*dispatch did not write*'
+            (Get-Content -LiteralPath $foreign -Raw).Trim() | Should -Be '# My own notes'
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+            @(Get-CallLines -Fixture $f) | Should -BeNullOrEmpty
+        }
+
+        # A file it cannot read is refused too, because whether it is this script's own cannot be
+        # told - and guessing either way either overwrites somebody's file or leaves a stale one.
+        It 'refuses a dispatch file it cannot read, with nothing created' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-unreadable-dispatch-file'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+            Set-Content -LiteralPath (Get-DispatchFilePath $f) -Value 'x' -Encoding utf8
+
+            $held = [System.IO.File]::Open((Get-DispatchFilePath $f), 'Open', 'Read', 'None')
+            try {
+                { Invoke-Dispatch -Fixture $f -Name 'T-9039' } | Should -Throw '*could not be read*'
+            } finally { $held.Dispose() }
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
         }
 
         It 'attaches the standing-criteria file the same way when nobody passed that either' {
@@ -2603,7 +3118,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             Invoke-Dispatch -Fixture $f -Name 'T-9004' | Out-Null
             Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\done-$name.md") | Should -BeTrue
-            (Get-BriefText -Fixture $f).Contains("read-first\done-$name.md") | Should -BeTrue
+            (Get-DispatchText -Fixture $f).Contains("read-first\done-$name.md") | Should -BeTrue
         }
 
         It 'attaches both when both are there, and neither lands on the other' {
@@ -2631,6 +3146,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             (Invoke-Dispatch -Fixture $f -Name 'T-9006').id | Should -Be 'T-9006'
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+            Test-Path -LiteralPath (Get-DispatchFilePath $f) | Should -BeFalse
             (Get-BriefText -Fixture $f) | Should -Be $before
         }
 
@@ -2781,30 +3297,31 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9014' `
                 -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $criteria | Out-Null
-            $text = Get-BriefText -Fixture $f
-            $text | Should -Not -BeLike '*attached automatically at dispatch*'
+            (Get-DispatchText -Fixture $f) | Should -Not -BeLike '*attached automatically at dispatch*'
             Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\done-$name.md") | Should -BeTrue
         }
 
-        # Re-dispatching a ticket is ordinary - a worker sent back to keep going - and the brief
-        # must not collect a second copy of the same line every time.
+        # Re-dispatching a ticket is ordinary - a worker sent back to keep going - and neither the
+        # brief nor the dispatch file may collect a second copy of the same line.
         It 'adds no second line when the same ticket is dispatched again' {
             Set-AgentStartState
             $f = New-DispatchFixture 'standing-redispatch'
             $name = Register-FixtureProject -Fixture $f
             New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+            $brief = Get-BriefText -Fixture $f
 
             Invoke-Dispatch -Fixture $f -Name 'T-9015' | Out-Null
-            $after = Get-BriefText -Fixture $f
+            $after = Get-DispatchText -Fixture $f
             Invoke-Dispatch -Fixture $f -Name 'T-9015' | Out-Null
-            (Get-BriefText -Fixture $f) | Should -Be $after
+            (Get-DispatchText -Fixture $f) | Should -Be $after
+            (Get-BriefText -Fixture $f) | Should -Be $brief
         }
 
         # The section the Hand actually writes when the index turns up nothing says there is nothing
-        # beyond the brief. Attaching a copy underneath that line without a word of explanation hands
-        # the worker a file and tells it in the next breath that no such file exists - and a worker
-        # that believes the second line skips the project's standing rules entirely.
+        # beyond the brief. Attaching a copy beside that line without a word of explanation hands the
+        # worker a file and tells it in the next breath that no such file exists - and a worker that
+        # believes the second line skips the project's standing rules entirely.
         It 'scopes the attachment so a nothing-beyond-this-brief section still reads coherently' {
             Set-AgentStartState
             $f = New-DispatchFixture 'standing-leadin'
@@ -2812,28 +3329,21 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @(
                 '- Nothing beyond this brief - the index was checked and nothing in it applies.')
+            $brief = Get-BriefText -Fixture $f
 
             Invoke-Dispatch -Fixture $f -Name 'T-9019' | Out-Null
-            $lines   = @(Get-Content -LiteralPath $f.BriefPath)
+            $lines   = @(Get-Content -LiteralPath (Get-DispatchFilePath $f))
             $heading = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Read first\s*$' })[0]
             $leadIn  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like '*attached by dispatch from this project*' })[0]
             $bullet  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like "*read-first\rules-$name.md*" })[0]
-            # Located by the tail of the Hand's own sentence, not by 'Nothing beyond this brief' -
-            # the lead-in quotes that phrase itself, so the looser match finds the lead-in.
-            $nothing = @(0..($lines.Count - 1) | Where-Object {
-                $lines[$_] -like '*the index was checked and nothing in it applies*' })[0]
 
             ($null -ne $leadIn) | Should -BeTrue
             ($leadIn -gt $heading) | Should -BeTrue
             ($bullet -gt $leadIn)  | Should -BeTrue
-            # The line the Hand wrote is left exactly as it was - nothing here rewrites the section -
-            # and it keeps its place ABOVE the attachment, because the lead-in speaks for the lines
-            # directly below it and must not be put over lines the Hand wrote.
-            ($null -ne $nothing)   | Should -BeTrue
-            ($nothing -lt $leadIn) | Should -BeTrue
-            $lines[$nothing] | Should -BeLike '*Nothing beyond this brief*'
-            # Coherence is carried by the lead-in scoping what follows it, not by the order alone.
-            $lines[$leadIn] | Should -BeLike '*as well as everything else in this section*'
+            # The line the Hand wrote is left exactly as it was - nothing here rewrites the brief.
+            (Get-BriefText -Fixture $f) | Should -Be $brief
+            # Coherence is carried by the lead-in scoping what follows it.
+            $lines[$leadIn] | Should -BeLike "*as well as everything in the brief's own Read first section*"
             $lines[$leadIn] | Should -BeLike '*nothing beyond this brief was named*'
         }
 
@@ -2847,10 +3357,10 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 '- Nothing beyond this brief - the index was checked and nothing in it applies.')
 
             Invoke-Dispatch -Fixture $f -Name 'T-9020' | Out-Null
-            $after = Get-BriefText -Fixture $f
+            $after = Get-DispatchText -Fixture $f
             Invoke-Dispatch -Fixture $f -Name 'T-9020' | Out-Null
-            (Get-BriefText -Fixture $f) | Should -Be $after
-            @(@(Get-Content -LiteralPath $f.BriefPath) |
+            (Get-DispatchText -Fixture $f) | Should -Be $after
+            @(@(Get-Content -LiteralPath (Get-DispatchFilePath $f)) |
                 Where-Object { $_ -like '*attached by dispatch from this project*' }).Count |
                 Should -Be 1
         }
@@ -2953,29 +3463,23 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 '', '## Intent', 'We are changing how dispatch writes these lines. It writes:',
                 '```', $leadIn, $bullet, '```', '', '## Scope', 'Do the thing.')
 
+            $brief = [System.IO.File]::ReadAllBytes($f.BriefPath)
             Invoke-Dispatch -Fixture $f -Name 'T-9029' | Out-Null
 
-            $lines   = @(Get-Content -LiteralPath $f.BriefPath)
-            $heading = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Read first\s*$' })[0]
-            $intent  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Intent\s*$' })[0]
-            $added   = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like "*read-first\rules-$name.md*" })
+            # The brief, quote and all, is exactly as the author left it.
+            [System.IO.File]::ReadAllBytes($f.BriefPath) | Should -Be $brief
 
-            # One inside the Read first section, and the quoted one still where the author put it.
-            $inSection = @($added | Where-Object { $_ -gt $heading -and $_ -lt $intent })
-            $inSection.Count | Should -Be 1
-            $added.Count     | Should -Be 2
+            # The dispatch file names the copy once, under its own lead-in, whatever the brief quotes.
+            $lines = @(Get-Content -LiteralPath (Get-DispatchFilePath $f))
+            @($lines | Where-Object { $_ -like "*read-first\rules-$name.md*" }).Count | Should -Be 1
             @($lines | Where-Object { $_ -like '*attached by dispatch from this project*' }).Count |
-                Should -Be 2
-
-            # The fenced block is untouched: its two lines still sit together inside the fence.
-            $fenceQuote = @($added | Where-Object { $_ -gt $intent })[0]
-            $lines[$fenceQuote - 1] | Should -BeLike '*attached by dispatch from this project*'
+                Should -Be 1
         }
 
         # The lead-in says the files named DIRECTLY BELOW were attached by dispatch and not by hand.
-        # Put at the top of the section it would stand above the Hand's own bullets, and the sentence
-        # would be false about them. Appending keeps it true.
-        It 'appends below the lines the Hand wrote rather than above them' {
+        # The Hand's own lines stay in the brief where the Hand put them, and the attached ones go
+        # under that lead-in in the dispatch file, so the sentence is true of every line it covers.
+        It 'leaves the lines the Hand wrote in the brief and names only its own beside it' {
             Set-AgentStartState
             $f = New-DispatchFixture 'standing-below-hand-lines'
             $name = Register-FixtureProject -Fixture $f
@@ -2984,26 +3488,19 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Set-ReadFirstBrief -Fixture $f -Body @(
                 "- ``$($f.BriefDir)\read-first\done-$name.md`` - the standing criteria, copied from ``$criteria``.",
                 '- The index was checked; nothing in it applies to this task beyond the standing criteria above.')
+            $brief = Get-BriefText -Fixture $f
 
             & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9030' `
                 -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $criteria | Out-Null
 
-            $lines    = @(Get-Content -LiteralPath $f.BriefPath)
-            $heading  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Read first\s*$' })[0]
-            $handLine = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like '*the standing criteria, copied from*' })[0]
-            $indexLn  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like '*The index was checked*' })[0]
-            $leadIn   = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like '*attached by dispatch from this project*' })[0]
-            $rules    = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like "*read-first\rules-$name.md*" })[0]
-            $scope    = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Scope\s*$' })[0]
-
-            ($handLine -gt $heading)  | Should -BeTrue
-            ($leadIn   -gt $handLine) | Should -BeTrue
-            ($leadIn   -gt $indexLn)  | Should -BeTrue
-            ($rules    -gt $leadIn)   | Should -BeTrue
-            # Still inside the section, not spilled past it.
-            ($rules    -lt $scope)    | Should -BeTrue
+            (Get-BriefText -Fixture $f) | Should -Be $brief
+            $lines  = @(Get-Content -LiteralPath (Get-DispatchFilePath $f))
+            $leadIn = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like '*attached by dispatch from this project*' })[0]
+            $rules  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like "*read-first\rules-$name.md*" })[0]
+            ($rules -gt $leadIn) | Should -BeTrue
+            @($lines | Where-Object { $_ -like "*read-first\done-$name.md*" }).Count |
+                Should -Be 0 -Because 'the Hand already named the file it passed'
         }
-
         # A standing file the King removes must stop reaching the worker. Removing one is supported -
         # annex says the file stands until the King changes or removes it - and a re-dispatch is
         # ordinary, so the stale copy and the line naming it would otherwise both survive.
@@ -3024,7 +3521,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Invoke-Dispatch -Fixture $f -Name 'T-9031' | Out-Null
 
             Test-Path -LiteralPath $copy | Should -BeFalse
-            $text = Get-BriefText -Fixture $f
+            $text = Get-DispatchText -Fixture $f
             $text.Contains("read-first\rules-$name.md") | Should -BeFalse
             # The file still there is untouched, and so is the lead-in that introduces it.
             $text.Contains("read-first\done-$name.md")  | Should -BeTrue
@@ -3042,20 +3539,21 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Set-ReadFirstBrief -Fixture $f -Body @(
                 '- Nothing beyond this brief - the index was checked and nothing in it applies.')
 
+            $brief = Get-BriefText -Fixture $f
             Invoke-Dispatch -Fixture $f -Name 'T-9032' | Out-Null
             Remove-Item -LiteralPath $rules -Force
             Invoke-Dispatch -Fixture $f -Name 'T-9032' | Out-Null
 
-            $text = Get-BriefText -Fixture $f
-            $text | Should -Not -BeLike '*attached by dispatch from this project*'
-            $text.Contains("read-first\rules-$name.md") | Should -BeFalse
+            # Nothing left to add, so the dispatch file goes with its last line.
+            Test-Path -LiteralPath (Get-DispatchFilePath $f) | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\rules-$name.md") | Should -BeFalse
             # The Hand's own line is left exactly as it was.
-            $text | Should -BeLike '*Nothing beyond this brief - the index was checked*'
+            (Get-BriefText -Fixture $f) | Should -Be $brief
 
             New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
             Invoke-Dispatch -Fixture $f -Name 'T-9032' | Out-Null
 
-            $back = Get-BriefText -Fixture $f
+            $back = Get-DispatchText -Fixture $f
             $back | Should -BeLike '*attached by dispatch from this project*'
             $back.Contains("read-first\rules-$name.md") | Should -BeTrue
             Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\rules-$name.md") | Should -BeTrue
@@ -3094,6 +3592,31 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $text.Contains($handLine) | Should -BeTrue
         }
 
+        # The prune keys on this script's own line in its own earlier file, never on the brief. A
+        # brief that merely QUOTES that line is not evidence this script staged anything, so the
+        # copy the Hand staged under the same name stays.
+        It 'does not prune on a line the brief quotes rather than one its own earlier file held' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-prune-ignores-brief'
+            $name = Register-FixtureProject -Fixture $f
+            $criteria = New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.'
+            $own = "- ``$($f.BriefDir)\read-first\done-$name.md`` - the standing definition of done " +
+                   "for $name, attached automatically at dispatch from ``$criteria`` rather than " +
+                   'named by hand. Read it in full. It is this project''s standing definition of ' +
+                   'done, and you work its lines one by one.'
+            Set-ReadFirstBrief -Fixture $f -Body @(
+                $own,
+                '- The index was checked; nothing in it applies to this task beyond the standing criteria above.')
+
+            & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9040' `
+                -BriefPath $f.BriefPath -DataPath $f.DataPath -ReadPath $criteria | Out-Null
+            $copy = Join-Path $f.BriefDir "read-first\done-$name.md"
+            Remove-Item -LiteralPath $criteria -Force
+            Invoke-Dispatch -Fixture $f -Name 'T-9040' | Out-Null
+
+            Test-Path -LiteralPath $copy | Should -BeTrue
+        }
+
         # A file the Hand passed lives under the same staging name and its line is the Hand's own.
         # Pruning must never reach either, even when the project's standing file of that name is gone.
         It 'leaves a hand-passed file alone when the standing file of that name is absent' {
@@ -3117,7 +3640,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         # guard, so demanding an exclusive handle would refuse over work it was never going to do -
         # and unlike the read-only flag, a share lock is transient and arrives from editors and
         # scanners nobody dispatched.
-        It 'does not demand the brief when a re-dispatch would add nothing to it' {
+        It 'does not demand the dispatch file when a re-dispatch would add nothing to it' {
             Set-AgentStartState
             $f = New-DispatchFixture 'standing-locked-noop-redispatch'
             $name = Register-FixtureProject -Fixture $f
@@ -3125,16 +3648,33 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
 
             Invoke-Dispatch -Fixture $f -Name 'T-9024' | Out-Null
-            $after = Get-BriefText -Fixture $f
+            $after = Get-DispatchText -Fixture $f
 
-            # FileShare.Read, not None: None blocks the dispatcher's own read of the brief, so the
-            # run would fail before reaching the preflight and prove nothing about it.
-            $held = [System.IO.File]::Open($f.BriefPath, 'Open', 'Read', 'Read')
+            $held = [System.IO.File]::Open((Get-DispatchFilePath $f), 'Open', 'Read', 'Read')
             try {
                 (Invoke-Dispatch -Fixture $f -Name 'T-9024').id | Should -Be 'T-9024'
             } finally { $held.Dispose() }
 
-            (Get-BriefText -Fixture $f) | Should -Be $after
+            (Get-DispatchText -Fixture $f) | Should -Be $after
+        }
+
+        # The brief is never written, so nothing about it being read-only or held open by another
+        # process can stop a dispatch any more - the case that used to refuse now simply goes out.
+        It 'dispatches a brief that is read-only or held against writing, and leaves it alone' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'standing-readonly-brief-ok'
+            $name = Register-FixtureProject -Fixture $f
+            New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
+            Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
+            $before = Get-BriefText -Fixture $f
+            $item = Get-Item -LiteralPath $f.BriefPath
+            $item.IsReadOnly = $true
+            $held = [System.IO.File]::Open($f.BriefPath, 'Open', 'Read', 'Read')
+            try {
+                (Invoke-Dispatch -Fixture $f -Name 'T-9041').id | Should -Be 'T-9041'
+            } finally { $held.Dispose(); $item.IsReadOnly = $false }
+            (Get-BriefText -Fixture $f) | Should -Be $before
+            (Get-DispatchText -Fixture $f).Contains("read-first\rules-$name.md") | Should -BeTrue
         }
 
         # This script never reads the brief's body, so it may not assert anything about what is in
@@ -3148,7 +3688,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
 
             Invoke-Dispatch -Fixture $f -Name 'T-9021' | Out-Null
-            $line = @(@(Get-Content -LiteralPath $f.BriefPath) |
+            $line = @(@(Get-Content -LiteralPath (Get-DispatchFilePath $f)) |
                         Where-Object { $_ -like "*read-first\done-$name.md*" })[0]
             ($null -ne $line) | Should -BeTrue
             $line | Should -Not -BeLike '*pasted into this brief*'
@@ -3158,52 +3698,54 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $line | Should -BeLike '*one by one*'
         }
 
-        # A brief that cannot be written to would leave the copies on disk with nothing telling the
-        # worker to open them, which is the failure this attachment exists to close.
-        It 'refuses before creating anything when the brief cannot be written to' {
+        # A dispatch file that cannot be written to would leave the copies on disk with nothing
+        # telling the worker to open them, which is the failure this attachment exists to close.
+        # Driven as a growth re-dispatch, so there is a real write for the preflight to guard.
+        It 'refuses before creating anything when the dispatch file is read-only' {
             Set-AgentStartState
-            $f = New-DispatchFixture 'standing-readonly-brief'
+            $f = New-DispatchFixture 'standing-readonly-dispatch-file'
             $name = Register-FixtureProject -Fixture $f
             New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
-            $item = Get-Item -LiteralPath $f.BriefPath
+            Invoke-Dispatch -Fixture $f -Name 'T-9016' | Out-Null
+            New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.' | Out-Null
+            $before = Get-DispatchText -Fixture $f
+
+            $item = Get-Item -LiteralPath (Get-DispatchFilePath $f)
             $item.IsReadOnly = $true
             try {
                 { Invoke-Dispatch -Fixture $f -Name 'T-9016' } | Should -Throw '*read-only*'
-                Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
+                Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\done-$name.md") |
+                    Should -BeFalse
+                (Get-DispatchText -Fixture $f) | Should -Be $before
             } finally { $item.IsReadOnly = $false }
         }
 
         # The read-only flag is not the only way the write fails, and it is not the common one. A
-        # lock or an ACL denial used to sail past the flag check and abort at the write itself, with
-        # the copies already staged and no line in the brief naming them.
-        #
-        # Held with FileShare.Read rather than None on purpose: None blocks the dispatcher's own
-        # earlier read of the brief, so the run would fail on the missing-section refusal and prove
-        # nothing about this preflight. Read is also the truthful shape of the case - another
-        # process reading the file while holding it against writers.
-        It 'refuses before creating anything when another process holds the brief against writing' {
+        # lock or an ACL denial would sail past a flag check and abort at the write itself, with the
+        # copies already staged and no line naming them.
+        It 'refuses before creating anything when another process holds the dispatch file' {
             Set-AgentStartState
-            $f = New-DispatchFixture 'standing-locked-brief'
+            $f = New-DispatchFixture 'standing-locked-dispatch-file'
             $name = Register-FixtureProject -Fixture $f
             New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
-            $before = Get-BriefText -Fixture $f
+            Invoke-Dispatch -Fixture $f -Name 'T-9022' | Out-Null
+            New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.' | Out-Null
+            $calls = @(Get-CallLines -Fixture $f).Count
 
-            $held = [System.IO.File]::Open($f.BriefPath, 'Open', 'Read', 'Read')
+            $held = [System.IO.File]::Open((Get-DispatchFilePath $f), 'Open', 'Read', 'Read')
             try {
                 $msg = ''
                 try { Invoke-Dispatch -Fixture $f -Name 'T-9022' } catch { $msg = $_.Exception.Message }
-                $msg | Should -BeLike "*$($f.BriefPath)*"
+                $msg | Should -BeLike "*$(Get-DispatchFilePath $f)*"
                 $msg | Should -BeLike '*could not be opened for writing*'
                 $msg | Should -BeLike '*Nothing was created*'
             } finally { $held.Dispose() }
 
-            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
-            (Get-BriefText -Fixture $f) | Should -Be $before
-            @(Get-CallLines -Fixture $f) | Should -BeNullOrEmpty
+            Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\done-$name.md") | Should -BeFalse
+            @(Get-CallLines -Fixture $f).Count | Should -Be $calls
         }
-
         # The composed name can hold no separator and no traversal, because the resolution loop
         # skips any registry entry whose name the index cannot turn into a file name. Without that,
         # a hand-edited registry line would decide which file this dispatch copies out of data\.
@@ -3291,8 +3833,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 Register-FixtureProject -Fixture $Fixture -Project $Project | Out-Null
             }
 
-            # Where each of the four lines sits in the brief, so an ordering assertion cannot pass on
-            # a partial reading: heading, then the lead-in that scopes the bullets, then the criteria
+            # Where each of the four lines sits in the dispatch file, so an ordering assertion cannot
+            # pass on a partial reading: heading, then the lead-in that scopes the bullets, then the criteria
             # file, the project's rules, and the family's last.
             function Get-FamilyOrder {
                 param(
@@ -3300,7 +3842,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                     [Parameter(Mandatory)][string]$Project,
                     [Parameter(Mandatory)][string]$Family
                 )
-                $lines = @(Get-Content -LiteralPath $Fixture.BriefPath)
+                $lines = @(Get-Content -LiteralPath (Get-DispatchFilePath $Fixture))
                 $at    = {
                     param($pattern)
                     @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like $pattern })[0]
@@ -3327,7 +3869,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $copy = Join-Path $f.BriefDir 'read-first\family-acme.md'
             Test-Path -LiteralPath $copy | Should -BeTrue
             (Get-Content -LiteralPath $copy -Raw) | Should -BeLike '*tagged AC-*'
-            (Get-BriefText -Fixture $f).Contains('read-first\family-acme.md') | Should -BeTrue
+            (Get-DispatchText -Fixture $f).Contains('read-first\family-acme.md') | Should -BeTrue
             $name | Should -Be 'acme-web'
         }
 
@@ -3341,7 +3883,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
 
             Invoke-Dispatch -Fixture $f -Name 'T-9102' | Out-Null
-            $line = @(@(Get-Content -LiteralPath $f.BriefPath) |
+            $line = @(@(Get-Content -LiteralPath (Get-DispatchFilePath $f)) |
                         Where-Object { $_ -like '*read-first\family-acme.md*' })[0]
             ($null -ne $line) | Should -BeTrue
             $line | Should -BeLike "*Where it and this project's own rules-$name.md disagree*"
@@ -3387,9 +3929,11 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Set-ReadFirstBrief -Fixture $f -Body @('- Nothing beyond this brief.')
 
             Invoke-Dispatch -Fixture $f -Name 'T-9105' | Out-Null
-            $after = Get-BriefText -Fixture $f
+            $after = Get-DispatchText -Fixture $f
             Invoke-Dispatch -Fixture $f -Name 'T-9105' | Out-Null
-            (Get-BriefText -Fixture $f) | Should -Be $after
+            (Get-DispatchText -Fixture $f) | Should -Be $after
+            @(@(Get-Content -LiteralPath (Get-DispatchFilePath $f)) |
+                Where-Object { $_ -like '*read-first\family-acme.md*' }).Count | Should -Be 1
         }
 
         # The project's own files are named above the family's, so the order in the brief matches
@@ -3431,7 +3975,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             ($null -ne $o.Family)      | Should -BeTrue
             ($o.Rules  -gt $o.LeadIn)  | Should -BeTrue
             ($o.Family -gt $o.Rules)   | Should -BeTrue
-            @(@(Get-Content -LiteralPath $f.BriefPath) |
+            @(@(Get-Content -LiteralPath (Get-DispatchFilePath $f)) |
                 Where-Object { $_ -like '*attached by dispatch from this project*' }).Count |
                 Should -Be 1
         }
@@ -3512,7 +4056,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Invoke-Dispatch -Fixture $f -Name 'T-9113' | Out-Null
 
             Test-Path -LiteralPath $copy | Should -BeFalse
-            $text = Get-BriefText -Fixture $f
+            $text = Get-DispatchText -Fixture $f
             $text.Contains('read-first\family-acme.md') | Should -BeFalse
             # The project's own file is untouched, and so is the lead-in that introduces it.
             $text.Contains("read-first\rules-$name.md") | Should -BeTrue
@@ -3539,7 +4083,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Invoke-Dispatch -Fixture $f -Name 'T-9114' | Out-Null
 
             Test-Path -LiteralPath $copy | Should -BeFalse
-            $text = Get-BriefText -Fixture $f
+            $text = Get-DispatchText -Fixture $f
             $text.Contains('read-first\family-acme.md') | Should -BeFalse
             $text.Contains("read-first\rules-$name.md") | Should -BeTrue
             # The shared file itself is not this dispatch's to delete - other projects still use it.
@@ -3559,15 +4103,16 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Remove-FixtureFamily -Fixture $f -Project $name
             Invoke-Dispatch -Fixture $f -Name 'T-9115' | Out-Null
 
-            $gone = Get-BriefText -Fixture $f
-            $gone | Should -Not -BeLike '*attached by dispatch from this project*'
-            $gone | Should -BeLike '*Nothing beyond this brief - the index was checked*'
+            # Nothing left to attach, so the dispatch file goes and the brief is as the Hand wrote it.
+            Test-Path -LiteralPath (Get-DispatchFilePath $f) | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\family-acme.md') | Should -BeFalse
+            (Get-BriefText -Fixture $f) | Should -BeLike '*Nothing beyond this brief - the index was checked*'
 
             Remove-Item -LiteralPath (Join-Path $f.DataPath 'projects.md') -Force
             Register-FixtureProject -Fixture $f -Project $name -Family 'acme' | Out-Null
             Invoke-Dispatch -Fixture $f -Name 'T-9115' | Out-Null
 
-            $back = Get-BriefText -Fixture $f
+            $back = Get-DispatchText -Fixture $f
             $back.Contains('read-first\family-acme.md') | Should -BeTrue
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\family-acme.md') | Should -BeTrue
         }
@@ -3620,6 +4165,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first') | Should -BeFalse
             (Get-BriefText -Fixture $f) | Should -Be $before
+            Test-Path -LiteralPath (Get-DispatchFilePath $f) | Should -BeFalse
             @(Get-CallLines -Fixture $f) | Should -BeNullOrEmpty
         }
         # Reference handed over whole. Nothing reads what is inside it, so content that would defeat

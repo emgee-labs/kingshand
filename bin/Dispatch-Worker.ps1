@@ -27,13 +27,22 @@
     4. Set-WorkerWorkspaceSettings - the two grants that used to be command-line flags. herdr
        cannot pass arguments to claude on Windows at all (it launches through Start-Process against
        a .ps1 and dies with "%1 is not a valid Win32 application"), so --permission-mode and
-       --add-dir have to be on disk in the worktree before the agent starts.
+       --add-dir have to be on disk in the worktree before the agent starts. It also writes the
+       grant to edit the worktree's own .claude folder, which ClaudeWorkspace.psm1 owns.
     5. Grant-ClaudeFolderTrust - a fresh worktree is a directory Claude Code has never seen, so it
        stops on the folder-trust dialog with nobody there to answer. `claude --bg --worktree` never
        met this: it inherited the trust of the session that spawned it.
     6. Start-HerdrServer, New-HerdrPane, Start-HerdrAgent - the spawn.
     7. Send-HerdrPrompt with NO -Wait. Arming the wait is the caller's job: a dispatch that blocked
        here would hold the Hand for the length of the worker's first turn.
+    8. Confirm-HerdrPromptTaken - a bounded wait, seconds rather than a turn, for the box to empty
+       and the worker to start. `agent prompt` returns once the text is written, and a paste left
+       sitting unsent in the box used to come back as a successful dispatch of a worker that had
+       not started. `unsent`, `blocked` and `gone` are refused by their outcome name.
+       `not-started` and `unreadable` are not: the worker exists and may still start, so they warn
+       and return, and the result's startPrompt key carries the outcome - `taken` on the ordinary
+       path - for the caller to record and watch it as usual. Herdr.psm1 owns the one resend it
+       allows and why that resend can never submit the brief twice.
 
   -Base NAMES THE REF FOR ONE TASK, and it exists for a repository whose work integrates on a
   feature branch. Resolve-BaseRef reads a declaration out of `.no-mistakes.yaml`, which is tracked -
@@ -108,7 +117,7 @@
   THE PROJECT'S OWN FILE WINS where the two rules files disagree, and the family's composed line
   says so, because that line is the one place a worker holding both will read it and a worker left
   to work out which source wins picks wrong half the time. The family's line is written last, so
-  the order in the brief matches the precedence.
+  the order in the dispatch file matches the precedence.
 
   Automatic because delivery by memory has already failed: a settled brand spec sat in data\ naming
   itself the input to the website brief while the site shipped without its logo, favicon, tagline or
@@ -118,20 +127,30 @@
 
   Staging alone would not be enough: a file copied beside the brief that nothing tells the worker to
   read reaches it not at all, which is the original failure with an extra step. So this script also
-  writes one `Read first` line per file it staged itself, into the brief, at the END of that
-  section - below anything the Hand wrote there, because the lead-in carried above those lines says
-  the files named directly below it came from dispatch and not by hand. It writes a line only for a
-  file IT staged - a file the Hand passed to -ReadPath is one the Hand already named - and it
-  recognises its own line verbatim, so a re-dispatch adds nothing. That is an insertion at a
-  position inside a section this script already located, and it is not a path parser: no file name
-  is ever read back out of the brief's prose.
+  writes one `Read first` line per file it staged itself - a file the Hand passed to -ReadPath is
+  one the Hand already named - under a lead-in saying those files came from dispatch and not by hand.
+
+  THOSE LINES GO INTO THE DISPATCH FILE, AND THIS SCRIPT NEVER EDITS THE BRIEF. The dispatch file is
+  <brief stem>.dispatch.md beside the brief, and the worker's start prompt names it beside the brief
+  whenever there is one. An earlier version inserted the lines into the brief itself, and the brief
+  is the file the Hand has just written: the harness hands a changed file the Hand has open back to
+  the Hand, so every dispatch re-injected the whole brief into the Hand's own context, where it was
+  paid for again on every call until a compaction - measured at 249 echoes of 95 briefs, up to nine
+  for one brief. The worker gets every line it got before; only where they are written moved.
+
+  The dispatch file is composed in full on every dispatch, so a re-dispatch writes exactly what it
+  knows and nothing an earlier dispatch left behind. It is this script's own file: its first line is
+  a heading this script composes, and a file at that path not opening with it is refused by name
+  rather than overwritten. It is removed when a re-dispatch has nothing left to add, and it is never
+  indexed: it is derived from the brief beside it and from files the index already lists, so
+  Get-IndexableFiles excludes it as it excludes the read-first\ copies.
 
   The reverse also holds. A standing file the King has REMOVED must stop reaching the worker, so
-  where this script's own composed line for that file is still in the section, that line is dropped
-  and the copy in read-first\ is deleted. Never a copy the Hand passed, whose line the Hand wrote -
-  the comment at that code owns the two conditions that make the removal safe. A project taken out
-  of a family is the same retirement reached the other way, and it is handled at its own code,
-  because with the token gone there is no family name left to compose the old line from.
+  where this script's own composed line for that file was in its earlier dispatch file, the copy in
+  read-first\ is deleted along with the line. Never a copy the Hand passed, whose line the Hand
+  wrote - the comment at that code owns the two conditions that make the removal safe. A project
+  taken out of a family is the same retirement reached the other way, and it is handled at its own
+  code, because with the token gone there is no family name left to compose the old line from.
 
   NONE OF THEM counts towards the index gate below, for the reason the gate's own comment gives: a
   path that arrives on every dispatch is no evidence that the index was consulted for THIS task.
@@ -231,8 +250,8 @@
   Everything else refused here is about a path that is known exactly, with nothing being read out of
   anything: a -ReadPath that is not on disk, a directory where a file was meant, a -ReadPath naming
   the family's own file this script attaches itself, two entries whose file names would collide in
-  the staging directory, a project file that is there and cannot be opened, and a brief that cannot
-  be written to once there is something to auto-attach to it.
+  the staging directory, a standing file that is there and cannot be opened, and a dispatch file
+  that is somebody else's or cannot be written to.
 
   The usage refusal is the one exception to that shape, and it is about a number rather than a path.
   bin\Usage.psm1 owns where the number comes from and what its three answers mean; the only thing
@@ -242,6 +261,37 @@
   The two -Base refusals belong to no part of this gate and are not counted among the paths above.
   They are about the ref this dispatch was handed rather than a file it was told to stage, and the
   -Base section near the top of this header owns both of them.
+
+  -InCheckout RUNS THE WORKER IN THE PROJECT'S OWN CHECKOUT, with no worktree, on the branch -Branch
+  names. It is the `fief` skill's warm worker: one worker making a run of small fixes on one branch,
+  where the King may be watching that checkout from a dev server and a worktree per fix would cost
+  more than the fix. Left off - every ordinary dispatch - nothing below applies and the worktree path
+  is exactly what it was.
+
+  It CREATES OR SWITCHES NO BRANCH and cuts no worktree. Steps 3 to 5 of the order above become one:
+  the checkout's own .claude\settings.local.json is edited rather than written, and folder trust is
+  granted for the checkout itself. Before anything is created it refuses four ways, each by name: a
+  -Branch with no -InCheckout, an -InCheckout with no -Branch, a path that is not the top of a git
+  checkout, and a checkout that is not already on the named branch - a detached HEAD included.
+  Two more come from ClaudeWorkspace.psm1's plan, which owns them: a settings file that is there and
+  cannot be read as a JSON object, and a record left by an earlier checkout worker nobody cleaned up.
+
+  The permission file is the part that went wrong by hand, so ClaudeWorkspace.psm1 owns all of it:
+  the backup, whether a file existed, keeping the existing allow list, never building from a failed
+  read, and putting it back. Its record sits beside the brief, is indexed as it is written, and is
+  what Stop-CheckoutWorker reads at cleanup - that function, not a prose copy, is the teardown.
+
+  The dispatch file gets a fixed section, `## Working in the checkout, not a worktree`: not in a
+  worktree, the branch to stay on, the commands never to run, commit and push only on a prompt, and
+  git's own listing of what was already uncommitted and stashed, quoted line for line as not the
+  worker's. A re-dispatch composes it afresh, because the tree may have moved.
+  The first dispatch keeps git's listing as a baseline beside the brief, never in the checkout, so a
+  relaunch of the same worker on the same branch quotes only the baseline's files as not its own
+  and lists everything else uncommitted as the session's own earlier fixes. A baseline left by a
+  different first dispatch, or one that cannot be read, is refused with nothing created.
+
+  The base is resolved exactly as for a worktree, and it is what the landing gate measures the whole
+  session branch against.
 .EXAMPLE
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1001 -BriefPath $env:KINGSHAND_HOME\data\T-1001\brief.md
   $r.id, $r.worktree, $r.branch
@@ -256,6 +306,11 @@
   # a tracked file, because that declaration would be wrong the moment the branch merges.
   $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\foo -Name T-1003 `
          -BriefPath $env:KINGSHAND_HOME\data\T-1003\brief.md -Base origin/epic-checkout
+.EXAMPLE
+  # A session's warm worker, in the checkout the King already has on feature-x.
+  $r = .\Dispatch-Worker.ps1 -RepoPath C:\repos\acme-api -Name acme-api-session `
+         -BriefPath $env:KINGSHAND_HOME\data\acme-api-session\brief.md -InCheckout -Branch feature-x
+  $r.checkout, $r.settingsRecord
 #>
 [CmdletBinding()]
 param(
@@ -269,6 +324,10 @@ param(
     # existed. The header owns why it is here, and what it refuses before anything is created.
     [string]$Base = '',
     [int]$TimeoutSeconds = 90,
+    # How long the start prompt is given to be taken. Left off - what every caller does - and
+    # Confirm-HerdrPromptTaken's own default applies, so the ordinary path is the one tested there;
+    # a test passes a short one so a prompt that is never taken does not cost the full wait.
+    [int]$PromptConfirmSeconds = 0,
     # How much of the usage window may be spent before a new dispatch is refused. Every caller
     # takes this default - muster passes it never - so the branch it guards is the ordinary path
     # rather than one only an override reaches.
@@ -278,7 +337,15 @@ param(
     # that can only ever be exercised against the real installation is a check no test can drive.
     # Resolved in the body rather than here: a parameter default is evaluated before the script's
     # own Import-Module lines run, so Get-DefaultIndexDataPath is not loaded yet at this point.
-    [string]$DataPath = ''
+    [string]$DataPath = '',
+    # Run the worker in the project's OWN checkout, on the branch -Branch names, with no worktree.
+    # OFF IS THE ORDINARY CASE and every dispatch that does not pass it is exactly the worktree
+    # dispatch above; the `fief` skill is the caller that passes it. The header owns what it
+    # refuses and what it writes.
+    [switch]$InCheckout,
+    # The branch the checkout must already be on. Required with -InCheckout and refused without
+    # it, so its empty default is reached only by an ordinary dispatch, which never reads it.
+    [string]$Branch = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -292,12 +359,12 @@ if (-not (Test-Path $RepoPath))  { throw "Repo path not found: $RepoPath" }
 if (-not (Test-Path $BriefPath)) { throw "Brief not found: $BriefPath" }
 
 Import-Module (Join-Path $PSScriptRoot 'Herdr.psm1') -Force
-Import-Module (Join-Path $PSScriptRoot 'ClaudeWorkspace.psm1') -Force
-# Index BEFORE Projects, and both before anything reads them. Projects.psm1 imports Index.psm1 as a
-# nested module without -Force, so forcing Index afterwards would remove the copy Projects is
-# already holding - the failure Test-CrewPrereqs hit, recorded in `statute`'s style rules.
+# Index BEFORE Projects and ClaudeWorkspace, and all before anything reads them. Both import
+# Index.psm1 as a nested module without -Force, so forcing Index afterwards would remove the copy
+# they are already holding - the failure Test-CrewPrereqs hit, recorded in `statute`'s style rules.
 Import-Module (Join-Path $PSScriptRoot 'Index.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Projects.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'ClaudeWorkspace.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Usage.psm1') -Force
 
 # Dot-sourced up here rather than at the call site far below, because the two functions it defines
@@ -319,15 +386,16 @@ if (-not (Get-HerdrCommandPath)) { throw (Get-HerdrCommandHint) }
 # IT FAILS OPEN, DELIBERATELY. A reading that could not be taken is a warning and a dispatch, never
 # a block. The prompt-box guards already made this call for an unreadable screen and the reasoning
 # transfers unchanged: a blind guard that blocks everything costs more than one that lets work
-# through and says it could not see. So a missing quota-axi, a lookup that failed and an answer that
-# would not parse all dispatch.
+# through and says it could not see. So a probe and a quota-axi that both failed, a fallback the
+# fifteen-minute gate did not allow and an answer that would not parse all dispatch.
 #
-# A FLOOR STILL REFUSES, AND ON THIS MACHINE IT IS USUALLY THE ONLY THING THAT CAN. The tool's live
-# fetch is rate limited most of the time, so most readings are stale - `unknown`, with a cached
-# number carried alongside as a lower bound. Consumption never falls inside a window, so a floor at
-# or past the threshold means the real figure is too, and refusing on it is sound where refusing on
-# the stale number as though it were current would not be. Nothing here treats the floor as the
-# answer: the message says plainly that it is a floor.
+# A FLOOR STILL REFUSES. Two readings carry one: quota-axi answering from its own stale cache, and a
+# window already read at or past 90 percent, which Usage.psm1 holds without reading again until it
+# resets - `unknown` either way, with the earlier number carried alongside as a lower bound.
+# Consumption never falls inside a window, so a floor at or past the threshold means the real figure
+# is too, and refusing on it is sound where refusing on an earlier number as though it were current
+# would not be. Nothing here treats the floor as the answer: the message says plainly that it is a
+# floor.
 #
 # A settled "nothing here reports this" says nothing at all. That is a stable fact about the
 # machine rather than something wrong with it, and a warning on every dispatch for a state nobody
@@ -341,6 +409,15 @@ if ($null -ne $measured -and $measured -ge $UsageThresholdPercent) {
            "refused from $UsageThresholdPercent percent, so worker $Name was not dispatched. " +
            "$($usage.detail) Wait for the window to reset, or dispatch with a higher " +
            "-UsageThresholdPercent if this one has to go out now. Nothing was created.")
+}
+# A HELD WINDOW REFUSES WHATEVER THE THRESHOLD. Usage.psm1 stops reading a window once it reaches
+# 90 percent, so a held floor of 91 never climbs past a -UsageThresholdPercent of 95 or 99, and a
+# dispatch compared against it would go out into a window that may already be spent.
+if ("$($usage.signal)" -eq 'held-at-limit' -and $null -ne $floor) {
+    throw ("The usage window is held from 90 percent until its reset, at least " +
+           "$([int][Math]::Floor($floor)) percent spent, and nothing reads it again before then, " +
+           "so worker $Name was not dispatched whatever -UsageThresholdPercent says." +
+           "$(Format-UsageResetTime -IsoTime "$($usage.resetsAt)") Nothing was created.")
 }
 # COMPARED RAW AND EXACT, which is where every bit of this guard's safety lives - the double the
 # reader took, against the threshold, with no rounding in between. The figure in the message is
@@ -403,6 +480,86 @@ if ($baseOverride) {
                "a missing ref write their error to stderr and nothing at all to stdout, so an " +
                "empty diff and an empty attribution scan read as clean. Fetch the branch, or name " +
                "a ref this repository already has. Nothing was created.")
+    }
+}
+
+# THE CHECKOUT THIS DISPATCH WAS TOLD TO WORK IN, checked here for the same reason as -Base: a bad
+# value must cost the caller the message and nothing else. With no -InCheckout this block does
+# nothing at all, and the worktree path below is exactly what it always was.
+#
+# Nothing here creates or switches a branch. The checkout must ALREADY be on the branch the King
+# named, because the warm worker's commits go wherever HEAD points - a checkout left on the wrong
+# branch would put a run of fixes on top of somebody else's work.
+$checkoutPlan   = $null
+$checkoutRecord = ''
+if ($Branch.Trim() -and -not $InCheckout) {
+    throw ("-Branch names $($Branch.Trim()) but -InCheckout was not passed. A worktree dispatch " +
+           "always cuts its own worktree-<name> branch, so -Branch would be ignored silently. " +
+           "Pass -InCheckout as well, or leave -Branch off. Nothing was created.")
+}
+if ($InCheckout) {
+    $Branch = $Branch.Trim()
+    if (-not $Branch) {
+        throw ("-InCheckout needs -Branch: the branch the checkout is already on and the worker " +
+               "must stay on. Nothing was created.")
+    }
+    $topLevel = (& git -C $RepoPath rev-parse --show-toplevel 2>$null | Out-String).Trim()
+    $topOk = $LASTEXITCODE -eq 0
+    $global:LASTEXITCODE = 0
+    $sameRoot = $false
+    if ($topOk -and $topLevel) {
+        $sameRoot = [IO.Path]::GetFullPath(($topLevel -replace '/', '\')).TrimEnd('\').Equals(
+                        [IO.Path]::GetFullPath($RepoPath).TrimEnd('\'),
+                        [System.StringComparison]::OrdinalIgnoreCase)
+    }
+    if (-not $sameRoot) {
+        throw ("-InCheckout needs the top of a git checkout and $RepoPath is not one, so the " +
+               "worker's settings would land in the wrong .claude directory. Pass the checkout's " +
+               "own root. Nothing was created.")
+    }
+    # Asked of git, never read out of .git\HEAD: symbolic-ref answers with the branch name, or
+    # fails on a detached HEAD, and that failure is its own refusal rather than a branch name.
+    $current = (& git -C $RepoPath symbolic-ref --quiet --short HEAD 2>$null | Out-String).Trim()
+    $onBranch = $LASTEXITCODE -eq 0 -and $current
+    $global:LASTEXITCODE = 0
+    if (-not $onBranch) {
+        throw ("$RepoPath is not on any branch (HEAD is detached), and this dispatch was told to " +
+               "work on $Branch. Nothing here switches branches - check out $Branch yourself " +
+               "first. Nothing was created.")
+    }
+    if ($current -cne $Branch) {
+        throw ("$RepoPath is on $current, and this dispatch was told to work on $Branch. Nothing " +
+               "here switches branches, because the checkout is the King's and what it is on is " +
+               "his to decide - check out $Branch first, or dispatch naming $current. " +
+               "Nothing was created.")
+    }
+    # The permission file, planned and not yet written: a settings file that cannot be read, or a
+    # record left by a worker nobody cleaned up, is refused here with nothing created.
+    $checkoutRecord = Get-CheckoutSettingsRecordPath -BriefDirectory $briefDir
+    $checkoutPlan   = New-CheckoutSettingsPlan -CheckoutPath $RepoPath -RecordPath $checkoutRecord `
+                          -AdditionalDirectories @($briefDir)
+
+    # What is uncommitted now, split against the baseline the session's first dispatch took: a
+    # baseline left by a different first dispatch, or one that cannot be read, is refused here.
+    $dirty = @((& git -C $RepoPath status --porcelain 2>$null) | Where-Object { $_ })
+    $global:LASTEXITCODE = 0
+    $baselinePlan = New-CheckoutBaselinePlan -BriefDirectory $briefDir -Name $Name `
+                        -CheckoutPath $RepoPath -Branch $Branch -Dirty $dirty
+
+    # The base, resolved HERE for a checkout rather than just before the spawn, because one answer
+    # the resolver can give is wrong only in this mode and has to be refused with nothing created.
+    # Where the repository records neither a declared integration branch nor origin/HEAD, the
+    # resolver falls back to the branch the checkout is on, or its origin/ copy - which for a
+    # worktree is the default branch, and for a checkout is the session branch itself. A landing
+    # diff of that branch against itself, or against what of it is already pushed, is empty or
+    # partial, and empty reads as clean.
+    $checkoutBase = if ($baseOverride) { $baseOverride } else { Resolve-BaseRef -RepoPath $RepoPath }
+    if ($checkoutBase -ceq $Branch -or $checkoutBase -ceq "origin/$Branch") {
+        throw ("The base for this checkout resolved to $checkoutBase, which is the session branch " +
+               "$Branch itself, so the landing diff would measure the branch against itself and " +
+               "read as clean. This repository records no integration branch or origin/HEAD for " +
+               "the resolver to use instead. Name the branch the work will be proposed against " +
+               "with -Base. Nothing was created.")
     }
 }
 
@@ -480,8 +637,8 @@ foreach ($entry in $registered) {
 # The PRECEDENCE SENTENCE is here rather than anywhere else because this is the one place a worker
 # holding both files will actually read it, and it is UNCONDITIONAL - it does not vary with whether
 # the project's own rules file happens to exist. A line whose wording depended on another file being
-# there would be composed differently on the dispatch that retires it, so the bullet an earlier
-# dispatch wrote could never be found again and would sit in the brief naming a copy that had gone.
+# there would be composed differently on the dispatch that retires it, so the line an earlier
+# dispatch wrote could never be recognised again and the copy it named would never be deleted.
 #
 # The wording ASSERTS a shared origin - "shared by every project in the <family> family" - and that
 # is true BY CONSTRUCTION, not by anything checking it: a family's file lives in data\families\ and
@@ -515,8 +672,8 @@ function New-FamilyEntry {
 # done-<project>.md or rules-<project>.md by shape - which is why no name here has to be checked
 # against any other.
 #
-# `kind` says which of the two things a file is, and it is read only by the refusal message below,
-# which has to describe a family's shared file differently from a project's own. Everything else
+# `kind` says which of the two things a file is, and it is read only by the refusal below of a
+# -ReadPath naming the family's own file, which this script attaches itself. Everything else
 # here treats all three identically, which is the point: staged the same way, named the same way,
 # discounted the same way, retired the same way.
 $standing = [ordered]@{}
@@ -627,14 +784,6 @@ foreach ($leaf in $standing.Keys) {
                "created.")
     }
 
-    # The same FILE passed by hand under a different leaf, which only the family's file can be:
-    # its source is data\families\<name>.md and this script stages it as family-<name>.md, so a
-    # Hand that passed the source put it there as <name>.md. Skipped for the reason the leaf-keyed
-    # case below is skipped - the Hand's own line already names it - and skipping it here is what
-    # stops one file arriving as two copies under two names.
-    if (@($staged.Values | Where-Object {
-            $_.Equals($p, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0) { continue }
-
     if ($staged.ContainsKey($leaf)) {
         # The same file, passed by hand as well. The Hand's own `Read first` line already names it,
         # so this adds nothing and writes no second line for it.
@@ -674,54 +823,28 @@ foreach ($leaf in $standing.Keys) {
 # than because this task is about that file. Read under the same fence rule, so a brief quoting
 # muster's template does not acquire a browser step it never asked for.
 #
-# WHERE the section is, is remembered as well, so the lines for what this dispatch attaches on its
-# own can be inserted into it. That is a position in the file rather than anything read out of it,
-# and it is the section this loop was already finding.
-#
-# The POSITIONS are collected here, in this same pass, rather than by a second scan of their own.
-# A second scan is what went wrong: it started after the heading and ran to the end of the file
-# without skipping fences, so a brief quoting a generated line inside a fenced block under a later
-# heading moved the insertion anchor there - and the attached copy ended up named inside a quoted
-# block, in a section no worker acts on, which is the "a copy nothing names reaches nobody" failure
-# this attachment exists to close. One boundary rule, computed once, cannot disagree with itself.
-#
-# $sectionIndexes covers the FIRST section only, because that is where the insertion goes, while
-# $sectionLines keeps spanning every one of them - it feeds the index gate, which asks whether the
-# statement was made anywhere at all. $sectionEnd is the last line still inside that first section,
-# fenced lines included, so appending after it lands at the end of the section rather than inside a
-# block it happens to finish with.
-$briefLines     = @(Get-Content -LiteralPath $BriefPath)
-$hasSection     = $false
-$hasBrowser     = $false
-$inSection      = $false
-$inFence        = $false
-$headingIndex   = -1
-$sectionEnd     = -1
-$firstOpen      = $false
-$sectionLines   = [System.Collections.Generic.List[string]]::new()
-$sectionIndexes = [System.Collections.Generic.List[int]]::new()
-for ($i = 0; $i -lt $briefLines.Count; $i++) {
-    $line = $briefLines[$i]
-    if ($line -match '^\s*```') {
-        $inFence = -not $inFence
-        if ($firstOpen) { $sectionEnd = $i }
-        continue
-    }
-    if ($inFence) {
-        if ($firstOpen) { $sectionEnd = $i }
-        continue
-    }
+# Nothing here remembers WHERE anything is any more. This script used to insert its own lines into
+# the section and needed positions for that; it no longer writes to the brief at all - the header's
+# paragraph on the dispatch file owns why - so the brief is read for these three facts and nothing
+# else.
+$briefLines   = @(Get-Content -LiteralPath $BriefPath)
+$hasSection   = $false
+$hasBrowser   = $false
+$inSection    = $false
+$inFence      = $false
+$sectionLines = [System.Collections.Generic.List[string]]::new()
+foreach ($line in $briefLines) {
+    if ($line -match '^\s*```') { $inFence = -not $inFence; continue }
+    if ($inFence) { continue }
     if ($line -match '^\s*##\s+Browser checks\b') { $hasBrowser = $true }
     if ($line -match '^\s*##\s+Read first\s*$') {
-        $hasSection   = $true
-        $inSection    = $true
-        if ($headingIndex -lt 0) { $headingIndex = $i; $sectionEnd = $i; $firstOpen = $true }
+        $hasSection = $true
+        $inSection  = $true
         continue
     }
     if ($inSection) {
-        if ($line -match '^\s*#{1,6}\s') { $inSection = $false; $firstOpen = $false; continue }
+        if ($line -match '^\s*#{1,6}\s') { $inSection = $false; continue }
         $sectionLines.Add($line)
-        if ($firstOpen) { $sectionIndexes.Add($i); $sectionEnd = $i }
     }
 }
 
@@ -892,7 +1015,7 @@ if ($gates.Count -gt 0) {
         # The line recommended below changes with it, and the two standing-file cases part company.
         #
         # A file the Hand PASSED by hand is named by a line the Hand wrote, and nothing scopes that
-        # line: the lead-in this script inserts covers only the bullets this script inserts. So the
+        # line: the lead-in this script writes covers only the bullets this script writes. So the
         # literal line would still tell the worker there is nothing beyond the brief in the same
         # breath as the Hand's own line names a copy - the contradiction muster rules out, and the
         # 2026-09-02 reasoning for the paraphrase stands unchanged. That branch keeps recommending
@@ -900,8 +1023,8 @@ if ($gates.Count -gt 0) {
         #
         # A standing file this dispatch attaches ITSELF is different, and stopped being a
         # contradiction when the lead-in below was introduced: the lead-in sits above those bullets
-        # and says in the section that they arrive on top of whatever else it says, including a line
-        # saying nothing beyond this brief was named. So that branch recommends the canonical short
+        # in the dispatch file and says they arrive on top of whatever the brief's section says,
+        # including a line saying nothing beyond this brief was named. So that branch recommends the canonical short
         # literal line, because the lead-in is what makes it true. $beyond is what tells the two
         # apart: it is filled only from paths the brief actually passed.
         #
@@ -915,18 +1038,10 @@ if ($gates.Count -gt 0) {
                 $_.Equals($path, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
         }
         # Walked in $standing's order, so the criteria file is named before the rules file wherever
-        # both were passed by hand. The family's file is pulled out of that walk and described
-        # separately: it is not the project's own, and a message calling it that would send the Hand
-        # looking for a file under the wrong name.
+        # both were passed by hand. The family's file never matches here: a -ReadPath naming it was
+        # refused where the path arrived, so only the project's own can have been passed.
         $discountedPaths = @(foreach ($leaf in $standing.Keys) {
-            if ($standing[$leaf].kind -eq 'project' -and (& $wasPassed $standing[$leaf].path)) {
-                $standing[$leaf].path
-            }
-        })
-        $discountedFamily = @(foreach ($leaf in $standing.Keys) {
-            if ($standing[$leaf].kind -eq 'family' -and (& $wasPassed $standing[$leaf].path)) {
-                $standing[$leaf].path
-            }
+            if (& $wasPassed $standing[$leaf].path) { $standing[$leaf].path }
         })
         $passedProcedure = [bool](& $wasPassed $procedure)
         $passedModule    = [bool](& $wasPassed $module)
@@ -941,11 +1056,6 @@ if ($gates.Count -gt 0) {
                          'which every brief for this project passes')
         }
         if ($discountedPaths.Count -gt 0) { $beyond += 'the standing criteria' }
-        if ($discountedFamily.Count -gt 0) {
-            $clauses += ("$($discountedFamily[0]), the standing rules the $family family shares, " +
-                         'which every brief for every project in that family passes')
-            $beyond  += "the $family family's standing rules"
-        }
         if ($passedProcedure) {
             $clauses += ("the browser procedure $procedure, which every brief carrying browser " +
                          'checks passes')
@@ -994,17 +1104,53 @@ if ($gates.Count -gt 0) {
     }
 }
 
-# The lines this dispatch will add to the brief for what it attached itself, composed here so the
-# same text is produced every time. That is what makes a re-dispatch add nothing: the check below is
-# a whole-line comparison against text this script wrote, never a search for a file name in prose.
+# WHAT THIS DISPATCH ADDS GOES TO ITS OWN FILE BESIDE THE BRIEF, NEVER INTO THE BRIEF. The header's
+# paragraph on the dispatch file owns why: an edit to a file the Hand just wrote comes back into the
+# Hand's own context as a changed file, every dispatch, and stays there.
 #
-# One physical line per file, however long. A brief is generated, and a line broken for width is a
-# line the idempotence check would have to reassemble.
+# The file is <brief stem>.dispatch.md in the brief's own directory - the one directory outside the
+# worktree a worker can read - so it is reachable by construction, and the start prompt below names
+# it beside the brief so a worker is told to read it rather than left to find it.
 #
-# Composed through one function because the same text has to be produced for a file that is THERE
-# and for one that has since been REMOVED - the line an earlier dispatch wrote can only be found
-# again by composing exactly what was written. Everything it needs comes from $standing, which is
-# built from the project name alone and so survives the file itself going away.
+# OWNERSHIP IS ITS FIRST LINE. The file opens with a heading this script composes and nothing else
+# writes, and a file at that path that does not open with it is somebody else's: it is refused by
+# name, before anything is created, rather than overwritten. The name is derived from the brief's
+# own, so two briefs in one directory cannot land on each other's file either.
+$dispatchFile    = Join-Path $briefDir (
+                       [System.IO.Path]::GetFileNameWithoutExtension($BriefPath) + '.dispatch.md')
+$dispatchHeading = "# Added at dispatch to $(Split-Path $BriefPath -Leaf)"
+
+# What an earlier dispatch of this same brief wrote, read only when it is this script's own file.
+# The lines are compared whole against text this script composes and are never read for meaning.
+$previousLines = @()
+$previousOurs  = $false
+if (Test-Path -LiteralPath $dispatchFile -PathType Container) {
+    throw ("$dispatchFile is where this dispatch writes what it adds to the brief, and it is a " +
+           "directory. Move it aside. Nothing was created.")
+}
+if (Test-Path -LiteralPath $dispatchFile -PathType Leaf) {
+    try { $previousLines = @(Get-Content -LiteralPath $dispatchFile -ErrorAction Stop) }
+    catch {
+        throw ("$dispatchFile is where this dispatch writes what it adds to the brief, and it " +
+               "could not be read ($($_.Exception.Message)), so whether it is this script's own " +
+               "file cannot be told. Fix it or move it aside. Nothing was created.")
+    }
+    $previousOurs = $previousLines.Count -gt 0 -and $previousLines[0] -ceq $dispatchHeading
+    if (-not $previousOurs) {
+        throw ("$dispatchFile is where this dispatch writes what it adds to the brief, and a " +
+               "file is already there that dispatch did not write - it does not open with " +
+               "'$dispatchHeading'. It is not this script's to overwrite. Move it aside, or " +
+               "rename the brief. Nothing was created.")
+    }
+}
+$previousSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+foreach ($l in $previousLines) { $null = $previousSet.Add($l.Trim()) }
+
+# The line for one attached file, composed through one function because the same text has to be
+# produced for a file that is THERE and for one that has since been REMOVED - the line an earlier
+# dispatch wrote can only be recognised by composing exactly what was written. Everything it needs
+# comes from $standing, which is built from the project name alone and so survives the file itself
+# going away. One physical line per file, however long, so recognising it is a whole-line compare.
 function New-AutoLine {
     param([Parameter(Mandatory)][string]$Leaf, [Parameter(Mandatory)]$Entry)
     "- ``$(Join-Path $readFirstDir $Leaf)`` - $($Entry.what), attached automatically at dispatch " +
@@ -1013,109 +1159,51 @@ function New-AutoLine {
 
 $autoLines = @(foreach ($a in $autoStaged) { New-AutoLine -Leaf $a.leaf -Entry $standing[$a.leaf] })
 
-# The one line that goes above them, and the reason the block can be inserted into a section that
-# already says there is nothing to read. The Hand writes `- Nothing beyond this brief - the index was
-# checked and nothing in it applies.` when the index turns up nothing, and that line is true about
-# the index at the moment it was written; these copies arrive afterwards and from somewhere else. So
-# the block SCOPES ITSELF rather than editing what the Hand wrote - nothing here parses the section
-# looking for a sentence to rewrite, and nothing suppresses the attachment, because a standing file
-# that reaches nobody is the whole failure this exists to close.
-#
-# One physical line, like the bullets, so the idempotence check below is a whole-line comparison.
+# The one line above them, and the reason they can sit beside a brief that says there is nothing to
+# read. The Hand writes `- Nothing beyond this brief - the index was checked and nothing in it
+# applies.` when the index turns up nothing, and that line is true about the index at the moment it
+# was written; these copies arrive afterwards and from somewhere else. So the block SCOPES ITSELF
+# rather than editing what the Hand wrote - nothing here rewrites a sentence of the brief, and
+# nothing suppresses the attachment, because a standing file that reaches nobody is the whole
+# failure this exists to close.
 $autoLeadIn = ('- The file(s) named directly below were attached by dispatch from this project''s ' +
-               'own standing files, not by hand. They apply as well as everything else in this ' +
-               'section, including any line saying nothing beyond this brief was named - that line ' +
-               'was written before these were attached. Read them.')
-
-# WHAT this dispatch will actually add to the brief, and WHERE - decided here, before anything is
-# created, because the preflight below has to key on whether there is a write at all rather than on
-# whether there is something attached. On an ordinary re-dispatch every line is already in the brief
-# and no write happens, so demanding an exclusive handle on the file would refuse over a write that
-# was never going to be performed - and a share lock is transient, where the read-only flag it
-# replaced was a deliberate persistent state.
-#
-# Only lines the brief does not already carry verbatim, so a second dispatch of the same ticket
-# changes nothing. Comparison is whole-line and ordinal against text this script composed itself -
-# never a search for a file name in prose, and no parser of the section.
-#
-# WHERE is decided per line rather than for the block as a whole, because the block is not always
-# added as a block. The lead-in scopes the bullets, so it stays above them; and $standing's order -
-# criteria before rules - has to survive the GROWTH CASE, where one file was already named by an
-# earlier dispatch and another has since appeared. Inserting the missing lines together at one anchor
-# under the lead-in put the newest file ABOVE one already there, silently reversing that order.
-#
-# So the composed lines are walked in their own order behind a moving anchor. A line already in the
-# brief moves the anchor onto it; a line that is missing is scheduled just after the current anchor
-# and becomes the anchor itself, so the next missing line lands after it rather than on top of it.
-# The anchor starts at the lead-in when the section already carries it, and at the END of the section
-# when it does not, in which case the lead-in is the first thing scheduled and every bullet follows
-# it. Appending rather than inserting at the top is what makes the lead-in's own sentence true: it
-# says the files named DIRECTLY BELOW were attached by dispatch and not by hand, so it must not be
-# put above lines the Hand wrote. The Hand's bullets keep their place, and the order among the
-# attached lines themselves is unchanged - lead-in, criteria, rules, for a first dispatch with either
-# or both files and for growth in either direction.
-#
-# Every comparison is whole-line and ordinal against text this script composed itself - never a
-# search for a file name in prose, and no parser of the section. Only lines INSIDE the Read first
-# section are indexed, by the same boundary the parse pass above computed, so a copy quoted in a
-# fenced block or under a later heading can neither claim the anchor nor pass for one already there.
-$toAdd = @()
-$plan  = [System.Collections.Generic.Dictionary[int, System.Collections.Generic.List[string]]]::new()
-$seen  = [System.Collections.Generic.Dictionary[string, int]]::new([System.StringComparer]::Ordinal)
-foreach ($idx in $sectionIndexes) {
-    $t = $briefLines[$idx].Trim()
-    if (-not $seen.ContainsKey($t)) { $seen[$t] = $idx }
-}
+               'own standing files, not by hand. They apply as well as everything in the brief''s ' +
+               'own Read first section, including any line there saying nothing beyond this brief ' +
+               'was named - that line was written before these were attached. Read them.')
 
 # A standing file the King has REMOVED must stop reaching the worker. An earlier dispatch of this
-# same ticket copied it into read-first\ and wrote a line naming it; nothing about it being absent
-# now would otherwise undo either, so the worker would be handed rules the King deleted under a line
-# asserting they came from a file that is no longer there. Both are cleared instead, and the whole
-# thing is reversible: restore the file, re-dispatch, and both come back.
+# same brief copied it into read-first\ and named it in the dispatch file; the dispatch file below is
+# composed afresh, so the line goes by itself, but the copy would stay on disk unless it is deleted.
 #
-# Scoped as tightly as it can be, by TWO conditions that are only safe together.
-#
-# The first is the -ReadPath guard, and it covers this dispatch: a leaf the Hand passed is the Hand's
-# own file staged under the same name, and the line naming it is a line the Hand wrote. Neither is
-# this script's to touch.
-#
-# The second covers every EARLIER dispatch, which the first cannot see. `read-first\<leaf>` is one
-# directory shared by both routes, so the copy on disk carries no record of who put it there - and
-# muster passes `data\done-<project>.md` through -ReadPath on every brief it writes, with a bullet
-# of its own wording. Retire that file and re-dispatch, and the leaf looks exactly like an abandoned
-# auto-attachment: absent source, copy present, nothing passed this time. Deleting it on that
-# evidence removed the Hand's file while the Hand's differently-worded bullet survived, leaving the
-# brief naming a file that is gone - the very thing -ReadPath is refused for above, reached through
-# the pruning meant to prevent staleness.
-#
-# So the discriminator is this script's OWN composed bullet for that leaf being in the Read first
-# section. That line is written by nothing else, so its presence is the only available evidence that
-# this script staged the copy. Where it is absent - the Hand's own line is there instead, or no line
-# at all - nothing is removed and the copy is left alone: the copy is then not this script's to
-# delete, and a stale copy a line correctly names is better than a live line naming nothing.
-$staleBullets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-$staleCopies  = [System.Collections.Generic.List[string]]::new()
+# Scoped by TWO conditions that are only safe together. The -ReadPath guard covers this dispatch: a
+# leaf the Hand passed is the Hand's own file staged under the same name. The second covers every
+# EARLIER dispatch, which the first cannot see - `read-first\<leaf>` is one directory shared by both
+# routes, and muster passes `data\done-<project>.md` through -ReadPath with a line of its own in the
+# brief. So the discriminator is this script's OWN composed line for that leaf in its OWN earlier
+# dispatch file. That line is written by nothing else, so its presence is the only evidence that
+# this script staged the copy; where it is absent the copy is left alone, because a stale copy a
+# line correctly names is better than a live line naming nothing.
+$staleCopies = [System.Collections.Generic.List[string]]::new()
 foreach ($leaf in $standing.Keys) {
     if ($staged.ContainsKey($leaf)) { continue }
     if (Test-Path -LiteralPath $standing[$leaf].path) { continue }
-    $bullet = (New-AutoLine -Leaf $leaf -Entry $standing[$leaf]).Trim()
-    if (-not $seen.ContainsKey($bullet)) { continue }
-    $null = $staleBullets.Add($bullet)
+    if (-not $previousSet.Contains((New-AutoLine -Leaf $leaf -Entry $standing[$leaf]).Trim())) { continue }
     $copy = Join-Path $readFirstDir $leaf
     if (Test-Path -LiteralPath $copy -PathType Leaf) { $staleCopies.Add($copy) }
 }
 
 # A project taken OUT of a family, which the loop above cannot reach. With the token gone the family
-# is not in $standing at all, so there is no key left to compose the retired bullet from - and
+# is not in $standing at all, so there is no key left to compose the retired line from - and
 # removing the token is one of the two ways this attachment is meant to be undone, the other being
-# deleting the file, which the loop above already covers.
+# deleting the file, which the loop above already covers. The line itself goes by itself, because
+# the dispatch file is composed afresh; it is the copy that would otherwise stay on disk.
 #
 # The candidates come from the STAGING DIRECTORY: a listing of file names an earlier dispatch
-# created itself, not anything read out of the brief's prose. Each one is turned back into the line
-# this script WOULD have composed for a family of that name, and the decision is the same whole-line
-# comparison the loop above makes, against wording nothing else writes. A leaf that was never a
-# family's - a copy the Hand passed, a file called family-something by coincidence - composes a line
-# that is not in the brief and is left exactly where it is.
+# created itself, not anything read out of any prose. Each one is turned back into the line this
+# script WOULD have composed for a family of that name, and the decision is the same whole-line
+# comparison the loop above makes against this script's own earlier dispatch file, whose wording
+# nothing else writes. A leaf that was never a family's - a copy the Hand passed, a file called
+# family-something by coincidence - composes a line that file never held and is left where it is.
 #
 # The 'family-' prefix makes this scan strictly safer than the 'rules-*.md' glob it replaced: that
 # one had to consider every project's own rules file as a candidate and rule it out, where this one
@@ -1132,80 +1220,101 @@ if ($project -and (Test-Path -LiteralPath $readFirstDir -PathType Container)) {
         if ($leaf.Length -le 'family-.md'.Length) { continue }
         $wasFamily = $leaf.Substring('family-'.Length, $leaf.Length - 'family-.md'.Length)
         if (-not (Test-IndexProjectName -Project $wasFamily)) { continue }
-        $bullet = (New-AutoLine -Leaf $leaf -Entry (New-FamilyEntry -Family $wasFamily)).Trim()
-        if (-not $seen.ContainsKey($bullet)) { continue }
-        $null = $staleBullets.Add($bullet)
+        $line = (New-AutoLine -Leaf $leaf -Entry (New-FamilyEntry -Family $wasFamily)).Trim()
+        if (-not $previousSet.Contains($line)) { continue }
         $staleCopies.Add($file.FullName)
     }
 }
 
-# With no attached bullet left, the lead-in introduces nothing and goes with them.
-if ($staleBullets.Count -gt 0 -and $autoLines.Count -eq 0) {
-    $null = $staleBullets.Add($autoLeadIn.Trim())
-}
+# THE CHECKOUT WARNINGS, written by this script for every -InCheckout dispatch so that nobody has to
+# remember them. A worker in the King's own working tree has none of a worktree's protection: it is
+# on his branch, beside his uncommitted work and his stashes, and `git clean` there destroys files
+# that exist nowhere else. So the section says where it is, which branch to stay on, the commands it
+# must never run, and exactly what was already uncommitted and is not its own.
+#
+# What is uncommitted and what is stashed come from git's own listing, quoted line for line rather
+# than read for meaning - the worker is told what is there, and nothing here interprets it. It is
+# composed afresh on every dispatch, because the tree may have moved.
+$checkoutLines = @()
+if ($InCheckout) {
+    $stashes = @((& git -C $RepoPath stash list 2>$null) | Where-Object { $_ })
+    $global:LASTEXITCODE = 0
 
-$removeIndexes = [System.Collections.Generic.HashSet[int]]::new()
-if ($staleBullets.Count -gt 0) {
-    foreach ($idx in $sectionIndexes) {
-        if ($staleBullets.Contains($briefLines[$idx].Trim())) { $null = $removeIndexes.Add($idx) }
+    $checkoutLines = @(
+        '## Working in the checkout, not a worktree',
+        ("- **You are not in a worktree.** You are working in the project's own checkout at " +
+         "``$RepoPath``, which is the King's working tree."),
+        ("- **Stay on branch ``$Branch``.** Do not create, switch, rename or delete any branch, " +
+         "and touch no other branch."),
+        ("- **Never stash, reset, checkout, restore or clean anything** - ``git clean`` above all: " +
+         "a file you created is untracked until it is committed, and one clean destroys work that " +
+         "exists nowhere else."),
+        ("- **Do not commit, push or open a pull request until a prompt tells you to.** Each of " +
+         "the three is its own instruction and authorises only itself.")
+    )
+    if ($dirty.Count -eq 0) {
+        $checkoutLines += '- Nothing was uncommitted in this checkout when you were dispatched.'
+    }
+    if ($baselinePlan.notYours.Count -gt 0) {
+        $checkoutLines += ('- Already uncommitted before this session began, and **not yours** - do ' +
+                           'not revert, reformat, stage or commit it:')
+        $checkoutLines += @($baselinePlan.notYours | ForEach-Object { "  - ``$_``" })
+    }
+    if ($baselinePlan.session.Count -gt 0) {
+        $checkoutLines += ('- Uncommitted from **this session''s own earlier fixes**, made before ' +
+                           'you were relaunched - yours to commit when a prompt says so, and never ' +
+                           'to revert:')
+        $checkoutLines += @($baselinePlan.session | ForEach-Object { "  - ``$_``" })
+    }
+    if ($stashes.Count -gt 0) {
+        $checkoutLines += ('- Stashes on this repository, none of them yours - never pop, apply or ' +
+                           'drop one. Read one with `git stash show -p ''stash@{N}''`:')
+        $checkoutLines += @($stashes | ForEach-Object { "  - ``$_``" })
     }
 }
 
-if ($autoLines.Count -gt 0 -and $headingIndex -ge 0) {
-    if (@($autoLines | Where-Object { -not $seen.ContainsKey($_.Trim()) }).Count -gt 0) {
-        $anchor = $sectionEnd
-        if ($seen.ContainsKey($autoLeadIn.Trim())) {
-            $anchor = $seen[$autoLeadIn.Trim()]
-        } else {
-            if (-not $plan.ContainsKey($anchor)) {
-                $plan[$anchor] = [System.Collections.Generic.List[string]]::new()
-            }
-            $plan[$anchor].Add($autoLeadIn)
-            $toAdd += $autoLeadIn
-        }
-
-        foreach ($line in $autoLines) {
-            if ($seen.ContainsKey($line.Trim())) { $anchor = $seen[$line.Trim()]; continue }
-            if (-not $plan.ContainsKey($anchor)) {
-                $plan[$anchor] = [System.Collections.Generic.List[string]]::new()
-            }
-            $plan[$anchor].Add($line)
-            $toAdd += $line
-        }
+# The whole dispatch file, or nothing. Composed in full every time rather than patched, so a
+# re-dispatch writes exactly what this dispatch knows and nothing an earlier one left behind.
+$dispatchLines = @()
+if ($autoLines.Count -gt 0 -or $checkoutLines.Count -gt 0) {
+    $dispatchLines = @(
+        $dispatchHeading, '',
+        ("Dispatch wrote this file beside your brief, ``$BriefPath``, and it is part of that brief: " +
+         'every line here binds you exactly as the brief does. The brief itself was not edited.')
+    )
+    if ($autoLines.Count -gt 0) {
+        $dispatchLines += @('', '## Read first', $autoLeadIn) + $autoLines
+    }
+    if ($checkoutLines.Count -gt 0) {
+        $dispatchLines += @('') + $checkoutLines
     }
 }
+$dispatchWrite  = $dispatchLines.Count -gt 0 -and
+                  (($previousLines -join "`n") -cne ($dispatchLines -join "`n"))
+$dispatchRemove = $dispatchLines.Count -eq 0 -and $previousOurs
 
-# Refused BEFORE anything is created, like every other refusal here. A brief that cannot be written
-# to would leave the copies on disk with nothing telling the worker to open them - the failure this
-# attachment exists to close, arrived at through the attachment itself.
+# Refused BEFORE anything is created, like every other refusal here. A dispatch file that cannot be
+# written would leave the copies on disk with nothing telling the worker to open them - the failure
+# this attachment exists to close, arrived at through the attachment itself.
 #
-# The brief is OPENED for writing rather than inspected for its read-only flag. The flag is one cause
-# among several and not the common one: another process holding the file, or an ACL denying write,
-# reaches the Set-Content below exactly the same way and used to abort it with the copies already on
-# disk and no line naming them. Disposed at once - this asks the question, it is not the write.
-#
-# The residual this cannot close is a failure BETWEEN here and the write - a full disk, or another
-# process taking the file in that window. A retry is idempotent: the copies are overwritten in place
-# and the insertion is checked line by line against what the brief already carries, so nothing is
-# duplicated by running the dispatch again.
-#
-# Removing a stale line is a write like any other, and a stale copy is deleted just below it, so this
-# guards that case too rather than only an insertion.
-if ($toAdd.Count -gt 0 -or $removeIndexes.Count -gt 0) {
-    try { [System.IO.File]::Open($BriefPath, 'Open', 'ReadWrite', 'None').Dispose() }
+# Only a file that is already there is opened, and it is OPENED for writing rather than inspected
+# for its read-only flag: the flag is one cause among several, and another process holding the file
+# or an ACL denying the write reaches the write below exactly the same way. Disposed at once - this
+# asks the question, it is not the write. A file that is not there yet is created in the brief's own
+# directory, the same directory the copies go into.
+if (($dispatchWrite -or $dispatchRemove) -and (Test-Path -LiteralPath $dispatchFile -PathType Leaf)) {
+    try { [System.IO.File]::Open($dispatchFile, 'Open', 'ReadWrite', 'None').Dispose() }
     catch {
         $why = $_.Exception.Message
-        # Read back after the failure, so the read-only case keeps saying so plainly instead of
-        # being folded into a generic access message the reader has to interpret.
         $readOnly = $false
-        try { $readOnly = (Get-Item -LiteralPath $BriefPath).IsReadOnly } catch { }
+        try { $readOnly = (Get-Item -LiteralPath $dispatchFile).IsReadOnly } catch { }
         $cause = if ($readOnly) { 'that file is read-only' }
                  else           { "that file could not be opened for writing ($why)" }
-        $fix   = if ($readOnly) { 'Clear the read-only flag on the brief.' }
+        $fix   = if ($readOnly) { 'Clear the read-only flag on it.' }
                  else           { 'Close whatever is holding it open, or fix its permissions.' }
-        throw ("Project $project's standing files have to be named in $BriefPath under 'Read first' " +
-               "and $cause, so the worker would be handed copies nothing tells it to read. $fix " +
-               "Nothing was created.")
+        throw ("What this dispatch adds to the brief has to be written to $dispatchFile and " +
+               "$cause, so the worker would be handed copies and warnings nothing tells it to " +
+               "read. $fix Nothing was created.")
     }
 }
 
@@ -1228,25 +1337,25 @@ if ($staged.Count -gt 0 -or $autoStaged.Count -gt 0) {
     }
 }
 
-# And the brief is told, because a copy nothing names reaches nobody. Written AFTER the copies, so
-# the brief never names a file that failed to arrive. What goes in and where it goes were both
-# decided above, so nothing is recomputed here.
-if ($toAdd.Count -gt 0 -or $removeIndexes.Count -gt 0) {
-    $rewritten = [System.Collections.Generic.List[string]]::new()
-    for ($i = 0; $i -lt $briefLines.Count; $i++) {
-        if (-not $removeIndexes.Contains($i)) { $rewritten.Add($briefLines[$i]) }
-        if ($plan.ContainsKey($i)) { foreach ($l in $plan[$i]) { $rewritten.Add($l) } }
-    }
-    Set-Content -LiteralPath $BriefPath -Encoding utf8 -Value $rewritten.ToArray()
+# And the worker is told, because a copy nothing names reaches nobody. Written AFTER the copies, so
+# the file never names one that failed to arrive. Not indexed: it is derived from the brief beside
+# it and from files the index already lists, so Index.psm1 excludes it the way it excludes the
+# read-first\ copies - and an index line for it would also count towards the gate above, refusing
+# the next ordinary re-dispatch of a brief that had said nothing applied.
+if ($dispatchWrite) {
+    Set-Content -LiteralPath $dispatchFile -Encoding utf8 -Value $dispatchLines
+} elseif ($dispatchRemove) {
+    Remove-Item -LiteralPath $dispatchFile -Force
 }
+$dispatchNamed = $dispatchLines.Count -gt 0
 
 # The copy of a standing file that is no longer there. Each path was composed above from a leaf this
-# script owns, confirmed to be a file, and confirmed to be named by this script's own bullet, so this
-# removes something this script itself staged and nothing else.
+# script owns, confirmed to be a file, and confirmed to be named by this script's own earlier line,
+# so this removes something this script itself staged and nothing else.
 #
-# Deleted AFTER the rewrite, which is the safe order for a removal: an addition writes the line only
-# once the file has arrived, and a removal deletes the file only once the line naming it has gone.
-# Fail in between either way and the brief still describes what is on disk.
+# Deleted AFTER the dispatch file is rewritten, which is the safe order for a removal: an addition
+# writes the line only once the file has arrived, and a removal deletes the file only once the line
+# naming it has gone. Fail in between either way and the worker is still told what is on disk.
 foreach ($copy in $staleCopies) { Remove-Item -LiteralPath $copy -Force }
 
 # WHICH ref this is belongs to Resolve-BaseRef.ps1's header, and nothing here restates it. What
@@ -1281,7 +1390,9 @@ foreach ($copy in $staleCopies) { Remove-Item -LiteralPath $copy -Force }
 # this dispatch was verified there, on the resolver's own two grounds and before anything existed,
 # and it replaces the resolver rather than steering it; with none, Resolve-BaseRef is called exactly
 # as it always was. Either way what comes out is a single ref, used for both jobs below.
-$base = if ($baseOverride) { $baseOverride } else { Resolve-BaseRef -RepoPath $RepoPath }
+$base = if ($InCheckout)       { $checkoutBase }
+        elseif ($baseOverride) { $baseOverride }
+        else                   { Resolve-BaseRef -RepoPath $RepoPath }
 
 # SAID OUT LOUD ON EVERY DISPATCH THAT NAMED ITS OWN BASE, and unconditionally: the resolver is the
 # thing that warns when the branch point and the pull request target come apart, and naming a base
@@ -1306,8 +1417,15 @@ if ($baseOverride) {
                    "own work. Check what the pull request targets before landing.")
 }
 
-$branch   = "worktree-$Name"
-$worktree = Join-Path (Join-Path (Join-Path $RepoPath '.claude') 'worktrees') $Name
+# In the checkout there is no worktree and no branch of kingshand's: the worker's directory IS the
+# repo path, and its branch is the one the King named and the checkout was confirmed to be on.
+if ($InCheckout) {
+    $branch   = $Branch
+    $worktree = $RepoPath
+} else {
+    $branch   = "worktree-$Name"
+    $worktree = Join-Path (Join-Path (Join-Path $RepoPath '.claude') 'worktrees') $Name
+}
 
 function Get-GitOutput {
     param([Parameter(Mandatory)][string[]]$Arguments)
@@ -1333,52 +1451,86 @@ function Test-WorktreeRegistered {
     $false
 }
 
-# A worktree whose directory was deleted by hand is still recorded under .git\worktrees, and
-# `git worktree add` at that path then refuses with "already exists" about a directory nobody can
-# see. Pruning first turns that into an ordinary fresh add.
-$null = Get-GitOutput @('worktree', 'prune')
-
-# Re-dispatching the same ticket is ordinary - a worker that stopped at the trust dialog, or one
-# the King sent back to keep going - and `git worktree add -b` cannot be told twice. So the three
-# states are decided here rather than left to a raw git error the Hand would have to interpret.
-if (Test-WorktreeRegistered $worktree) {
-    # Already a checkout of this ticket's branch. Reuse it: whatever the previous attempt committed
-    # is the work in progress, and discarding it to get a clean `add` would throw that away.
-    if (-not (Test-LocalBranch $branch)) {
-        throw ("A worktree is already registered at $worktree but branch $branch does not exist, " +
-               "so this is not a kingshand worker's checkout. Resolve it by hand - dispatch will " +
-               "not repoint someone else's worktree.")
+if ($InCheckout) {
+    # No prune and no worktree add: the King's repository is not touched beyond the one settings
+    # file, and that file is recorded before it is changed. The record is indexed as it is written,
+    # like every durable file under data\, and Stop-CheckoutWorker drops the line with the file.
+    $null = Set-CheckoutWorkerSettings -Plan $checkoutPlan
+    try {
+        $null = Add-IndexEntry -Path $checkoutRecord -Project $project -DataPath $DataPath `
+                    -Summary ("what the checkout's settings file held before worker $Name was " +
+                              'dispatched into it; restored and removed at cleanup')
+    } catch {
+        Write-Warning "The record at $checkoutRecord could not be indexed ($($_.Exception.Message))."
     }
-} elseif (Test-Path -LiteralPath $worktree) {
-    throw ("$worktree already exists and git does not own it, so a worktree cannot be created " +
-           "there. Remove it, or dispatch this ticket under a different name.")
-} elseif (Test-LocalBranch $branch) {
-    # The branch survived its worktree - the usual shape after a teardown that removed the
-    # directory but kept the work. Check it out again rather than branching a second time from a
-    # base that has since moved.
-    $out = Get-GitOutput @('worktree', 'add', $worktree, $branch)
-    if ($LASTEXITCODE -ne 0) { throw "git worktree add $worktree $branch failed: $out" }
+    if (Set-CheckoutBaseline -Plan $baselinePlan) {
+        try {
+            $null = Add-IndexEntry -Path $baselinePlan.path -Project $project -DataPath $DataPath `
+                        -Summary ("what was uncommitted in the checkout before worker $Name's " +
+                                  'session began; kept across a relaunch, removed when it ends')
+        } catch {
+            Write-Warning "The baseline at $($baselinePlan.path) could not be indexed ($($_.Exception.Message))."
+        }
+    }
+    # The checkout is a directory the King works in, so it is almost always trusted already and
+    # this returns 'already'. Where it is not, the worker would stop on the dialog with nobody there.
+    $trust = Grant-ClaudeFolderTrust -Path $RepoPath
 } else {
-    $out = Get-GitOutput @('worktree', 'add', '-b', $branch, $worktree, $base)
-    if ($LASTEXITCODE -ne 0) { throw "git worktree add -b $branch $worktree $base failed: $out" }
+    # A worktree whose directory was deleted by hand is still recorded under .git\worktrees, and
+    # `git worktree add` at that path then refuses with "already exists" about a directory nobody can
+    # see. Pruning first turns that into an ordinary fresh add.
+    $null = Get-GitOutput @('worktree', 'prune')
+
+    # Re-dispatching the same ticket is ordinary - a worker that stopped at the trust dialog, or one
+    # the King sent back to keep going - and `git worktree add -b` cannot be told twice. So the three
+    # states are decided here rather than left to a raw git error the Hand would have to interpret.
+    if (Test-WorktreeRegistered $worktree) {
+        # Already a checkout of this ticket's branch. Reuse it: whatever the previous attempt committed
+        # is the work in progress, and discarding it to get a clean `add` would throw that away.
+        if (-not (Test-LocalBranch $branch)) {
+            throw ("A worktree is already registered at $worktree but branch $branch does not exist, " +
+                   "so this is not a kingshand worker's checkout. Resolve it by hand - dispatch will " +
+                   "not repoint someone else's worktree.")
+        }
+    } elseif (Test-Path -LiteralPath $worktree) {
+        throw ("$worktree already exists and git does not own it, so a worktree cannot be created " +
+               "there. Remove it, or dispatch this ticket under a different name.")
+    } elseif (Test-LocalBranch $branch) {
+        # The branch survived its worktree - the usual shape after a teardown that removed the
+        # directory but kept the work. Check it out again rather than branching a second time from a
+        # base that has since moved.
+        $out = Get-GitOutput @('worktree', 'add', $worktree, $branch)
+        if ($LASTEXITCODE -ne 0) { throw "git worktree add $worktree $branch failed: $out" }
+    } else {
+        $out = Get-GitOutput @('worktree', 'add', '-b', $branch, $worktree, $base)
+        if ($LASTEXITCODE -ne 0) { throw "git worktree add -b $branch $worktree $base failed: $out" }
+    }
+
+    # The two grants that used to be `--permission-mode bypassPermissions --add-dir <briefdir>` on the
+    # command line. Written into the WORKTREE, which is a fresh checkout with no .claude of its own -
+    # nothing carries across from the main checkout, because settings.local.json is untracked. The
+    # same file carries the grant to edit this worktree's own .claude folder.
+    $null = Set-WorkerWorkspaceSettings -WorktreePath $worktree -AdditionalDirectories @($briefDir)
+
+    # Pre-seeded rather than answered afterwards with a synthetic keystroke: this is a written,
+    # inspectable record made before launch, and it cannot race the dialog. Its result is kept because
+    # a worker that comes back blocked is almost always a trust grant that did not land, and saying so
+    # is the difference between an actionable failure and "the agent is blocked".
+    $trust = Grant-ClaudeFolderTrust -Path $worktree
 }
 
-# The two grants that used to be `--permission-mode bypassPermissions --add-dir <briefdir>` on the
-# command line. Written into the WORKTREE, which is a fresh checkout with no .claude of its own -
-# nothing carries across from the main checkout, because settings.local.json is untracked.
-$null = Set-WorkerWorkspaceSettings -WorktreePath $worktree -AdditionalDirectories @($briefDir)
-
-# Pre-seeded rather than answered afterwards with a synthetic keystroke: this is a written,
-# inspectable record made before launch, and it cannot race the dialog. Its result is kept because
-# a worker that comes back blocked is almost always a trust grant that did not land, and saying so
-# is the difference between an actionable failure and "the agent is blocked".
-$trust = Grant-ClaudeFolderTrust -Path $worktree
+# What a failure from here on leaves behind in the checkout, said in the one place it is composed.
+# Nothing was created there but the grants, and those stay until the cleanup puts them back.
+$checkoutLeft = ("The checkout at $RepoPath is on $branch exactly as before. Its settings file " +
+                 "carries this worker's grants until Stop-CheckoutWorker puts it back from " +
+                 "$checkoutRecord.")
 
 Start-HerdrServer
 $paneId = New-HerdrPane -Cwd $worktree
 
 $agent = Start-HerdrAgent -Name $Name -PaneId $paneId -TimeoutMs ($TimeoutSeconds * 1000)
 if (-not $agent) {
+    if ($InCheckout) { throw ("herdr started no agent for $Name in pane $paneId. $checkoutLeft") }
     throw ("herdr started no agent for $Name in pane $paneId. The worktree at $worktree and " +
            "branch $branch were created and are untouched.")
 }
@@ -1395,20 +1547,32 @@ $state = Get-HerdrAgentState -Name $Name
 if ($state -eq 'blocked') {
     $why = if ($trust.granted) { "folder trust was recorded ($($trust.reason))" }
            else { "folder trust was NOT recorded ($($trust.reason))" }
+    $tail = if ($InCheckout) { $checkoutLeft }
+            else { "The worktree at $worktree and branch $branch exist and hold no work yet." }
     throw ("Worker $Name started but is blocked on an interactive prompt in pane $paneId - " +
            "$why. Read it with Read-HerdrAgent and answer it deliberately; nothing here sends " +
-           "keys at a prompt it has not read. The worktree at $worktree and branch $branch exist " +
-           "and hold no work yet.")
+           "keys at a prompt it has not read. $tail")
 }
 
 # One line, so the brief cannot be lost in transit and the worker has to open the file. The worker
 # reads the rest from disk, which is also what lets it re-read its own brief mid-task.
-$prompt = "Read the file $BriefPath in full - it is your brief and the complete statement of " +
-          "your task - then carry it out exactly as written. Treat every requirement, exclusion " +
-          "and Done-means item in it as binding. If you cannot read that file, stop immediately " +
-          "and report that instead of guessing at the task."
+#
+# The dispatch file is named here whenever this dispatch wrote one, because it is the only thing
+# that tells the worker it exists: nothing in the brief mentions it, by design.
+$prompt = if ($dispatchNamed) {
+    "Read the file $BriefPath in full - it is your brief and the complete statement of your " +
+    "task - and then the file $dispatchFile, which dispatch wrote beside it and which binds you " +
+    "exactly as the brief does. Carry out both exactly as written. Treat every requirement, " +
+    "exclusion and Done-means item in them as binding. If you cannot read either file, stop " +
+    "immediately and report that instead of guessing at the task."
+} else {
+    "Read the file $BriefPath in full - it is your brief and the complete statement of " +
+    "your task - then carry it out exactly as written. Treat every requirement, exclusion " +
+    "and Done-means item in it as binding. If you cannot read that file, stop immediately " +
+    "and report that instead of guessing at the task."
+}
 
-# No -Wait: the caller arms the wait, as a background job running Wait-HerdrAgent, and its
+# No -Wait: the caller arms the watch, as a background job running bin\Watch.ps1, and its
 # completion is what wakes the Hand. Waiting here would hold the Hand for the whole first turn.
 #
 # The status this returns is STALE by design - herdr's `agent prompt` returns before the state
@@ -1416,9 +1580,44 @@ $prompt = "Read the file $BriefPath in full - it is your brief and the complete 
 # as progress here, only for the one thing it can say straight away: that the prompt bounced.
 $submitted = Send-HerdrPrompt -Name $Name -Text $prompt
 if ($submitted -and $submitted.PSObject.Properties.Name -contains 'blocked') {
+    if ($InCheckout) {
+        throw ("Worker $Name would not take its brief - it is blocked on an interactive prompt " +
+               "in pane $paneId. Read the pane with Read-HerdrAgent before answering anything. " +
+               "$checkoutLeft")
+    }
     throw ("Worker $Name would not take its brief - it is blocked on an interactive prompt in " +
            "pane $paneId. The worktree at $worktree and branch $branch exist; read the pane with " +
            "Read-HerdrAgent before answering anything.")
+}
+
+# The write above is not the worker taking it. Confirmed here, within seconds, so a start prompt
+# left in the box comes back as a refusal naming what was seen rather than as a dispatch. An empty
+# box on a worker not yet working, or a screen that could not be read, may still be a worker that
+# starts, so those return with a warning rather than leave a live worker nobody records. Herdr.psm1
+# owns the outcomes and the one resend; nothing here sends anything.
+$confirmArgs = @{ Name = $Name }
+if ($PromptConfirmSeconds -gt 0) { $confirmArgs.TimeoutMs = $PromptConfirmSeconds * 1000 }
+$taken = Confirm-HerdrPromptTaken @confirmArgs
+if ($taken.outcome -in @('not-started', 'unreadable')) {
+    $seen = if ($taken.outcome -eq 'not-started') {
+                'its input box is empty but it had not started working by the deadline'
+            } else { 'its screen could not be read, so nothing could confirm it' }
+    Write-Warning ("Worker $Name start prompt not confirmed ($($taken.outcome.ToUpperInvariant())) " +
+                   "- $seen. The worker exists and may still start; record it and arm its watch " +
+                   "as usual. Never send the brief again, which would submit it twice.")
+} elseif (-not $taken.taken) {
+    $seen = switch ($taken.outcome) {
+        'unsent'      { "its start prompt is still sitting unsent in its input box" +
+                        $(if ($taken.resent) { ' after one Enter' } else { '' }) }
+        'blocked'     { 'it is blocked on an interactive prompt' }
+        'gone'        { 'herdr no longer knows it' }
+        default       { "the confirmation answered '$($taken.outcome)'" }
+    }
+    $tail = if ($InCheckout) { $checkoutLeft }
+            else { "The worktree at $worktree and branch $branch exist and hold no work yet." }
+    throw ("Worker $Name did not take its brief ($($taken.outcome.ToUpperInvariant())) - $seen, " +
+           "in pane $paneId. Read the pane with Read-HerdrAgent before doing anything; never " +
+           "send the brief again, which would submit it twice. $tail")
 }
 
 # Whether the guard can actually read this worker, checked once and reported rather than assumed.
@@ -1444,10 +1643,18 @@ if (-not $readable) {
                    "dispatch starts a clean one.")
 }
 
-[hashtable]@{
-    id       = $Name
-    worktree = $worktree
-    branch   = $branch
-    base     = $base
-    readable = $readable
+$result = [hashtable]@{
+    id          = $Name
+    worktree    = $worktree
+    branch      = $branch
+    base        = $base
+    readable    = $readable
+    startPrompt = $taken.outcome
 }
+# Two more keys for a checkout worker and none for a worktree one, so an ordinary dispatch returns
+# exactly the shape it always has. The record path is what Stop-CheckoutWorker takes back.
+if ($InCheckout) {
+    $result.checkout       = $true
+    $result.settingsRecord = $checkoutRecord
+}
+$result

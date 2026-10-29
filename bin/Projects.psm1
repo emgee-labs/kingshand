@@ -7,7 +7,7 @@ Set-StrictMode -Version Latest
 # A task's mode is resolved at intake and passed explicitly to the brief and the dispatch.
 #
 # Entry format (data\projects.md), byte-compatible with firstmate's line plus a path line:
-#   - <name> [<mode> +yolo +merge +family:<family>] - <desc> (added <date>)
+#   - <name> [<mode> +yolo +merge +watch-merge +family:<family>] - <desc> (added <date>)
 #         path: <absolute path>
 #
 # `+merge` is the per-repository permission to merge that project's own green pull requests on the
@@ -22,6 +22,12 @@ Set-StrictMode -Version Latest
 # unknown mode resets the whole annotation; and an unreadable registry throws out of
 # Get-ProjectEntry rather than returning a value at all, so a caller never receives 'off' as a
 # substitute for "could not tell", and never receives 'on' by accident.
+#
+# `+watch-merge` is night's watch's own permission to merge that project's green pull requests
+# while the King is away, reported as 'on' or 'off' on the entry's `watchMerge` key. It is
+# INDEPENDENT of `+merge`: neither implies the other, and `+merge` alone grants night's watch
+# nothing. It is read exactly as strictly as `+merge` - off unless the token is there, and forced
+# off by every failure that forces `+merge` off. `muster` Step 7 owns what it permits.
 #
 # `+family:<name>` names the family of projects this one belongs to, reported on the entry's
 # `family` key. A family is a set of repositories that share conventions, and its shared rules live
@@ -42,10 +48,10 @@ Set-StrictMode -Version Latest
 # declaring two is a line this parser could not read unambiguously. The same family declared twice
 # is read as the one family it names.
 #
-# Merge and family are the strict ones, deliberately: mode and yolo keep their existing leniency,
-# because an unrecognised token has never changed either and this is not the change that makes it.
-# An annotation this parser could not read in full yields neither the permission nor the family, and
-# an unknown mode drops both with everything else the annotation granted.
+# Merge, watch-merge and family are the strict ones, deliberately: mode and yolo keep their existing
+# leniency, because an unrecognised token has never changed either and this is not the change that
+# makes it. An annotation this parser could not read in full yields neither permission nor the
+# family, and an unknown mode drops all three with everything else the annotation granted.
 #
 # All strictness lives in Get-ProjectEntry. Get-ProjectPosture inherits it by calling through.
 # Get-AllProjects is the sole lenient function: it is a listing and validates nothing.
@@ -88,6 +94,7 @@ function Read-Registry {
         $mode   = 'no-mistakes'
         $yolo   = 'off'
         $merge  = 'off'
+        $watchMerge = 'off'
         $family = ''
 
         $ann = $m.Groups['ann'].Value.Trim()
@@ -107,6 +114,8 @@ function Read-Registry {
                         $yolo = 'on'
                     } elseif ($tok -eq '+merge') {
                         $merge = 'on'
+                    } elseif ($tok -eq '+watch-merge') {
+                        $watchMerge = 'on'
                     } elseif ($tok.StartsWith('+family:')) {
                         # Two questions, both fatal to the token and neither to the mode: whether
                         # the name can be a file name at all, and whether this entry already
@@ -119,7 +128,7 @@ function Read-Registry {
                             # name is PowerShell's scope qualifier - "$name:" is a parse error, not
                             # the sentence it looks like.
                             Write-Warning ("Unusable family token '$tok' for ${name}: the name after " +
-                                           "'+family:' becomes the file name data\rules-$declared.md, " +
+                                           "'+family:' becomes the file name data\families\$declared.md, " +
                                            "which allows only $(Get-IndexProjectNameRule). It declares " +
                                            'no family, and merge is forced off for this entry.')
                             $annReadInFull = $false
@@ -155,6 +164,7 @@ function Read-Registry {
                         $mode   = 'no-mistakes'
                         $yolo   = 'off'
                         $merge  = 'off'
+                        $watchMerge = 'off'
                         $family = ''
                         break
                     }
@@ -162,12 +172,13 @@ function Read-Registry {
                     # A bare token after the mode used to fall through both branches in silence,
                     # so the annotation was partly unread and nothing said so.
                     Write-Warning ("Unrecognised token '$tok' for $name; it grants nothing, " +
-                                   'and merge is forced off for this entry.')
+                                   'and merge is forced off for this entry, along with any ' +
+                                   'family declared on the same line.')
                     $annReadInFull = $false
                 }
             }
 
-            if (-not $annReadInFull) { $merge = 'off'; $family = '' }
+            if (-not $annReadInFull) { $merge = 'off'; $watchMerge = 'off'; $family = '' }
         }
 
         $added = ''
@@ -209,6 +220,7 @@ function Read-Registry {
             rawMode     = $rawMode
             yolo        = $yolo
             merge       = $merge
+            watchMerge  = $watchMerge
             # Always present, and the empty string where no family is declared - the header owns
             # why that rather than a word.
             family      = $family
@@ -291,6 +303,9 @@ function Add-ProjectEntry {
         [Parameter(Mandatory)][string]$Description,
         [switch]$Yolo,
         [switch]$Merge,
+        # Night's watch's own merge permission, independent of -Merge. Off for every caller that
+        # does not pass it, which is the default the token takes.
+        [switch]$WatchMerge,
         # The family this project belongs to, or nothing. EMPTY IS THE ORDINARY CASE and the default
         # every import takes unless the user names a family: most projects share conventions with no
         # other repository, so the entry is written exactly as it always was and no token appears.
@@ -310,6 +325,11 @@ function Add-ProjectEntry {
         throw ("Cannot register '$Name' as local-only with -Merge: a local-only project never " +
                'pushes, so it has no forge and no pull request to merge. Register it with a ' +
                'push-capable mode, or register it without -Merge.')
+    }
+    if ($WatchMerge -and $Mode -eq 'local-only') {
+        throw ("Cannot register '$Name' as local-only with -WatchMerge: a local-only project never " +
+               'pushes, so it has no pull request for night''s watch to merge. Register it with a ' +
+               'push-capable mode, or register it without -WatchMerge.')
     }
 
     # Refused where the family is chosen, for the reason the project name below is: the name becomes
@@ -360,6 +380,7 @@ function Add-ProjectEntry {
     $tokens = @($Mode)
     if ($Yolo)       { $tokens += '+yolo' }
     if ($Merge)      { $tokens += '+merge' }
+    if ($WatchMerge) { $tokens += '+watch-merge' }
     if ($familyName) { $tokens += "+family:$familyName" }
     $ann   = '[' + ($tokens -join ' ') + ']'
     $added = Get-Date -Format 'yyyy-MM-dd'

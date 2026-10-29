@@ -250,7 +250,7 @@ Describe 'the local-only push prohibition survives' {
 
     It 'the skill forbids removing that prohibition' {
         Assert-Phrase -Text (Get-DocText $script:MusterMd) -Where 'the muster skill' `
-            -Phrase 'never remove the push prohibition from the `local-only` variant'
+            -Phrase 'Never remove the push prohibition from the `local-only` variant'
     }
 
     It 'an unregistered project is never pushed' {
@@ -321,6 +321,85 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
         Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
             -Phrase ('never merge a run whose gate did not complete every step through `pr` ' +
                      'with a clean attribution scan')
+    }
+
+    # A dispatch that ran no review gate leaves a brief on disk and the memory of why in a session
+    # that may not survive. Without this floor a restart meets an ordinary-looking green branch on
+    # a +merge project and merges a run nothing reviewed. The floor reads the durable marker rather
+    # than a gate outcome, so it holds on the direct-PR limb where there is no gate to have missed.
+    It 'refuses a forge merge on a run whose own record says it had no review gate' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**Never merge on the forge a run whose brief or `report.md` carries the line ' +
+                     '`PARLEY DISPATCH - NO REVIEW GATE RAN.`**, on any posture and whatever that ' +
+                     'project''s entry declares with `+merge`.')
+        # Two inputs, either sufficient. A single report.md input made the floor depend on worker
+        # compliance; brief.md is written by the Hand before any worker exists. Stated as a recipe
+        # rather than as a prohibition: a negation here reads as a condition on the trigger, and
+        # the compliant case has the line in both files - exactly where a misread lets it merge.
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**Read both files, and refuse the merge the moment the line appears in one of ' +
+                     'them** - one hit is the whole trigger, and finding it in both is the ordinary ' +
+                     'case rather than a different one.')
+        $step.Contains('never both') |
+            Should -BeFalse -Because 'a negation here is readable as narrowing when the floor fires'
+        # The read has to be instructed here, because nothing earlier in muster opens a brief.
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase '**Read both before deciding a merge**, because nothing earlier in this skill opens the brief'
+        $step.Contains('"$env:KINGSHAND_HOME\data\<id>\brief.md", "$env:KINGSHAND_HOME\data\<id>\report.md"') |
+            Should -BeTrue -Because 'the floor names both files it reads, so the read is runnable'
+        # THE FLOOR'S EVIDENCE IS TWO FILES AND IT USED TO STATE NO MEANING FOR ONE IT COULD NOT
+        # READ. Select-String writes its error to stderr per missing path and returns nothing for
+        # it, so no-hit and could-not-read arrived as the same empty output - and the floor only
+        # ever fired on a hit. A moved data directory therefore failed it OPEN and merged a run
+        # nothing reviewed. An unreadable input reads as unreadable, never as a state word.
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**Three answers, and only `CLEAN` on both files clears this floor.** `MARKER` ' +
+                     'refuses the merge. **`UNREADABLE` refuses it too**')
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('a file that is missing or that could not be opened has not been checked, so ' +
+                     'it says nothing about the marker and must never be read as the marker being ' +
+                     'absent')
+        # The refusal has to name its own failure rather than reporting a clean run.
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('Say which path it was and say that the marker could not be checked, rather ' +
+                     'than reporting a run as unmarked, and the merge waits until both files have ' +
+                     'actually been read.')
+        # The command itself has to distinguish the three answers, or the prose is describing a
+        # read the reader cannot perform.
+        $fence = @(Get-CodeFence $script:MusterMd |
+                   Where-Object { $_.Contains('PARLEY DISPATCH - NO REVIEW GATE RAN.') })
+        $fence.Count | Should -Be 1 -Because 'one runnable block reads the marker'
+        $fence[0].Contains('if (-not (Test-Path -LiteralPath $f))') |
+            Should -BeTrue -Because 'each path is tested before it is matched'
+        foreach ($answer in @('UNREADABLE', 'MARKER', 'CLEAN')) {
+            $fence[0].Contains($answer) |
+                Should -BeTrue -Because "the read must report $answer as its own answer"
+        }
+        $fence[0].Contains('-ErrorAction SilentlyContinue') |
+            Should -BeFalse -Because 'a swallowed error is exactly how could-not-read became no-hit'
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**`brief.md` is the copy that does not depend on the worker**: the Hand wrote ' +
+                     'it before any worker existed and nothing the worker does can change it')
+        # Keyed on one closed token, never on meaning. muster's own Step 2 template has every
+        # gateless worker writing about the absent gate in passing, so a floor that matched the
+        # sense of it would refuse ordinary direct-PR merges the +merge grant allows.
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**Match that exact line and nothing else** - not a sentence that means the ' +
+                     'same thing - because an ordinary gateless brief mentions having no review ' +
+                     'gate in passing all the time')
+        # A bare refusal sends the user a wall they cannot judge. The reason is the deliverable.
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**Say why rather than only refusing**: this run had no review gate, so nothing ' +
+                     'has established it is safe to merge')
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**this floor survives a restart and does not depend on knowing how the work ' +
+                     'was dispatched.**')
+        # It is a merge floor and not a landing floor, and collapsing the two would strand every
+        # quick dispatch on its branch with no way to reach a pull request at all.
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**It blocks the forge merge only**: landing on a branch and opening a pull ' +
+                     'request are unaffected.')
     }
 
     It 'CLAUDE.md rule 2 carries the default-off fact and points at the owner' {
@@ -425,22 +504,83 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
             -Phrase ('Step 6 is the only place a parked worker is seen')
     }
 
-    # Get-RepoCiStatus returns three states and Ci.psm1 documents `unknown` taking `no-ci`'s brief
-    # line on purpose. That equivalence is safe at Step 1b, where the line says STOP, and unsafe
-    # here, where carrying it across merges with nothing established about the checks.
+    # Get-RepoCiStatus returns three states, and `unknown` and `no-ci` still send a worker to the
+    # same place - stopped at the pull request. That resemblance is safe at Step 1b, where stopping
+    # is the whole instruction, and unsafe here, where carrying it across merges with nothing
+    # established about the checks.
     It 'Step 8a keeps unknown apart from the absent-check case' {
         $step = Get-MusterStep 'Step 8a'
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
-            -Phrase ('**`unknown` and `no-ci` are interchangeable at Step 1b and are not ' +
-                     'interchangeable here.**')
+            -Phrase ('**`unknown` and `no-ci` both stop a worker at the pull request, and only one ' +
+                     'of them is green here.**')
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
-            -Phrase ('stopping under uncertainty is safe; merging under uncertainty is not, so ' +
-                     'the two part company at exactly this step')
+            -Phrase ('the resemblance ends at exactly this step')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('`no-ci` skips the `ci` step outright and `unknown` runs it with the wait ' +
+                     'bounded by a sentence')
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
             -Phrase ('`unknown` - **not green.**')
         # The no-mistakes limb leans on Step 1b's answer and must not inherit the equivalence.
         Assert-Phrase -Text $step -Where 'muster Step 8a' `
             -Phrase ('**An `unknown` from that preflight is not the absent-check case**')
+    }
+
+    # The limb above requires the run's own `ci` outcome, and on a `no-ci` repository the gate line
+    # skipped that step, so there is no outcome to require. Read as a missing green it strands every
+    # such project here; read as the settled absence it is, the merge goes ahead. `unknown` runs the
+    # step, so it stays out of that sentence and its outcome is required like any other.
+    It 'Step 8a reads a skipped ci step as the settled absence, not as a missing green' {
+        $step = Get-MusterStep 'Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('Or Step 1b answered `no-ci`, in which case that brief''s gate line carried ' +
+                     '`--skip ci` and the run has no `ci` outcome at all.')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**A skipped step has no outcome, and here that absence is the settled ' +
+                     'absent-check case rather than a missing green**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('its gate line carries no skip, so its run does have a `ci` step and that ' +
+                     'step''s outcome is required like any other')
+    }
+
+    # Detection samples the default branch, so a provider that posts checks only on pull-request
+    # head commits settles `no-ci` wrongly - and with the `ci` step skipped, nothing else would look
+    # at CI before a `+merge` merge. One read of the pull request itself closes that, and it is a
+    # read rather than a wait, so it reinstates nothing the skip removed.
+    It 'the no-ci limb reads the pull request itself before merging on that answer' {
+        $step = Get-MusterStep 'Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**Read the pull request itself once before merging on that answer**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**If that read reports checks, every one of them must pass.**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**If it reports no checks at all, that is the settled absent-check case and ' +
+                     'the merge proceeds.**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**that exit code is not a failing check - tell the two apart by what it ' +
+                     'printed, never by the exit status alone.**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**This is one read of what the forge already knows: not a wait, not a poll, ' +
+                     'and not the `ci` step coming back.**')
+    }
+
+    # Step 1b never runs for `direct-PR`, so this limb's own detection is the only CI evidence in
+    # the whole flow - it needs the read at least as much as the limb that has one. Two limbs
+    # disagreeing about whether detection can be trusted is also worse than either answer alone,
+    # because nothing tells a reader which of the two is the intended rule.
+    It 'the direct-PR limb reads the pull request on no-ci too, rather than merging on detection' {
+        $step = Get-MusterStep 'Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('- `no-ci` - **read the pull request once before merging on that answer**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**If that read reports checks, every one of them must pass.** A red or a ' +
+                     'pending check is not green and goes to the user. **If it reports no checks ' +
+                     'at all, that is the settled absent-check case and the merge proceeds**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase ('**that exit code is not a failing check - tell the two apart by what it ' +
+                     'printed, never by the exit status alone.** **This is one read of what the ' +
+                     'forge already knows: not a wait and not a poll.**')
+        Assert-Phrase -Text $step -Where 'muster Step 8a' `
+            -Phrase '**Both limbs carry this read, and they must agree.**'
     }
 
     # "CI green on the pull request" had no command, while every other evidence read in the step
@@ -615,18 +755,18 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
     }
 
     It 'local-only is named as needing nothing, scoped to its delivery' {
-        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
             -Where 'muster Step 2' `
             -Phrase ('**`local-only` is untouched**: no Done-means block above changes, because ' +
                      'none of them pushes or opens a pull request')
-        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
             -Where 'muster Step 2' `
             -Phrase ('a comment or a work item on a `local-only` project is gated by rule 2 like ' +
                      'any other')
     }
 
     It 'muster Step 2 replaces the direct-PR outward bullet with a stop' {
-        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
             -Where 'muster Step 2' `
             -Phrase ('Leave the work committed and stop there. Do not push, do not open a ' +
                      'pull request, do not comment anywhere, and do not create or update a work ' +
@@ -634,37 +774,51 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
     }
 
     It 'muster Step 2 replaces the no-mistakes pipeline bullet with a gate run that stops locally' {
-        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -') `
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
             -Where 'muster Step 2' `
             -Phrase ('Run the gate with `--skip push,pr,ci` so it stops at the last local step, ' +
                      'and fix everything it parks.')
     }
 
     # Holding the push back delays the CI wait, it does not remove it: the approved run is a full
-    # run and reaches the ci step. Dropping $ci.briefLine here reinstates the unbounded wait that
-    # the Step 1b preflight exists to end, on exactly the repositories that cannot report a check.
-    It 'the approved run still carries the CI brief line rather than losing it' {
-        $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -'
+    # run and reaches every step its gate line leaves in. Both of Step 1b's lines have to survive
+    # into that bullet - and it names the gate line rather than saying "again without `--skip`",
+    # because on a `no-ci` repository that sentence drops `--skip ci` along with the push hold and
+    # puts the worker straight back inside the unbounded wait the preflight exists to end.
+    It 'the approved run still carries both of the CI lines rather than losing them' {
+        $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface'
         Assert-Phrase -Text $region -Where 'muster Step 2' `
-            -Phrase ('- When you are told the push is approved, run the same gate line again ' +
-                     'without `--skip`. <the `Drive the pipeline` bullet Step 1b chose, verbatim>')
+            -Phrase ('- When you are told the push is approved, run the gate line again with the ' +
+                     'push hold lifted: <the gate line Step 1b chose, verbatim> <the `Drive the ' +
+                     'pipeline` bullet Step 1b chose, verbatim>')
         Assert-Phrase -Text $region -Where 'muster Step 2' `
-            -Phrase ('**`$ci.briefLine` is carried into that second bullet unchanged, never ' +
-                     'dropped.**')
+            -Phrase ('**Both of Step 1b''s lines are carried into that second bullet unchanged, ' +
+                     'never dropped.**')
         Assert-Phrase -Text $region -Where 'muster Step 2' `
-            -Phrase ('Holding the push back delays the CI wait; it does not remove it')
+            -Phrase ('holding the push back delays the CI wait, it does not remove it')
     }
 
-    # The flags used to be forbidden outright for a no-mistakes project. They are now the stop
-    # itself, which is exactly one reason - and a reason worth pinning, because "shorten the run"
-    # is the misuse the old prohibition existed to prevent and it is still a misuse.
-    It 'the skip flags have exactly one sanctioned use and it is named' {
-        $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'Step 3 -'
+    # The flags used to be forbidden outright for a no-mistakes project, then had exactly one
+    # sanctioned use. The CI preflight adds the second and no more: `--skip ci` where `no-ci` was
+    # proven. Both are pinned, because "shorten the run" and "CI looks unlikely to report" are the
+    # misuses the original prohibition existed to prevent and they are still misuses.
+    It 'the skip flags have exactly two sanctioned uses and both are named' {
+        $region = Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface'
         Assert-Phrase -Text $region -Where 'muster Step 2' `
-            -Phrase ('there is exactly one reason to add them: `yolo` off, per the section ' +
-                     'above, where they are what holds the push back until the user has answered')
+            -Phrase ('`--skip` has exactly two sanctioned uses on this path and nothing else may ' +
+                     'add one.')
         Assert-Phrase -Text $region -Where 'muster Step 2' `
-            -Phrase 'on a `+yolo` project the flags never appear at all'
+            -Phrase ('The first is `--skip push,pr,ci` with `yolo` off, per the section above, ' +
+                     'where the flags are what holds the push back until the user has answered')
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase ('The second is `--skip ci` on the gate line of a `no-ci` brief, where Step 1b ' +
+                     'established that nothing can report a check')
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase 'on a `+yolo` project those three flags never appear at all'
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase '**No justification widens past its own scope.**'
+        Assert-Phrase -Text $region -Where 'muster Step 2' `
+            -Phrase 'neither one licenses adding a step the other needed'
     }
 
     It 'the landing gate is held before the push and says what the approval buys' {
@@ -691,18 +845,59 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
     # the direct-PR text to a no-mistakes worker pushes around the gate's own push and pr steps -
     # the attribution scan, the PR body, the CI hand-off - on a project registered to have them,
     # and the result looks like a delivered pull request either way.
-    It 'the steer is split by mode, and the wrong one is named as the failure' {
+    #
+    # THE SELECTOR IS THE BRIEF'S OWN BLOCK AND NOT THE RESOLVED MODE. A parley dispatch takes
+    # Step 2's direct-PR Done-means block on a task resolved to no-mistakes, so a mode-keyed steer
+    # sends that worker after a push-approved bullet its brief never carried - and a worker
+    # improvising a gate line reinstates the review gate the dispatch was authorised to leave out.
+    It 'the steer is split by the brief''s own block, and the wrong one is named as the failure' {
         $step = Get-MusterStep 'Step 7 - Gate two'
         Assert-Phrase -Text $step -Where 'the landing gate' `
-            -Phrase '**There are two steers and the resolved mode picks which**'
+            -Phrase ('**There are two steers and the brief''s own Done-means block picks which, ' +
+                     'never the resolved mode**')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**a brief carrying the push-approved bullet that names a gate line takes the ' +
+                     '`no-mistakes` steer, and a brief with no such bullet took Step 2''s ' +
+                     '`direct-PR` block and takes the `direct-PR` steer**, whatever mode the task ' +
+                     'resolved to.')
+        $step.Contains('There are two steers and the resolved mode picks which') |
+            Should -BeFalse -Because 'the mode is what a parley brief and its block disagree on'
+        # The case that separates the two has to be named, or the next reader keys it back on the
+        # mode as the obvious simplification.
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase '**The two come apart on a quick dispatch.**'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('a worker improvising a gate line reinstates the review gate that dispatch ' +
+                     'was authorised to leave out')
         Assert-Phrase -Text $step -Where 'the landing gate' `
             -Phrase ('For a `no-mistakes` worker, which must re-enter the pipeline rather than ' +
                      'push by hand')
         Assert-Phrase -Text $step -Where 'the landing gate' `
             -Phrase ('**Sending the `direct-PR` steer to a `no-mistakes` worker pushes around ' +
                      'the gate**')
-        $step | Should -Match 'Run your gate line again without --skip so the pipeline pushes' `
+        # And the failure is scoped to the worker it actually describes, so the sentence above
+        # does not read as forbidding the direct-PR steer on a brief that carries no gate line.
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**The worker that failure describes is one holding a brief with the gate line ' +
+                     'in it**')
+        $step | Should -Match 'Run the gate line from the push-approved bullet in your brief' `
             -Because 'the no-mistakes steer must re-enter the pipeline, not push by hand'
+        # The preceding clause claimed every steered worker had run the gate, which is false for
+        # every parley dispatch - the one kind of worker this selector exists for.
+        $step.Contains('it holds the worktree and it ran the gate') |
+            Should -BeFalse -Because 'a parley dispatch ran no gate and is still steered from here'
+    }
+
+    # "Run it again without --skip" was right while the only skip was the push hold. On a repository
+    # proven to have no CI the brief's gate line also carries `--skip ci`, and a steer that tells the
+    # worker to drop every skip takes that with it and reinstates the wait Step 1b removed.
+    It 'the steer names the brief''s own gate line rather than telling the worker to drop --skip' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**The steer names the brief''s own line rather than telling the worker to ' +
+                     'drop `--skip`.**')
+        $step | Should -Not -Match 'Run your gate line again without --skip' `
+            -Because 'that steer drops the ci skip along with the push hold'
     }
 
     It 'the counsel skill applies it to work items rather than exempting them' {
@@ -734,12 +929,13 @@ Describe 'the anti-attribution rule is in every Done-means variant' {
             Where-Object { $_.Contains("Implemented and committed on this worktree's branch.") })
     }
 
-    # Four, not three: the `no-mistakes` variant split in two when the CI preflight arrived, because
-    # a repository where nothing can report a check needs a worker told to stop at the pull request
-    # rather than one told to wait for a green that cannot come. The count is pinned so that adding a
-    # fifth variant without carrying the prohibitions into it fails here.
-    It 'there are exactly four Done-means blocks' {
-        $script:DoneBlocks.Count | Should -Be 4
+    # Five, not three: the `no-mistakes` variant is one block per CI answer, because the three
+    # answers need three different endings - wait for green, stop at a pull request with the `ci`
+    # step skipped, and stop at a pull request with the wait bounded by a sentence because the step
+    # still runs. The count is pinned so that adding a sixth variant without carrying the
+    # prohibitions into it fails here.
+    It 'there are exactly five Done-means blocks' {
+        $script:DoneBlocks.Count | Should -Be 5
     }
 
     It 'each one forbids mentioning Claude, AI or an assistant' {
@@ -749,9 +945,9 @@ Describe 'the anti-attribution rule is in every Done-means variant' {
         }
     }
 
-    It 'the three push-capable variants extend it to the PR title and body' {
+    It 'the four push-capable variants extend it to the PR title and body' {
         $pr = @($script:DoneBlocks | Where-Object { $_.Contains('PR title, PR body') })
-        $pr.Count | Should -Be 3
+        $pr.Count | Should -Be 4
     }
 
     It 'CLAUDE.md rule 3 covers anything reaching a remote or Azure DevOps' {
@@ -774,8 +970,8 @@ Describe 'the worker writes findings to a file that outlives the session' {
             Where-Object { $_.Contains("Implemented and committed on this worktree's branch.") })
     }
 
-    It 'each of the four Done-means blocks requires report.md at an exact path' {
-        $script:ReportBlocks.Count | Should -Be 4
+    It 'each of the five Done-means blocks requires report.md at an exact path' {
+        $script:ReportBlocks.Count | Should -Be 5
         foreach ($block in $script:ReportBlocks) {
             $block.Contains('Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish.') |
                 Should -BeTrue -Because 'every Done-means variant must name the exact report path'
@@ -827,8 +1023,8 @@ Describe 'a background worker never opens an interactive prompt' {
             ForEach-Object { ConvertTo-NormalisedText $_ })
     }
 
-    It 'the prohibition is in all four Done-means blocks, not just one' {
-        $script:PromptBlocks.Count | Should -Be 4
+    It 'the prohibition is in all five Done-means blocks, not just one' {
+        $script:PromptBlocks.Count | Should -Be 5
     }
 
     It 'each one forbids AskUserQuestion and every other interactive surface' {
@@ -876,21 +1072,36 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
     # both the arming discipline and the fact that it is not a poll.
     BeforeAll { $script:Step4 = Get-MusterStep 'Step 4 - Dispatch' }
 
-    It 'arms the wait at dispatch, before anything is said to the user' {
+    It 'arms the watch at dispatch, before anything is said to the user' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase 'Then arm a wait for that worker, before you say anything to the user.'
+            -Phrase '**Then arm a watch on that worker, before you say anything to the user.**'
+    }
+
+    # The watch is a verb with a one-line answer because the hand-written wait it replaced cost
+    # several hundred characters of the Hand's own context per arm, paid again on every later call.
+    It 'arms the watch as a short verb and never writes the wait out by hand' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('**Arm `delivery` on a worker whose brief runs the review gate, and `worker` on ' +
+                     'every other.**')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('**The command prints nothing while it waits and exactly one line when it ' +
+                     'ends**')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase '**Never write the wait out by hand again**'
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase '`bin\Watch.psm1` owns every outcome and its wording; nothing here restates it.'
     }
 
     It 'requires a harness-tracked background job rather than a detached one' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase 'Run it as a **harness-tracked background job**, never with `&` and never as a detached process.'
+            -Phrase 'Run it as **one harness-tracked background job**, never with `&` and never as a detached process.'
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase 'an untracked process wakes nothing'
     }
 
-    It 'arms one wait per dispatched worker' {
+    It 'arms one watch per dispatched worker' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase 'Arm **one wait per dispatched worker**.'
+            -Phrase 'Arm **one watch per dispatched worker**.'
     }
 
     It 'is an event and never a loop' {
@@ -903,7 +1114,7 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
 
     It 'treats blocked as a wake reason rather than a working state' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase '`blocked` is a wake reason, not a working state.'
+            -Phrase '`BLOCKED` is a wake reason, not a working state.'
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase ('A worker that goes `blocked` is sitting on an interactive prompt it cannot ' +
                      'get past on its own, and it needs the user - surface it immediately and ' +
@@ -921,9 +1132,32 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
             -Phrase 'if you submit anything further yourself, wait for `working` first'
     }
 
-    It 're-arms a timed-out wait rather than assuming the worker is fine' {
+    It 'never reads a turn that ended over unsent text as a completion' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase 'If the wait times out without the worker finishing, re-arm it.'
+            -Phrase ('**`UNSENT` is a turn that ended over text the worker has not taken, and ' +
+                     'it is never a')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase 'Re-arm the watch once; if the same text is still in the box after that,'
+    }
+
+    It 'never reads a turn that ended on the worker''s own background shells as a completion' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('**`WAITING ON SHELL` is a turn that ended on background shells of the ' +
+                     'worker''s own, and it is')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase 'Re-arm the watch, or arm `report <id>`.'
+    }
+
+    It 'waits for a report with the report verb rather than polling the file by hand' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase '**`report <id>` waits for the worker to write `data\<id>\report.md`**'
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase 'the file changing after the watch was armed, never what it says'
+    }
+
+    It 're-arms a timed-out watch rather than assuming the worker is fine' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase 'If the watch comes back `NO OUTCOME`, re-arm it.'
     }
 
     It 'never promises to report back without arming it first' {
@@ -933,16 +1167,16 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
             -Phrase 'tell the user plainly that they will need to ask'
     }
 
-    It 'the wake is stated once, as runnable text, and blocks in herdr' {
-        $fences = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('WAKE <worker id>') })
-        $fences.Count | Should -Be 1 -Because 'the wake is stated once, as runnable text'
-        $fences[0].Contains('Wait-HerdrAgentProgress') |
-            Should -BeTrue -Because 'the armed wait watches progress as well as liveness'
+    It 'the watch is stated once, as runnable text, and is the verb rather than an inline wait' {
+        $fences = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('Watch.ps1 delivery <worker id>') })
+        $fences.Count | Should -Be 1 -Because 'the watch is stated once, as runnable text'
         # The raw wait, not the guarded ones whose names begin with it. It returns on a
         # classification that was measured wrong in both directions.
-        $fences[0] | Should -Not -Match 'Wait-HerdrAgent\s+-Name' -Because 'the raw wait is never armed directly'
+        $fences[0] | Should -Not -Match 'Wait-HerdrAgent' -Because 'no wait is written out inline any more'
         $fences[0].Contains('Start-Sleep') |
             Should -BeFalse -Because 'a sleep in the wake is the polling loop coming back'
+        @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('$w = Wait-HerdrAgentProgress') }).Count |
+            Should -Be 0 -Because 'the hand-written wait is gone from the skill'
     }
 
     # A stall is a wake reason of its own: the worker is alive, `working` by every state word herdr
@@ -950,7 +1184,7 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
     # because a wrong automatic action on a stalled worker is worse than a late human one.
     It 'treats a stall as a wake reason and refuses to act on one' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase '**`stalled` is a wake reason too, and it is not a completion.**'
+            -Phrase '**`STALLED` is a wake reason too, and it is not a completion.**'
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase '**Do not act on a stall on your own**'
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
@@ -962,8 +1196,8 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase 'against a threshold of twenty'
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase ('Raise the threshold with `-StallMinutes` for work that is genuinely quiet for ' +
-                     'longer; never lower it under fifteen')
+            -Phrase ('Raise the threshold with `-StallMinutes` on the watch for work genuinely quiet ' +
+                     'for longer; never lower it under fifteen')
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase 'a false alarm reaching the King costs more than a silent one'
     }
@@ -972,12 +1206,12 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
     # slow one. Both were reported as "fine" by everything that came before.
     It 'refuses to read an unreadable screen or a missing worker as health' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase ('**`$w.signalReadable` being `$false` means the watch was blind, not that the ' +
-                     'worker is fine.**')
+            -Phrase ('**A line saying the watch was blind means exactly that, not that the worker is ' +
+                     'fine.**')
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase 'say plainly that you cannot see the worker rather than reporting it healthy'
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase '**`reason` of `gone` means herdr has no such worker any more.**'
+            -Phrase '**`GONE` means herdr has no such worker any more.**'
     }
 
     # The wake line prints `promptBox` on every branch, and a printed field with no stated response
@@ -986,7 +1220,7 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
     # destroys the only record the event happened.
     It 'says what a non-empty prompt box is, and routes it to rally instead of acting on it' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase ('**`$w.promptBox` with anything in it is not the worker''s output and not a ' +
+            -Phrase ('**A line quoting text in the input box is not the worker''s output and not a ' +
                      'question for you.**')
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase ('a bare Enter would submit it as though the Hand had written it')
@@ -1017,9 +1251,8 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
     # for a worker that is waiting on a person.
     It 'uses the guarded wake and says why the raw one is unsafe' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase ('**Use a guarded wake - `Wait-HerdrAgentProgress` here, or ' +
-                     '`Wait-HerdrAgentSettled` where only completion matters - and never ' +
-                     '`Wait-HerdrAgent` directly.**')
+            -Phrase ('**The watch is built on a guarded wake, `Wait-HerdrAgentProgress`, and never ' +
+                     'on `Wait-HerdrAgent`')
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase ('a worker sitting on an unanswered menu was measured reporting `idle`, then ' +
                      '`done` minutes later while a genuinely finished worker reported `idle`')
@@ -1031,8 +1264,8 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
 
     It 'lets the screen outrank the state word, and keeps not-settled from becoming one' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
-            -Phrase ('`awaitingInput` being `$true` says the same thing off the worker''s own ' +
-                     'screen, and it wins over whatever `state` says.')
+            -Phrase ('The line says `BLOCKED` off the worker''s own screen, whatever its state ' +
+                     'word says.')
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase 'not settled is the absence of an outcome, never an outcome of its own'
     }
@@ -1062,9 +1295,9 @@ Describe 'completion is evidence, not a state, and there is no transcript to fal
         Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
             -Phrase '**A worker is finished when all three of these hold, and never on fewer:**'
         Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
-            -Phrase 'the guarded wake from Step 4 came back settled - `$w.settled` is `$true`'
+            -Phrase 'the watch from Step 4 came back settled - its line opens `SETTLED`'
         Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
-            -Phrase ('it is not awaiting input - `$w.awaitingInput` is `$false`, which is read off ' +
+            -Phrase ('it is not awaiting input - the line did not say `BLOCKED`, which is read off ' +
                      'the worker''s live screen rather than taken from herdr''s word for it')
         Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
             -Phrase '`$env:KINGSHAND_HOME\data\<id>\report.md` exists.'
@@ -1133,6 +1366,12 @@ Describe 'teardown exits the worker cleanly and never kills it' {
                      'unusable for anything, permanently.')
         Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
             -Phrase 'Never reach for the pid.'
+    }
+
+    It 'routes a stop refused over box text to rally' {
+        Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
+            -Phrase ('A `$stop.refused` of `prompt-box-not-empty` means its input box holds text ' +
+                     'and nothing was sent - load `rally`.')
     }
 
     It 'leaves the worktree alone when the stop did not take' {
@@ -1455,6 +1694,8 @@ Describe 'the ported reference skills are loadable and keep their load-bearing r
                Phrase  = 'the rule that a prose rule needs a test' }
             @{ Heading = 'Match the form to the failure'
                Phrase  = 'matching a new rule''s form to the failure it is for' }
+            @{ Heading = 'Dependency pins'
+               Phrase  = 'the dependency pins and their weekly refresh' }
             @{ Heading = 'Style rules'
                Phrase  = 'kingshand''s style rules' }
         )
@@ -1578,12 +1819,13 @@ Describe 'rally states what steering can and cannot do, and protects unlanded wo
     # answer back into a parked worker. So the blanket "a steer that needs a decision from the user
     # is the user's to make first" read as a refusal of the very steer that route depends on - the
     # parked-until-morning failure again. Narrowed the same way CLAUDE.md and regency were, and no
-    # further: the blocked-prompt case is untouched and the test itself lives in petition alone.
+    # further: the blocked-prompt case is regency's, and the test itself lives in petition alone.
     It 'narrows the never-steer-a-decision rule to the blocked-prompt case' {
         $text = Get-DocText $script:StuckMd
         Assert-Phrase -Text $text -Where 'rally' `
             -Phrase ('a steer that would answer a prompt a worker is blocked on is still the ' +
-                     "King's to make first")
+                     "King's to make first, except where ``regency``'s ``A worker is blocked on " +
+                     'a prompt` lets you answer it while he is away')
         Assert-Phrase -Text $text -Where 'rally' `
             -Phrase ('A decision the worker *wrote into its `report.md`* is the other case and ' +
                      'not this one: `petition` owns whether you may answer that and by what test')
@@ -1620,6 +1862,19 @@ Describe 'rally states what steering can and cannot do, and protects unlanded wo
             -Phrase '**A force-killed worker leaves its pane permanently unusable.**'
         Assert-Phrase -Text $text -Where 'the kill hazard' `
             -Phrase 'No herdr command recovers it'
+    }
+
+    # `/exit` is typed in behind whatever sits in the box and submitted with it, so a stop over box
+    # text would have the worker act on that text. The code refuses it; this pins the reader's half.
+    It 'says a stop sends nothing over box text, and that the text is never cleared' {
+        $text = Get-DocText $script:StuckMd
+        Assert-Phrase -Text $text -Where 'the stop box rule' `
+            -Phrase "**A stop sends nothing while the worker's input box holds text.**"
+        Assert-Phrase -Text $text -Where 'the stop box rule' `
+            -Phrase '`refused` set to `prompt-box-not-empty`'
+        Assert-Phrase -Text $text -Where 'the stop box rule' `
+            -Phrase ('stop the worker only once the King has decided what that text is and the ' +
+                     'box is empty')
     }
 
     It 'discards an unusable pane and keeps the worktree' {
@@ -1671,10 +1926,11 @@ Describe 'rally states what steering can and cannot do, and protects unlanded wo
     It 'gets the user''s answer before answering a blocked prompt' {
         $text = Get-DocText $script:StuckMd
         Assert-Phrase -Text $text -Where 'the rally escalation' `
-            -Phrase '**A blocked worker is the user''s decision, not yours.**'
+            -Phrase '**A blocked worker is the user''s decision, not yours, outside `regency`.**'
         Assert-Phrase -Text $text -Where 'the rally escalation' `
-            -Phrase ('**Never answer a blocked prompt on the user''s behalf**, and never guess at ' +
-                     'an option you have not read.')
+            -Phrase ('**Never answer a blocked prompt on the user''s behalf outside `regency`''s ' +
+                     '`A worker is blocked on a prompt`**, which alone says when you may while ' +
+                     'he is away, and never guess at an option you have not read.')
     }
 
     It 'keeps the rule that a low context reading is not wedging' {
@@ -1843,7 +2099,8 @@ Describe 'recovery reconciles records against reality before taking new work' {
                      'anything else.**')
         Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
             -Phrase 'a restart kills it silently'
-        $s | Should -Match 'Wait-HerdrAgentProgress' -Because 'the guarded wait is the one to re-arm, not the raw one'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase 'arm a fresh watch - `bin\Watch.ps1` as one background job - as `muster` Step 4'
     }
 
     # Re-arming after a restart restores the watch, and it also restarts the stall clock from zero.
@@ -1868,6 +2125,74 @@ Describe 'recovery reconciles records against reality before taking new work' {
                      'while you reconcile ownership')
         Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
             -Phrase '`survey` is the on-demand way to see where everything stands'
+    }
+
+    # The same defect as the worker wait, twice more and both silent. A pulse that stopped and a
+    # pulse with nothing to say produce identical output - nothing - and a surface whose poll died
+    # looks exactly like a King who has not answered. Neither is visible in the fleet, so the rule
+    # has to name them or a restart quietly ends both. Reported twice in one day as "no tokens, no
+    # updates", which is what an invisible failure sounds like from the other side.
+    It 'requires the pulse and any waiting review surface to be re-armed too' {
+        $s = Get-HandSection 'Recovery'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase ('**The usage pulse and any review surface holding an answer need re-arming in ' +
+                     'the same breath, and both fail where nobody can see them.**')
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase 'The digest''s `RE-ARM:` section carries'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase 'names every surface still worth re-polling'
+    }
+
+    # The half that is polled but not re-armed, and it has to be said here or the rule reads as
+    # "an ended session is finished with". It is not: the tool hands queued feedback over on the
+    # next poll whatever the session's state, so a Send & End whose poll was killed is the one case
+    # a single poll still recovers. Dropping it sends the Hand back to ask for a decision already
+    # made. What changes for it is only that nothing is re-armed afterwards.
+    It 'still names an ended session that is holding something, and stops at one poll' {
+        $s = Get-HandSection 'Recovery'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase ('**A session that has already ended is named too wherever something is still ' +
+                     'uncollected on it**')
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase 'polled once to collect it and then not re-armed'
+    }
+
+    # The limitation, stated rather than left to be inferred from what the list happens to contain.
+    # A reader told which surfaces are named needs telling which are not, or they will read silence
+    # as "nothing else was waiting".
+    It 'says what the surface list cannot cover' {
+        Assert-Phrase -Text (Get-HandSection 'Recovery') -Where 'CLAUDE.md recovery' `
+            -Phrase ('What the list cannot cover is a session open with nothing queued: the store ' +
+                     'records no field saying a poll was armed, so the digest says so rather than guessing.')
+    }
+
+    # R-002 in one sentence. The window is the fix, not an implementation detail: three ticks at the
+    # default cadence is half an hour, and the silence after the third is the same silence a working
+    # pulse produces, so a finite count reinstates the bug on a delay.
+    It 'pins the pulse to one job for the whole session rather than a set number of ticks' {
+        $s = Get-HandSection 'Recovery'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase ('arm the pulse as **one job for the whole session, never a set number of ' +
+                     'ticks** - three at ten minutes buys half an hour and then stops')
+    }
+
+    # R-006, bounded deliberately. One line at arming time, because silence is the pulse working and
+    # a reader who never saw it start cannot tell that from a pulse that never did.
+    It 'requires one line saying the pulse is on' {
+        Assert-Phrase -Text (Get-HandSection 'Recovery') -Where 'CLAUDE.md recovery' `
+            -Phrase '**Say in one line that the pulse is on when you arm it.**'
+    }
+
+    # R-005. The off switch is the King's own prose and no script may go near it, so the digest is
+    # unconditional and the decision is the Hand's - stated here as a cross-reference rather than as
+    # a second copy of the rule, which Escalation and etiquette owns.
+    It 'keeps the off switch with the Hand and out of the digest' {
+        $s = Get-HandSection 'Recovery'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase ('**The digest prints that command whatever the King''s own instructions ' +
+                     'say**, because nothing in `bin\` reads them.')
+        Assert-Phrase -Text $s -Where 'CLAUDE.md recovery' `
+            -Phrase 'the off switch stays exactly where Escalation and etiquette puts it'
     }
 }
 
@@ -3089,7 +3414,14 @@ Describe 'the King''s stated instructions are read and never rewritten' {
         $digest = Get-Content -Path (Join-Path $script:Root 'bin\Get-SessionStart.ps1') -Raw
         $digest.Contains('.PARAMETER InstructionsPath') |
             Should -BeTrue -Because 'the path is a parameter, so a test can point it at a fixture'
-        $digest.Contains("-AbsentMeans 'the King has stated no standing instructions. Read it, never write it.'") |
+        $root = Join-Path $TestDrive 'instructions-absent'
+        New-Item -ItemType Directory -Force -Path (Join-Path $root 'data') | Out-Null
+        $out = & (Join-Path $script:Root 'bin\Get-SessionStart.ps1') -DataPath (Join-Path $root 'data') `
+                   -StatePath (Join-Path $root 'state\crew.json') -RegistryPath (Join-Path $root 'data\projects.md') `
+                   -BudgetPath (Join-Path $root 'budget') -InstructionsPath (Join-Path $root 'instructions.md') `
+                   -VersionPath (Join-Path $root 'VERSION') -QueueRoot $root `
+                   -LavishStatePath (Join-Path $root 'lavish.json') -PrereqScript (Join-Path $root 'none.ps1')
+        $out.Contains('ABSENT - the King has stated no standing instructions. Read it, never write it.') |
             Should -BeTrue -Because 'absence is a stated fact here, exactly as it is for a memory file'
     }
 
@@ -3255,7 +3587,8 @@ Describe 'the session-start digest is read once and not read again' {
     It 'keeps the two exceptions narrow and names both' {
         Assert-Phrase -Text $script:SessionStart -Where 'CLAUDE.md session start' `
             -Phrase ('The exceptions are narrow: a source the digest reported absent or corrupt, ' +
-                     'and a targeted piece of work that must inspect a file before writing to it.')
+                     'one it only named or counted, and a targeted piece of work that must inspect a ' +
+                     'file before writing to it.')
     }
 
     It 'leaves liveness to the live process inventory rather than the digest' {
@@ -3480,6 +3813,27 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
             -Phrase 'You write the brief and you make this call, so you already hold the list'
     }
 
+    # Dispatch confirms its start prompt was taken and refuses by name only where the worker cannot
+    # be taken to have started - after the worker exists. A worker that may still start is returned
+    # with a warning, so it is recorded and watched rather than left live and untracked. The one
+    # thing the Hand must not do either way is send the brief again.
+    It 'muster says dispatch confirms the start prompt, and forbids sending the brief again' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase '**Dispatch confirms the worker has taken its start prompt**'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'It refuses only for `(UNSENT)`, `(BLOCKED)` and `(GONE)`'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'that refusal comes after the worker and its worktree exist'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'For `not-started` or `unreadable` it returns with a warning and `startPrompt`'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'usual, and name the outcome to the King in one line.'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('**Never send the brief again**: a second copy would be submitted as a ' +
+                     'second prompt.')
+    }
+
     # Nothing enforces the pairing any more, so the skill has to say who does. Left unsaid, the
     # Hand goes on believing dispatch will catch a section that names the original.
     It 'muster says the Hand is what keeps the section and -ReadPath together' {
@@ -3509,8 +3863,8 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
                      'names would ' +
                      'land on top of each other in the staging directory, a standing file that ' +
                      'exists and cannot be opened, a directory sitting where a standing file ' +
-                     'belongs, and a brief that cannot be opened for writing to be told what was ' +
-                     'attached to it.')
+                     'belongs, and a dispatch file beside the brief that dispatch did not write or ' +
+                     'cannot write to.')
     }
 
     # The usage one is the odd one out and the skill has to say so, because relaying a warning is a
@@ -3563,12 +3917,15 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
     It 'muster says dispatch attaches the standing files and names them itself' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase ('**Dispatch attaches the standing files itself and writes their ' +
-                     '`Read first` lines.**')
+            -Phrase ('**Dispatch attaches the standing files itself and names them in a file of its ' +
+                     'own - it never edits your brief.**')
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase 'It writes no line for a file you passed yourself'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase 'A project with none of them dispatches exactly as it did before any existed.'
+            -Phrase ('the dispatch file beside the brief, which the worker''s start prompt names ' +
+                     'beside the brief')
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase '**Do not read the dispatch file and do not edit it**'
     }
 
     # The rules file is reference, not a checklist, and the distinction is the reason it is a second
@@ -3708,6 +4065,9 @@ Describe 'no long dash' {
         @{ file = '.claude\skills\vigil\SKILL.md' }
         @{ file = 'docs\2026-09-05-usage-window-watch.md' }
         @{ file = 'docs\2026-09-05-worker-and-gate-model-selection.md' }
+        @{ file = 'docs\2026-09-25-away-journal.md' }
+        @{ file = '.claude\skills\parley\SKILL.md' }
+        @{ file = 'docs\2026-09-25-parley-quick-mode.md' }
         @{ file = 'docs\2026-09-10-family-rules-file.md' }
     ) {
         $emDash = [char]0x2014
@@ -3728,7 +4088,7 @@ Describe 'one file owns herdr''s command line, and the record says why' {
     It 'CLAUDE.md lists the workspace module that replaces the missing arguments' {
         Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
             -Phrase ('| `bin\ClaudeWorkspace.psm1` | writes a worktree''s `settings.local.json` ' +
-                     'and pre-seeds folder trust, because no arguments can be passed to a worker |')
+                     'and pre-seeds folder trust, because no arguments can be passed to a worker')
     }
 
     It 'statute states the one-owner rule for the spawn layer' {
@@ -4045,7 +4405,7 @@ Describe 'survey puts an open decision in King''s Call and only there' {
 }
 
 Describe 'the setup skill ships inside the repo so a fresh clone can bootstrap itself' {
-    # Every skill is project-local, under .claude\skills\, so all seventeen are readable the moment
+    # Every skill is project-local, under .claude\skills\, so all eighteen are readable the moment
     # someone opens Claude Code in this directory and none of them is reachable from anywhere
     # else on the machine. That is what lets "set it up" be the first thing anyone types.
     BeforeAll { $script:SetupText = Get-DocText $script:SetupMd }
@@ -4125,6 +4485,21 @@ Describe 'the setup skill ships inside the repo so a fresh clone can bootstrap i
             -Phrase 'Permissions, and what you are agreeing to'
     }
 
+    # Says only what is true of their run. With the review pipeline chosen the gate was installed,
+    # and reporting it as deliberately left out tells them the opposite of what just happened.
+    It 'says the review gate was left out only when they chose the local answer' {
+        Assert-Phrase -Text $script:SetupText -Where 'the setup skill' `
+            -Phrase ('Say this one only when they chose the local answer in Step 1; with the review ' +
+                     'pipeline it was installed')
+    }
+
+    # A session started before the install cannot see anything the install put on PATH, so the
+    # first command the Hand runs afterwards fails on a tool that is installed.
+    It 'sends them to a fresh Claude Code session, not only a new shell' {
+        Assert-Phrase -Text $script:SetupText -Where 'the setup skill' `
+            -Phrase '**Then quit this Claude Code session and start `claude` again from that new shell**'
+    }
+
     It 'sends them to a new shell and then to /annex' {
         Assert-Phrase -Text $script:SetupText -Where 'the setup skill' `
             -Phrase '**Open a new shell.** `KINGSHAND_HOME` is set for the user'
@@ -4156,6 +4531,21 @@ Describe 'the setup skill ships inside the repo so a fresh clone can bootstrap i
             -Phrase 'Then type **`set it up`** - or `setup`, or `/setup`.'
         Assert-Phrase -Text $readme -Where 'the README Install section' `
             -Phrase '**`-InstallMissing` is opt-in.**'
+    }
+
+    # "set it up" is typed into Claude Code, so a machine without it cannot take the first route.
+    # The README has to say which route that machine takes, what the scripts run in, and what Node
+    # is for, or a new user's first command fails with nothing telling them why.
+    It 'tells a machine with no Claude Code, no PowerShell 7 or no Node.js what to do first' {
+        $readme = Get-DocText (Join-Path $script:Root 'README.md')
+        Assert-Phrase -Text $readme -Where 'the README Install section' `
+            -Phrase '**No Claude Code yet?** Then `claude` above has nothing to start, so run the installer by hand'
+        Assert-Phrase -Text $readme -Where 'the README Install section' `
+            -Phrase 'Every command here runs in PowerShell 7'
+        Assert-Phrase -Text $readme -Where 'the README Requirements table' `
+            -Phrase '| Node.js | npm, which the next three install through | `winget install --id OpenJS.NodeJS.LTS` |'
+        Assert-Phrase -Text $readme -Where 'the README Requirements section' `
+            -Phrase '**Install the first two yourself**'
     }
 }
 
@@ -4267,7 +4657,7 @@ Describe 'install.ps1 reports rather than installs unless it is told to' {
     It 'gives a short instruction for each thing it genuinely cannot install' {
         $text = Get-DocText $script:InstallPs1
         Assert-Phrase -Text $text -Where 'install.ps1' `
-            -Phrase 'Install Node.js from https://nodejs.org, then run this again.'
+            -Phrase 'Install Node.js from https://nodejs.org, open a new shell so PATH picks it up, then run this again.'
         Assert-Phrase -Text $text -Where 'install.ps1' `
             -Phrase 'Install App Installer from the Microsoft Store, then run this again.'
     }
@@ -4362,16 +4752,30 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Regency | Should -Match 'holds no new powers'
         }
 
-        # The blocked-prompt floor is untouched and these three still pin it. What changed is the
-        # blanket rule that used to sit beside it, and the two cases now have to stay apart: a
-        # prompt drawn on a screen is still never answered, a decision written into a report is
-        # petition's. An assertion on the old phrase would be worthless here - the deliberate-change
-        # note quotes it so a reader can find it in git history - so this pins the new bullet and
-        # the absence of the old one's own heading, which is what a restoration would bring back.
-        It 'never answers a prompt a blocked worker is sitting on' {
-            $script:Regency | Should -Match 'Do \*\*not\*\* send it keys'
-            $script:Regency | Should -Match 'record the question verbatim'
-            $script:Regency | Should -Match 'A prompt drawn on a worker''s screen is the King''s\s+to answer and nobody else''s'
+        # The blocked-prompt rule was split on the King's instruction of 2026-10-29: an office
+        # project's prompt still waits for him untouched, a personal project's is answered inside
+        # the worker's brief and recorded. Each half is pinned, and so is the floor that keeps a
+        # personal prompt from becoming a way past petition's list.
+        It 'still never answers a prompt on an office project' {
+            $script:Regency | Should -Match '\*\*On an office project nothing changed\.\*\* Do \*\*not\*\* send it keys'
+            $script:Regency | Should -Match 'Record the question verbatim as `-Kind blocked`'
+        }
+
+        It 'answers a personal project''s prompt only inside the brief, and records it' {
+            $script:Regency | Should -Match '\*\*On a personal project, answer it when the answer stays inside that worker''s brief\*\*'
+            $script:Regency | Should -Match 'Read its screen first, every time'
+            $script:Regency | Should -Match 'Send the keys through `Send-HerdrKeys`, one key per call'
+            $script:Regency | Should -Match 'Record the prompt verbatim and the option chosen as\s+`-Kind decided -Basis judgement`'
+            $script:Regency | Should -Match 'Pick the narrowest option that is inside the brief'
+        }
+
+        It 'keeps petition''s floors on a personal project''s prompt' {
+            $script:Regency | Should -Match '\*\*It still waits for him\*\* when the answer would go outside the brief, or would be a delete, a\s+cost, anything irreversible or anything security-sensitive'
+        }
+
+        It 'reads office from personal and treats an unsettled project as office' {
+            $script:Regency | Should -Match '\*\*Office or personal is read, never guessed\.\*\*'
+            $script:Regency | Should -Match '\*\*Where none of those\s+settles it, treat it as office and let the prompt wait\*\*'
         }
 
         It 'sends a decision written into a report to petition and states the test nowhere itself' {
@@ -4391,6 +4795,16 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Regency | Should -Not -Match '\*\*Answering a question a worker asked\.\*\*'
         }
 
+        # The prompt rule's own change note. The old unscoped bullet's heading is asserted absent,
+        # because restoring it is what would quietly bring back the ten-hour stall.
+        It 'declares the prompt-rule change deliberate and quotes the King''s reason' {
+            $script:Regency | Should -Match '\*\*The prompt rule changed deliberately too, on the King''s instruction of 2026-10-29\.\*\*'
+            $script:Regency.Contains('"Rule was for office work so that edit any server related') |
+                Should -BeTrue -Because 'the King''s own words are the reason and must stay quoted'
+            $script:Regency | Should -Match 'that wording now holds for office projects only'
+            $script:Regency | Should -Not -Match '\*\*Anything a blocked worker is sitting on\.\*\*'
+        }
+
         It 'says plainly that the change bought no authority over the floors' {
             $script:Regency | Should -Match 'this bought no authority\s+at all over a land, a delete, a cost, or anything destructive, irreversible or security-sensitive'
         }
@@ -4407,11 +4821,13 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Regency | Should -Match 'Register it under `decree` either way - what you decided, or the question the\s+test left standing with him'
         }
 
-        # The digest is session memory and the King's review of what was decided in his name cannot
-        # be. The notes decree closed those decisions with are what a restart leaves behind.
-        It 'rebuilds the decided-in-his-stead part of the digest from the durable notes' {
-            $script:Regency | Should -Match 'Read those back from\s+the notes `decree` closed them with rather than from memory'
-            $script:Regency | Should -Match 'a restart before he returns takes it with it, while the notes are still there'
+        # The digest used to be composed in-session and a restart before he returned took it, which
+        # `regency` admitted in writing and did not fix. It is rendered from the away journal now,
+        # and the sentence that does the work is the one naming `$away` as the only source.
+        It 'rebuilds the digest from the away journal rather than from this session' {
+            $script:Regency | Should -Match '\*\*All of it comes out of `\$away`, never out of this session\.\*\*'
+            $script:Regency | Should -Match 'the journal survives a restart and\s+the session does not'
+            $script:Regency | Should -Match '`decree` is unchanged and still owns each decision''s own lifecycle'
         }
 
         # Two bullets both keyed on a decision in a report, and the broader one is read first: it
@@ -4450,6 +4866,132 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         It 'ends on any ordinary message, and biases ambiguity toward ending' {
             $script:Regency | Should -Match 'Bias every ambiguous case toward ending'
             $script:Regency | Should -Match 'a present King\s+outranks a durable flag'
+        }
+    }
+
+    # The away journal exists because the one failure on this path is silent. Everything else that
+    # can go wrong while the King is out throws, refuses, or leaves text on a screen; a return
+    # digest lost to a restart produces no error at all and simply hands him a thinner account he
+    # cannot tell is thinner. Every case here pins one half of the fix: the record being written as
+    # it happens, and the digest being rendered from that record or not at all.
+    Context 'the away period has a durable journal and the digest is rendered from it' {
+        BeforeAll {
+            $script:Regency  = Get-Content -Path (Join-Path $script:Root '.claude\skills\regency\SKILL.md') -Raw
+            $script:AwayOwned = Get-HandSection 'What you own'
+        }
+
+        It 'opens the journal in the same step that writes the flag' {
+            $script:Regency | Should -Match 'Import-Module \$env:KINGSHAND_HOME\\bin\\AwayJournal\.psm1 -Force'
+            $script:Regency | Should -Match '(?m)^\s*Open-AwayJournal\s*$'
+            $script:Regency | Should -Match 'Opening the journal here is what lets an away period that produced nothing be told apart'
+        }
+
+        # R-007, both halves, and the reason the file is named from the flag rather than from the
+        # clock: a second period cannot reach the first one's record, and a restart mid-period
+        # lands back on the file already there.
+        It 'gives each away period one file, named from the flag' {
+            $script:Regency | Should -Match 'The journal is `data\\away\\<stamp>\.jsonl`, one file per away period, named from'
+            $script:Regency | Should -Match 'a second regency cannot touch the first one''s record'
+            $script:Regency | Should -Match 'appends to the file already there rather than starting a new one'
+        }
+
+        It 'closes the set of kinds and refuses a decision that does not say what it rested on' {
+            $script:Regency | Should -Match '`-Kind` is one of `dispatched`, `landed`, `failed`, `blocked`, `decided`, `waiting`, `closed-out`'
+            $script:Regency | Should -Match 'A `decided` entry is refused without `-Basis recorded` or `-Basis judgement`'
+        }
+
+        # R-005. A journal assembled at return time is session memory with extra steps, so the
+        # instruction has to say so rather than leaving "record it" open to a batch at the end.
+        It 'insists every record is written as it happens, never at the end' {
+            $script:Regency | Should -Match '\*\*Write it as it happens, never at the end\.\*\*'
+            $script:Regency | Should -Match 'an account composed at the end is session memory with extra steps'
+        }
+
+        # The journal must not become a back door around the limits. Writing an outcome down is a
+        # record of something already decided under the rules that were already in force.
+        It 'keeps the journal a record and never an authority' {
+            $script:Regency | Should -Match '\*\*The journal is a record and never an authority\.\*\*'
+            $script:Regency | Should -Match 'Writing an outcome down grants nothing, moves no\s+posture and settles no decision'
+            $script:Regency | Should -Match 'Every limit in \*What a regency never grants\* stands whatever the'
+        }
+
+        # R-004's second half, argued rather than assumed: the decisions taken in his name become
+        # reviewable after the digest, not during it.
+        It 'keeps the journal on return rather than clearing it' {
+            $script:Regency | Should -Match '\*\*It is kept on return, never cleared\.\*\*'
+            $script:Regency | Should -Match 'deleting the record at the moment it becomes\s+reviewable is the wrong direction'
+        }
+
+        # The file is named from the flag's since:, so removing the flag first leaves the digest
+        # with nothing to resolve. The order is the mechanism, not a courtesy.
+        It 'reads the journal before the flag comes off' {
+            $script:Regency | Should -Match '\*\*Read the journal before you touch the flag\.\*\*'
+            $script:Regency | Should -Match '\$away = Get-AwayDigest'
+            $script:Regency | Should -Match 'removing it first leaves the digest with nothing to render from'
+        }
+
+        # R-003, and the single most important line in the change. A digest that quietly falls back
+        # to session memory when the file cannot be read is the original failure in a new place.
+        It 'says plainly that it could not read the journal rather than rendering from memory' {
+            $script:Regency | Should -Match '\*\*When `\$away\.readable` is `\$false`, give `\$away\.summary` exactly as it stands and stop there\.\*\*'
+            $script:Regency | Should -Match 'Do not fill the gap from what you happen to remember'
+            $script:Regency | Should -Match 'A thinner account nobody can tell is\s+thinner is the precise failure this journal removes'
+        }
+
+        # R-006. An empty journal is a complete report, and it has to be told apart from a missing
+        # one - which is the whole reason the journal is opened when the flag is written.
+        It 'renders an away period that produced nothing as a clean night' {
+            $script:Regency | Should -Match 'so an empty journal reads as a clean\s+night rather than as a missing one'
+        }
+
+        # Neither a refresh nor a restart is a new away period, and both re-enter this skill at
+        # step 1. Re-stamping the flag there would name a new journal and orphan the one on disk,
+        # so the one flag-writing block reuses an open period's since: and only mints a new one
+        # where no period is open.
+        It 'reuses an open away period''s since: rather than re-stamping the flag' {
+            $script:Regency | Should -Match '\$flag = Get-AwayFlag'
+            $script:Regency | Should -Match '\$since = if \(\$flag\.present -and \$flag\.since\) \{ \$flag\.since \}'
+            $script:Regency | Should -Match '\*\*Reuse an open period''s `since:`, and mint a new\s+timestamp only where no away period is open'
+            $script:Regency | Should -Match 'entering a regency, picking up a durable\s+flag after a restart, and a `/regency` or `/afk` that refreshes the mode'
+        }
+
+        # One owner for the rule: the refresh path points back at step 1 instead of spelling the
+        # rewrite a second time, so the two spellings cannot drift apart.
+        It 'sends a refresh back to the one flag-writing block instead of repeating it' {
+            $script:Regency | Should -Match 'Run step 1\s+above unchanged - it already reuses an open period''s `since:` and rewrites only the note'
+        }
+
+        It 'CLAUDE.md owns the journal beside the other durable state' {
+            Assert-Phrase -Text $script:AwayOwned -Where 'CLAUDE.md What you own' `
+                -Phrase ('`data\away\<stamp>.jsonl` - one away period''s journal: a record per ' +
+                         'outcome, written as it happens, and the one source the return digest is ' +
+                         'rendered from.')
+        }
+
+        It 'the module is listed in the Tooling table' {
+            Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
+                -Phrase ('| `bin\AwayJournal.psm1` | the away journal: the away flag''s `since:` ' +
+                         'read in one place')
+        }
+    }
+
+    Context 'the gate run reader is findable' {
+        # The Tooling table is the Hand's own index of what exists. A reader nobody knows about
+        # leaves the hand-written parse of `no-mistakes axi status` - the one that has been wrong
+        # every time it was measured - as the path of least resistance.
+        #
+        # The table is parsed into its key cells and the claim is that a row for the module is
+        # among them. What the row says about it is free to be reworded; the row existing is not.
+        It 'the module is listed in the Tooling table' {
+            $tooling = @((Get-Content -Path $script:HandMd -Raw) -split '(?m)^## ' |
+                         Where-Object { $_ -like 'Tooling*' })
+            $tooling.Count | Should -Be 1 -Because 'CLAUDE.md has exactly one Tooling section'
+
+            $keys = @($tooling[0] -split "`r?`n" |
+                      Where-Object { $_ -match '^\s*\|' } |
+                      ForEach-Object { ($_ -split '\|')[1].Trim().Trim('`') })
+
+            $keys | Should -Contain 'bin\GateRun.psm1'
         }
     }
 
@@ -4568,8 +5110,18 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         # digest print the file, but no observable output can show that the route it took was the
         # whole-file printer and not a matcher that happened to agree today.
         It 'the digest prints it in full rather than reading anything out of it' {
-            (Get-Content -Path (Join-Path $script:Root 'bin\Get-SessionStart.ps1') -Raw) |
-                Should -Match "Add-ContextFile -Name 'instructions\.md'"
+            $root = Join-Path $TestDrive 'pulse-off-switch'
+            New-Item -ItemType Directory -Force -Path (Join-Path $root 'data') | Out-Null
+            $said = 'No usage pulse this session, please - I will ask for it.'
+            Set-Content -LiteralPath (Join-Path $root 'instructions.md') -Value $said -Encoding utf8
+            $out = & (Join-Path $script:Root 'bin\Get-SessionStart.ps1') -DataPath (Join-Path $root 'data') `
+                       -StatePath (Join-Path $root 'state\crew.json') -RegistryPath (Join-Path $root 'data\projects.md') `
+                       -BudgetPath (Join-Path $root 'budget') -InstructionsPath (Join-Path $root 'instructions.md') `
+                       -VersionPath (Join-Path $root 'VERSION') -QueueRoot $root `
+                       -LavishStatePath (Join-Path $root 'lavish.json') -PrereqScript (Join-Path $root 'none.ps1')
+            $out.Contains($said) | Should -BeTrue -Because 'the King''s line arrives verbatim'
+            $out.Contains('Watch-UsagePulse') |
+                Should -BeTrue -Because 'the arming command is printed whatever the file says'
         }
 
         # The arming pattern is the whole of R-008: a runnable block in the shape muster Step 4
@@ -4581,12 +5133,73 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                 Should -BeGreaterThan 0 -Because 'the Hand copies the block, so it has to be runnable'
             $script:Vigil | Should -Match ('\*\*A harness-tracked background job, never with `&` and ' +
                                            'never as a detached process\.\*\*')
-            $script:Vigil | Should -Match 'Ten minutes between pulses by default'
+            $script:Vigil | Should -Match ('Five minutes between pulses by default, and two once a ' +
+                                           'reading is at or above 85 percent')
+        }
+
+        # The arming used to depend on somebody remembering, and it was not remembered - the pulse
+        # stopped at every restart and the stopping was invisible, because a changed-only pulse
+        # says nothing when nothing has changed. The digest carries the command now, and the skill
+        # says so rather than leaving the reader to discover where it comes from.
+        It 'says the digest carries the arming command so nobody has to remember it' {
+            $script:Vigil | Should -Match 'One background job per session, armed once at session start'
+            $script:Vigil | Should -Match ('\*\*The session-start digest carries that command in its ' +
+                                           '`RE-ARM:` section, so arming it is not\s+something anybody ' +
+                                           'has to remember\.\*\*')
+            $script:Vigil | Should -Match '`CLAUDE\.md`''s Recovery section owns the rule'
+        }
+
+        # R-002. A finite count is the bug on a delay: the ticks run out mid-session and what
+        # follows is the same silence a healthy pulse produces.
+        It 'refuses a finite count and says why half an hour is not a session' {
+            $script:Vigil | Should -Match '\*\*No count, ever - it runs until the session ends\.\*\*'
+            $script:Vigil | Should -Match ('`-Count 3` at the default cadence is fifteen\s+minutes')
+            $script:Vigil | Should -Match ('Any\s+finite count is a promise to go quiet at a moment ' +
+                                           'nobody will notice')
+        }
+
+        # R-006, and the boundary on it. One line at arming time is in scope; making a quiet pulse
+        # legible in general is its own piece of work and the skill says so rather than drifting
+        # into it.
+        It 'asks for one line at arming time and stops there' {
+            $script:Vigil | Should -Match '\*\*Say in one line that it is on when you arm it\.\*\*'
+            $script:Vigil | Should -Match ('a reader\s+who was never told the pulse started has no ' +
+                                           'way to tell the quiet that follows from a pulse that\s+' +
+                                           'never ran')
+            $script:Vigil | Should -Match ('making a quiet pulse legible in general\s+is somebody ' +
+                                           'else''s piece of work and deliberately not this one')
         }
 
         It 'pins the line to one line, with the tail as a count' {
             $script:Vigil | Should -Match 'One line, hard cap, however many workers are live'
             $script:Vigil | Should -Match 'the tail becomes a count'
+        }
+
+        # The three rules the King set on 2026-10-22 about where the number comes from and when it
+        # is read. Usage.Tests.ps1 drives each one through the code; these pin the sentences.
+        It 'says the probe answers first and quota-axi is a gated fallback' {
+            $script:Vigil | Should -Match ('\*\*A one-turn headless probe first, `quota-axi` only when ' +
+                                           'the probe cannot answer\*\*')
+            $script:Vigil | Should -Match ('asked at most once every fifteen minutes across every\s+' +
+                                           'process on the machine')
+        }
+
+        It 'says nothing reads a window from 90 percent until it resets but the confirming read' {
+            $script:Vigil | Should -Match ('\*\*From 90 percent nothing reads that window\s+again until ' +
+                                           'it resets, apart from the one confirming read after it\*\*')
+            $script:Vigil | Should -Match 'says `held` in place of `stale`'
+        }
+
+        It 'says a held window is at the limit whatever threshold a caller passes' {
+            $script:Vigil | Should -Match ('\*\*A held window is at the limit whatever the threshold\*\*:\s+' +
+                                           'from\s+90 percent the reader does not read it again until ' +
+                                           'it resets, so a dispatch is refused on the hold\s+even where ' +
+                                           '`-UsageThresholdPercent` is set above')
+        }
+
+        It 'says the pulse takes no reading while no worker is running' {
+            $script:Vigil | Should -Match '\*\*It takes no reading while no worker is running\*\*'
+            $script:Vigil | Should -Match '`usage not read while nothing runs - nothing running`'
         }
 
         # The two facts a percentage is meaningless without: which window it is about, and which
@@ -4629,8 +5242,10 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                                            'its number\.\*\*')
             $script:Vigil | Should -Match 'Where that floor alone is\s+already at or past the threshold'
             $script:Vigil | Should -Match 'Only the first ever refuses\s+\*\*as a measurement\*\*'
-            $script:Vigil | Should -Match ('A missing `quota-axi`, a lookup that\s+failed and an ' +
-                                           'answer that would not parse all warn and dispatch anyway')
+            $script:Vigil | Should -Match ('When the probe cannot answer, a\s+missing `quota-axi`, a ' +
+                                           'lookup that failed and an answer that would not parse all ' +
+                                           'warn and dispatch\s+anyway, and so does a fallback the ' +
+                                           'fifteen-minute gate did not allow')
             $script:Vigil | Should -Not -Match 'It never blocks a dispatch on an unreadable reading'
         }
 
@@ -4688,16 +5303,550 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                 -Phrase ('The usage pulse owns no file at all. What it last said lives in the ' +
                          'background job that is pulsing, for as long as that job runs')
         }
+
+        # The reader does keep one file, and it is named among what the Hand owns so nobody takes
+        # it for debris - or takes the pulse's rule above for a rule about the whole module.
+        It 'names the usage reader''s gate file and its one writer, among what the Hand owns' {
+            Assert-Phrase -Text (Get-HandSection 'What you own') -Where 'CLAUDE.md' `
+                -Phrase ('`state\usage-gate.json` - the usage reader''s record across processes: when ' +
+                         'quota-axi was last asked, the hold on a window read at 90 percent, and the ' +
+                         'last few readings. Written only by `bin\Usage.psm1`, which refuses any file ' +
+                         'there that is not its own record.')
+        }
+    }
+
+    # parley is the inverse of herald and vigil and the tests have to hold that difference: it is
+    # OFF by default, so its rules belong in the skill rather than in CLAUDE.md, and the only thing
+    # CLAUDE.md owes is the trigger that loads it. Everything below pins one of two things - a rule
+    # the mode adds, or a rule it deliberately leaves standing. The second half is the half that
+    # matters: a quick mode whose safety rules quietly go missing is the exact failure it was
+    # written against, and nothing but these assertions would notice the sentence being deleted.
+    Context 'parley shortens the ceremony and leaves every safety rule standing' {
+        BeforeAll {
+            $script:ParleyPath = Join-Path $script:Root '.claude\skills\parley\SKILL.md'
+            $script:Parley     = Get-DocText $script:ParleyPath
+            $script:ParleyRaw  = Get-Content -Path $script:ParleyPath -Raw
+        }
+
+        It 'has frontmatter that parses, with a name and a version' {
+            $fm = Get-Frontmatter $script:ParleyPath
+            $fm['name']    | Should -Be 'parley' -Because 'the frontmatter name must match the skill directory'
+            $fm['version'] | Should -Be '1.0.0'
+            $fm['description'].Length |
+                Should -BeGreaterThan 40 -Because 'the description is the trigger, and it must name the situation'
+        }
+
+        # The whole point of the mode is that two words turn it on, so the King's own words are the
+        # triggers. A skill reached only by typing its name would be reached by nobody: nothing in
+        # the spec ever has him saying "parley".
+        It 'the description carries the natural-language trigger <trigger>' -ForEach @(
+            @{ trigger = '"quick chat"' }
+            @{ trigger = '"quick question"' }
+            @{ trigger = '"quick q"' }
+            @{ trigger = '"short"' }
+            @{ trigger = '"quick mode"' }
+        ) {
+            $description = (Get-Frontmatter $script:ParleyPath)['description']
+            $description.Contains($trigger) |
+                Should -BeTrue -Because "he types two words, so $trigger must fire the skill"
+        }
+
+        It 'says it is off by default, and why its rules need no home in CLAUDE.md' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Parley is off by default, and nothing turns it on but the King''s own word.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('the mode begins when this file is loaded and ends when the exchange does, ' +
+                         'so there is no moment when parley is in force and this file is not in hand')
+        }
+
+        # THE CORRECTION. The Hand described this as herald being off and the King corrected it the
+        # same day. A skill that loses this sentence gets rebuilt as a suspension of the output
+        # rules rather than a ceiling on top of them.
+        It 'states that herald is not turned off, and quotes the correction' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**`herald` is not turned off.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '"no herald still apply to output, its just output is of 1-2 lines max."'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Parley is a length ceiling on top of those rules and replaces none of ' +
+                         'them.**')
+            # The Assert-Phrase checks above carry the real weight - they fail the moment the
+            # sentence is deleted. This negative guard is only here to catch a rewrite that says
+            # the same wrong thing in different words, so it covers the phrasings a suspension
+            # would actually be written in rather than the single one that was corrected.
+            foreach ($suspension in @(
+                '(?i)herald[^.\n]{0,12}\bis (turned off|off|suspended|disabled|paused|dropped)\b'
+                '(?i)herald[^.\n]{0,12}\b(does not|doesn''t|no longer) (apply|applies|hold|holds)\b'
+                '(?i)herald[^.\n]{0,12}\bis (not in force|set aside|waived|lifted)\b'
+                '(?i)(suspends|turns off|disables|waives|sets aside|lifts) `?herald'
+            )) {
+                $script:ParleyRaw |
+                    Should -Not -Match $suspension -Because 'the correction settled it the other way'
+            }
+        }
+
+        It 'caps the reply and turns rendering off without letting either eat a decision' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Replies are capped at one or two lines.** One line is the target, two sentences the ceiling.'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Nothing renders.** No review surface at all while parley is on. Work that ' +
+                         'genuinely needs one ends the mode instead')
+        }
+
+        # R-004, and the section this whole Context exists for. Each of these is a rule somebody
+        # could read the mode's brevity as permission to drop.
+        It 'names hard rules 1, 2 and 3 as holding inside the mode' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Hard rule 1 holds at any size.** The Hand writes no project code in ' +
+                         'parley - not a typo, not a string, not one character.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Hard rule 2 holds.** Nothing reaches a server without his word.'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Hard rule 3 holds.**'
+        }
+
+        It 'keeps the landing gate, the public-repository boundary and the standing criteria' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**The landing gate happens.** It is a line in chat rather than a rendered ' +
+                         'page, and it is still asked and still his to answer.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**The public-repository boundary holds.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**The standing criteria still apply** to whatever a worker delivers. They ' +
+                         'are self-reported rather than gate-checked')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'Parley changes how much is written, never who decides.'
+        }
+
+        # His instruction is the authorisation under hard rule 2, which is exactly why the step
+        # boundary is load-bearing rather than tidy: reading one instruction as covering the next
+        # step is taking authority he did not give.
+        It 'does the step asked and nothing after it' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Do exactly the step asked, and stop.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('an instruction to commit is not an instruction to push')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('"Commit and push" means commit and push, not also open a pull request.')
+        }
+
+        It 'turns a doubt into a suggestion without letting it swallow the floors' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**say so in a line and carry on with what was asked.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**A floor still stops, and still says why.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'Parley removes hesitation, never a refusal.'
+        }
+
+        # muster Step 2 owns what a brief must contain and this mode adds no second copy of that
+        # contract. What it adds is which of Step 2's own blocks a quick dispatch takes.
+        It 'writes the brief through muster Step 2 rather than a contract of its own' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Write the brief through `muster` Step 2, short.** Step 2 owns what a brief ' +
+                         'must contain and this mode adds no second contract')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Where the task resolves to `no-mistakes`, take Step 2''s `direct-PR` ' +
+                         'Done-means block and skip Step 1b.**')
+            # muster Step 1 warns against taking $proj.mode at face value, and keying this on
+            # registration missed no-mistakes-prod-only entirely - aegis-manager is the live case,
+            # where product-facing work resolves to no-mistakes off a differently named rawMode.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('Key this on the task''s resolved mode from `muster` Step 1, never on how ' +
+                         'the project is registered: a `no-mistakes-prod-only` project resolves to ' +
+                         '`no-mistakes` on product-facing work and this bullet fires there too')
+            # Hard rule 2, not a preference. The direct-PR block's delivery bullet pushes and opens
+            # a pull request, so borrowing that block without its yolo-off hold sends work to a
+            # server before the landing gate is ever asked.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**You take that block with its conditions, never stripped of them.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('Step 2''s own section "With `yolo` off, a push-capable block stops before ' +
+                         'anything leaves the machine" applies unchanged, and the substitution to ' +
+                         'make is its `direct-PR` one, because the `direct-PR` block is what this ' +
+                         'dispatch took')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**So with `yolo` off the work stops on the branch**, nothing goes to a ' +
+                         'server, and the push is asked for afterwards as a line in chat like every ' +
+                         'other parley gate.')
+        }
+
+        # The marker is the durable half of the mode. Everything else about parley lives in the
+        # session and is allowed to be forgotten; a brief written with no review gate is on disk
+        # and outlives it, so the rule against merging that run has to be on disk with it. Pin the
+        # exact sentence, because it is copied verbatim into every parley brief and read by a Hand
+        # that may never have heard of parley.
+        It 'writes a durable no-gate marker into the brief and the report' {
+            # Scoped to where a gate was actually given up. Written unconditionally it revoked a
+            # +merge the King granted on direct-PR and local-only work, which runs no review gate
+            # outside parley either - a safety reduction reported where none occurred.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Where the task resolves to `no-mistakes`, and only there, write the ' +
+                         'no-gate marker.**')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**On a task resolved to `direct-PR` or to `local-only`, write no marker at ' +
+                         'all**: those modes run no review gate in normal mode either, so parley ' +
+                         'subtracted nothing and a `+merge` the King granted stands exactly as he ' +
+                         'granted it.')
+            # Each shape stands alone, stated positively. The lead-in once said one copy "does not
+            # work" without the other, which told a Hand that a brief-only marker did not count -
+            # and the brief's copy is exactly the one that has to stand alone, because the worker
+            # is the half that may not comply.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('Where it is written, it takes **two shapes, because the two files take ' +
+                         'different shapes** - and **each shape stands on its own**: either file ' +
+                         'carrying the token is enough for Step 7''s floor to refuse.')
+            $script:Parley.Contains('one without the other does not work') |
+                Should -BeFalse -Because 'a brief-only marker still refuses the merge'
+            # One shape per file. The report's copy keeps its heading; the brief's cannot have one,
+            # because ## Requirements is a bullet list and a heading ends the section early.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**In the brief''s `## Requirements`, as one `-` bullet and no heading** - ' +
+                         'that section is a bullet list, and a heading dropped into it ends the ' +
+                         'section early')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**In `report.md`, the same prose under its own `## No review gate` ' +
+                         'heading.**')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('PARLEY DISPATCH - NO REVIEW GATE RAN. Nothing has established that this ' +
+                         'run is safe to merge, so it must not be merged on the forge whatever this ' +
+                         'project''s registry entry declares. Landing on a branch or opening a pull ' +
+                         'request is unaffected.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**A brief without that bullet is a parley brief written wrong, and so is a ' +
+                         'brief that carries it in `## Requirements` and never asks the worker to ' +
+                         'reproduce it in `report.md`.**')
+            # Which copy carries the weight. The brief's is beyond the worker's reach, so the floor
+            # still fires on a run whose worker never wrote its own.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**The brief''s copy is the durable one** - the Hand writes it before any ' +
+                         'worker exists and nothing a worker does can touch it - **and the report''s ' +
+                         'copy is corroboration**')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'Step 7''s floor reads both and refuses on either.'
+            # The honest half: nothing makes a worker comply, so the skill says what to do when one
+            # has not rather than implying the report is the only evidence.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**The gap that remains, named rather than papered over.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**A parley dispatch whose `report.md` lacks the line is a report to query, ' +
+                         'never a run to merge**')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'A skipped gate nobody can see afterwards is the failure mode'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**It says what it means and what it forbids rather than setting a flag**, ' +
+                         'because the Hand that reads it next may have never heard of parley')
+            # The floor is a literal match, so a tidy-up of the marker's wording is a silent
+            # disarm. The skill has to say that where the wording is.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Do not reword or respell that first line.** `muster` Step 7''s floor ' +
+                         'matches `PARLEY DISPATCH - NO REVIEW GATE RAN.` literally, so a paraphrase ' +
+                         'disarms the floor silently, and it must be spelled identically in both ' +
+                         'shapes.')
+        }
+
+        # The mechanism is one literal token crossing a skill boundary: parley writes it, Step 7
+        # matches it. Spelled two ways it fails silently and open, which is the defect this token
+        # replaced an open-ended prose match to avoid. Nothing else would notice them drifting.
+        It 'spells the marker token identically in parley and in muster Step 7' {
+            $token = 'PARLEY DISPATCH - NO REVIEW GATE RAN.'
+            $step  = Get-MusterStep 'Step 7 - Gate two'
+            $script:Parley.Contains($token) |
+                Should -BeTrue -Because 'parley writes the line the floor matches'
+            $step.Contains($token) |
+                Should -BeTrue -Because 'Step 7 must match the same line parley writes'
+            # Anchored to the two places that have to agree: the marker block parley hands the
+            # worker, and parley's own account of what Step 7 matches.
+            ([regex]::Matches($script:Parley, [regex]::Escape($token))).Count |
+                Should -BeGreaterOrEqual 2 -Because 'the marker block and the Step 7 cross-reference both carry it'
+        }
+
+        # Criterion 5: the refusal is stated in full in Step 7 and parley carries the reason plus a
+        # pointer. Pin both halves - a rule restated in two places drifts, and a rule stated only
+        # here would be lost the moment the mode is forgotten.
+        It 'never merges a parley dispatch, and leaves the refusal to Step 7 to own' {
+            # Scoped to the marker, because the marker is scoped to where a gate was skipped.
+            # Stated absolutely it foreclosed merges on work parley took nothing away from.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**A parley dispatch that carries the marker is never merged on the forge, ' +
+                         'whatever `+merge` declares** - a gate that would have run did not, so ' +
+                         'nothing has established that the run is safe to merge.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('a dispatch resolved to `direct-PR` or `local-only` carries none, gave up ' +
+                         'nothing, and merges exactly as it would outside parley')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '`muster` Step 7 owns the refusal and states it in full'
+        }
+
+        # Rendering a gate becomes a line in chat; a gate never becomes no gate. The dispatch gate
+        # is the one most easily lost - `yolo` off is the default across the registry, and the
+        # mode's own "nothing renders" rule reads like permission to drop it.
+        It 'keeps the dispatch gate, as a line in chat rather than a rendered page' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**The dispatch gate happens.** Wherever `yolo` is off - the default across ' +
+                         'most of the registry - `muster` Step 3 is still asked and still his to ' +
+                         'answer, as a line in chat rather than a rendered page, and nothing is ' +
+                         'dispatched until he answers it.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Parley shortens how a gate is presented; it never removes one.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Gate the dispatch wherever `yolo` is off, before anything is dispatched.** ' +
+                         '`muster` Step 3 is not skipped in parley')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'only his answer to that line is consent to dispatch'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Where a dispatch cannot be judged from a line in chat it is not quick**')
+        }
+
+        # "waiting for agent off" is about the Hand holding the exchange open, never about leaving a
+        # worker unwatched - that would be the restart failure CLAUDE.md's Recovery section exists
+        # to prevent, arriving by a different door.
+        It 'does not hold the exchange open, and still arms the worker''s wait' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Do not wait.** Arm the worker''s wait exactly as `muster` Step 4 requires - ' +
+                         'a worker nobody is watching is the failure `CLAUDE.md`''s Recovery section ' +
+                         'exists to prevent')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'Parley does not hold an exchange open on a worker.'
+        }
+
+        It 'carries his word on the review gate and the cost of taking it' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '"no review gate in quick mode."'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'given after being told plainly that this is a safety reduction on a project registered to have one'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'a fatal-return path that would have blocked a poll forever'
+        }
+
+        It 'keeps the landing gate, the criteria and hard rule 1 apart from the review gate' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**The landing gate is untouched.** The review gate is the automated ' +
+                         'reviewer; the landing gate is the King saying a push may happen.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Hard rule 1 is untouched.** The worker writes the code.'
+        }
+
+        # The shape standing criterion 13 asks for. The gate is absent from the brief rather than
+        # abandoned mid-run, which is the same answer --skip ci gave: a constraint that must hold
+        # while an agent sits inside a long call is carried by a flag, never by a sentence.
+        It 'removes the gate by not asking for it rather than by stopping a running one' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**The gate is removed by never asking for it, never by stopping one that is ' +
+                         'running.**')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('an agent inside that call is watching a step and is not reading anything ' +
+                         'telling it to stop')
+        }
+
+        It 'ends at the first thing that is not quick, on his word, or with the session' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**It ends at the first thing that is not quick**, announced in one line rather than silently.'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**It ends when he says so** - "normal mode", "done", "off", or asking for the long version.'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**It ends with the session.** Parley is held in this session''s own context ' +
+                         'and nothing is written to `state\` to carry it further.')
+        }
+
+        It 'states the test for what counts as not quick' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('Can every mandatory section of the brief be filled honestly in a line or two ' +
+                         'each, and can the King judge the landing from one line in chat?')
+        }
+
+        # Session-scoped was a real choice with a durable flag as the alternative, and the argument
+        # is which way each one fails. Pinning it stops the flag being added later as an obvious
+        # improvement.
+        It 'argues session-scoped against a durable flag, on which way each fails' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Session-scoped is a decision and it fails safe.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('a flag outliving the burst leaves the Hand in reduced ceremony over work ' +
+                         'nobody called quick')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**Forgetting parley is the one failure this mode is allowed to have**'
+            # Both halves, and the second half is the correction: the claim was true for ceremony
+            # and false for a dispatch already on disk. Deleting the qualification restores a
+            # stated safety property that does not hold.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**That holds for ceremony and not for work already dispatched**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('That is why the no-gate marker is written into the brief and carried into ' +
+                         'the `report.md` rather than held in mind, and why `muster` Step 7''s floor ' +
+                         'reads it instead of trusting anyone''s memory: the constraint is attached ' +
+                         'to the work, not to the session.')
+        }
+
+        # The honest half. Three of the four rules have a mechanism; the exit has none, and saying
+        # so is worth more than a mechanism invented to fill the line.
+        It 'says what enforces each rule, including where the answer is nothing' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**The exit conditions are enforced by nothing at all.**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('That is accepted rather than fixed, because the failure runs the safe way ' +
+                         'for ceremony')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('That is the `--skip ci` shape rather than the fifteen-minutes-in-a-brief shape.')
+            # The honest answer changed for one rule: the no-merge rule now has a mechanism, and
+            # the exit is the only thing left with none. Saying the exit fails safe without saying
+            # what it does not cover is the claim that was wrong.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('The no-merge rule on a parley dispatch is enforced by `muster` Step 7''s ' +
+                         'floor, which matches the line `PARLEY DISPATCH - NO REVIEW GATE RAN.` in ' +
+                         'the brief or in the worker''s `report.md` - **either one is enough** - and ' +
+                         'refuses the merge wherever it finds it.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('It bites only where a gate was actually given up, because that is the only ' +
+                         'place the marker is written.')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '**The marker is durable and the memory of the mode is not**'
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**It does not run the safe way for a dispatch already in flight**, which is ' +
+                         'what the marker and the Step 7 floor above are for.')
+        }
+
+        # He was offered a bounded override of hard rule 1 and declined it for simplicity, which is
+        # the detail that makes it worth recording: a better-guarded version is the same proposal.
+        It 'records the declined override so nobody rebuilds it' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('"we are complicating, agent does the code writing, not you, no to hard rule 1 ' +
+                         'pass.. we will follow it, its just sub agent will be quick to do it rather ' +
+                         'than taking its sweet time."')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**The reason was simplicity rather than an objection to any particular ' +
+                         'safeguard, so a better-guarded version of the same idea is the same idea.** ' +
+                         'Do not rebuild it.')
+        }
+
+        It 'keeps the warm worker explicitly out of scope' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase 'It is deliberately not built here and not designed for.'
+        }
+
+        # Rule 5's exception list is closed and always loaded, so a mode that renders nothing has
+        # to appear in it. Without the clause a Hand meets a hard rule and a loaded skill telling
+        # it opposite things about the one action parley most changes.
+        It 'is admitted by CLAUDE.md rule 5 rather than contradicting it' {
+            Assert-Phrase -Text (Get-HandSection 'Hard rules') -Where 'CLAUDE.md rule 5' `
+                -Phrase ('Give it up only when they ask for the long version, when the surface is ' +
+                         'unreachable, or while `parley` is loaded, which turns every gate into a ' +
+                         'line in chat and owns that exception in full.')
+        }
+
+        # Rule 5's exception is in CLAUDE.md, but the two steps that actually PRESENT a gate are
+        # what a Hand executes - and Step 7 forbade the chat form in as many words. A rule and the
+        # step implementing it disagreeing sends every yolo-off quick dispatch out of the mode,
+        # which is most of the registry.
+        It 'the two muster gate steps carry the same exception rather than contradicting rule 5' {
+            $three = Get-MusterStep 'Step 3 - Gate one'
+            Assert-Phrase -Text $three -Where 'muster Step 3' `
+                -Phrase ('**While `parley` is loaded, this gate is asked as a line in chat rather ' +
+                         'than rendered.** That is hard rule 5''s own exception and `parley` owns ' +
+                         'it in full')
+            Assert-Phrase -Text $three -Where 'muster Step 3' `
+                -Phrase ('The gate is not skipped and the approval is not assumed - what changes is ' +
+                         'the surface.')
+            $seven = Get-MusterStep 'Step 7 - Gate two'
+            Assert-Phrase -Text $seven -Where 'the landing gate' `
+                -Phrase ('**The one exception to rendering is `parley`, and it is hard rule 5''s ' +
+                         'own.**')
+            # The prohibition is qualified rather than left standing against the mode, and the
+            # authority it guards is named as unmoved.
+            Assert-Phrase -Text $seven -Where 'the landing gate' `
+                -Phrase ('"Do not summarise a diff into chat and ask for a yes" forbids a chat ' +
+                         'summary standing in for a gate nobody rendered; it does not forbid the ' +
+                         'gate itself being asked in chat while that mode is on.')
+            Assert-Phrase -Text $seven -Where 'the landing gate' `
+                -Phrase ('the gate is still held before the push, every floor above still holds, ' +
+                         'and only the user''s own answer lands the work')
+            # Both steps send work that cannot be judged from a line back to the rendered form
+            # rather than shrinking the decision to fit the mode.
+            foreach ($step in @($three, $seven)) {
+                $step.Contains('rather than shrink the decision to fit') |
+                    Should -BeTrue -Because 'work too big for a line ends the mode, it does not shrink the gate'
+            }
+        }
+
+        # "normal mode" was a documented trigger for two skills and neither named the other, so the
+        # same words could be read as ending parley or as turning herald's shape off while the
+        # one-or-two-line ceiling stayed in force - capped replies immediately after asking for
+        # fuller prose. The innermost active mode claims the phrase, and both skills say so.
+        It 'settles "normal mode" between parley and herald, in both files' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**"normal mode" ends parley and leaves `herald` exactly as it was.** That ' +
+                         'phrase is also `herald`''s own off switch, and **the innermost active mode ' +
+                         'claims it**')
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('while parley is loaded it ends parley and herald''s shape carries on ' +
+                         'untouched, and with parley off it goes wherever `fief`''s ' +
+                         '`## Fief and parley together` sends it - to `herald` when no `fief` ' +
+                         'session is in force.')
+            $herald = Get-DocText (Join-Path $script:Root '.claude\skills\herald\SKILL.md')
+            Assert-Phrase -Text $herald -Where 'the herald skill' `
+                -Phrase ('**While `parley` is loaded, "normal mode" is parley''s phrase and not this ' +
+                         'one.**')
+            Assert-Phrase -Text $herald -Where 'the herald skill' `
+                -Phrase 'With neither in force, it turns the shape off exactly as above.'
+            # The reasoning, in both, because a bare precedence rule is the thing a later edit
+            # reverses as an inconsistency.
+            foreach ($text in @($script:Parley, $herald)) {
+                $text.Contains('wants the ordinary Hand back') |
+                    Should -BeTrue -Because 'the phrase means the ordinary Hand, not herald switched off'
+            }
+            # CLAUDE.md sends the reader to herald on that phrase, so it must not now contradict.
+            Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'the CLAUDE.md Skills section' `
+                -Phrase ('while `parley` is loaded "normal mode" ends parley instead and this shape ' +
+                         'is untouched, which both skills state')
+        }
+
+        It 'is reachable from CLAUDE.md by a stated condition, and named off by default there' {
+            $skills = Get-HandSection 'Skills'
+            Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
+                -Phrase ('`parley` is the quick-exchange mode for small work, and unlike `herald` and ' +
+                         '`vigil` it is **off by default**')
+            Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
+                -Phrase ('nothing turns it on but the King''s own word - "quick chat", "quick ' +
+                         'question", "quick q", "short", "quick mode"')
+            Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
+                -Phrase ('renders nothing - so the landing gate inside it is a line in chat rather ' +
+                         'than a page')
+            Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
+                -Phrase '**It changes ceremony and never authority**'
+        }
+
+        # The design note is where the rejected alternatives live, per statute's placement tree. A
+        # cross-reference that names a file which is not there is worse than none.
+        It 'points at a design note that exists' {
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase '`docs\2026-09-25-parley-quick-mode.md` records both decisions and why.'
+            Test-Path -LiteralPath (Join-Path $script:Root 'docs\2026-09-25-parley-quick-mode.md') |
+                Should -BeTrue -Because 'the skill names it as the record of what was rejected'
+        }
     }
 
     It 'every skill directory lives under .claude\skills\' {
         $skills = @(Get-ChildItem (Join-Path $script:Root '.claude\skills') -Directory)
-        $skills.Count | Should -Be 17 -Because 'sixteen skills plus setup, all project-local'
+        $skills.Count | Should -Be 20 -Because 'nineteen skills plus setup, all project-local'
         @($skills.Name) | Should -Contain 'herald' -Because 'output shape has an owner the user can turn on'
         foreach ($s in $skills) {
             Test-Path -LiteralPath (Join-Path $s.FullName 'SKILL.md') |
                 Should -BeTrue -Because "$($s.Name) must carry a SKILL.md"
         }
+
+        # setup's overview spells out how many skills sit beside it, and that number went stale
+        # twice as skills were added because nothing checked it. Derive it from the directories so
+        # the next skill fails here instead of leaving the prose quietly wrong.
+        $words = @{
+            14 = 'fourteen'; 15 = 'fifteen'; 16 = 'sixteen';   17 = 'seventeen'
+            18 = 'eighteen'; 19 = 'nineteen'; 20 = 'twenty'
+        }
+        $others = $skills.Count - 1
+        $words.ContainsKey($others) |
+            Should -BeTrue -Because "setup writes the count in words, so $others needs one listed here"
+        $setup = Get-Content -Path (Join-Path $script:Root '.claude\skills\setup\SKILL.md') -Raw
+        $setup.Contains("beside the other $($words[$others])") |
+            Should -BeTrue -Because "setup says how many skills sit beside it, and there are $others"
     }
 
     It 'no script creates a junction or a symlink' {
@@ -4711,19 +5860,43 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     }
 
     # Asserted as an absence of overlap rather than of a literal path: a script that cannot reach
-    # the profile cannot install a skill into it, whatever it says about skills, and a script that
-    # can reach the profile must have no business with skills at all.
+    # the profile cannot install a skill into it, whatever it says about skills.
+    #
+    # THE OVERLAP IS CHECKED LINE BY LINE AND NOT FILE BY FILE, and the difference showed up the
+    # first time a script had honest business at both ends. The digest reaches the profile for
+    # lavish-axi's session store and, forty lines away in a comment, says where the skills load
+    # from - two facts with nothing to do with each other, which at file scope read as one script
+    # putting skills in the profile. A path that joins the two is one statement, so that is the
+    # scope this is asserted at.
+    #
+    # WHAT THAT LEAVES UNCOVERED IS WORTH STATING RATHER THAN IMPLYING. CLAUDE.md forbids linking
+    # OR COPYING the skills into `~\.claude\skills\`, and the junction and symlink check above bans
+    # exactly two item types - so a `Copy-Item` into a profile path passes it, and so does any path
+    # assembled over two lines, which passes this one too. Neither test is a proof that nothing can
+    # reach that directory. This asserts the narrower thing it can actually assert: no single
+    # statement in this repository names the profile and the skills together.
+    #
+    # Every offender is collected first and asserted once. Line scope with an assertion per line is
+    # thousands of them for one test, and the message could only name the file - which is the file
+    # scope this narrowing moved away from, handed back at the moment somebody has to act on it.
+    # Collected, the failure names the file AND the line of each statement that tripped it.
     It 'no script writes to the user profile skills directory' {
-        foreach ($f in $script:AllSource) {
-            $text = Get-Content -Path $f.FullName -Raw
-            ($text.Contains('USERPROFILE') -and $text -match '(?i)skills') |
-                Should -BeFalse -Because "$($f.Name) must leave ~\.claude\skills\ alone entirely"
-        }
+        $offenders = @(
+            foreach ($f in $script:AllSource) {
+                $n = 0
+                foreach ($line in @(Get-Content -Path $f.FullName)) {
+                    $n++
+                    if ($line.Contains('USERPROFILE') -and $line -match '(?i)skills') { "$($f.Name):$n" }
+                }
+            }
+        )
+        ($offenders -join ', ') |
+            Should -BeNullOrEmpty -Because 'every script must leave ~\.claude\skills\ alone entirely'
     }
 
     # The blanket ban on touching the profile at all was the right proxy while nothing needed to.
-    # TWO things do now, and each is named with its own file, because an unnamed exception is how a
-    # guard like this stops meaning anything.
+    # THREE things do now, and each is named with its own file, because an unnamed exception is how
+    # a guard like this stops meaning anything.
     #
     # Folder trust was the first: herdr launches a worker in a worktree Claude Code has never seen,
     # and the trust registry is a single file in the profile with no per-project alternative.
@@ -4733,13 +5906,23 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     # measures - and that name lives in one file in the profile. The test below pins the scope hard,
     # because the directory it sits in also holds the credential blobs: one file, read, never
     # written, and nothing whatever from a credential file.
-    It 'only the trust module and the usage reader touch the profile, each for one named file' {
+    #
+    # lavish-axi's session store is the third, and it is READ-ONLY too. A review surface holding
+    # feedback nobody collected is invisible from anywhere inside this repository - the tool ships
+    # no command that lists its sessions, so its own store is the one place that answer exists, and
+    # the tool documents the pair of locations it keeps it in. One file, read, never written.
+    #
+    # The review gate's mirrors are the fourth. A gate run fixes in its own mirror under the
+    # profile and moves the real branch only at its push step, so a night's watch pause that has to
+    # rescue a run's fix commits can only find them there. One directory, the gate's own, where a
+    # rescue ref is named into the mirror and fetched out - never a credential, never a skill.
+    It 'only the trust module, the usage reader, the digest and the gate rescue touch the profile' {
         $reaching = @($script:AllSource | Where-Object {
             (Get-Content -Path $_.FullName -Raw).Contains('USERPROFILE')
         })
         (@($reaching | ForEach-Object { $_.Name } | Sort-Object) -join ', ') |
-            Should -Be 'ClaudeWorkspace.psm1, Usage.psm1' `
-            -Because 'folder trust and the active account name are the two with nowhere else to live'
+            Should -Be 'ClaudeWorkspace.psm1, Get-SessionStart.ps1, NightsWatch.psm1, Usage.psm1' `
+            -Because 'folder trust, the account name, the session store and the gate mirrors have nowhere else to live'
 
         $trust = Get-Content -Path (Join-Path $script:Root 'bin\ClaudeWorkspace.psm1') -Raw
         $trust.Contains('.claude.json') |
@@ -4748,6 +5931,11 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         $usage = Get-Content -Path (Join-Path $script:Root 'bin\Usage.psm1') -Raw
         $usage.Contains('.claude\accounts\.active') |
             Should -BeTrue -Because 'the account name is one file, named exactly'
+
+        # The digest's half of this is not asserted from its source. Which file it opens, and that
+        # it honours the tool's own override variable, are both driven end to end in
+        # SessionStart.Tests.ps1 - `the store path resolves the way lavish-axi resolves it` - and
+        # that it never writes to that file is observed there too, from the file's own bytes.
     }
 
     # The hard half of that exception. The accounts directory holds the credential blobs the King's
@@ -4875,6 +6063,32 @@ Describe 'the review gate is never promised a check that cannot come' {
         $fences[0].Contains('Ci.psm1') | Should -BeTrue -Because 'the module is imported where it is used'
         $fences[0].Contains('briefLine') |
             Should -BeTrue -Because 'the answer has to reach the brief, which is the only thing a worker reads'
+        $fences[0].Contains('gateLine') |
+            Should -BeTrue -Because 'the flag is the half that acts, and it is printed where it is read'
+    }
+
+    # The measured failure, and the rule taken from it. Three runs sat on a `ci` step that could
+    # never report, against a brief telling the worker to give up after fifteen minutes - and a
+    # worker at that moment is inside the gate's own long-running call watching that step, not
+    # reading its brief. A flag removes the step; a sentence reaches nobody.
+    It 'carries the no-ci answer as a flag, and states the rule that follows from it' {
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase ('**On `no-ci` the answer is carried by a flag and not by a sentence, and that ' +
+                     'is the whole of the fix.**')
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase ('Anywhere a constraint has to hold while an agent is inside a call like that, ' +
+                     'name the flag, the timeout or the guard that enforces it rather than writing ' +
+                     'the constraint down and hoping.')
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase ('`$ci.gateLine` now carries `--skip ci`, so the step that would wait for a ' +
+                     'check nothing can report is never run')
+    }
+
+    # The expensive wrong answer in the other direction. A failed lookup is not proof of absence,
+    # and a skip taken on one throws away a real check on a repository that may well have CI.
+    It 'refuses the skip on an unsettled lookup' {
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase ('`$ci.gateLine` deliberately carries **no skip** here')
     }
 
     It 'names the failure it prevents, so nobody deletes it as a formality' {
@@ -4908,39 +6122,127 @@ Describe 'the review gate is never promised a check that cannot come' {
 
     It 'carries the answer into the brief rather than leaving it to be retyped' {
         Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
+            -Phrase ('Carry `$ci.gateLine` and `$ci.briefLine` to Step 2 verbatim.')
+        Assert-Phrase -Text $script:Step1b -Where 'muster Step 1b' `
             -Phrase ('A preflight whose answer never reaches the brief changes nothing at all, ' +
                      'because the worker reads its brief and nothing else.')
     }
 
-    # The two `no-mistakes` variants differ in one line, and the difference is the whole preflight.
+    # The gated Done-means block is chosen by the answer, and there is one per answer, so the
+    # lead-in has to count them right or a Hand looks for a fourth that is not there.
+    It 'Step 2 counts the blocks and keys the gated ones on the preflight' {
+        Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
+            -Where 'muster Step 2' `
+            -Phrase ('**The Done-means block is generated from the resolved mode.** Use exactly one ' +
+                     'of these five - and for a `no-mistakes` task, which of the three ' +
+                     '`no-mistakes` blocks is chosen by Step 1b''s answer, not by memory')
+    }
+
+    # Three `no-mistakes` variants, one per answer. They were two while `no-ci` and `unknown` ended
+    # the same way; they part company the moment `no-ci` takes `--skip ci` and `unknown` does not.
     It 'has one no-mistakes Done-means block per answer, keyed on the preflight' {
         $text = Get-DocText $script:MusterMd
         Assert-Phrase -Text $text -Where 'muster Step 2' `
             -Phrase '`no-mistakes`, where Step 1b answered `has-ci`:'
         Assert-Phrase -Text $text -Where 'muster Step 2' `
-            -Phrase '`no-mistakes`, where Step 1b answered `no-ci` or `unknown`.'
+            -Phrase '`no-mistakes`, where Step 1b answered `no-ci`.'
         Assert-Phrase -Text $text -Where 'muster Step 2' `
-            -Phrase ('**Do not decide between the two blocks yourself** - a repository with no ' +
+            -Phrase '`no-mistakes`, where Step 1b answered `unknown`.'
+        Assert-Phrase -Text $text -Where 'muster Step 2' `
+            -Phrase ('**Do not decide between the three blocks yourself** - a repository with no ' +
                      'workflow file may still get checks from outside it')
     }
 
-    # The line is shared by `no-ci` and `unknown`, so it says what both support and no more. An
-    # `unknown` lookup never established that nothing reports here, and a worker told it had would
-    # report a repository as CI-less on the strength of an expired token.
-    It 'the no-CI variant ends the wait instead of leaving it open' {
+    # The `no-ci` block's gate line removes the step, so nothing in it may still be telling a worker
+    # when to give up on that step - a sentence about a step that never runs is the dead prose this
+    # change exists to delete, and the worker it addressed could never act on it anyway.
+    It 'the no-CI variant skips the step rather than timing a worker out of it' {
+        $blocks = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains('no-mistakes axi run --skip ci --intent') })
+        $blocks.Count | Should -Be 1 -Because 'the skip belongs to the no-ci block alone'
+        $blocks[0].Contains('Nothing reports a check on') |
+            Should -BeTrue -Because 'the block says why its gate line carries the flag'
+        $blocks[0].Contains('fifteen minutes') |
+            Should -BeFalse -Because 'there is no step left to time out of'
+        $blocks[0].Contains('Do not merge it.') | Should -BeTrue
+    }
+
+    # An `unknown` lookup never established that nothing reports here, so its gate line runs the
+    # step and a sentence is all that bounds the wait. It says what an unsettled question supports
+    # and no more: a worker told as fact that nothing reports would report a repository as CI-less
+    # on the strength of an expired token.
+    It 'the undetermined variant keeps the terminating line and takes no skip' {
         $blocks = @(Get-CodeFence $script:MusterMd |
             Where-Object { $_.Contains('Checks may not report on this repository at all') })
         $blocks.Count | Should -Be 1 -Because 'the terminating line is stated once, in its own Done-means block'
         $blocks[0].Contains('waiting more than fifteen minutes') |
-            Should -BeTrue -Because 'an open-ended wait is exactly the failure this removes'
+            Should -BeTrue -Because 'the step still runs here, so something has to bound the wait'
         $blocks[0].Contains('Do not sit on it.') | Should -BeTrue
         $blocks[0].Contains('Do not merge it.') | Should -BeTrue
+        $blocks[0].Contains('--skip') |
+            Should -BeFalse -Because 'a failed lookup is not proof there is no step to run'
     }
 
     It 'CLAUDE.md lists the module that answers the question' {
         Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
             -Phrase ('| `bin\Ci.psm1` | whether a repository has any CI that could report a check, ' +
                      'before a task is promised a wait for one |')
+    }
+}
+
+# Import is the last moment the CI answer costs nothing to say. A user who is not told finds out
+# from a run that behaves as though the repository had no CI - which, on an `unknown`, is usually an
+# unauthenticated `gh` and a minute's work once somebody says so.
+Describe 'the CI answer is said once at import and never written down' {
+    BeforeAll { $script:ImportCi = Get-DocText $script:ImportMd }
+
+    # The same module the dispatcher asks, so the two cannot disagree - and scoped to the postures
+    # that reach a pull request, because a local-only project never waits on a check at all.
+    It 'reads it from the module the dispatcher uses, on push-capable modes only' {
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('**Only on a push-capable mode** - `direct-PR`, `no-mistakes` or ' +
+                     '`no-mistakes-prod-only`.')
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('Ask the module the dispatcher asks')
+        $fences = @(Get-CodeFence $script:ImportMd | Where-Object { $_.Contains('Get-RepoCiStatus') })
+        $fences.Count | Should -Be 1 -Because 'one call, not a second detection of its own'
+        $fences[0].Contains('Ci.psm1') | Should -BeTrue -Because 'the module is imported where it is used'
+    }
+
+    # `has-ci` is the ordinary case and a line about it is noise, so the instruction for it is
+    # silence rather than a reassuring sentence.
+    It 'says nothing at all on the ordinary answer' {
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('- `has-ci` - **say nothing at all.**')
+    }
+
+    # The absence is a decision somebody made, and muster Step 1b owns that rule. Restating it here
+    # would be the second owner the one-owner rule forbids.
+    It 'names where delivery stops on no-ci and refuses to offer CI' {
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('say plainly that nothing reports a check on this repository, so work here is ' +
+                     'delivered as a pull request and stops there rather than waiting for a green ' +
+                     'that cannot arrive')
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('**Do not offer to add CI.**')
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('`muster` Step 1b owns that rule')
+    }
+
+    It 'names which part of the lookup failed on unknown' {
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('say which part of the lookup failed, from `$ci.detail`, and that delivery ' +
+                     'will stop at the pull request under that uncertainty')
+    }
+
+    # A field would be wrong the first time somebody adds a workflow, and nothing would ever go back
+    # and correct it. The lookup is cheap and already runs per dispatch, so there is nothing to save.
+    It 'keeps the answer out of the registry' {
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('**The answer is not recorded in the registry.**')
+        Assert-Phrase -Text $script:ImportCi -Where 'annex Step 4' `
+            -Phrase ('This is a sentence said once at import, not a field, and `data\projects.md`''s ' +
+                     'format does not change.')
     }
 }
 
@@ -5374,7 +6676,7 @@ Describe 'a brief settles the mechanism questions that have no last review round
         # Step 2 is the only place the Hand reads while writing a brief, so these rules are
         # asserted at that step rather than anywhere in the file.
         $script:MusterStep2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' `
-            -ToHeading 'Step 3 - Gate one'
+            -ToHeading 'The review surface'
     }
 
     # The biggest block of waste in the evidence, and the one rule here that pays for itself on its
@@ -5426,7 +6728,7 @@ Describe 'a brief settles the mechanism questions that have no last review round
 Describe 'a project has a standing definition of done, and repeated findings are reported not capped' {
     BeforeAll {
         $script:CritStep2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' `
-            -ToHeading 'Step 3 - Gate one'
+            -ToHeading 'The review surface'
         $script:CritStep6 = Get-MusterStep 'Step 6 - Completion'
         # The brief template is the one fence carrying both the Goal and the Done-means headings,
         # and it is read raw because the assertion below is about the order of its sections.
@@ -5605,14 +6907,14 @@ Describe 'a project has a standing definition of done, and repeated findings are
             Should -BeTrue -Because 'a slot that only repeats the Goal changes nothing'
 
         $gated = @($script:CritDoneBlocks | Where-Object { $_.Contains('no-mistakes axi run') })
-        $gated.Count | Should -Be 2 -Because 'only the two no-mistakes blocks invoke the gate'
+        $gated.Count | Should -Be 3 -Because 'only the three no-mistakes blocks invoke the gate'
         foreach ($block in $gated) {
             $block.Contains("--intent '<the ``Intent`` section above, verbatim on one line>'") |
                 Should -BeTrue -Because 'the worker passes the section rather than reconstructing it'
         }
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
             -Phrase ('You write that string, not the worker: it is the `Intent` section of the ' +
-                     'brief, and the two `no-mistakes` blocks hand it to the gate verbatim')
+                     'brief, and the three `no-mistakes` blocks hand it to the gate verbatim')
     }
 
     # The section is specified to carry settled decisions and criteria, and this repository names
@@ -5621,7 +6923,7 @@ Describe 'a project has a standing definition of done, and repeated findings are
     # escapes the next character and a double quote ends the argument, both silently.
     It 'the gate is handed the intent in a string that survives backticks' {
         $gated = @($script:CritDoneBlocks | Where-Object { $_.Contains('no-mistakes axi run') })
-        $gated.Count | Should -Be 2
+        $gated.Count | Should -Be 3
         foreach ($block in $gated) {
             $block.Contains('--intent "') |
                 Should -BeFalse -Because 'a double-quoted string eats the backticks the section uses'
@@ -5634,13 +6936,15 @@ Describe 'a project has a standing definition of done, and repeated findings are
         }
     }
 
-    # In all four, because the criteria only ever mattered as something the worker is made to work
-    # through. The count stays four - per-project content inside these blocks would multiply them.
+    # In all five, because the criteria only ever mattered as something the worker is made to work
+    # through. The count is bounded by what varies: one block per delivery mode, and one per CI
+    # answer for the mode that runs a gate - three answers, closed set. Per-project content inside
+    # these blocks would multiply them without bound, and still must not.
     # The trigger names delivery generically: `direct-PR` neither runs a gate nor stops on the
     # branch, so a two-clause trigger left the one mode whose next bullet opens a pull request
     # describing no moment at all.
-    It 'all four Done-means blocks make the worker work the list before it delivers' {
-        $script:CritDoneBlocks.Count | Should -Be 4
+    It 'all five Done-means blocks make the worker work the list before it delivers' {
+        $script:CritDoneBlocks.Count | Should -Be 5
         foreach ($block in $script:CritDoneBlocks) {
             $block.Contains('Before you deliver - before you invoke the gate, push, open a pull request, or stop on the branch - work the `Standing criteria` section above line by line and record the result in `report.md`') |
                 Should -BeTrue -Because 'every mode has to recognise its own delivery act here'
@@ -5667,11 +6971,11 @@ Describe 'a project has a standing definition of done, and repeated findings are
     # already gated, pushed or opened a pull request against - a criterion it then records `fixed`
     # is a commit the delivered PR does not contain, and on a gated block it records `pass` on a
     # criterion the gate itself had just caught, which sends Step 6 off to reword a working line.
-    # Asserted on all four blocks by position rather than on the two with a gate: the bullet is
-    # copied four times, and the last round repositioned two of them and left two.
+    # Asserted on all five blocks by position rather than on the three with a gate: the bullet is
+    # copied five times, and one round repositioned some of them and left the rest.
     It 'the self-check is the second bullet of every Done-means block' {
         $script:CritDoneBlocksRaw.Count |
-            Should -Be 4 -Because 'one Done-means block per delivery mode'
+            Should -Be 5 -Because 'one block per delivery mode, and one per CI answer for the gated mode'
         foreach ($block in $script:CritDoneBlocksRaw) {
             $bullets = @($block -split "`n" | Where-Object { $_ -match '^- ' })
             $bullets[0] | Should -BeLike "- Implemented and committed on this worktree's branch.*" `
@@ -5684,32 +6988,35 @@ Describe 'a project has a standing definition of done, and repeated findings are
     # "Identical but for the third line" was true until a bullet was inserted above it, and then it
     # pointed at the gate-run bullet - a Hand substituting $ci.briefLine where the prose said would
     # have dropped `no-mistakes axi run` out of the brief entirely. Asserted against Ci.psm1's own
-    # output rather than an ordinal or a sentence: the two blocks must differ in exactly the line
-    # that function computes, and in nothing else, which is what the prose claims and what makes
-    # taking it from Step 1b safe.
-    It 'the two gated blocks differ only in the line Ci.psm1 computes' {
+    # output rather than an ordinal or a sentence: the three blocks must differ in exactly the two
+    # lines that module computes - the gate line and the delivery line - and in nothing else, which
+    # is what the prose claims and what makes taking them from Step 1b safe.
+    It 'the three gated blocks differ only in the lines Ci.psm1 computes' {
         Import-Module "$PSScriptRoot\..\bin\Ci.psm1" -Force
         $gated = @($script:CritDoneBlocks | Where-Object { $_.Contains('no-mistakes axi run') })
-        $gated.Count | Should -Be 2 -Because 'only the two no-mistakes blocks invoke the gate'
+        $gated.Count | Should -Be 3 -Because 'only the three no-mistakes blocks invoke the gate'
 
-        $hasCi = ConvertTo-NormalisedText (Get-CiBriefLine -Status 'has-ci')
-        $noCi  = ConvertTo-NormalisedText (Get-CiBriefLine -Status 'no-ci')
-        $withHasCi = @($gated | Where-Object { $_.Contains($hasCi) })
-        $withNoCi  = @($gated | Where-Object { $_.Contains($noCi) })
-        $withHasCi.Count | Should -Be 1 -Because 'one block carries the has-ci line Step 1b computes'
-        $withNoCi.Count  | Should -Be 1 -Because 'the other carries the terminating line'
+        $stripped = foreach ($status in 'has-ci', 'no-ci', 'unknown') {
+            $gate  = ConvertTo-NormalisedText (Get-CiGateLine  -Status $status)
+            $brief = ConvertTo-NormalisedText (Get-CiBriefLine -Status $status)
+            $hit   = @($gated | Where-Object { $_.Contains($gate) -and $_.Contains($brief) })
+            $hit.Count | Should -Be 1 -Because "one block carries the pair Step 1b computes for $status"
+            $hit[0].Replace($gate, '').Replace($brief, '')
+        }
 
-        $withHasCi[0].Replace($hasCi, '') | Should -Be $withNoCi[0].Replace($noCi, '') `
-            -Because 'identical but for that line is what lets the Hand swap one for the other'
+        @(@($stripped) | Select-Object -Unique).Count | Should -Be 1 `
+            -Because 'identical but for those two lines is what lets the Hand swap one for another'
     }
 
-    # And the prose names it by its text, so the next bullet inserted above it cannot restale the
-    # reference the way an ordinal was.
-    It 'the prose names that line by its text rather than its position' {
+    # And the prose names them by their text, so the next bullet inserted above them cannot restale
+    # the reference the way an ordinal did.
+    It 'the prose names those lines by their text rather than their position' {
+        Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
+            -Phrase 'Both are named by their text and never by their position'
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
             -Phrase 'Identical but for the `Drive the pipeline` line'
         Assert-Phrase -Text $script:CritStep2 -Where 'muster Step 2' `
-            -Phrase 'That `Drive the pipeline` line is `$ci.briefLine` from Step 1b'
+            -Phrase 'Those two lines are `$ci.gateLine` and `$ci.briefLine` from Step 1b'
         $script:CritStep2.Contains('Identical but for the third line') |
             Should -BeFalse -Because 'an ordinal goes stale the moment a bullet is inserted above it'
     }
@@ -5930,7 +7237,7 @@ Describe 'a project has a standing definition of done, and repeated findings are
     }
 
     # The comparison needs both halves to survive teardown. The self-check block is required by all
-    # four Done-means blocks; the rounds are only in `report.md` because the brief made the worker
+    # five Done-means blocks; the rounds are only in `report.md` because the brief made the worker
     # put them there as they landed. Drop that and the fold-back has one reading to compare against
     # nothing, and it silently does nothing at all.
     It 'the rounds the fold-back compares against are recorded as they land' {
@@ -5984,6 +7291,17 @@ Describe 'a project has a standing definition of done, and repeated findings are
                      'is no gate and no round to compare against, so this loop does not fire, and ' +
                      'a report with no rounds in it is the record that brief asked for rather than ' +
                      'one to query')
+        # Keyed on the task, not the registration. A gateless dispatch on a project registered
+        # `no-mistakes` falls outside the mode list above, and the only other sentence about a
+        # report with no rounds calls it one to ask about - so the worker gets queried for doing
+        # exactly what its brief asked.
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('**What settles it is whether this task ran a review gate, never how the ' +
+                     'project is registered**, so a task whose brief carried no gate line is in ' +
+                     'that same case in full')
+        Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
+            -Phrase ('it has no round to compare against whatever its entry says, the loop does not ' +
+                     'fire, and its report having no rounds is right rather than a gap')
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
             -Phrase 'Read the self-check block either way'
     }
@@ -6179,7 +7497,8 @@ Describe 'the installation has a version, and one command moves it to a release'
 
     It 'names the version as one line of the session-start digest' {
         Assert-Phrase -Text (Get-HandSection 'Session start') -Where 'CLAUDE.md Session start' `
-            -Phrase 'The digest carries six things: this installation''s version on one `VERSION:` line'
+            -Phrase ('The digest carries ten things: the full contents of `instructions.md`, first; ' +
+                     'this installation''s version on one `VERSION:` line')
     }
 
     It 'declares the update skill trigger inline, with its refusals' {
@@ -6199,7 +7518,7 @@ Describe 'the installation has a version, and one command moves it to a release'
 
     It 'counts every skill that now loads' {
         Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'CLAUDE.md Skills' `
-            -Phrase 'so all seventeen load when Claude Code runs here'
+            -Phrase 'so all twenty load when Claude Code runs here'
     }
 
     It 'gives the version and the update their own owners in the tooling table' {
@@ -6209,7 +7528,18 @@ Describe 'the installation has a version, and one command moves it to a release'
                      'version, read and validated in one place, and never fabricated when it cannot be read |')
         Assert-Phrase -Text $tooling -Where 'the CLAUDE.md tooling table' `
             -Phrase ('| `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the ' +
-                     'latest release tag, and the commit subjects between two releases |')
+                     'latest release tag, the commit subjects between two releases, and the installer ' +
+                     'run that moves every dependency to the release''s pins - and the once-a-day ' +
+                     'new-release notice the digest prints |')
+    }
+
+    It 'lists the pin reader and the weekly pin refresh in the tooling table' {
+        $tooling = Get-HandSection 'Tooling'
+        Assert-Phrase -Text $tooling -Where 'the CLAUDE.md tooling table' `
+            -Phrase '| `bin\Dependencies.psm1` | the pins in `dependencies.json`'
+        Assert-Phrase -Text $tooling -Where 'the CLAUDE.md tooling table' `
+            -Phrase ('| `bin\Update-DependencyPins.ps1` | the weekly pin refresh as data, writing nothing ' +
+                     'unless told the run is the weekly check')
     }
 
     It 'has frontmatter that parses, with the trigger in the description' {
@@ -6722,7 +8052,7 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
     # Both ways: no section on a task that renders nothing, and no bare list of things to look at
     # on a task that does.
     It 'keeps the section out of every brief that does not need one' {
-        $step2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' -ToHeading 'Step 3 - Gate one'
+        $step2 = Get-MusterRegion -FromHeading 'Step 2 - Write a brief' -ToHeading 'The review surface'
         Assert-Phrase -Text $step2 -Where 'muster Step 2' `
             -Phrase '**`Browser checks` is the one optional section, and it is optional both ways.**'
         Assert-Phrase -Text $step2 -Where 'muster Step 2' `
@@ -6906,7 +8236,7 @@ Describe 'a project carries standing rules that reach every worker without being
         Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
             -Phrase ('**All three reach a worker mechanically. `bin\Dispatch-Worker.ps1` ' +
                      'attaches whichever of them exist to every brief for that project and ' +
-                     'names each copy under `Read first` itself,**')
+                     'names each copy in the file it writes beside the brief,**')
         Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
             -Phrase 'so delivery never depends on your remembering to pass one'
     }
@@ -7003,7 +8333,7 @@ Describe 'a project carries standing rules that reach every worker without being
             -Phrase ('**The project''s own file wins where the two disagree**, and it is the more ' +
                      'specific of the two.')
         Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
-            -Phrase '`annex` owns this format as well.'
+            -Phrase '`annex` owns this format as well, and'
     }
 
     # The Hand writes the ticket text itself, so it has to read the shared conventions before it
@@ -7047,16 +8377,30 @@ Describe 'a project carries standing rules that reach every worker without being
         Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
             -Phrase ('**Where the family''s file and the project''s own disagree, the project''s ' +
                      'own wins**')
+    }
+
+    # The King's 2026-10-30 answer on where the family's file is indexed. Registration lists it only
+    # when it is already there, because an entry pointing at nothing is `missing` drift whose
+    # documented remedy deletes the line before the file arrives - so the writer of the file owes
+    # the listing for every member, and annex is the one place that says so.
+    It 'the import skill owns who indexes the family file, and when' {
         Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
-            -Phrase ('**Registering a project into a family indexes nothing**')
-        # Indexing a file that is not there is `missing` drift, and the documented remedy for
-        # that count deletes the line - so the entry would be gone before the file arrived.
+            -Phrase ('**The family''s file is indexed under every project in the family, and who ' +
+                     'does it depends on whether the file exists yet.** This section owns that ' +
+                     'obligation; every other mention points here.')
         Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
-            -Phrase ('an entry pointing at nothing is `missing` drift that the documented remedy, ' +
-                     '`Remove-IndexEntry -Missing -All`, then deletes')
+            -Phrase ('**Registering a project into a family indexes the file only when it already ' +
+                     'exists.**')
         Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
-            -Phrase ('index it in that same call, the way every durable file under `data\` is ' +
-                     'indexed as it is written')
+            -Phrase ('**Whoever writes the family''s file indexes it for every project then in the ' +
+                     'family**')
+        Assert-Phrase -Text $script:RulesAnnex -Where 'the import skill' `
+            -Phrase '**List it per member project, not once in the root index.**'
+    }
+
+    It 'CLAUDE.md points at annex for who indexes the family file' {
+        Assert-Phrase -Text $script:RulesOwn -Where 'CLAUDE.md ownership' `
+            -Phrase 'Step 4c owns who indexes it for each project in the family and when.'
     }
 
     # Removing the token is one of the two ways the attachment is meant to be undone, and it is the
@@ -7083,7 +8427,7 @@ Describe 'a project carries standing rules that reach every worker without being
     It 'muster says the family line carries the precedence and the token retires it' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase ('the family''s last of the three and saying in so many words that the project''s ' +
+            -Phrase ('the family''s last of the three, saying in so many words that the project''s ' +
                      'own file wins where the two disagree')
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase ('taking the `+family:` token off the entry retires the family''s file the same way')
@@ -7131,8 +8475,9 @@ Describe 'a project carries standing rules that reach every worker without being
     It 'statute no longer claims the dispatcher never writes to a brief' {
         $g = Get-DocText $script:GuidelinesMd
         Assert-Phrase -Text $g -Where 'the statute skill' `
-            -Phrase ('it does add lines to a brief - one `Read first` line per standing file it ' +
-                     'attached for the resolved project')
+            -Phrase ('it does add lines for a brief - one `Read first` line per standing file it ' +
+                     'attached for the resolved project, in the dispatch file beside the brief ' +
+                     'rather than in the brief itself')
         $g.Contains('it never adds a line to a brief') |
             Should -BeFalse -Because 'the dispatcher does add lines to a brief now'
     }
@@ -7161,13 +8506,18 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         $script:RouteFences = @(Get-CodeFence $script:MusterMd)
     }
 
-    It 'all four Done-means blocks send an unsettled decision to the report as prose' {
-        $script:RouteBlocks.Count | Should -Be 4
+    It 'all five Done-means blocks send an unsettled decision to the report as prose' {
+        $script:RouteBlocks.Count | Should -Be 5
         foreach ($block in $script:RouteBlocks) {
             $block.Contains('**Write it as prose, the way you would put it to a colleague at their desk.**') |
                 Should -BeTrue -Because 'the report carries the question and the reasoning, which is what prose is for'
-            $block.Contains('Nothing parses this file, so there is no heading to match exactly, no slug to keep and no marker to get wrong') |
+            # Scoped to the question, never to the file. Written as a flat claim about report.md it
+            # contradicted the one line a parley brief does ask a worker to reproduce verbatim, and
+            # a worker holding both instructions drops the marker Step 7's floor matches.
+            $block.Contains('Nothing parses the question you write here, so there is no heading to match exactly, no slug to keep and no marker to get wrong') |
                 Should -BeTrue -Because 'a worker told to write a marker exactly is a worker that can get it wrong'
+            $block.Contains('Nothing parses this file') |
+                Should -BeFalse -Because 'as a claim about the whole file it contradicts the no-gate marker'
         }
     }
 
@@ -7188,7 +8538,7 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
     # The load-bearing half for the worker: ending a turn is not the same as ending the work. A
     # worker that reads it as "stop" undoes its own change or reports failure, and the parked run
     # loses everything it was holding.
-    It 'all four say ending the turn is not ending the work, and forbid unwinding it' {
+    It 'all five say ending the turn is not ending the work, and forbid unwinding it' {
         foreach ($block in $script:RouteBlocks) {
             $block.Contains('**Ending your turn is not the end of your work.**') |
                 Should -BeTrue -Because 'stopping and waiting are different, and the worker has to be told which'
@@ -7201,11 +8551,11 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
         }
     }
 
-    # Only the two no-mistakes blocks have a gate, so only they carry the parked-run half. Pinned at
-    # two rather than four so moving it into a block with no gate fails here.
-    It 'the two no-mistakes blocks leave the gate run parked rather than aborting it' {
+    # Only the three no-mistakes blocks have a gate, so only they carry the parked-run half. Pinned
+    # at three rather than five so moving it into a block with no gate fails here.
+    It 'the three no-mistakes blocks leave the gate run parked rather than aborting it' {
         $parked = @($script:RouteBlocks | Where-Object { $_.Contains('**Leave the run parked while you wait.**') })
-        $parked.Count | Should -Be 2 -Because 'a review gate exists only in the two no-mistakes variants'
+        $parked.Count | Should -Be 3 -Because 'a review gate exists only in the three no-mistakes variants'
         foreach ($block in $parked) {
             $block.Contains('the run still owns the branch and every fix commit it has already made') |
                 Should -BeTrue -Because 'the reason to leave it parked is what stops someone aborting it'
@@ -7233,7 +8583,7 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
     # answer and carry on. The escape hatch stays - it is the ordinary case - but not for these.
     It 'the assumption escape hatch is closed to a gate ask-user finding' {
         $parked = @($script:RouteBlocks | Where-Object { $_.Contains('**Leave the run parked while you wait.**') })
-        $parked.Count | Should -Be 2
+        $parked.Count | Should -Be 3
         foreach ($block in $parked) {
             $block.Contains('Where you can proceed on a stated assumption instead, do that: record the assumption in `report.md` and continue rather than stopping.') |
                 Should -BeTrue -Because 'the ordinary case still prefers a recorded assumption to stopping'
@@ -7250,7 +8600,7 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
     # drove a parked gate finding to a PR instead of writing it down and waiting.
     It 'the parked-run bullet names the bullet it defers to by its text' {
         $parked = @($script:RouteBlocks | Where-Object { $_.Contains('**Leave the run parked while you wait.**') })
-        $parked.Count | Should -Be 2
+        $parked.Count | Should -Be 3
         foreach ($block in $parked) {
             $block.Contains('it takes the `When you reach a decision your brief does not settle` bullet below') |
                 Should -BeTrue -Because 'a bullet named by position points at whatever was inserted above it since'
@@ -7349,8 +8699,8 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase ('The rule is this step''s alone: Step 7 and Step 8 bind the record to `$w` ' +
                      'with no wake object in scope, and neither is a collision to go and tidy.')
         Assert-Phrase -Text $script:RouteStep6 -Where 'muster Step 6' `
-            -Phrase ('binding the record over it leaves the re-read returning `$null` under normal ' +
-                     'mode and throwing under `Set-StrictMode`')
+            -Phrase ('binding the record over it leaves a later read of the wake returning `$null` ' +
+                     'under normal mode and throwing under `Set-StrictMode`')
         @($script:RouteFences | Where-Object { $_.Contains('$w = Get-CrewWorker') -and
             $_.Contains('waiting_on') }).Count |
             Should -Be 0 -Because 'the wake object must survive the pointer read'
@@ -8126,9 +9476,10 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
     }
 
     # The durable home for a decision made in the King's stead. petition requires three things
-    # recorded every time and named no destination that outlives the session, so the record lived
-    # only in a regency digest built from session memory - gone on the restart CLAUDE.md treats as
-    # routine, and he is never told a call was made in his name.
+    # recorded every time and named no destination that outlives the session. The away journal now
+    # carries the same three into his return digest and survives a restart, but it is a record and
+    # never an authority - so the note is still the only place the queue says the work was allowed,
+    # and a closed hold without one asserts an authorisation nothing recorded.
     It 'decree holds the record of a decision answered in the King''s stead' {
         Assert-Phrase -Text $script:RouteHold -Where 'the decree note convention' `
             -Phrase ("**A decision the Hand answered in the King's stead is one of these too, and " +
@@ -8139,8 +9490,10 @@ Describe 'a parked decision reaches the Hand, and the answer reaches the worker 
             -Phrase ('it is registered and closed in the same pass because nobody is being waited ' +
                      'for')
         Assert-Phrase -Text $script:RouteHold -Where 'the decree note convention' `
-            -Phrase ('a regency''s return digest is built inside one session, so a restart before ' +
-                     'he is back means he is never told a call was made in his name at all')
+            -Phrase ('Nothing else durably holds it - the away journal does record the call in ' +
+                     'his return digest and does survive a restart, but it is a record and never ' +
+                     'an authority, so the note is still the only place the queue says the work ' +
+                     'was allowed.')
         Assert-Phrase -Text $script:RouteHold -Where 'the decree command table' `
             -Phrase ("| record a decision the Hand answered in the King's stead |")
         # The row skipped the block, which the note convention and step 6 both require: an
@@ -8321,14 +9674,16 @@ Describe "the reversibility test owns what may be answered in the King's stead" 
     }
 
     # petition scoped registration to the wait branch, so the branch it exists for recorded
-    # nothing. decree owns the lifecycle; this is the one-line cross-reference to it.
+    # nothing. decree owns the lifecycle; this is the one-line cross-reference to it. The away
+    # journal survives a restart and carries the same three things into the return digest, but it
+    # is a record and never an authority - so the hold's note is still what durably authorises.
     It 'registers both branches under decree rather than only the wait' {
         Assert-Phrase -Text $script:Away -Where 'petition' `
             -Phrase ('**Either branch is registered under `decree`, and its note is where those ' +
                      'three things live.**')
         Assert-Phrase -Text $script:Away -Where 'petition' `
-            -Phrase ('A regency digest is built inside one session, so a restart or a compaction ' +
-                     'before he is back takes it with it')
+            -Phrase ('it is a record and never an authority - only the note durably says the ' +
+                     'work was allowed')
         Assert-Phrase -Text $script:Away -Where 'petition' `
             -Phrase ('`decree` owns that lifecycle, including the pass that registers a decision ' +
                      'you answered yourself and closes it in the same breath; nothing here ' +
@@ -8453,13 +9808,16 @@ Describe 'CLAUDE.md keeps the away boundary to a pointer' {
 
     # The always-loaded file outranks every skill, so a stale blanket rule here could not be
     # corrected from petition at all - that is the one reason this change touches CLAUDE.md. It is
-    # narrowed to the blocked-prompt case, which is still absolute, plus one pointer.
+    # narrowed to the blocked-prompt case plus one pointer, and on 2026-10-29 that case itself was
+    # split: still absolute on an office project, answered inside the brief on a personal one.
     It 'narrows the never-answer rule to the prompt case and points the rest at petition' {
         Assert-Phrase -Text $script:AwayHand -Where 'CLAUDE.md' `
-            -Phrase 'never answers a prompt a worker is blocked on'
+            -Phrase ("A worker's on-screen prompt is answered only on a personal project and only " +
+                     "inside that worker's brief, as ``regency`` says, and on an office project " +
+                     'is recorded verbatim and waits')
         Assert-Phrase -Text $script:AwayHand -Where 'CLAUDE.md' `
-            -Phrase ("A blocked worker's question is recorded verbatim and waits; a decision a " +
-                     'worker wrote into its report is decided under `petition`, never here.')
+            -Phrase ('a decision a worker wrote into its report is decided under `petition`, ' +
+                     'never here.')
     }
 
     # Absence, because the failure is a second copy rather than a missing one. The test lives in
@@ -8489,5 +9847,1019 @@ Describe 'CLAUDE.md keeps the away boundary to a pointer' {
                      'worker happens on any posture.')
         $script:AwayHand.Contains('Only the `no-mistakes` review gate produces one.') |
             Should -BeFalse -Because 'that scoped the whole skill to the gate, and half of it fires without one'
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# The side chat went silent. The Hand rendered, armed one poll, read what came back, and then went
+# to work - and a delivered result with no poll behind it is read as the agent having gone away,
+# which disables both send buttons on a page that still looks healthy. Arming, reading and
+# answering are all kingshand's, and `--agent-reply` appeared in zero tracked files while the
+# symptom was reported three times in one day. These pin the rule that reading a result is the
+# event that shuts the surface down, and the one call that answers and re-arms together.
+
+Describe 'reading a poll result is what shuts the review surface down' {
+    BeforeAll { $script:Surface = Get-MusterStep 'The review surface' }
+
+    It 'declares itself the single owner of the contract' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**This section is the only statement of how that surface is opened, ' +
+                     'watched and answered in.**')
+    }
+
+    # The whole defect in one assertion: re-arming after the work is re-arming after the silence.
+    # The diagnosis has to be the lock-out rather than a message going nowhere, and it has to cut
+    # on DELIVERY rather than on whose feedback came back - a return is delivered whenever prompts
+    # or artifact failures are present, and any delivery disables both send buttons. Cut on "their
+    # feedback" instead and the artifact-failure return, which this section routes eight paragraphs
+    # later, lands on the wrong side and is described as a page they can still type into.
+    It 're-arms at the instant the result is read, before acting on it' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**The instant a poll delivers anything, they are locked out of sending ' +
+                     'until you reply or re-arm.**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Their feedback, a fatal artifact failure, or both in one return - it makes ' +
+                     'no difference which, because the surface reads any delivery as you having ' +
+                     'gone off to work.')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Both buttons go dead on a page that otherwise looks entirely normal, with ' +
+                     'no banner saying why')
+        # The other branch, and the only one where the old premise was right: nothing was
+        # delivered, so the buttons are live, the banner shows, and a message really is lost.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('A poll that delivers nothing - killed or timed out - is the other half and ' +
+                     'the only one where a message really is lost on nobody: the buttons stay ' +
+                     'live and the banner tells them nobody is listening.')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**re-arm at that instant, before you act on what the result said** - not ' +
+                     'after the work is done, and not once you have something worth replying with.')
+        $script:Surface.Contains('A return carrying no feedback') |
+            Should -BeFalse -Because 'a fatal artifact failure carries no user feedback and still locks the page'
+    }
+
+    # This premise is stated in the owner section and echoed at the landing gate, and the landing
+    # gate has now three times been left holding the superseded half after the owner was corrected.
+    # Scoped to the whole skill so neither site can keep the old wording, and pinned at the gate
+    # that echoes it so a future correction has to carry through.
+    It 'no gate still says a returned poll leaves the surface merely unwatched' {
+        $muster = Get-DocText $script:MusterMd
+        foreach ($stale in @('the surface is unwatched again',
+                             'The instant a poll returns, that surface is unwatched')) {
+            $muster.Contains($stale) |
+                Should -BeFalse -Because "a delivered result locks the page rather than leaving it open and ignored ($stale)"
+        }
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase ('the instant it delivers their rejection they are locked out of sending ' +
+                     'until you reply or re-arm')
+    }
+
+    # Lavish's own recovery rule, and the branch above where nothing was delivered: a restart kills
+    # the job the poll ran in, and the fix is to re-run the poll, never to ask the user to type it
+    # all again.
+    It 'recovers a killed or timed-out poll by re-running it rather than losing the feedback' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**A poll that was killed or timed out is just re-run - queued feedback ' +
+                     'is never lost.**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('anything they sent while nothing was watching is still waiting for the ' +
+                     'next poll to collect, and re-running is the fix rather than asking them ' +
+                     'to send it again')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('A session restart is the ordinary case: it takes the background job the ' +
+                     'poll was running in with it, and the answer is that same re-run.')
+        $script:Surface.Contains('they can send again and it reaches nobody') |
+            Should -BeFalse -Because 'queued feedback survives the poll, so nothing sent is lost'
+    }
+
+    # The re-run needs a path, and once each gate renders under a timestamped name there is no
+    # fixed one to type: a restarted session holds no record of what was rendered, so a recovery
+    # rule that stops at "re-run it" cannot be carried out at all.
+    It 'says how to find the gate file the re-run needs' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**`poll` needs the gate file''s absolute path, and after a restart ' +
+                     'nothing has told you what it is**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Find it by taking the newest `*-land.html` in `data\<id>\` for a landing ' +
+                     'gate, and the newest `*-<ids>.html` in `data\_dispatch\` for the ids the ' +
+                     'backlog says are awaiting dispatch, then re-run the poll on that path.')
+        # The landing half is scoped by the work item's own directory; the dispatch half shares
+        # one directory with every gate ever rendered and nothing cleans it up, so date alone
+        # re-arms one outstanding gate and silently strands the other.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Match on the ids rather than on the date alone: nothing clears that ' +
+                     'directory, so with two gates outstanding the newest file is one of them ' +
+                     'and the other is stranded.')
+    }
+
+    It 'names the one call that answers in the surface and waits again' {
+        $fence = @(Get-CodeFence $script:MusterMd |
+            Where-Object { $_.Contains('lavish-axi poll <file> --agent-reply') })
+        $fence.Count | Should -Be 1 -Because 'the reply-and-re-arm call has to be copyable, not described'
+        # The copyable line is the one a reader follows, so its placeholder cannot ask for the
+        # progress note the paragraph below forbids.
+        $fence[0].Contains('--agent-reply "<your answer to what they just sent>"') |
+            Should -BeTrue -Because 'the reply answers what they sent rather than announcing work'
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase 'That displays your answer in the side chat and waits again.'
+        # The one rule this contract could be read as relaxing. A reply is owed to something the
+        # user sent; hard rule 6 still bans the unprompted progress note, on any surface.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**It answers what they just sent and nothing else** - hard rule 6 still ' +
+                     'forbids narrating progress, and a running commentary in the side chat is ' +
+                     'that rule broken on a different surface.')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('A bare `poll` re-arms too but leaves them looking at silence they sent ' +
+                     'into, which is the reported symptom rather than the fix.')
+    }
+
+    # An unbounded re-arm rule leaves one live poll per decision ever answered, because a settled
+    # gate's session is never ended - the fix is to stop the job, not to end anything.
+    It 'stops re-arming once the decision it belongs to is closed out' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Re-arming stops once that decision is settled and its work is closed ' +
+                     'out.**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('an answered one left armed is a job still waiting to wake this session ' +
+                     'over something already done, and a fleet''s worth of them accumulates one ' +
+                     'gate at a time')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Stop the background job it was running in - the session itself needs ' +
+                     'nothing done to it.')
+    }
+
+    # Both constraints are Lavish's own, carried in rather than reinvented. A kingshand-flavoured
+    # paraphrase drifts away from the tool that actually enforces them.
+    It 'keeps the poll in the foreground and allows only a waking background job' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase 'Keep it in the foreground by default and let it return the feedback directly to you.'
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('A background poll is allowed only through a harness-native tracked ' +
+                     'background job whose completion is guaranteed to wake this same session, ' +
+                     'never through `&`, `nohup`, `disown` or any detached process.')
+    }
+
+    It 'never claims the artifact is watched before the wake path exists' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Do not tell the user the artifact is being monitored until that wake ' +
+                     'path is live.**')
+    }
+
+    # The inverse mistake, and it sits beside the rule on purpose: a rule that says always re-arm
+    # invites re-arming into a session that has already stopped polling. Stated as the condition
+    # rather than as one named button, because ending the review without sending anything reaches
+    # the same state and is not `Send & End` - named as the rule, that return re-arms forever.
+    It 'stops re-arming once the session has ended, however it ended' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**A return whose session has ended is the one with nothing to re-arm**, ' +
+                     'and `Send & End` is only the commonest way to reach that state - ending ' +
+                     'the review without sending anything reaches it too.')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('the reply is written into the chat of a closed session nobody will read, ' +
+                     'the poll returns the same ended result at once, and the rule that just ' +
+                     'fired says re-arm again')
+        $script:Surface.Contains('**`Send & End` is the one result with nothing to re-arm.**') |
+            Should -BeFalse -Because 'naming one button as the rule leaves every other ended return re-arming'
+        # Stopping the poll is not the whole answer when they ended without sending: nothing was
+        # approved, the path is spent for a plain open, and the decision is left with no surface
+        # at all. The failed-artifact case one paragraph below is routed the same way.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Where that return carried no feedback at all, the decision is still ' +
+                     'open and now has no surface**, so put it in chat rather than leaving it ' +
+                     'on a page nobody is watching.')
+    }
+
+    # The return that looks like an ending and is not one. A failure recorded against a live
+    # session leaves it open and still accepting prompts, so stopping there abandons a surface the
+    # user is sitting in - the going-silent symptom this whole section exists to remove. But the
+    # same failure can arrive on a session that has already ended, and stated without its
+    # condition this rule and the ended-session rule above both claim that one return: the reader
+    # who indexes on this one re-arms into a closed session and loops.
+    It 'repairs in place and re-arms on a fatal return, while the session is open' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**An `artifact_failures` return on a session that is still open is the ' +
+                     'surface failing, not the session ending, and it is re-armed.**')
+        # It is a delivery, so it locks the page exactly like their own feedback does. Saying they
+        # can still send into it describes the surface as usable while broken, which is the one
+        # thing it is not, and it puts this return on the killed-poll side of the rule above.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('It is a delivery like any other, so it locks their sending too, and the ' +
+                     'session being open is what makes re-arming worth doing: it unlocks them ' +
+                     'and gives the poll something to wake on.')
+        $script:Surface.Contains('the page could not be used while they can still send into it') |
+            Should -BeFalse -Because 'the fatal return disables both send buttons like any other delivery'
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Repair the artifact and re-arm on the same file - Lavish live-reloads it ' +
+                     'once the repair is saved, so the session is not reopened and ' +
+                     '`lavish-axi <file>` is not run again.')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Where the same failure arrives on a session that has ended, the rule ' +
+                     'above wins and polling stops: repair the artifact, confirm it renders, ' +
+                     'and put the decision in chat.')
+        $script:Surface.Contains('**An `artifact_failures` return is the surface itself failing') |
+            Should -BeFalse -Because 'stated without its condition it claims the ended return too'
+    }
+
+    It 'reads a refused reopen as the tool working, not as something to retry' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase '**A session the user ended from the browser is not reopened.**'
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('`--reopen` is for when they ask for further review or something needs ' +
+                     'their eyes, and it is never a way around the refusal.')
+    }
+
+    # Without this the refusal has no exit and the weaker remedy is what a reader reaches for: a
+    # reopen is not inert, because the session carries its old side chat and untriaged layout
+    # warnings across, so decision two opens showing decision one's conversation.
+    It 'sends a new decision to a new name rather than to a reopened path' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**A new decision belongs on a new name, not on a reopened path**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('reopening is not inert, because the session carries its old side-chat ' +
+                     'history and its untriaged layout warnings across, so they would open the ' +
+                     'second decision''s page showing the first one''s conversation')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase 'Reach for `--reopen` only where a fresh name is not available.'
+    }
+
+    # The rule for choosing the file a session is opened on belongs in the section that calls
+    # itself the only statement of how the surface is opened - the two gates are not the only
+    # readers, and counsel and annex are pointed here with no output path of their own.
+    It 'owns the one-name-per-decision rule rather than leaving it in the gates' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Every decision is rendered to its own file name, and no two share one.**')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('a reused name is a path that opens nothing once they have ended a session ' +
+                     'on it, and a poll left armed from an earlier decision sits on the same ' +
+                     'session as this one and can drain the answer meant for it')
+        # The exception turns on the session, not on counting decisions. Phrased the other way it
+        # asked the reader to classify the render first, and a rejected-then-fixed landing reads
+        # as a second decision - so the headline rule sent them to a new name beside a live
+        # session, which is the harm both gates warn about.
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**The session is what decides, not a judgement about how many decisions ' +
+                     'there are: while it is open, anything rendered to that file is a revision ' +
+                     'and keeps the name, and a new name is for a session they have ended.**')
+        $script:Surface.Contains('The one name that is reused is a revision of a decision') |
+            Should -BeFalse -Because 'that made reuse depend on classifying the render rather than on the session'
+    }
+
+    # Stated by what has to be present, and by that alone. The rule carried a list of example
+    # non-answers for two rounds and two of its three items turned out to describe a return that
+    # does carry a real answer - each item was a hand-written claim about a third-party tool's
+    # field semantics, and the set they enumerate is open. The positive rule catches every
+    # non-answer including the ones nobody thought of, so the list is gone rather than qualified.
+    It 'reads only the user own sent feedback as an answer' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Only the user''s own sent feedback is an answer.** A return carrying ' +
+                     'none of it agreed to nothing and settles nothing, whatever else it says.')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('Read for the sent feedback being there rather than for a field naming why ' +
+                     'the return arrived: a rule made of the non-answers somebody thought of ' +
+                     'passes every one nobody did')
+        $script:Surface.Contains('Those are illustrations and not the test') |
+            Should -BeFalse -Because 'the enumeration it introduced is what kept describing real answers'
+    }
+
+    # Necessary is not sufficient, and the gap is reachable: queueing a layout fix from the browser
+    # inbox, or sending whiteboard edits, returns the poll carrying the user's own sent feedback
+    # while approving nothing. A rule that stops at "their feedback is present" dispatches work
+    # nobody agreed to. This is a sufficiency condition, not a list of return shapes.
+    It 'requires the feedback to answer the question the gate asked' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**Their feedback being there is what makes a return readable, not what ' +
+                     'makes it a yes.** It has to answer the question the gate asked before ' +
+                     'anything acts on it')
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('they can send from that page for reasons of their own, and none of those ' +
+                     'is approval')
+    }
+
+    # The direction that costs a decision rather than risking one: answering and ending in one go
+    # queues the user's own prompts and sets `ended_by: user` in the same write, so that field
+    # arrives on a real approval. Read as a closed session, the gate drops the answer it was
+    # waiting for and the ended session cannot be reopened to ask again.
+    It 'reads feedback that arrived with a closed session as an answer' {
+        Assert-Phrase -Text $script:Surface -Where 'the review surface section' `
+            -Phrase ('**`ended_by: user` arrives alongside their feedback whenever they answer ' +
+                     'and end in one go, and that is an answer** - so read it as one, rather ' +
+                     'than dropping a decision because the session it came from is closed.')
+    }
+}
+
+Describe 'the review-surface contract is stated once and cross-referenced everywhere else' {
+    # Standing criterion 5, and the reason this task existed at all: the polling rules were spread
+    # across both muster gates and five other files, so each copy drifted on its own and none of
+    # them ever gained the reply. One owner, and every other mention is a pointer with no substance
+    # in it.
+    # Scoped to the instructions that are followed - CLAUDE.md and the skills. `docs\` holds dated
+    # design notes rather than contract owners, and a note explaining this decision would have to
+    # name the flag to be worth writing.
+    It 'the reply flag appears in exactly one instruction document' {
+        $docs = @(Join-Path $script:Root 'CLAUDE.md') +
+                @(Get-ChildItem -Path (Join-Path $script:Root '.claude\skills') -Filter 'SKILL.md' -Recurse |
+                    ForEach-Object { $_.FullName })
+        $carriers = @($docs | Where-Object { (Get-Content -Path $_ -Raw).Contains('--agent-reply') })
+        $carriers.Count | Should -Be 1 -Because 'a second copy is what drifts, and the first copy is muster'
+        (Split-Path (Split-Path $carriers[0] -Parent) -Leaf) |
+            Should -Be 'muster' -Because 'muster owns the surface both gates render to'
+    }
+
+    It 'the dispatch gate points at the owner instead of restating it' {
+        $gate = Get-MusterStep 'Step 3 - Gate one'
+        Assert-Phrase -Text $gate -Where 'the dispatch gate' `
+            -Phrase ('**Both commands, in that order**, and everything that follows the first ' +
+                     'return - replying in the surface, re-arming the poll, what an ended ' +
+                     'session means - is `## The review surface` above.')
+        Assert-Phrase -Text $gate -Where 'the dispatch gate' `
+            -Phrase 'Only the user''s own sent feedback is consent to dispatch.'
+        # A pointer plus a second-hand copy of the rule is how the contract drifted in the first
+        # place: this copy said a returned-and-closed poll agreed to nothing, while the owner says
+        # feedback arriving with a closed session is an answer. Reading only the gate loses it.
+        $gate.Contains('A poll that came back because the session was closed agreed to nothing') |
+            Should -BeFalse -Because 'the owner section states what a return settles, and the gate points at it'
+    }
+
+    It 'the landing gate points at the owner instead of restating it' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
+            -Phrase ('`## The review surface` above owns the foreground rule, the reply and the ' +
+                     're-arm, and this gate changes none of it.')
+    }
+
+    # A session is keyed by the file's absolute path and an ended one is kept for good, so a fixed
+    # gate name dies permanently the first time anybody ends a session on it - the gate then opens
+    # nothing and the user sees no decision at all. Both gates had it: the dispatch gate rendered
+    # every decision to `_dispatch\review.html`, and the landing gate rendered every decision for
+    # one work item to `data\<id>\review.html`, which is per unit of work and not per decision.
+    # The same shared key is what let a poll left armed from an earlier gate drain a later one's
+    # answer. The millisecond stamp is part of the contract: two decisions raised one after the
+    # other land inside the same second.
+    It 'the <Gate> gate renders each decision to its own file' -ForEach @(
+        @{ Gate = 'dispatch'; Step = 'Step 3 - Gate one'; Title = '-Title "Dispatch: <ids>"'
+           Name = '$gate = "$env:KINGSHAND_HOME\data\_dispatch\'; Suffix = '-<ids>\.html"' }
+        @{ Gate = 'landing';  Step = 'Step 7 - Gate two';  Title = '-Title "Land: <id>"'
+           Name = '$gate = "$env:KINGSHAND_HOME\data\<id>\'; Suffix = '-land\.html"' }
+    ) {
+        $fence = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains($Title) })
+        $fence.Count | Should -Be 1 -Because "the $Gate render command is copied from one place"
+        $fence[0] | Should -Match ([regex]::Escape($Name) +
+                                  '\$\(Get-Date -Format ''yyyyMMdd-HHmmssfff''\)') `
+            -Because 'the name varies per decision, to the millisecond, inside the same directory'
+        $fence[0] | Should -Match $Suffix -Because 'the rest of the name still says which gate this is'
+        foreach ($usage in @('-OutputPath $gate', 'lavish-axi $gate', 'lavish-axi poll $gate')) {
+            $fence[0].Contains($usage) |
+                Should -BeTrue -Because "the render and both calls use one per-decision path ($usage)"
+        }
+        (Get-MusterStep $Step).Contains('review.html') |
+            Should -BeFalse -Because 'a fixed gate name is spent the first time a session on it is ended'
+    }
+
+    It 'the dispatch gate points at the one-name-per-decision rule rather than restating it' {
+        $step = Get-MusterStep 'Step 3 - Gate one'
+        Assert-Phrase -Text $step -Where 'the dispatch gate' `
+            -Phrase ('**One file name per decision is `## The review surface` above, and this ' +
+                     'is what it looks like here.**')
+        $step.Contains('Lavish keys a session by the absolute path of the file') |
+            Should -BeFalse -Because 'the owner section states the rule and its reasons, and this points at it'
+        # Justified by a sequence the procedure actually produces. A rewrite no longer renames
+        # while the session is open, so the precision cannot rest on that case any more.
+        Assert-Phrase -Text $step -Where 'the dispatch gate' `
+            -Phrase ('The stamp runs to milliseconds because two decisions raised in quick ' +
+                     'succession - two unrelated ids gated one after the other - land inside ' +
+                     'the same second.')
+        $step.Contains('a rewritten gate can be rendered in the same second as the one it replaces') |
+            Should -BeFalse -Because 'a rewrite keeps its name while the session is open'
+        # The revision loop, scoped: a path is spent only once the user has ended it, so while the
+        # session is open the revision goes over the same file and Lavish reloads the window they
+        # are looking at. A new name beside a live session gives them two gates for one decision,
+        # and an approval sent in the stale one returns as consent to a brief that is gone.
+        Assert-Phrase -Text $step -Where 'the dispatch gate' `
+            -Phrase ('**render again over the same `$gate` file while that session is still ' +
+                     'open** - Lavish live-reloads it in the window they are already looking ' +
+                     'at, exactly as a repaired artifact is.')
+        Assert-Phrase -Text $step -Where 'the dispatch gate' `
+            -Phrase ('A new name is for a gate whose session they have ended, and only then: ' +
+                     'rendering a revision to a new name beside a live one leaves them two ' +
+                     'gates for one decision, and an approval sent in the stale window comes ' +
+                     'back as consent to a brief that no longer exists.')
+    }
+
+    # Per unit of work is not per decision, and the landing gate is where the difference bites:
+    # a rejected landing is fixed and comes back here, into the session that rejected it.
+    It 'the landing gate points at the naming rule and names the case that misses it' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('**One name per decision, not one per unit of work** - the rule is ' +
+                     '`## The review surface` above, and this gate is where it is easiest to miss.')
+        Assert-Phrase -Text $step -Where 'the landing gate' `
+            -Phrase ('A rejected landing comes back here after the worker fixes it, and **a ' +
+                     'fresh `$gate` name is for a landing whose session they have ended, and ' +
+                     'only then**')
+        $step.Contains('takes a fresh `$gate` name every time it is rendered') |
+            Should -BeFalse -Because 'unconditional, that opens a second window on a session still live'
+        $step.Contains('so it takes a fresh `$gate` name rather than the name the first one used') |
+            Should -BeFalse -Because 'unconditional again: a plain Send leaves that session open'
+        # Calling it a second decision and then reusing the name is what the owner rule forbids
+        # for a second decision, so the classification had to go rather than the action.
+        $step.Contains('that is a second decision') |
+            Should -BeFalse -Because 'the owner section decides on the session, not on counting decisions'
+    }
+
+    # Both gates state this rule, and the landing gate has now twice been left holding the
+    # unconditional half after the dispatch gate was corrected. A rule stated at two sites needs
+    # pinning at both, or the next edit to one silently leaves the other contradicting the owner.
+    It 'the <Gate> gate renames only once the session has ended, and re-renders in place while open' -ForEach @(
+        @{ Gate = 'dispatch'; Step = 'Step 3 - Gate one'
+           Ended = 'A new name is for a gate whose session they have ended, and only then'
+           Open  = 'render again over the same `$gate` file while that session is still open'
+           Harm  = 'leaves them two gates for one decision' }
+        @{ Gate = 'landing';  Step = 'Step 7 - Gate two'
+           Ended = ('**a fresh `$gate` name is for a landing whose session they have ended, ' +
+                    'and only then**')
+           Open  = ('while that session is still open the fixed work is rendered again over ' +
+                    'the same file and Lavish reloads it in place')
+           Harm  = 'A new name beside a live one leaves them two gates for one landing' }
+    ) {
+        $step = Get-MusterStep $Step
+        Assert-Phrase -Text $step -Where "the $Gate gate" -Phrase $Ended
+        Assert-Phrase -Text $step -Where "the $Gate gate" -Phrase $Open
+        Assert-Phrase -Text $step -Where "the $Gate gate" -Phrase $Harm
+    }
+
+    # The always-loaded file listed the old fixed landing-gate name, so leaving it would have
+    # re-taught the spent path the skill just stopped using. It then stated the replacement as an
+    # absolute - a gate never reuses a name - which is the opposite of what both gates now do
+    # while a session is open, and this is the file a Hand reads without loading the skill. It
+    # owns no procedure, so it points at the owner rather than restating the condition.
+    It 'CLAUDE.md names the landing-gate artefact without contradicting the gates' {
+        $hand = Get-DocText $script:HandMd
+        Assert-Phrase -Text $hand -Where 'the CLAUDE.md file list' `
+            -Phrase ('`data\<id>\<stamp>-land.html` - rendered for lavish at a landing gate, ' +
+                     'one file per decision. `muster` owns the name and when a gate takes a new one.')
+        $hand.Contains('`data\<id>\review.html`') |
+            Should -BeFalse -Because 'that name is the one the gate stopped reusing'
+        $hand.Contains('a gate never reuses one') |
+            Should -BeFalse -Because 'a revision reuses the name while its session is still open'
+    }
+
+    # CLAUDE.md loads every session and a procedure does not belong in it, so what it carries is
+    # the trigger alone: rendering is not the end of the exchange, and here is what owns the rest.
+    It 'CLAUDE.md rule 5 carries the trigger and none of the procedure' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 5' `
+            -Phrase ('Rendering is not where it ends: answering in that surface and re-arming ' +
+                     'the poll the moment a result is read is `muster`''s `## The review ' +
+                     'surface` section, so load it before you wait on one.')
+        (Get-DocText $script:HandMd).Contains('--agent-reply') |
+            Should -BeFalse -Because 'the always-loaded file pays for every line and owns no procedure'
+    }
+
+    It 'counsel points at the owner where it renders a decomposition' {
+        Assert-Phrase -Text (Get-DocText (Join-Path $script:Root '.claude\skills\counsel\SKILL.md')) `
+            -Where 'the counsel render step' `
+            -Phrase ('Opening that surface, answering in it and re-arming the poll the moment a ' +
+                     'result is read is `muster`''s `## The review surface` section, which owns ' +
+                     'all of it - load it before you wait here.')
+    }
+
+    It 'annex points at the owner where it tells the Hand to render' {
+        Assert-Phrase -Text (Get-DocText $script:ImportMd) -Where 'the annex registry answer' `
+            -Phrase ('and if you then wait on that surface, `muster`''s `## The review surface` ' +
+                     'section owns answering in it and re-arming the poll.')
+    }
+}
+
+# fief, the project session mode. One project per session, one warm worker, one branch. Every rule
+# below is obeyed by a reader, so these pin the wording that carries each one: deleting the rule
+# fails here. The mechanics it leans on - the checkout dispatch, the permission file, the item list
+# - are tested through the code in Dispatch-Worker, ClaudeWorkspace and Crew.
+Describe 'fief holds one project per session and changes routing and delivery, never authority' {
+    BeforeAll {
+        $script:FiefMd = Join-Path $script:Root '.claude\skills\fief\SKILL.md'
+        $script:Fief   = Get-DocText $script:FiefMd
+        $script:HeraldMd = Join-Path $script:Root '.claude\skills\herald\SKILL.md'
+        $script:FiefNote = Join-Path $script:Root 'docs\2026-10-21-project-session.md'
+    }
+
+    It 'is entered only on the King''s own words, and fires on them' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**Fief is off by default, and nothing turns it on but the King''s own word.**'
+        $head = (Get-Content -Path $script:FiefMd -TotalCount 4) -join ' '
+        foreach ($p in @('"<project> session"', '"this session is for <project>"', '"fief <project>"',
+                         '"end session"')) {
+            $head.Contains($p) | Should -BeTrue -Because "the description must fire on $p"
+        }
+    }
+
+    It 'is session-scoped, with nothing under state carrying it' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'Nothing under `state\` carries the mode, so a restart drops it'
+    }
+
+    It 'says what a restarted session does on finding a live session worker' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase ('reports it in the orientation line - the project, the branch and the items on ' +
+                     'it - and does not re-enter the mode until the King says so.**')
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Skills section' `
+            -Phrase ('**A restarted session that finds a live session worker reports it in the ' +
+                     'orientation line and does not re-enter the mode until the King says so**')
+    }
+
+    It 'pins routing to the session''s project, with one line for a mismatch' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**While the mode is in force, every request resolves to the session''s project.**'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**A request that plainly names another project gets one line, and the Hand waits.**'
+    }
+
+    It 'keeps unrelated work off the session branch' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**Unrelated work never rides the session branch.**'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'it goes to its own branch and its own pull request through ordinary `muster` dispatch'
+    }
+
+    It 'loads the project''s context once, on entry, with absence a normal state' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**Load its context once**, now, and not again for each request'
+        foreach ($f in @('`data\rules-<project>.md`', '`data\done-<project>.md`',
+                         '`data\index\<project>.md`', '`data\session-<project>.md`')) {
+            $script:Fief.Contains($f) | Should -BeTrue -Because "the session loads $f on entry"
+        }
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' -Phrase '**Absent is a normal state**'
+    }
+
+    # The King's decision of 2026-10-21: hard rule 1 names the session checkout as its one
+    # exception, by cross-reference and nothing more.
+    It 'is the one named exception to hard rule 1''s worktree per worker' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md hard rule 1' `
+            -Phrase ('Workers make every change, each in its own git worktree - the one exception ' +
+                     'is a `fief` session''s worker in the project''s own checkout, which `fief` owns.')
+    }
+
+    It 'leaves hard rules 1, 2 and 3 standing' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**Hard rule 1 holds.** The Hand writes no project code in a session - the warm worker does.'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**Hard rule 2 holds.** Nothing reaches a server without his word.'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' -Phrase '**Hard rule 3 holds.**'
+    }
+
+    It 'routes work and switches no account' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**It routes work and switches no account.**'
+    }
+
+    It 'has one warm worker, fed fixes as prompts, in the checkout by default' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**Each later fix reaches the same worker as a prompt, never as a new dispatch.**'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' -Phrase '**No worktree by default.**'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' -Phrase '-InCheckout -Branch "<branch he named>"'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'takes one ordinary worktree for the whole run of fixes'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' -Phrase 'Never one worktree per fix.'
+    }
+
+    It 'relaunches a wedged warm worker as the same worker, keeping its own fixes' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**A wedged warm worker is relaunched as the same worker, and keeps its fixes.**'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '`Set-CrewRelaunch`, which keeps its items and `waiting_on`'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**Pass `-EndSession` to `Stop-CheckoutWorker`'
+    }
+
+    It 'records the item before the worker is sent the fix' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'Add its id to the record first, with `Add-CrewItem`, and save'
+    }
+
+    It 'ends a session''s baseline at every session-end cleanup, and rally relaunches as fief says' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'passing its recorded `settings_record` and, because the session is over, `-EndSession`'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'stop it on his word - with `-EndSession`'
+        Assert-Phrase -Text (Get-DocText $script:MusterMd) -Where 'muster Step 8b' `
+            -Phrase 'A close-out passes `-EndSession` as well, which removes the session''s baseline'
+        Assert-Phrase -Text (Get-DocText $script:StuckMd) -Where 'rally Step 4' `
+            -Phrase ('**A worker recorded with `checkout` is relaunched as `fief`''s `A wedged ' +
+                     'warm worker` paragraph says**')
+        Assert-Phrase -Text (Get-DocText $script:StuckMd) -Where 'rally Step 4' `
+            -Phrase ('**A worker recorded with `session` and no `checkout` is isolated**: it is ' +
+                     'stopped and relaunched through the worktree path above')
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase ('An isolated session worker has no settings record and no baseline: it is ' +
+                     'relaunched in its worktree as `rally` Step 4 says')
+        Assert-Phrase -Text (Get-DocText $script:StuckMd) -Where 'rally Step 4' `
+            -Phrase 'then `Set-CrewRelaunch` - never `Add-CrewWorker`, which refuses the id'
+    }
+
+    It 'cleans a checkout worker up through the callable, which keeps the branch and checkout' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'Clean a checkout worker up with `Stop-CheckoutWorker`'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'it never deletes the branch and never removes the checkout'
+        Assert-Phrase -Text (Get-DocText $script:MusterMd) -Where 'muster Step 8b' `
+            -Phrase ('**A worker recorded with `checkout` has no worktree: tear it down with ' +
+                     '`Stop-CheckoutWorker` from `bin\ClaudeWorkspace.psm1`, passing its ' +
+                     '`settings_record`, and never with the steps below.**')
+        Assert-Phrase -Text (Get-DocText $script:MusterMd) -Where 'muster Step 4' `
+            -Phrase ('**A `fief` session''s warm worker is dispatched with `-InCheckout -Branch` and ' +
+                     'recorded with `-Session`**')
+    }
+
+    # The step rule has one owner, parley, and the session points at it rather than restating it.
+    It 'gives commit, push and pull request one word each, owned by parley''s step rule' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase ('**Commit, push and raise a pull request are three separate words, and each ' +
+                     'authorises only itself.** `parley`''s `## One step at a time` owns that rule')
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**Inside a session that holds whatever the project''s `yolo` says**'
+    }
+
+    It 'runs the review gate once, on the whole branch, at the push word' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**The gate runs once, on the whole branch, never per fix**'
+    }
+
+    It 'names every id in the commit and pull request titles, and calls out a change with no ticket' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'The title names every id on the branch, comma separated'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase 'calls out each item of kind `adhoc` as a change with no ticket'
+    }
+
+    # Which mode claims "normal mode" while both are loaded, in all three files that name it.
+    It 'settles "normal mode" between fief, parley and herald' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '**"normal mode" belongs to the innermost active mode, and parley is the inner one.**'
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase ('While parley is loaded, "normal mode" ends parley and the session carries on ' +
+                     'untouched. With parley off it ends the session, and leaves `herald` exactly as it was.')
+        Assert-Phrase -Text (Get-DocText $script:HeraldMd) -Where 'the herald skill' `
+            -Phrase ('While a `fief` session is in force with parley off, the session is the ' +
+                     'innermost mode and the phrase ends it instead')
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Skills section' `
+            -Phrase ('and while a `fief` session is in force with parley off it ends the session ' +
+                     'instead, which `fief` owns.')
+    }
+
+    It 'is triggered from CLAUDE.md, and its session file has an owner and a routing test' {
+        $hand = Get-DocText $script:HandMd
+        Assert-Phrase -Text $hand -Where 'the CLAUDE.md Skills section' `
+            -Phrase '`fief` is the project session mode, and it is **off by default** like parley'
+        Assert-Phrase -Text $hand -Where 'the CLAUDE.md What you own list' `
+            -Phrase '- `data\session-<project>.md` - how a `fief` session for one project runs'
+        Assert-Phrase -Text $hand -Where 'the CLAUDE.md Knowledge routing section' `
+            -Phrase ('Test it apart from the rules file by asking whether it holds for every piece of ' +
+                     'work on the project; where it holds only for how a session runs, it is the ' +
+                     'session file''s.')
+    }
+
+    It 'points at a design note that exists' {
+        Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
+            -Phrase '`docs\2026-10-21-project-session.md` records the design and the two decisions the King made.'
+        Test-Path -LiteralPath $script:FiefNote | Should -BeTrue
+    }
+}
+
+# Night's watch works the queue and merges while the King sleeps. These pin the wording that carries
+# each of its rules; the guards those rules lean on are driven through the code in
+# NightsWatch.Tests.ps1 and Projects.Tests.ps1.
+Describe 'night''s watch is regency plus queue-working, and merges only under +watch-merge' {
+    BeforeAll {
+        $script:NwMd    = Join-Path $script:Root '.claude\skills\nights-watch\SKILL.md'
+        $script:Nw      = Get-DocText $script:NwMd
+        $script:NwHand  = Get-DocText $script:HandMd
+        $script:NwMust  = Get-DocText $script:MusterMd
+        $script:NwNote  = Join-Path $script:Root 'docs\2026-10-21-nights-watch.md'
+    }
+
+    It 'is a separate skill that carries regency rather than widening it' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase ('**It is regency plus one thing.** Entering night''s watch enters `regency` - its ' +
+                     'durable flag, its journal, every limit')
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'never folded into regency, where it would make every afk an authorisation'
+        Assert-Phrase -Text (Get-DocText (Join-Path $script:Root '.claude\skills\regency\SKILL.md')) `
+            -Where 'the regency skill' `
+            -Phrase '**`nights-watch` is regency plus queue-working, and it changes nothing here.**'
+        Assert-Phrase -Text $script:NwHand -Where 'the CLAUDE.md Skills section' `
+            -Phrase ('**It grants nothing regency does not, beyond the queue-working the King granted ' +
+                     'by name.**')
+    }
+
+    # A pointer, not a copy: regency owns when a worker's prompt is answered, and a second
+    # statement here is the one that would be left saying "never" after regency changed.
+    It 'leaves a blocked worker''s prompt to regency rather than restating the rule' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase ('A blocked worker''s prompt stays regency''s case - its `A worker is blocked on ' +
+                     'a prompt` owns whether it is answered, and night''s watch adds nothing to it.')
+        $script:Nw.Contains('is never answered') |
+            Should -BeFalse -Because 'the never-answer rule now holds for office projects only, in regency'
+    }
+
+    It 'works only what the queue can prove is decided, and stops when that is empty' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**Only work the queue can prove is decided, and nothing else, ever.**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**An item that would need a dispatch gate is not provably decided**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**When the pool is empty the watch stops, and records that it stopped and why.**'
+    }
+
+    It 'states its merge token at the owner +merge already has, and admits it into hard rule 2' {
+        Assert-Phrase -Text $script:NwHand -Where 'CLAUDE.md hard rule 2' `
+            -Phrase ('**The one named exception is a merge while night''s watch is in force, which ' +
+                     '`+watch-merge` grants in place of `+merge`** - `muster` Step 7 owns it.')
+        Assert-Phrase -Text $script:NwHand -Where 'CLAUDE.md Instruction precedence' `
+            -Phrase ('**`+watch-merge` is the same kind of grant for one narrower action: merging a ' +
+                     'green pull request while night''s watch is in force, on one repository.**')
+        Assert-Phrase -Text $script:NwHand -Where 'CLAUDE.md Instruction precedence' `
+            -Phrase 'and it is never read by analogy onto a daytime merge'
+        Assert-Phrase -Text $script:NwMust -Where 'muster Step 7' `
+            -Phrase '**Night''s watch merges under its own token, `+watch-merge`, and under no other.**'
+        Assert-Phrase -Text $script:NwMust -Where 'muster Step 7' `
+            -Phrase '**`+merge` alone grants night''s watch nothing.** Outside night''s watch `+watch-merge` grants nothing at all.'
+        Assert-Phrase -Text (Get-DocText (Join-Path $script:Root '.claude\skills\annex\SKILL.md')) `
+            -Where 'the annex skill' `
+            -Phrase '`+watch-merge` is night''s watch''s own token, independent of `+merge`'
+    }
+
+    It 'has no invocation that turns merging on where the token is absent' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**nothing he can say at invocation turns it on where the token is absent.**'
+    }
+
+    It 'keeps every floor, and names the two the Hand judges' {
+        foreach ($f in @('never merge red;', 'green at the live head, and the merge bound to that head;',
+                         'never merge work that materially expands its brief;',
+                         'never anything destructive or security-sensitive;',
+                         'a `local-only` landing is never relocated', 'every existing Step 7 floor.')) {
+            $script:Nw.Contains($f) | Should -BeTrue -Because "the floor '$f' must stay in the skill"
+        }
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**Two floors it cannot check, and you judge them before calling it**'
+    }
+
+    It 'decides on petition''s test by cross-reference and records every decision' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase ('**A decision a worker parked on is decided by `petition`''s `## When the King ' +
+                     'is not there` test, unchanged**')
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '`decided` with its `-Basis`, or `waiting` where the test leaves it with him'
+    }
+
+    It 'records a parked lane once rather than once per wait' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**A worker legitimately parked is not wedged.**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'so a parked lane is one record, not a stall report every threshold'
+    }
+
+    It 'pauses in order at the threshold, sleeps on one pinned timer, and restarts with what survived' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' -Phrase '1. **Rescue first.**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '2. **Tell each working worker to finish its edit, commit and stop** - a prompt, not a stop.'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '3. **Only then stop it cleanly**, with `Stop-HerdrAgent`. Never a kill.'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**A `$stop.stopped` of false means the worker was not paused**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'quote `$stop.promptBox` in that record and load `rally`'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'never `nohup` and never a detached child'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' -Phrase 'Take **zero** quota readings across the gap.'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'it dismisses the limit dialog with Escape and nothing else'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'The reset is days away or unknown, so record it and stop the watch rather than sleeping.'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**A stale reading is read again every five minutes for up to thirty**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '`restart-unconfirmed` restarts the workers anyway and records its `detail` in the away journal'
+    }
+
+    # The King's figures and two rules of 2026-10-22. NightsWatch.Tests.ps1 drives each through the
+    # code - the default, the cadence, the projection with and without two readings, and the idle
+    # skip - and these pin the sentences the Hand reads them from.
+    It 'states the 90 percent default and the five-and-two cadence' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'The threshold defaults to 90 percent of the driving window'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase ('- every five minutes, every two from 85 percent, the King''s cadence of ' +
+                     '2026-10-22 -')
+    }
+
+    It 'pauses on the climb, falling back to the plain threshold without two readings' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**The pause comes on the climb as well as the figure**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase ('With no earlier reading of that window, or none at least as old as the time to ' +
+                     'the next read, the plain threshold decides.')
+    }
+
+    It 'pauses on a held window whatever the threshold' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase ('**A held window is at the limit whatever the threshold**: from 90 percent nothing ' +
+                     'reads it again before its reset, so the step pauses on the hold even where ' +
+                     '`-ThresholdPercent` is higher.')
+    }
+
+    It 'takes no reading while no worker is running' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**No reading while no worker is running.**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'the dispatcher takes its own fresh reading before the first worker starts.'
+    }
+
+    It 'fails open on an unreadable window as vigil says, and records that it could not see' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase ('It fails open exactly as `vigil`''s `## The refusal near the limit` says; record ' +
+                     'once that the watch could not see the window')
+    }
+
+    It 'runs inside the live session, with no daemon or supervision host' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**No daemon and no supervision host** is the absence of any such thing to start.'
+    }
+
+    It 'ends on the King''s next ordinary message, with the digest from the journal first' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '1. **On the King''s next ordinary message**, exactly as regency ends'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'what merged, what is waiting on him, what failed, what is still running.'
+    }
+
+    It 'records in its design note that it supersedes the September merge default' {
+        $note = Get-DocText $script:NwNote
+        Assert-Phrase -Text $note -Where 'the night''s watch design note' `
+            -Phrase ('**This supersedes the September decision that merging while away is an option ' +
+                     'defaulting to on everywhere, passed at invocation.**')
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' -Phrase '`docs\2026-10-21-nights-watch.md`'
+    }
+}
+
+# The pins every user is moved to, and the weekly refresh that moves them. The statute skill owns the
+# contract and the procedure; the update skill carries a one-line pointer and the one refusal a user
+# meets. bin\Dependencies.psm1 and its tests own the behaviour - these pin the rules as written.
+Describe 'the dependency pins are a contract with one owner' {
+    BeforeAll {
+        $script:StatutePins = Get-DocText $script:GuidelinesMd
+        $script:UpdatePins  = Get-DocText (Join-Path $script:Root '.claude\skills\update\SKILL.md')
+    }
+
+    It 'says a pin is what every user ends up on, and is never moved past' {
+        Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
+            -Phrase '**a pin is what every user ends up on, and is never moved past.**'
+    }
+
+    It 'makes moving a pin a weekly maintainer job that ships only in a release' {
+        Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
+            -Phrase '**Moving a pin is a maintainer''s job, done weekly, and it ships only in a release.**'
+        Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
+            -Phrase 'Run `bin\Update-DependencyPins.ps1 -Record`.'
+        Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
+            -Phrase '**a run without `-Record` is a look and does not reset the clock**'
+        Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
+            -Phrase 'If the check was filed as a backlog item, close that item with `tasks-axi done`.'
+        Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
+            -Phrase 'Ship only what passes, in that week''s release.'
+    }
+
+    It 'keeps a breaking move pinned as its own task' {
+        Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
+            -Phrase '**A breaking move stays pinned and becomes its own task**'
+    }
+
+    It 'points the update skill at the owner rather than restating it' {
+        Assert-Phrase -Text $script:UpdatePins -Where 'the update skill' `
+            -Phrase 'the `statute` skill''s Dependency pins section owns that contract'
+        Assert-Phrase -Text $script:UpdatePins -Where 'the update skill' `
+            -Phrase 'herdr is never replaced while its server is running'
+    }
+}
+
+# The weekly dependency check is due-based, and the Hand asks rather than acts. The digest's half is
+# tested through the code in SessionStart.Tests.ps1; these pin the rule the Hand reads.
+Describe 'a due dependency check is asked about, never run or filed unasked' {
+    BeforeAll { $script:DepStart = Get-HandSection 'Session start' }
+
+    It 'names the digest line and the one-line question with its two answers' {
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase ('**A `DEPENDENCY_CHECK_DUE:` line means the weekly dependency check is due: ask ' +
+                     'the King in one line, run it now or file it.**')
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase '**Now** runs it under `statute`''s dependency-pins procedure'
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase ('**file it** adds the one backlog item the line names, with ' +
+                     '`--kind dependency-check`, so it waits in the queue.')
+    }
+
+    It 'forbids running or filing it without his answer' {
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase '**Never run the check or file the item without his answer.**'
+    }
+
+    It 'keeps it a line in chat, and says why that is not a rendered decision' {
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase 'It is a line in chat rather than a rendered page'
+    }
+
+    It 'does not ask again about a filed check, and waits while the King is away' {
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase 'so a filed check is not asked about again'
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase ('While `regency` or night''s watch is in force, the question waits for his return ' +
+                     'like any other.')
+    }
+
+    # The marker's behaviour is tested through the digest in SessionStart.Tests.ps1; these pin the
+    # rule and the one command a maintainer is told to run.
+    It 'asks only an installation carrying the maintainer marker, and statute says how to set it' {
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase ('Only an installation carrying the maintainer marker is ever asked; `statute`''s ' +
+                     'Dependency pins section owns the marker.')
+        $statute = Get-DocText $script:GuidelinesMd
+        Assert-Phrase -Text $statute -Where 'the statute skill' `
+            -Phrase '**Only an installation carrying the maintainer marker is asked about it**'
+        Assert-Phrase -Text $statute -Where 'the statute skill' `
+            -Phrase 'Nothing infers the marker from remotes or push rights.'
+        Assert-Phrase -Text $statute -Where 'the statute skill' `
+            -Phrase 'New-Item -ItemType File -Force "$env:KINGSHAND_HOME\config\maintainer"'
+    }
+}
+
+# The notice itself - which tag, the once-a-day cache, silence off the release branch - is tested
+# through bin\Update.psm1 and the digest. These pin what the Hand does with the two lines.
+Describe 'a newer release is mentioned once and never acted on' {
+    BeforeAll { $script:RelStart = Get-HandSection 'Session start' }
+
+    It 'names the line in the digest''s list' {
+        Assert-Phrase -Text $script:RelStart -Where 'CLAUDE.md Session start' `
+            -Phrase 'an `UPDATE_AVAILABLE:` line when a newer release exists'
+    }
+
+    It 'says it once in the orientation line, points at /update, never runs it and never nags' {
+        Assert-Phrase -Text $script:RelStart -Where 'CLAUDE.md Session start' `
+            -Phrase ('**An `UPDATE_AVAILABLE:` line means a newer release exists: say so once, in the ' +
+                     'orientation line, and point at `/update` - never run it, and never raise it ' +
+                     'again that session.**')
+    }
+
+    It 'leaves a check that could not be made unmentioned unless asked' {
+        Assert-Phrase -Text $script:RelStart -Where 'CLAUDE.md Session start' `
+            -Phrase ('An `UPDATE_CHECK:` line means the check could not be made: it names no version, ' +
+                     'so mention it only if he asks.')
+    }
+}
+
+# kh-context-cuts: three cuts to what the Hand's own session re-reads on every call. Each rule below
+# governs something executable as well, and that half is tested through the code in
+# Dispatch-Worker.Tests.ps1, Watch.Tests.ps1, SessionStart.Tests.ps1 and Memory.Tests.ps1; these pin
+# only that the prose stating the rule cannot quietly go.
+Describe 'the Hand pays for less of its own context' {
+    BeforeAll {
+        $script:CutsHand     = Get-HandSection 'Session start'
+        $script:CutsRecovery = Get-HandSection 'Recovery'
+        $script:CutsMuster   = Get-DocText $script:MusterMd
+        $script:CutsRegency  = Get-DocText (Join-Path $script:Root '.claude\skills\regency\SKILL.md')
+        $script:CutsWatch    = Get-DocText (Join-Path $script:Root '.claude\skills\nights-watch\SKILL.md')
+        $script:CutsFief     = Get-DocText (Join-Path $script:Root '.claude\skills\fief\SKILL.md')
+    }
+
+    It 'CLAUDE.md says the digest is built to arrive whole, and what to do with a file it only names' {
+        Assert-Phrase -Text $script:CutsHand -Where 'CLAUDE.md Session start' `
+            -Phrase ('**The digest is built to arrive whole, under the harness''s 10,000-character ' +
+                     'inline limit**')
+        Assert-Phrase -Text $script:CutsHand -Where 'CLAUDE.md Session start' `
+            -Phrase ('**A memory file the digest only names, with `NOT PRINTED`, you read in full ' +
+                     'before acting on anything it might govern.**')
+        Assert-Phrase -Text $script:CutsHand -Where 'CLAUDE.md Session start' `
+            -Phrase ('A digest that is still over the limit says so on its first line, and then you ' +
+                     'read the saved file in full before anything else.')
+    }
+
+    It 'muster Step 2 sends the rules file''s line to the dispatch file, not the brief' {
+        Assert-Phrase -Text $script:CutsMuster -Where 'muster Step 2' `
+            -Phrase 'Dispatch attaches it by itself and names the copy in the dispatch file Step 4 describes'
+    }
+
+    It 'a steered worker is watched again with the Step 4 watch' {
+        Assert-Phrase -Text $script:CutsMuster -Where 'muster Step 7' `
+            -Phrase '**A steered worker is a working worker again, so arm a fresh Step 4 watch on it before going quiet**'
+    }
+
+    It 'regency and night''s watch arm the verbs, never a wait written out by hand' {
+        Assert-Phrase -Text $script:CutsRegency -Where 'the regency skill' `
+            -Phrase ('Arm a watch for every live worker with `bin\Watch.ps1`, exactly as `muster` ' +
+                     'Step 4 describes - one background job per worker, never a wait written out by hand.')
+        Assert-Phrase -Text $script:CutsWatch -Where 'the nights-watch skill' `
+            -Phrase 'watch its gate with `bin\Watch.ps1 gate <id>` rather than a worker watch'
+        Assert-Phrase -Text $script:CutsRecovery -Where 'CLAUDE.md recovery' `
+            -Phrase 'arm a fresh watch - `bin\Watch.ps1` as one background job'
+    }
+
+    It 'fief says the checkout warnings go beside the brief' {
+        Assert-Phrase -Text $script:CutsFief -Where 'the fief skill' `
+            -Phrase 'it writes the checkout warnings into the dispatch file beside the brief'
     }
 }

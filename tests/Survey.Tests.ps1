@@ -372,3 +372,61 @@ Describe 'the snapshot reads the live fleet without changing it' {
         @($after) | Should -Be @($before) -Because 'a status read that mutates state is not a status read'
     }
 }
+
+# A `fief` session's warm worker makes a run of fixes on one branch, so one crew record carries every
+# id on that branch. The snapshot shows it as one worker with its list - and a brief written for any
+# of those ids is work under way, not un-dispatched work.
+Describe 'a session worker is one worker with its list of items' {
+    BeforeAll {
+        $script:Sf = New-Fixture 'session-worker'
+        New-WorkDirectory -Fixture $script:Sf -Id 'acme-api-session' -WithBrief | Out-Null
+        New-WorkDirectory -Fixture $script:Sf -Id 'T-1003'           -WithBrief | Out-Null
+        New-WorkDirectory -Fixture $script:Sf -Id 'never-dispatched' -WithBrief | Out-Null
+        @{
+            workers = @{
+                'acme-api-session' = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-api'; stage = 'implementing'
+                                        branch = 'feature-x'; session = $true; checkout = $true
+                                        items = @(@{ id = 'T-1001'; kind = 'ticket' }, @{ id = 'fix-header'; kind = 'adhoc' },
+                                                  @{ id = 'T-1003'; kind = 'ticket' }) }
+                'T-2001'           = @{ ticket = 'T-2001'; kind = 'ticket'; repo = 'acme-web'; stage = 'ready' }
+            }
+        } | ConvertTo-Json -Depth 10 | Set-Content -Path $script:Sf.State -Encoding utf8
+        $script:SfSnap = Get-Snapshot $script:Sf
+    }
+
+    It 'carries every id on the session branch, in order, on one row' {
+        $row = @($script:SfSnap.crew.workers | Where-Object { $_.id -eq 'acme-api-session' })
+        $row.Count          | Should -Be 1
+        $row[0].session     | Should -BeTrue
+        $row[0].checkout    | Should -BeTrue
+        $row[0].branch      | Should -Be 'feature-x'
+        @($row[0].items)    | Should -Be @('T-1001', 'fix-header', 'T-1003')
+        $row[0].itemsError  | Should -Be ''
+    }
+
+    It 'reads an ordinary worker as not a session, with its one ticket' {
+        $row = @($script:SfSnap.crew.workers | Where-Object { $_.id -eq 'T-2001' })[0]
+        $row.session   | Should -BeFalse
+        @($row.items)  | Should -Be @('T-2001')
+    }
+
+    It 'does not list a brief for an id riding the session branch as un-dispatched' {
+        @($script:SfSnap.data.undispatched.id) | Should -Be @('never-dispatched')
+    }
+
+    It 'says a list it cannot read is unreadable, and still returns the rest of the fleet' {
+        $f = New-Fixture 'session-broken-items'
+        @{
+            workers = @{
+                'acme-api-session' = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-api'; stage = 'implementing'
+                                        session = $true; items = @(@{ label = 'T-1001' }) }
+                'T-2001'           = @{ ticket = 'T-2001'; kind = 'ticket'; repo = 'acme-web'; stage = 'ready' }
+            }
+        } | ConvertTo-Json -Depth 10 | Set-Content -Path $f.State -Encoding utf8
+        $s = Get-Snapshot $f
+        $row = @($s.crew.workers | Where-Object { $_.id -eq 'acme-api-session' })[0]
+        @($row.items).Count | Should -Be 0
+        $row.itemsError     | Should -BeLike '*cannot be read*'
+        @($s.crew.workers).Count | Should -Be 2
+    }
+}

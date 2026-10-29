@@ -7,7 +7,8 @@ Set-StrictMode -Version Latest
 # without a live server, a live pane, or a live Claude Code worker.
 #
 # Every case below pins a rule that was learned from an observed failure on this machine against
-# herdr 0.8.2 (protocol 20), not from the documentation. The comments name which failure.
+# herdr 0.8.2 (protocol 20), not from the documentation, and re-measured against herdr 0.9.5
+# (protocol 22) - the 0.9.5 captures are at the end. The comments name which failure.
 
 BeforeAll {
     Import-Module "$PSScriptRoot\..\bin\Herdr.psm1" -Force
@@ -176,7 +177,7 @@ exit $code
     # The same box shape as SuggestionScreen and EmptyBoxScreen, with whatever line the case needs
     # sitting in the box. The placeholder cases below all differ only in that one line.
     function New-BoxScreen {
-        param([string]$Box = '')
+        param([string]$Box = '', [string]$Footer = '? for shortcuts')
         $rule = ([string][char]0x2500) * 92
         @"
   Done. Committed 3 files and wrote report.md.
@@ -184,7 +185,7 @@ exit $code
 $rule
 `u{276F}`u{00A0}$Box
 $rule
-    ? for shortcuts
+    $Footer
 "@
     }
 
@@ -397,11 +398,11 @@ Describe 'Get-HerdrServerState tells a stopped server apart from a status read t
         @{ running = 'false'; word = 'not running'; expected = 'stopped' }
         @{ running = 'true';  word = 'running';     expected = 'running' }
     ) {
-        # The exit code herdr uses when its server is down has never been measured - seeing it means
-        # stopping a server that was hosting live workers - so nothing here may rest on it. A reply
-        # that parses and says whether the server is running has already answered the question, and
-        # reading the exit code first would refuse `/update` on the ordinary machine of a user who
-        # has simply never dispatched anything.
+        # 0.8.2 and 0.9.5 both exit 0 for a server that is down, measured on 2026-10-22, but a later
+        # herdr may not, so nothing here may rest on the exit code. A reply that parses and says
+        # whether the server is running has already answered the question, and reading the exit
+        # code first would refuse `/update` on the ordinary machine of a user who has simply never
+        # dispatched anything.
         Set-HerdrScreenFailure -Text "{`"server`":{`"status`":`"$word`",`"running`":$running}}" -ExitCode 1
 
         $s = Get-HerdrServerState
@@ -810,22 +811,255 @@ Describe 'the send paths refuse to write into a box the caller did not fill' {
         ($script:reached -join ' ') | Should -BeLike '*do the thing*'
     }
 
-    # A worker that cannot be stopped because of a cosmetic render is a worse failure than the one
-    # the guard exists to prevent, so teardown carries the exemption. Remove it and `/exit` never
-    # reaches herdr at all.
-    It 'tears a worker down even when its box holds a suggestion' {
-        Set-HerdrScreen $script:SuggestionScreen
+}
+
+# ---------------------------------------------------------------------------------------------
+# Stopping a worker. `/exit` is TYPED into the box behind whatever already sits there, and its Enter
+# submits the two together as one prompt - so a worker with text in its box would act on that text
+# instead of exiting. A non-empty box is refused by name, with nothing sent and nothing cleared.
+# ---------------------------------------------------------------------------------------------
+Describe 'Stop-HerdrAgent never submits text already in the box' {
+    BeforeAll { $script:StopDir = Initialize-HerdrScreenStub }
+
+    BeforeEach {
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $env:KINGSHAND_TEST_HERDR_EXE }
+        $script:reached = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName Herdr Invoke-Herdr {
+            $script:reached.Add(($Arguments -join ' '))
+            New-HerdrAgentResult
+        }
+        # Live on the first read, gone on the next: a worker that took its `/exit`.
         $script:gets = 0
         Mock -ModuleName Herdr Get-HerdrAgent {
             $script:gets++
             if ($script:gets -eq 1) { return [pscustomobject]@{ name = 't-9001'; pane_id = 'p1' } }
             $null
         }
+    }
+
+    It 'stops a worker whose box is empty exactly as before' {
+        Set-HerdrScreen $script:EmptyBoxScreen
+
+        $stop = Stop-HerdrAgent -Name 'T-9001' -TimeoutSeconds 5
+        $stop.stopped      | Should -BeTrue
+        $stop.paneReusable | Should -BeTrue
+        $stop.paneId       | Should -Be 'p1'
+        $stop.refused      | Should -Be ''
+        ($script:reached -join ' ') | Should -BeLike '*agent prompt t-9001 /exit*'
+    }
+
+    It 'submits nothing when the box holds <case>' -ForEach @(
+        @{ case = 'typed text';       box = 'also delete the old branch' }
+        @{ case = 'a collapsed paste'; box = '[Pasted text #1 +12 lines]' }
+        @{ case = 'a suggestion';     box = 'show me the getting started section rendered' }
+    ) {
+        Set-HerdrScreen (New-BoxScreen -Box $box)
+
+        $stop = Stop-HerdrAgent -Name 'T-9001' -TimeoutSeconds 5
+        $stop.stopped      | Should -BeFalse
+        $stop.paneReusable | Should -BeFalse
+        $stop.paneId       | Should -Be 'p1'
+        $stop.refused      | Should -Be 'prompt-box-not-empty'
+        $stop.promptBox    | Should -Be $box
+        $script:reached.Count |
+            Should -Be 0 -Because '/exit behind that text would submit both as one prompt'
+    }
+
+    It 'still dismisses a menu with Escape, then refuses on the box under it' {
+        $script:reads = 0
+        Mock -ModuleName Herdr Read-HerdrAgentScreen {
+            $script:reads++
+            $t = $script:MenuScreen
+            if ($script:reads -gt 1) { $t = New-BoxScreen -Box 'half a steer' }
+            [pscustomobject]@{ ok = $true; text = $t }
+        }
+
+        $stop = Stop-HerdrAgent -Name 'T-9001' -TimeoutSeconds 5
+        $stop.refused | Should -Be 'prompt-box-not-empty'
+        @($script:reached) | Should -Be @('agent send-keys t-9001 escape') `
+            -Because 'Escape cancels a menu and submits nothing'
+    }
+
+    # The send paths' own fail-open rule, kept: a pane too narrow to render must not make a worker
+    # unstoppable. The box could not be read, so nothing claims it holds anything.
+    It 'still stops a worker whose screen could not be read' {
+        Set-HerdrScreenFailure
 
         $stop = Stop-HerdrAgent -Name 'T-9001' -TimeoutSeconds 5
         $stop.stopped | Should -BeTrue
-        ($script:reached -join ' ') |
-            Should -BeLike '*/exit*' -Because 'teardown must never be blocked by a box the Hand did not fill'
+        $stop.refused | Should -Be ''
+        ($script:reached -join ' ') | Should -BeLike '*/exit*'
+    }
+
+    # Seen live: pwsh launched from Git Bash runs a code page 437 console, which decoded herdr's
+    # UTF-8 box caret as other characters, so the box read empty and `/exit` was submitted behind
+    # the waiting text. The ps1 stub above runs in-process and never crosses that decode, so this
+    # case uses a cmd stub: a separate process whose `type` writes the screen file's raw UTF-8.
+    It 'still refuses on a code page 437 console, and puts the console encoding back' {
+        $dir = New-TempFixtureDir -Prefix 'herdr-cp437-'
+        $screen = Join-Path $dir 'screen.txt'
+        $cmd = Join-Path $dir 'herdr-stub.cmd'
+        [System.IO.File]::WriteAllText($screen, (New-BoxScreen -Box 'reply with only LEAKED'),
+            [System.Text.UTF8Encoding]::new($false))
+        Set-Content -LiteralPath $cmd -Encoding ascii -Value "@type `"$screen`""
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $cmd }.GetNewClosure()
+
+        $before = [Console]::OutputEncoding
+        try {
+            [Console]::OutputEncoding = [System.Text.Encoding]::GetEncoding(437)
+            $stop = Stop-HerdrAgent -Name 'T-9001' -TimeoutSeconds 5
+            $after = [Console]::OutputEncoding.CodePage
+        } finally {
+            [Console]::OutputEncoding = $before
+        }
+
+        $after          | Should -Be 437
+        $stop.refused   | Should -Be 'prompt-box-not-empty'
+        $stop.promptBox | Should -Be 'reply with only LEAKED'
+        $script:reached.Count | Should -Be 0
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# Confirming a start prompt was taken. `agent prompt` returns once its text and Enter are written,
+# and a paste can be left sitting in the box unsent. Every case drives the public function against a
+# mocked screen and a mocked herdr record, and counts what reached herdr: the resend is one bare
+# Enter at most, never the text again, so nothing here can submit the prompt twice.
+# ---------------------------------------------------------------------------------------------
+Describe 'Confirm-HerdrPromptTaken confirms a prompt was taken, and never submits it twice' {
+    BeforeAll {
+        $script:PasteBox = '[Pasted text #1 +3 lines]'
+
+        # Poll by poll: each entry is the box and herdr's state at that poll, the last repeating.
+        # $script:entered flips once an Enter reaches herdr, and a script after it takes over.
+        function Set-PromptPolls {
+            param([object[]]$Before, [object[]]$AfterEnter = @())
+            $script:polls      = $Before
+            $script:afterEnter = $AfterEnter
+            $script:poll       = 0
+            $script:entered    = $false
+        }
+        function Get-CurrentPoll {
+            # Assigned by name rather than through an if expression, which unrolls a one-entry list
+            # into the hashtable itself.
+            $list = $script:polls
+            if ($script:entered -and $script:afterEnter.Count) { $list = $script:afterEnter }
+            $list[[Math]::Min($script:poll, $list.Count - 1)]
+        }
+    }
+
+    BeforeEach {
+        $script:reached = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName Herdr Invoke-Herdr {
+            $script:reached.Add(($Arguments -join ' '))
+            if ($Arguments[1] -eq 'send-keys' -and $Arguments[3] -eq 'enter') {
+                $script:entered = $true
+                $script:poll = 0
+            }
+            $null
+        }
+        Mock -ModuleName Herdr Get-HerdrAgent {
+            $p = Get-CurrentPoll
+            if ($p.state -eq 'gone') { return $null }
+            [pscustomobject]@{ name = 't-9001'; pane_id = 'p1'; agent_status = $p.state }
+        }
+        Mock -ModuleName Herdr Read-HerdrAgentScreen {
+            $p = Get-CurrentPoll
+            $script:poll++
+            if ($p.screen -eq 'unreadable') { return [pscustomobject]@{ ok = $false; text = '' } }
+            $t = if ($p.screen -eq 'menu') { $script:MenuScreen } else { New-BoxScreen -Box $p.box }
+            [pscustomobject]@{ ok = $true; text = $t }
+        }
+    }
+
+    It 'confirms a prompt taken at once, on its default wait' {
+        Set-PromptPolls -Before @(@{ box = ''; state = 'working' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001'
+        $r.taken   | Should -BeTrue
+        $r.outcome | Should -Be 'taken'
+        $r.resent  | Should -BeFalse
+        $script:reached.Count | Should -Be 0
+    }
+
+    It 'waits through a paste that is still going in, without resending' {
+        Set-PromptPolls -Before @(
+            @{ box = $script:PasteBox; state = 'idle' }
+            @{ box = '';               state = 'idle' }
+            @{ box = '';               state = 'working' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001' -TimeoutMs 3000 -PollMs 10
+        $r.outcome | Should -Be 'taken'
+        $r.resent  | Should -BeFalse
+        $script:reached.Count | Should -Be 0
+    }
+
+    It 'sends one bare Enter for a prompt left in the box, and confirms it then' {
+        Set-PromptPolls -Before @(@{ box = $script:PasteBox; state = 'idle' }) `
+                        -AfterEnter @(@{ box = ''; state = 'working' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001' -TimeoutMs 600 -PollMs 10
+        $r.outcome | Should -Be 'taken'
+        $r.resent  | Should -BeTrue
+        @($script:reached) | Should -Be @('agent send-keys t-9001 enter')
+    }
+
+    # THE DOUBLE-SUBMIT GUARD. The text is never sent again and the Enter is never repeated, however
+    # long the box keeps the text: a second copy of the prompt would be a second prompt.
+    It 'names a prompt still unsent after its one Enter, and sends nothing more' {
+        Set-PromptPolls -Before @(@{ box = $script:PasteBox; state = 'idle' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001' -TimeoutMs 600 -PollMs 10
+        $r.taken     | Should -BeFalse
+        $r.outcome   | Should -Be 'unsent'
+        $r.resent    | Should -BeTrue
+        $r.promptBox | Should -Be $script:PasteBox
+        @($script:reached) | Should -Be @('agent send-keys t-9001 enter')
+        @($script:reached | Where-Object { $_ -like 'agent prompt*' }).Count | Should -Be 0
+    }
+
+    It 'resends nothing when the box is empty and the worker never starts' {
+        Set-PromptPolls -Before @(@{ box = ''; state = 'idle' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001' -TimeoutMs 300 -PollMs 10
+        $r.outcome | Should -Be 'not-started'
+        $script:reached.Count |
+            Should -Be 0 -Because 'an empty box may mean the prompt was already submitted'
+    }
+
+    It 'never presses Enter at a worker that is working with text in its box' {
+        Set-PromptPolls -Before @(@{ box = 'queued behind the turn'; state = 'working' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001' -TimeoutMs 300 -PollMs 10
+        $r.outcome | Should -Be 'unsent'
+        $r.resent  | Should -BeFalse
+        $script:reached.Count | Should -Be 0
+    }
+
+    It 'names a worker blocked on a prompt, and answers nothing' {
+        Set-PromptPolls -Before @(@{ screen = 'menu'; state = 'idle' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001' -TimeoutMs 300 -PollMs 10
+        $r.outcome | Should -Be 'blocked'
+        $script:reached.Count | Should -Be 0
+    }
+
+    It 'says unreadable, rather than taken or unsent, when the screen cannot be read' {
+        Set-PromptPolls -Before @(@{ screen = 'unreadable'; state = 'working' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001' -TimeoutMs 300 -PollMs 10
+        $r.outcome   | Should -Be 'unreadable'
+        $r.taken     | Should -BeFalse
+        $r.promptBox | Should -Be ''
+        $script:reached.Count | Should -Be 0
+    }
+
+    It 'says gone when herdr no longer knows the worker' {
+        Set-PromptPolls -Before @(@{ box = ''; state = 'gone' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001' -TimeoutMs 300 -PollMs 10
+        $r.outcome | Should -Be 'gone'
+        $script:reached.Count | Should -Be 0
     }
 }
 
@@ -1247,6 +1481,75 @@ Describe 'Get-HerdrAgentProgressSignal ignores what Claude Code repaints on its 
         @(Get-HerdrStubArgs).Count |
             Should -Be 1 -Because 'the box comes off text already in memory, not off a second read'
     }
+
+    # A long paste is drawn collapsed in the box, with Claude Code's hint on the footer line under
+    # it. Both shapes are copied off a live worker sampled while a long prompt went in: first the
+    # collapsed paste sitting unsent, then - a fraction of a second later, with herdr still reading
+    # the worker idle - an empty box with the hint still showing. The second is the screen a watch
+    # woke on and called settled on 2026-10-23.
+    It 'reports a collapsed paste as text in the box, and the hint under it' {
+        Set-HerdrScreen (New-BoxScreen -Box '[Pasted text #1 +12 lines]' -Footer 'paste again to expand')
+        $r = Get-HerdrAgentProgressSignal -Name 'T-9001'
+        $r.promptBox    | Should -Be '[Pasted text #1 +12 lines]'
+        $r.pastePending | Should -BeTrue
+    }
+
+    It 'reports the hint under an empty box, where the paste has gone in but the turn has not started' {
+        Set-HerdrScreen (New-BoxScreen -Footer 'paste again to expand')
+        $r = Get-HerdrAgentProgressSignal -Name 'T-9001'
+        $r.promptBox    | Should -Be ''
+        $r.pastePending | Should -BeTrue -Because 'the hint is the only sign a paste just went in'
+    }
+
+    It 'reports no paste for an ordinary empty box' {
+        Set-HerdrScreen $script:EmptyBoxScreen
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').pastePending | Should -BeFalse
+    }
+
+    # The words in a worker's own output above the box are not the footer - this very change put
+    # them on a worker's screen while it was being written.
+    It 'does not take the hint''s words in the worker''s output above the box as the hint' {
+        $screen = (New-BoxScreen) -replace 'Done\. Committed 3 files and wrote report\.md\.',
+                                           'paste again to expand'
+        Set-HerdrScreen $screen
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').pastePending | Should -BeFalse
+    }
+
+    It 'reports no paste when the screen could not be read' {
+        Set-HerdrScreenFailure -Text 'paste again to expand'
+        $r = Get-HerdrAgentProgressSignal -Name 'T-9001'
+        $r.readable     | Should -BeFalse
+        $r.pastePending | Should -BeFalse -Because 'a failed read is not a screen, so it shows no hint'
+    }
+
+    # The footer under the box while a worker that ended its turn still has background shells of its
+    # own running, copied off a live worker: herdr read it `done`, and this was the only sign it
+    # would carry on.
+    It 'reads the count of the worker''s own background shells off the footer under the box' {
+        Set-HerdrScreen (New-BoxScreen -Footer "`u{23F8} manual mode on `u{00B7} 2 shells `u{00B7} `u{2193} to manage")
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').backgroundShells | Should -Be 2
+        Set-HerdrScreen (New-BoxScreen -Footer "`u{23F8} manual mode on `u{00B7} 1 shell `u{00B7} esc to interrupt")
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').backgroundShells | Should -Be 1
+    }
+
+    It 'reads no background shells off an ordinary footer' {
+        Set-HerdrScreen $script:EmptyBoxScreen
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').backgroundShells | Should -Be 0
+    }
+
+    It 'does not take a shell count in the worker''s output above the box as the footer' {
+        $screen = (New-BoxScreen) -replace 'Done\. Committed 3 files and wrote report\.md\.',
+                                           "mode on `u{00B7} 3 shells"
+        Set-HerdrScreen $screen
+        (Get-HerdrAgentProgressSignal -Name 'T-9001').backgroundShells | Should -Be 0
+    }
+
+    It 'reports no count at all, not zero, when the screen could not be read' {
+        Set-HerdrScreenFailure
+        $r = Get-HerdrAgentProgressSignal -Name 'T-9001'
+        ($null -eq $r.backgroundShells) |
+            Should -BeTrue -Because 'an unread footer is not a footer saying none'
+    }
 }
 
 Describe 'Test-HerdrAgentReadable never confirms a pane out of herdr''s own error text' {
@@ -1284,7 +1587,7 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         Mock -ModuleName Herdr Test-HerdrAgentAwaitingInput { $false }
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
             [pscustomobject]@{
-                readable = $true; signal = 'aaaa'; promptBox = ''
+                readable = $true; signal = 'aaaa'; promptBox = ''; pastePending = $false
                 lastActivity = 'Bash(no-mistakes axi status) | waiting for checks'
             }
         }
@@ -1318,7 +1621,7 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
             $script:sample++
             [pscustomobject]@{
-                readable = $true; signal = "s$script:sample"; promptBox = ''
+                readable = $true; signal = "s$script:sample"; promptBox = ''; pastePending = $false
                 lastActivity = "screen $script:sample"
             }
         }
@@ -1338,13 +1641,31 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
             [pscustomobject]@{
                 readable = $true; signal = 'aaaa'; lastActivity = 'Done'
-                promptBox = 'show me the getting started section rendered'
+                promptBox = 'show me the getting started section rendered'; pastePending = $false
             }
         }
 
         $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 5000 -SampleSeconds 1
         @($r.PSObject.Properties.Name) | Should -Contain 'promptBox'
         $r.promptBox | Should -Be 'show me the getting started section rendered'
+    }
+
+    It 'carries a paste that only just went in out of a settled wake, read off the final screen' {
+        Mock -ModuleName Herdr Wait-HerdrAgent {
+            [pscustomobject]@{ name = 't-9001'; agent_status = 'done'; pane_id = 'p1' }
+        }
+        $script:sample = 0
+        Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
+            $script:sample++
+            [pscustomobject]@{
+                readable = $true; signal = "s$script:sample"; promptBox = ''; lastActivity = 'x'
+                pastePending = ($script:sample -gt 1)
+            }
+        }
+
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 5000 -SampleSeconds 1
+        $r.reason       | Should -Be 'settled'
+        $r.pastePending | Should -BeTrue -Because 'the wake reports the screen the worker stopped on'
     }
 
     It 'carries the prompt box out of a stall report too' {
@@ -1359,7 +1680,7 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
             [pscustomobject]@{ name = 't-9001'; agent_status = 'done'; pane_id = 'p1' }
         }
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
-            [pscustomobject]@{ readable = $false; signal = ''; lastActivity = ''; promptBox = '' }
+            [pscustomobject]@{ readable = $false; signal = ''; lastActivity = ''; promptBox = ''; pastePending = $false }
         }
 
         $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 5000 -SampleSeconds 1
@@ -1394,7 +1715,7 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         $script:tick = 0
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
             $script:tick++
-            [pscustomobject]@{ readable = $true; signal = "s$script:tick"; lastActivity = 'still going'; promptBox = '' }
+            [pscustomobject]@{ readable = $true; signal = "s$script:tick"; lastActivity = 'still going'; promptBox = ''; pastePending = $false }
         }
 
         $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 2000 -SampleSeconds 1 -StallMinutes 0
@@ -1406,7 +1727,7 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
     # not see, and the Hand is told that rather than told the worker is stuck.
     It 'never claims a stall from a screen it could not read' {
         Mock -ModuleName Herdr Get-HerdrAgentProgressSignal {
-            [pscustomobject]@{ readable = $false; signal = ''; lastActivity = ''; promptBox = '' }
+            [pscustomobject]@{ readable = $false; signal = ''; lastActivity = ''; promptBox = ''; pastePending = $false }
         }
 
         $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 2000 -SampleSeconds 1 -StallMinutes 0
@@ -1595,5 +1916,266 @@ Describe 'New-HerdrPane never splits, because a split pane is an unreadable pane
         ($script:seen3 -join ' ') |
             Should -Match 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=0' `
             -Because 'a worker with no human at its prompt has no use for a suggested prompt'
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# herdr 0.9.5 (protocol 22), captured live on 2026-10-22 against a separate test server.
+#
+# Every screen and reply below was read off a real herdr 0.9.5 with a real worker in it, then had
+# its machine paths replaced by generic ones. docs\2026-10-22-herdr-0-9-5.md records the
+# measurement; these pin the parses that run against it, through the public functions.
+# ---------------------------------------------------------------------------------------------
+Describe 'herdr 0.9.5 replies parse the way 0.8.2 replies did' {
+    BeforeAll {
+        $script:V095Dir = Initialize-HerdrScreenStub
+        $rule = ([string][char]0x2500) * 119
+
+        # A worker blocked on a two-option question. The highlighted option is drawn with the caret
+        # and a PLAIN space; the free-text option now carries a trailing full stop.
+        $script:V095Question = @"
+`u{276F} Use the question tool to ask me one question: which colour do I prefer, with the options Red
+  and Blue. Do nothing else.
+$rule
+ `u{2610} Colour
+
+Which colour do you prefer?
+
+`u{276F} 1. Red
+     You prefer red.
+  2. Blue
+     You prefer blue.
+  3. Type something.
+$rule
+  4. Chat about this
+
+Enter to select `u{00B7} `u{2191}/`u{2193} to navigate `u{00B7} Esc to cancel
+"@
+
+        # The folder-trust dialog a fresh directory stops on, at full width.
+        $script:V095Trust = @"
+ Accessing workspace:
+
+ C:\repos\acme-api
+
+ Quick safety check: Is this a project you created or one you trust?
+
+ `u{276F} No, exit
+   Yes, I trust this folder
+
+ Enter to confirm `u{00B7} Esc to cancel
+"@
+
+        # The same dialog in a 12-column pane. Every phrase the guard looks for is broken across
+        # lines, and herdr itself called this worker idle.
+        $script:V095NarrowTrust = @"
+ `u{276F} No,
+   exit
+   Yes, I
+   trust
+   this
+   folder
+
+ Enter
+ to
+ confirm
+ `u{00B7} Esc
+ to
+ cancel
+"@
+
+        # An idle worker with text typed into its box: the caret and a NO-BREAK space, unchanged.
+        $script:V095StrayBox = @"
+`u{25CF} finished
+
+`u{273B} Baked for 1s `u{00B7} done 5:24 AM
+$rule
+`u{276F}`u{00A0}stray words in the box
+$rule
+  `u{23F5}`u{23F5} auto mode on (shift+tab to cycle)
+"@
+
+        # A working worker, nine and then forty seconds in. Only the timer and token count moved.
+        $script:V095WorkingEarly = @"
+`u{276F} Write a short story directly in your reply.
+
+`u{273B} Hashing`u{2026} (9s `u{00B7} `u{2193} 584 tokens)
+$rule
+`u{276F}`u{00A0}
+$rule
+  `u{23F5}`u{23F5} auto mode on (shift+tab to cycle) `u{00B7} esc to interrupt
+"@
+        $script:V095WorkingLater = $script:V095WorkingEarly.Replace('9s', '40s').Replace('584 tokens', '2.1k tokens')
+
+        # The agent record. 0.9.5 adds completion_seq and launch_pending beside the fields this
+        # module reads; none of the old ones moved.
+        $script:V095AgentGet = '{"id":"cli:agent:get","result":{"agent":{"agent":"claude","agent_status":"done","completion_seq":10,"cwd":"C:\\repos\\acme-api","focused":false,"interactive_ready":true,"name":"t-9001","pane_id":"w2:p1","revision":0,"state_change_seq":10,"tab_id":"w2:t1","terminal_id":"term_0001","workspace_id":"w2"},"type":"agent_info"}}'
+
+        $script:V095NotFound = '{"error":{"code":"agent_not_found","message":"agent target t-9001 not found"},"id":"cli:agent:get"}'
+
+        $script:V095StatusRunning  = '{"client":{"version":"0.9.5","protocol":22},"server":{"status":"running","running":true,"version":"0.9.5","protocol":22,"compatible":true,"endpoint_compatible":true}}'
+        $script:V095StatusMixed    = '{"client":{"version":"0.9.5","protocol":22},"server":{"status":"running","running":true,"version":"0.8.2","protocol":20,"compatible":false,"endpoint_compatible":null,"restart_needed":true}}'
+        $script:V095StatusStopped  = '{"client":{"version":"0.9.5","protocol":22},"server":{"status":"not_running","running":false,"version":null,"protocol":null,"compatible":null}}'
+    }
+
+    BeforeEach { Mock -ModuleName Herdr Get-HerdrCommandPath { $env:KINGSHAND_TEST_HERDR_EXE } }
+
+    Context 'the screen' {
+        It 'reads a worker on a question menu as blocked, and its box as empty' {
+            Set-HerdrScreen $script:V095Question
+            Test-HerdrAgentAwaitingInput -Name 'T-9001' | Should -BeTrue
+            Get-HerdrAgentPromptBox -Name 'T-9001' |
+                Should -Be '' -Because 'the highlighted option is drawn with a plain space after the caret'
+        }
+
+        It 'reads the folder-trust dialog as blocked' {
+            Set-HerdrScreen $script:V095Trust
+            Test-HerdrAgentAwaitingInput -Name 'T-9001' | Should -BeTrue
+        }
+
+        It 'reads a 12-column pane as unreadable rather than as a healthy idle worker' {
+            Set-HerdrScreen $script:V095NarrowTrust
+            Test-HerdrAgentReadable -Name 'T-9001' | Should -BeFalse
+            Test-HerdrAgentAwaitingInput -Name 'T-9001' |
+                Should -BeFalse -Because 'the phrases are broken across lines, which is why readability is asked separately'
+        }
+
+        It 'quotes text typed into the box' {
+            Set-HerdrScreen $script:V095StrayBox
+            Get-HerdrAgentPromptBox -Name 'T-9001' | Should -Be 'stray words in the box'
+        }
+
+        It 'gives one signal for a working screen whose timer and token count moved' {
+            Set-HerdrScreen $script:V095WorkingEarly
+            $early = Get-HerdrAgentProgressSignal -Name 'T-9001'
+            Set-HerdrScreen $script:V095WorkingLater
+            $later = Get-HerdrAgentProgressSignal -Name 'T-9001'
+
+            $early.readable | Should -BeTrue
+            $later.signal   | Should -Be $early.signal
+            $early.promptBox | Should -Be ''
+        }
+    }
+
+    Context 'the agent record' {
+        It 'returns the agent from a 0.9.5 reply with its new fields beside the old ones' {
+            Set-HerdrScreen $script:V095AgentGet
+            $a = Get-HerdrAgent -Name 'T-9001'
+            $a.pane_id      | Should -Be 'w2:p1'
+            $a.agent_status | Should -Be 'done'
+        }
+
+        It 'answers an unknown agent with nothing, as before' {
+            Set-HerdrScreenFailure -Text $script:V095NotFound -ExitCode 1
+            Get-HerdrAgent -Name 'T-9001' | Should -BeNullOrEmpty
+        }
+    }
+
+    Context 'the server' {
+        It 'reports a running server on the same version as compatible' {
+            Set-HerdrScreen $script:V095StatusRunning
+            $s = Get-HerdrServerState
+            $s.state      | Should -Be 'running'
+            $s.compatible | Should -BeTrue
+        }
+
+        It 'reports a running server on another version as running and not compatible' {
+            Set-HerdrScreen $script:V095StatusMixed
+            $s = Get-HerdrServerState
+            $s.state      | Should -Be 'running'
+            $s.compatible | Should -BeFalse
+            $s.detail     | Should -Match 'different herdr version'
+        }
+
+        It 'reports a stopped server, which 0.9.5 answers with exit 0, with no compatibility claim' {
+            Set-HerdrScreen $script:V095StatusStopped
+            $s = Get-HerdrServerState
+            $s.state      | Should -Be 'stopped'
+            $s.compatible | Should -BeNullOrEmpty
+        }
+
+        It 'makes no compatibility claim when the reply does not say' {
+            Set-HerdrScreen '{"server":{"status":"running","running":true}}'
+            (Get-HerdrServerState).compatible | Should -BeNullOrEmpty
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# A binary and a server on different herdr versions. Measured both ways between 0.8.2 and 0.9.5:
+# every command answers protocol_mismatch while every pane keeps running. Each case forces that
+# reply and proves the reader throws it rather than reading it as a worker that is not there.
+# ---------------------------------------------------------------------------------------------
+Describe 'a herdr binary on a different version from its server fails loudly' {
+    BeforeAll {
+        $script:MismatchDir = Initialize-HerdrScreenStub
+
+        # Both directions, as each binary words it.
+        $script:MismatchNewer = '{"id":"cli:agent:get","error":{"code":"protocol_mismatch","message":"client protocol 22 is newer than server protocol 20; restart the Herdr server before using this command. Stop the old server to use the new version.\nStopping exits pane processes."}}'
+        $script:MismatchOlder = '{"id":"cli:agent:get","error":{"code":"protocol_mismatch","message":"client protocol 20 is older than server protocol 22; upgrade the Herdr client before using this command"}}'
+    }
+    BeforeEach { Mock -ModuleName Herdr Get-HerdrCommandPath { $env:KINGSHAND_TEST_HERDR_EXE } }
+
+    It 'throws from <name>, whichever side is older' -ForEach @(
+        @{ name = 'Get-HerdrAgent';          call = { Get-HerdrAgent -Name 'T-9001' } }
+        @{ name = 'Get-HerdrAgents';         call = { Get-HerdrAgents } }
+        @{ name = 'Get-HerdrAgentInventory'; call = { Get-HerdrAgentInventory } }
+        @{ name = 'Get-HerdrAgentState';     call = { Get-HerdrAgentState -Name 'T-9001' } }
+        @{ name = 'Read-HerdrAgentScreen';   call = { Read-HerdrAgentScreen -Name 'T-9001' } }
+        @{ name = 'Read-HerdrAgent';         call = { Read-HerdrAgent -Name 'T-9001' } }
+        @{ name = 'Wait-HerdrAgent';         call = { Wait-HerdrAgent -Name 'T-9001' -TimeoutMs 10 } }
+        @{ name = 'Stop-HerdrAgent';         call = { Stop-HerdrAgent -Name 'T-9001' -TimeoutSeconds 1 } }
+    ) {
+        foreach ($reply in @($script:MismatchNewer, $script:MismatchOlder)) {
+            Set-HerdrScreenFailure -Text $reply -ExitCode 1
+            { & $call } | Should -Throw '*protocol_mismatch*'
+        }
+    }
+
+    It 'throws even where the caller asked for herdr''s errors back' {
+        Set-HerdrScreenFailure -Text $script:MismatchNewer -ExitCode 1
+        { Invoke-Herdr -AllowError -Arguments @('agent', 'list') } |
+            Should -Throw '*different versions*'
+    }
+
+    It 'never reports a live worker stopped' {
+        Set-HerdrScreenFailure -Text $script:MismatchNewer -ExitCode 1
+        $r = $null
+        try { $r = Stop-HerdrAgent -Name 'T-9001' -TimeoutSeconds 1 } catch { }
+        $r | Should -BeNullOrEmpty -Because 'a teardown told "stopped" removes the worktree of a worker still running'
+    }
+
+    It 'still hands back every other error under -AllowError' {
+        Set-HerdrScreenFailure -Text '{"error":{"code":"agent_not_found","message":"gone"}}' -ExitCode 1
+        $r = Invoke-Herdr -AllowError -Arguments @('agent', 'get', 't-9001')
+        $r.error.code | Should -Be 'agent_not_found'
+    }
+}
+
+Describe 'Get-HerdrVersion reads which herdr this binary is' {
+    BeforeAll { $script:VersionDir = Initialize-HerdrScreenStub }
+    BeforeEach { Mock -ModuleName Herdr Get-HerdrCommandPath { $env:KINGSHAND_TEST_HERDR_EXE } }
+
+    It 'reads the client version and protocol, with no server needed' {
+        Set-HerdrScreen '{"client":{"version":"0.9.5","channel":"stable","protocol":22},"server":{"status":"not_running","running":false}}'
+        $v = Get-HerdrVersion
+        $v.version  | Should -Be '0.9.5'
+        $v.protocol | Should -Be 22
+        $v.detail   | Should -Be ''
+    }
+
+    It 'reads a reply with no client version as unreadable, never as a version' {
+        Set-HerdrScreen 'herdr: unrecognised option --json'
+        $v = Get-HerdrVersion
+        $v.version | Should -BeNullOrEmpty
+        $v.path    | Should -Not -BeNullOrEmpty -Because 'a herdr answered, so it is installed'
+        $v.detail  | Should -Match 'no client version'
+    }
+
+    It 'answers no herdr with no path, and the hint' {
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $null }
+        $v = Get-HerdrVersion
+        $v.path   | Should -BeNullOrEmpty
+        $v.detail | Should -Match 'herdr was not found'
     }
 }

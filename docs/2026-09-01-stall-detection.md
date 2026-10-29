@@ -27,8 +27,9 @@ the one anybody cares about.
 
 `bin\Ci.psm1` answers one question - can anything report a check on this repository's pull requests
 - and `muster` Step 1b asks it before a `no-mistakes` task is dispatched. The answer picks which of
-the two `no-mistakes` Done-means blocks the brief carries, so a repository with no CI produces a
-brief that says to stop at the pull request rather than one that says to wait for green.
+the three `no-mistakes` Done-means blocks the brief carries, and with it the gate line that block
+runs: a repository proven to have no CI takes `--skip ci`, so the step that would wait for a check
+nothing can report is never run at all.
 
 **Two signals, and the second one is why this is not a directory test.** A `.github\workflows`
 directory is the obvious signal and it is insufficient in both directions: `emgeelabs-site` has no
@@ -51,11 +52,15 @@ and a repository that cannot be reached answers `unknown` with the HTTP error in
 settled - no `gh`, a remote that is not GitHub, an unauthenticated machine, a network that did not
 answer. Nothing in that module converts a failed lookup into either answer, because both wrong
 answers are expensive: a false `no-ci` throws away a real green check, and a false `has-ci` restores
-the hour-long wait. `unknown` takes the same terminating brief line as `no-ci`, because under
-uncertainty stopping at the pull request loses at most a wait for a check the user can see on the
-forge anyway. The shared line says checks *may* not report rather than that they are not expected
-to: the instruction is what ends the wait, and a line that asserted the absence as fact would have a
-worker report a repository as CI-less on the strength of an expired token.
+the hour-long wait. **`unknown` deliberately does not take `no-ci`'s `--skip ci`**, and that is the
+one place the two part company: a failed lookup is not proof that nothing reports, so skipping a
+step that may genuinely exist would be a real reduction in what the gate checks. It keeps the
+terminating brief line instead, because under uncertainty stopping at the pull request loses at most
+a wait for a check the user can see on the forge anyway. That line says checks *may* not report
+rather than that they are not expected to: a line that asserted the absence as fact would have a
+worker report a repository as CI-less on the strength of an expired token. It is also the fallback
+wherever a skip cannot be passed at all, which is the one place a sentence is still asked to bound a
+wait from inside the call.
 
 ### The progress signal is the worker's own screen, normalised
 

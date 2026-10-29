@@ -15,7 +15,8 @@ BeforeAll {
             [Parameter(Mandatory)][string]$Name,
             [switch]$NoDataDirectory,
             [switch]$FailingPrereqs,
-            [switch]$NoVersionFile
+            [switch]$NoVersionFile,
+            [switch]$Maintainer
         )
         $root = Join-Path $TestDrive $Name
         New-Item -ItemType Directory -Force -Path $root | Out-Null
@@ -30,6 +31,10 @@ BeforeAll {
         }
         New-Item -ItemType Directory -Force -Path (Join-Path $root 'state')  | Out-Null
         New-Item -ItemType Directory -Force -Path (Join-Path $root 'config') | Out-Null
+        # The maintainer marker. Absent by default, as it is on every installation but a maintainer's.
+        if ($Maintainer) {
+            New-Item -ItemType File -Force -Path (Join-Path $root 'config\maintainer') | Out-Null
+        }
 
         # A real toolchain check reads this machine, so its verdict would vary between machines and
         # between days. Both shapes are faked here so each case chooses the verdict it is testing.
@@ -62,15 +67,83 @@ BeforeAll {
             Instructions = Join-Path $root 'instructions.md'
             Version      = Join-Path $root 'VERSION'
             Prereq       = $prereq
+            Maintainer   = Join-Path $root 'config\maintainer'
+            # The checkout the new-release notice reads. The fixture root is not a git repository,
+            # so by default the notice says it could not check; a case about the notice points this
+            # at a real clone with its own bare remote instead. Never the live installation, whose
+            # remote is a real server.
+            ReleaseRepo  = $root
+            # Absent unless a case writes one, which is the ordinary state on a machine where no
+            # review surface has ever been opened. Passed explicitly by Get-Digest for the same
+            # reason every other path is: unset, it would resolve to the live store belonging to
+            # whoever is running the suite, and their own open surfaces would decide these cases.
+            LavishState  = Join-Path $root 'lavish\state.json'
         }
+    }
+
+    # One session row in lavish-axi's own shape. Only the fields the digest reads are written, and
+    # each is omittable, because the cases below need to drive an absent one as well as a present.
+    function New-LavishStore {
+        param(
+            [Parameter(Mandatory)]$Fixture,
+            [Parameter(Mandatory)][AllowEmptyCollection()][array]$Sessions,
+            [switch]$NoSessionsField,
+            [string]$RawText
+        )
+        New-Item -ItemType Directory -Force -Path (Split-Path $Fixture.LavishState -Parent) | Out-Null
+        if ($PSBoundParameters.ContainsKey('RawText')) {
+            Set-Content -LiteralPath $Fixture.LavishState -Value $RawText -Encoding utf8
+            return $Fixture.LavishState
+        }
+
+        $map = [ordered]@{}
+        $i = 0
+        foreach ($s in $Sessions) {
+            $map["key$i"] = $s
+            $i++
+        }
+        $store = if ($NoSessionsField) { [ordered]@{ version = 1 } } else { [ordered]@{ sessions = $map } }
+        $store | ConvertTo-Json -Depth 6 |
+            Set-Content -LiteralPath $Fixture.LavishState -Encoding utf8
+        $Fixture.LavishState
+    }
+
+    # `artifact_failures` is the second half of lavish-axi's own "nothing to collect" condition, so
+    # it is drivable here the same way `pending_prompts` is - present and empty, present and
+    # holding something, or absent altogether.
+    function New-LavishSession {
+        param([string]$File, $Pending, $Failures, [string]$Status = 'open',
+              [string]$Updated = '2026-09-16T11:34:32Z')
+        $row = [ordered]@{ file = $File; status = $Status; updated_at = $Updated }
+        if ($PSBoundParameters.ContainsKey('Pending'))  { $row['pending_prompts']   = $Pending }
+        if ($PSBoundParameters.ContainsKey('Failures')) { $row['artifact_failures'] = $Failures }
+        else                                            { $row['artifact_failures'] = @() }
+        $row
     }
 
     # Every path is passed explicitly, including Instructions and Version. An omitted parameter
     # falls back to Get-KingshandHome, which would read the live instructions.md belonging to
     # whoever is running the suite - their own standing preferences, printed into test output - and
     # the live VERSION, which would make the version line pass whatever the fixture holds.
+    #
+    # -QueueToon puts a stand-in tasks-axi first on PATH that answers with exactly those lines, so a
+    # case can drive the queue - held decisions, an answer that will not decode - without a backlog.
+    # Without it the real tasks-axi reads the fixture's own empty root.
     function Get-Digest {
-        param([Parameter(Mandatory)]$Fixture, [switch]$Json)
+        param([Parameter(Mandatory)]$Fixture, [switch]$Json, [switch]$ResolveLavishStatePath,
+              [string[]]$QueueToon)
+        $lavish = @{}
+        if (-not $ResolveLavishStatePath) { $lavish['LavishStatePath'] = $Fixture.LavishState }
+        $savedPath = $env:PATH
+        if ($PSBoundParameters.ContainsKey('QueueToon')) {
+            $shim = Join-Path $Fixture.Root 'queue-shim'
+            New-Item -ItemType Directory -Force -Path $shim | Out-Null
+            Set-Content -LiteralPath (Join-Path $shim 'queue.txt') -Value $QueueToon -Encoding utf8
+            Set-Content -LiteralPath (Join-Path $shim 'tasks-axi.cmd') -Encoding ascii -Value @(
+                '@echo off', "type `"$(Join-Path $shim 'queue.txt')`"")
+            $env:PATH = $shim + [IO.Path]::PathSeparator + $env:PATH
+        }
+        try {
         & $script:DigestScript `
             -DataPath         $Fixture.Data `
             -StatePath        $Fixture.State `
@@ -80,7 +153,11 @@ BeforeAll {
             -VersionPath      $Fixture.Version `
             -PrereqScript     $Fixture.Prereq `
             -QueueRoot        $Fixture.Root `
+            -MaintainerPath   $Fixture.Maintainer `
+            -ReleaseRepoPath  $Fixture.ReleaseRepo `
+            @lavish `
             -Json:$Json
+        } finally { $env:PATH = $savedPath }
     }
 
     # Same shape the registry parser expects: one entry line, with its indented path: line
@@ -126,9 +203,13 @@ Describe 'the away block routes a parked decision instead of forbidding an answe
             -Because 'that is the rule this change overrides, and the digest is read before regency'
     }
 
-    It 'keeps the blocked-prompt floor and routes a report''s decision to petition' {
+    It 'splits a blocked prompt by office and personal and routes a report''s decision to petition' {
         $script:AwayText.Contains('never answer a prompt a worker is blocked on') |
-            Should -BeTrue -Because 'the floor on an interactive prompt is untouched by the override'
+            Should -BeFalse -Because 'a personal project''s prompt inside its brief is answered while he is away'
+        $script:AwayText.Contains('only on a personal project and inside its brief') |
+            Should -BeTrue -Because 'the digest is read before regency and must carry the personal-project rule'
+        $script:AwayText.Contains('on an office project it waits') |
+            Should -BeTrue -Because 'an office project''s prompt still waits for the King'
         $script:AwayText.Contains('decided under `petition`') |
             Should -BeTrue -Because 'a decision written into a report is decided, not left parked'
     }
@@ -146,6 +227,24 @@ Describe 'the away block routes a parked decision instead of forbidding an answe
         $bare = Get-Digest (New-Fixture 'no-away')
         $bare.Contains('AWAY:') |
             Should -BeFalse -Because 'the block is the flag''s consequence, not a permanent heading'
+    }
+
+    # The journal's file name comes from the flag's since:, so a flag nobody can read is a regency
+    # nothing can be recorded for. That is invisible otherwise - the away line would look normal and
+    # every outcome of the period would be lost exactly as it was before the journal existed.
+    It 'says the away period has no journal when the flag carries no readable since' -ForEach @(
+        @{ case = 'no since line';   flag = @('note: overnight') }
+        @{ case = 'unparseable';     flag = @('since: last tuesday') }
+    ) {
+        $f = New-Fixture ('away-bad-' + ($case -replace '\W', '-'))
+        Set-Content -Path (Join-Path $f.Root 'state\.afk') -Encoding utf8 -Value $flag
+        $text = Get-Digest $f
+
+        $text.Contains('AWAY: a regency is in force') |
+            Should -BeTrue -Because 'the King is still away even when the flag is malformed'
+        $text.Contains('NO JOURNAL:') |
+            Should -BeTrue -Because 'a period nothing can be recorded for has to say so'
+        $text | Should -Match 'Nothing can be recorded for this away period until that is fixed'
     }
 }
 
@@ -289,7 +388,20 @@ Describe 'a fresh clone is told to set up, and is not sent after a skill that ca
     It 'does not name /annex while it is still unreachable' {
         $script:FreshText.Contains('/annex') |
             Should -BeFalse -Because 'the registry and toolchain it needs are created by install.ps1, which has not run'
-        $script:FreshText.Contains('set it up first') | Should -BeTrue
+        $script:FreshText.Contains('nothing can be dispatched until "set it up" has run first.') |
+            Should -BeTrue -Because 'the registry line names the same step the banner does, as a sentence'
+        $script:FreshText.Contains('until set it up first') |
+            Should -BeFalse -Because 'a new reader''s first screen should not read as a typo'
+    }
+
+    # A fresh clone has no check record, so without this the digest always asked a brand-new user
+    # about the weekly dependency check before they had installed anything it checks.
+    It 'does not ask about the weekly dependency check before setup has run' {
+        $script:FreshText.Contains('DEPENDENCY_CHECK_DUE') |
+            Should -BeFalse -Because 'the one step that works on a fresh clone is "set it up"'
+        $installed = New-Fixture 'installed-never-checked' -Maintainer
+        (Get-Digest $installed).Contains('DEPENDENCY_CHECK_DUE: the weekly dependency check has never run on this machine.') |
+            Should -BeTrue -Because 'once installed, a check that never ran is due again'
     }
 
     It 'still renders every other section rather than stopping at the banner' {
@@ -308,20 +420,40 @@ Describe 'a fresh clone is told to set up, and is not sent after a skill that ca
     }
 }
 
-Describe 'the registry is named project by project, with its posture' {
+# The registry is named only where something is live or waiting there - a worker not yet finished,
+# a decision of the King's held in the queue - or where the entry itself is broken. Everything else
+# is a count, because a digest that lists every project with its path does not fit the harness's
+# inline limit, and a digest that does not fit is cut to a preview.
+Describe 'the registry names the projects with something live or waiting, with their posture' {
     BeforeAll {
+        # One worker record per project, so each is live or waiting in the digest's terms. Liveness
+        # is unknown in a fixture, and unknown is never read as dead.
+        function Add-FixtureWorkers {
+            param([Parameter(Mandatory)]$Fixture, [Parameter(Mandatory)][string[]]$Projects)
+            $w = @{}
+            foreach ($n in $Projects) { $w["w-$n"] = @{ ticket = "w-$n"; kind = 'adhoc'; repo = $n; stage = 'gating' } }
+            @{ workers = $w } | ConvertTo-Json -Depth 10 | Set-Content -Path $Fixture.State -Encoding utf8
+        }
+        function Get-ProjectLine {
+            param([Parameter(Mandatory)][string]$Text, [Parameter(Mandatory)][string]$Name)
+            @($Text -split "`r?`n" | Where-Object { $_ -match "^\s*- $([regex]::Escape($Name)) \[" })[0]
+        }
+
         $script:Reg = New-Fixture 'registry'
-        foreach ($n in @('alpha', 'beta', 'gamma')) {
+        foreach ($n in @('alpha', 'beta', 'gamma', 'delta')) {
             New-Item -ItemType Directory -Force -Path (Join-Path $script:Reg.Root "repos\$n") | Out-Null
         }
         Add-RegistryEntry $script:Reg '- alpha [direct-PR] - alpha repo (added 2026-01-01)' (Join-Path $script:Reg.Root 'repos\alpha')
         Add-RegistryEntry $script:Reg '- beta [no-mistakes +yolo] - beta repo (added 2026-01-02)' (Join-Path $script:Reg.Root 'repos\beta')
         Add-RegistryEntry $script:Reg '- gamma [local-only] - gamma repo (added 2026-01-03)' (Join-Path $script:Reg.Root 'repos\gamma')
+        Add-RegistryEntry $script:Reg '- delta [local-only] - nothing under way (added 2026-01-04)' (Join-Path $script:Reg.Root 'repos\delta')
+        Add-FixtureWorkers $script:Reg @('alpha', 'beta', 'gamma')
         $script:RegText = Get-Digest $script:Reg
     }
 
-    It 'counts the registered projects' {
-        $script:RegText.Contains('Projects: 3 registered') | Should -BeTrue
+    It 'counts every registered project, and how many have something live or waiting' {
+        $script:RegText.Contains('Projects: 4 registered') | Should -BeTrue
+        $script:RegText.Contains('3 with something live or waiting') | Should -BeTrue
     }
 
     It 'names <name> with its posture and yolo standing' -ForEach @(
@@ -329,8 +461,25 @@ Describe 'the registry is named project by project, with its posture' {
         @{ name = 'beta';  line = '- beta [no-mistakes] yolo on' }
         @{ name = 'gamma'; line = '- gamma [local-only] yolo off' }
     ) {
-        $script:RegText.Contains($line) |
-            Should -BeTrue -Because "the registry line is name, posture and path, and $name must carry all three"
+        (Get-ProjectLine $script:RegText $name).Trim() | Should -Be $line
+    }
+
+    It 'counts a project with nothing live or waiting instead of naming it' {
+        Get-ProjectLine $script:RegText 'delta' | Should -BeNullOrEmpty
+        $script:RegText.Contains('... and 1 more with nothing live or waiting') | Should -BeTrue
+    }
+
+    It 'names a project whose decision is held in the queue, though no worker is there' {
+        $f = New-Fixture 'registry-held'
+        New-Item -ItemType Directory -Force -Path (Join-Path $f.Root 'repos\delta') | Out-Null
+        Add-RegistryEntry $f '- delta [local-only] - held decision (added 2026-01-04)' (Join-Path $f.Root 'repos\delta')
+        $text = Get-Digest $f -QueueToon @(
+            'count: 0'
+            'ready: 0 unblocked queued tasks'
+            'held[1]{id,state,kind,repo,title,hold_reason,hold_kind,hold_until}:'
+            '  delta-which-way,queued,task,delta,Which way,"The question is the King''s",captain,"-"'
+        )
+        (Get-ProjectLine $text 'delta').Trim() | Should -Be '- delta [local-only] yolo off'
     }
 
     # The permission is standing authority to merge to a branch that may deploy on merge, and the
@@ -343,11 +492,11 @@ Describe 'the registry is named project by project, with its posture' {
         }
         Add-RegistryEntry $f '- alpha [no-mistakes +yolo +merge] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
         Add-RegistryEntry $f '- beta [no-mistakes +yolo] - beta repo (added 2026-01-02)' (Join-Path $f.Root 'repos\beta')
+        Add-FixtureWorkers $f @('alpha', 'beta')
         $text = Get-Digest $f
-        $text.Contains('- alpha [no-mistakes] yolo on +merge') | Should -BeTrue
-        $text.Contains('- beta [no-mistakes] yolo on -') |
-            Should -BeTrue -Because 'a project without the permission prints exactly as it always has'
-        $text.Contains('- beta [no-mistakes] yolo on +merge') | Should -BeFalse
+        (Get-ProjectLine $text 'alpha').Trim() | Should -Be '- alpha [no-mistakes] yolo on +merge'
+        (Get-ProjectLine $text 'beta').Trim() |
+            Should -Be '- beta [no-mistakes] yolo on' -Because 'a project without the permission prints exactly as it always has'
     }
 
     # An annotation the parser could not read in full never yields the permission, so the digest
@@ -356,12 +505,12 @@ Describe 'the registry is named project by project, with its posture' {
         $f = New-Fixture 'registry-merge-unreadable'
         New-Item -ItemType Directory -Force -Path (Join-Path $f.Root 'repos\alpha') | Out-Null
         Add-RegistryEntry $f '- alpha [no-mistakes garbage +merge] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        Add-FixtureWorkers $f @('alpha')
         (Get-Digest $f).Contains('+merge') | Should -BeFalse
     }
 
     # The Hand writes ticket text itself and CLAUDE.md sends it to the family's shared rules before
-    # it does. The digest is the one registry read a session is meant to take at startup, so a
-    # family it never printed is one the Hand cannot know to read.
+    # it does. Where the digest names a project at all, it says which family that project is in.
     It 'says which family a project belongs to, and stays silent for one in none' {
         $f = New-Fixture 'registry-family'
         foreach ($n in @('alpha', 'beta')) {
@@ -369,11 +518,11 @@ Describe 'the registry is named project by project, with its posture' {
         }
         Add-RegistryEntry $f '- alpha [direct-PR +yolo +family:acme] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
         Add-RegistryEntry $f '- beta [direct-PR +yolo] - beta repo (added 2026-01-02)' (Join-Path $f.Root 'repos\beta')
+        Add-FixtureWorkers $f @('alpha', 'beta')
         $text = Get-Digest $f
-        $text.Contains('- alpha [direct-PR] yolo on +family:acme') | Should -BeTrue
-        $text.Contains('- beta [direct-PR] yolo on -') |
-            Should -BeTrue -Because 'a project in no family prints exactly as it always has'
-        $text.Contains('- beta [direct-PR] yolo on +family') | Should -BeFalse
+        (Get-ProjectLine $text 'alpha').Trim() | Should -Be '- alpha [direct-PR] yolo on +family:acme'
+        (Get-ProjectLine $text 'beta').Trim() |
+            Should -Be '- beta [direct-PR] yolo on' -Because 'a project in no family prints exactly as it always has'
     }
 
     # An annotation the parser could not read in full yields no family, so the digest must not name
@@ -382,20 +531,16 @@ Describe 'the registry is named project by project, with its posture' {
         $f = New-Fixture 'registry-family-unreadable'
         New-Item -ItemType Directory -Force -Path (Join-Path $f.Root 'repos\alpha') | Out-Null
         Add-RegistryEntry $f '- alpha [no-mistakes garbage +family:acme] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        Add-FixtureWorkers $f @('alpha')
         (Get-Digest $f).Contains('+family') | Should -BeFalse
     }
 
-    It 'records each project''s path rather than the detail that belongs to the project' {
-        $script:RegText.Contains((Join-Path $script:Reg.Root 'repos\alpha')) | Should -BeTrue
-        $script:RegText.Contains('PATH MISSING') |
-            Should -BeFalse -Because 'every fixture path was created on disk'
-    }
-
-    It 'flags a registered project whose path is gone' {
+    It 'flags a registered project whose path is gone, naming the path, with nothing under way' {
         $f = New-Fixture 'registry-gone'
-        Add-RegistryEntry $f '- vanished [local-only] - deleted repo (added 2026-01-01)' (Join-Path $f.Root 'repos\vanished')
-        (Get-Digest $f).Contains('PATH MISSING') |
-            Should -BeTrue -Because 'a posture that points nowhere cannot be dispatched into'
+        $gone = Join-Path $f.Root 'repos\vanished'
+        Add-RegistryEntry $f '- vanished [local-only] - deleted repo (added 2026-01-01)' $gone
+        $line = Get-ProjectLine (Get-Digest $f) 'vanished'
+        $line | Should -BeLike "*PATH MISSING: $gone*" -Because 'a posture that points nowhere cannot be dispatched into'
     }
 
     # The registry is maintained by hand as well as by /annex, and a name the index cannot turn into
@@ -417,6 +562,8 @@ Describe 'the registry is named project by project, with its posture' {
     It 'leaves a slug-shaped name unflagged' {
         $script:RegText.Contains('NAME NOT INDEXABLE') |
             Should -BeFalse -Because 'every fixture name here is one the index can resolve'
+        $script:RegText.Contains('PATH MISSING') |
+            Should -BeFalse -Because 'every fixture path was created on disk'
     }
 }
 
@@ -590,7 +737,7 @@ Describe 'a broken section loses only itself' {
 
     It 'still renders the registry the broken file never touched' {
         $script:BrokenText.Contains('Projects: 1 registered') | Should -BeTrue
-        $script:BrokenText.Contains('- alpha [direct-PR]')    | Should -BeTrue
+        $script:BrokenText.Contains('1 registered') | Should -BeTrue
     }
 
     It 'still renders the context section' {
@@ -828,5 +975,861 @@ Describe 'the digest says which version this installation is' {
             (Get-Digest $f).Contains($section) |
                 Should -BeTrue -Because "one unreadable file must cost one line, not the digest: $section"
         }
+    }
+}
+
+# --------------------------------------------------------------------------------------------
+# RE-ARM. A background job belongs to the session that armed it, so a restart takes the usage
+# pulse and every review-surface poll with it. Both failures are silent by construction: a
+# changed-only pulse that has stopped produces the same output as one with nothing to say -
+# nothing - and a surface whose poll is gone looks exactly like a King who has not answered yet.
+# Neither is visible in the fleet, which is why the digest has to carry them.
+# --------------------------------------------------------------------------------------------
+Describe 'the digest says how to re-arm the usage pulse' {
+    BeforeAll { $script:Pulse = Get-Digest (New-Fixture 're-arm-pulse') }
+
+    It 'carries a runnable arming command rather than a reminder to remember one' {
+        $script:Pulse.Contains('RE-ARM') | Should -BeTrue
+        $script:Pulse | Should -Match 'Import-Module .*bin\\Usage\.psm1'
+        $script:Pulse.Contains('Watch-UsagePulse') |
+            Should -BeTrue -Because 'the Hand copies the block, so it has to be runnable'
+    }
+
+    # R-002. Three ticks at the default cadence is thirty minutes against a session lasting hours,
+    # and the silence after the last tick is the same silence a working pulse produces - so a
+    # finite count reinstates the bug on a delay rather than fixing it.
+    It 'arms it for the whole session rather than for a set number of ticks' {
+        $script:Pulse | Should -Match 'It runs until the session ends rather than for a set number of ticks'
+        $script:Pulse | Should -Not -Match 'Watch-UsagePulse\s+-Count' `
+            -Because 'a count is a promise to go quiet at a moment nobody will notice'
+    }
+
+    # R-006, bounded. One line at arming time, because silence is the pulse working and a reader
+    # who never saw it start cannot tell that from a pulse that never did.
+    It 'asks for one line saying the pulse is on' {
+        $script:Pulse | Should -Match 'say in one line that it is on'
+        $script:Pulse | Should -Match 'a quiet\s+pulse and a dead one look the same from the outside'
+    }
+
+    # R-005, and it is the reason this is a printed command rather than a decision. instructions.md
+    # is open-ended prose somebody wrote by hand; nothing in bin\ may match a phrase out of it, so
+    # the digest prints the command unconditionally and the Hand decides from having read the file.
+    It 'prints the command unchanged when the King has switched the pulse off' {
+        $f = New-Fixture 're-arm-off'
+        Set-Content -Path $f.Instructions -Encoding utf8 `
+            -Value @('# Standing instructions', '', '- No usage pulse. Keep it off.')
+        $text = Get-Digest $f
+
+        $text.Contains('Watch-UsagePulse') |
+            Should -BeTrue -Because 'nothing in bin\ reads that file, so nothing in bin\ can act on it'
+        $text | Should -Match 'Whether to arm it at all is yours'
+        $text.Contains('No usage pulse. Keep it off.') |
+            Should -BeTrue -Because 'the Hand decides it from the file, which is printed whole'
+    }
+
+    # `C:\Users\John Smith\kingshand` is an ordinary place to keep a clone, and unquoted the printed
+    # path binds as two arguments - `Import-Module` fails on a positional parameter and names the
+    # second half of the path. That error arrives at session open, the pulse is never armed, and
+    # because the pulse is changed-only the silence that follows is exactly what a working one
+    # produces. Driven by running the emitted line rather than by reading it: the block exists to be
+    # copied and run, so whether it runs is the only thing worth asserting about it.
+    It 'emits a command that still runs when the installation root has a space in it' {
+        $saved = $env:KINGSHAND_HOME
+        try {
+            $spaced = Join-Path $TestDrive 'My Tools\kings hand'
+            New-Item -ItemType Directory -Force -Path (Join-Path $spaced 'bin') | Out-Null
+            $module = Join-Path $spaced 'bin\Usage.psm1'
+            Set-Content -LiteralPath $module -Encoding utf8 `
+                -Value 'function Watch-UsagePulse { ''armed'' }'
+
+            $env:KINGSHAND_HOME = $spaced
+            $emitted = @((Get-Digest (New-Fixture 'pulse-spaced')) -split "`r?`n" |
+                         Where-Object { $_.Contains('Import-Module') })
+            $emitted.Count | Should -Be 1 -Because 'the arming block is one Import-Module line'
+
+            # A separate runspace, so the stub never lands in the session running the suite.
+            $ps = [powershell]::Create()
+            try {
+                $null = $ps.AddScript($emitted[0].Trim() + "`n(Get-Module Usage).Path")
+                $loaded = @($ps.Invoke())
+                (@($ps.Streams.Error) -join '; ') |
+                    Should -BeNullOrEmpty -Because 'the Hand copies this line and runs it unchanged'
+                $loaded[-1] | Should -Be $module `
+                    -Because 'the whole path has to bind as one argument, spaces and all'
+            } finally {
+                $ps.Dispose()
+            }
+        } finally {
+            if ($null -eq $saved) { Remove-Item Env:\KINGSHAND_HOME -ErrorAction SilentlyContinue }
+            else                 { $env:KINGSHAND_HOME = $saved }
+        }
+    }
+}
+
+# The other half, and the one the King loses something to. lavish-axi ships no command that lists
+# its sessions, so its own store is the one place the answer exists. Something uncollected is the
+# signal rather than an open session: nothing ends a session when its decision is settled, so `open`
+# accumulates for good, while a queued prompt is his answer sitting where nobody is listening.
+Describe 'the digest names review surfaces holding something nobody collected' {
+    It 'names a surface with queued feedback, with the path a poll needs' {
+        $f = New-Fixture 'surface-queued'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File (Join-Path $f.Data 'kh-thing\gate.html') -Pending 2 -Status 'feedback')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match '1 of 1 .* hold something nobody'
+        $text | Should -Match 'Still open - re-run the poll and leave it armed'
+        $text.Contains('2 queued, status feedback') | Should -BeTrue
+        $text.Contains((Join-Path $f.Data 'kh-thing\gate.html')) |
+            Should -BeTrue -Because 'the poll takes an absolute path and nothing else has told the Hand it'
+        $text | Should -Match '`muster`''s `## The review surface` owns what a return'
+    }
+
+    # THE ROW A STATUS-ONLY FILTER LOSES, and it is the one this whole section exists for.
+    # lavish-axi's `takeFeedback` reports `ended` only where the queued prompts and the artifact
+    # failures are both empty; with a prompt still queued it hands that feedback over instead,
+    # carrying `session_ended` alongside. So `ended` plus a queued prompt is a Send & End whose
+    # final answer was never delivered, and one poll still collects it. Dropping it sends the Hand
+    # back to ask for a decision the King already made - two such rows sat in the live store.
+    It 'names an ended session that still has a queued prompt, as a poll to run once' {
+        $f = New-Fixture 'surface-ended'
+        $gone = Join-Path $f.Data 'kh-ended\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $gone -Pending 1 -Status 'ended')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match '1 of 1 .* hold something nobody'
+        $text.Contains($gone) |
+            Should -BeTrue -Because 'one poll still delivers it, and the poll takes that path'
+        $text | Should -Match 'Already ended - run the poll once to collect it, then do not re-arm'
+        $text | Should -Not -Match 'Still open - re-run the poll' `
+            -Because 'an ended session is collected once, never left armed'
+    }
+
+    # The other half of the tool's condition, and on its own it is enough to keep a row: a session
+    # with nothing queued but a failure recorded still has something the next poll hands over.
+    It 'names an ended session whose only uncollected thing is an artifact failure' {
+        $f = New-Fixture 'surface-ended-artifact'
+        $gate = Join-Path $f.Data 'kh-artifact\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $gate -Pending 0 -Failures @('render failed') -Status 'ended')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text.Contains($gate) |
+            Should -BeTrue -Because 'the tool reports ended only when the failures are empty too'
+        $text.Contains('0 queued, 1 artifact failure, status ended') |
+            Should -BeTrue -Because 'the reason the row was kept has to be visible on the row'
+        $text | Should -Match 'Already ended - run the poll once to collect it'
+    }
+
+    # The one an ended session is genuinely dropped for: the tool's condition satisfied on both
+    # halves, which is the state that actually returns `ended` and delivers nothing.
+    It 'leaves out an ended session with nothing queued and no failures' {
+        $f = New-Fixture 'surface-ended-empty'
+        $gate = Join-Path $f.Data 'kh-settled\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $gate -Pending 0 -Failures @() -Status 'ended')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match 'none of the 1 .* is holding anything nobody'
+        $text.Contains($gate) |
+            Should -BeFalse -Because 'there is nothing on it for a poll to collect'
+    }
+
+    # Both states on one store, so the split is shown telling them apart rather than each branch
+    # being shown alone. Both are named; only what to do afterwards differs.
+    It 'names an open surface and an ended one under their own headings' {
+        $f = New-Fixture 'surface-ended-and-open'
+        $live = Join-Path $f.Data 'kh-live\gate.html'
+        $gone = Join-Path $f.Data 'kh-gone\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $live -Pending 1 -Status 'open'),
+            (New-LavishSession -File $gone -Pending 1 -Status 'ended')
+        ) | Out-Null
+        $lines = @((Get-Digest $f) -split "`r?`n")
+
+        (@($lines) -join "`n") | Should -Match '2 of 2 .* hold something nobody'
+        $openAt  = [array]::FindIndex([string[]]$lines, [Predicate[string]]{ $args[0].Contains('Still open - re-run') })
+        $endedAt = [array]::FindIndex([string[]]$lines, [Predicate[string]]{ $args[0].Contains('Already ended - run the poll once') })
+        $liveAt  = [array]::FindIndex([string[]]$lines, [Predicate[string]]{ $args[0].Contains('kh-live') })
+        $goneAt  = [array]::FindIndex([string[]]$lines, [Predicate[string]]{ $args[0].Contains('kh-gone') })
+
+        @($openAt, $endedAt, $liveAt, $goneAt) | Should -Not -Contain -1
+        $liveAt | Should -BeGreaterThan $openAt
+        $liveAt | Should -BeLessThan $endedAt -Because 'each surface sits under the heading that tells its reader what to do'
+        $goneAt | Should -BeGreaterThan $endedAt
+    }
+
+    # The direction the doubt is resolved in, and it is deliberate: re-arming a surface that did not
+    # need it costs a moment, failing to re-arm one that did costs the King's answer. So only the
+    # tool's own exact word takes the collect-once path - a status it did not give, and one spelled
+    # any other way, are re-armed the ordinary way.
+    It 'treats a status that is missing or is not exactly ended as a surface to re-arm' {
+        $f = New-Fixture 'surface-not-ended'
+        $none  = Join-Path $f.Data 'kh-nostatus\gate.html'
+        $cased = Join-Path $f.Data 'kh-cased\gate.html'
+        $row = New-LavishSession -File $none -Pending 1
+        $row.Remove('status')
+        New-LavishStore -Fixture $f -Sessions @(
+            $row,
+            (New-LavishSession -File $cased -Pending 1 -Status 'Ended')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match '2 of 2 .* hold something nobody'
+        $text.Contains($none) |
+            Should -BeTrue -Because 'a status the store did not give is not the store saying ended'
+        $text.Contains($cased) |
+            Should -BeTrue -Because 'the exact word is the match, and anything else is not it'
+        $text | Should -Not -Match 'Already ended - run the poll once' `
+            -Because 'neither row is the tool saying ended, so neither takes the collect-once path'
+    }
+
+    # Both halves of the condition read the same defensive way. A list that is absent, null or not
+    # a list at all is the tool not answering, and "nothing is waiting" is the one answer this
+    # section must never give without having looked.
+    It 'keeps a surface whose artifact failures could not be read' {
+        $f = New-Fixture 'surface-artifact-unreadable'
+        $absent = Join-Path $f.Data 'kh-af-absent\gate.html'
+        $junk   = Join-Path $f.Data 'kh-af-junk\gate.html'
+        $row = New-LavishSession -File $absent -Pending 0
+        $row.Remove('artifact_failures')
+        New-LavishStore -Fixture $f -Sessions @(
+            $row,
+            (New-LavishSession -File $junk -Pending 0 -Failures 17)
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match '2 of 2 .* hold something nobody'
+        @($text -split "`r?`n" | Where-Object { $_.Contains('artifact failures unreadable') }).Count |
+            Should -Be 2 -Because 'an absent list and one that is not a list are both the tool not answering'
+        $text.Contains($absent) | Should -BeTrue
+        $text.Contains($junk)   | Should -BeTrue
+    }
+
+    # Stated rather than left to be inferred from what the list happens to contain. A reader told
+    # which surfaces are named needs telling which are not, or silence reads as "nothing else".
+    It 'says what it cannot see, so the list is not read as everything that was being waited on' {
+        $f = New-Fixture 'surface-limits'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File (Join-Path $f.Data 'kh-limits\gate.html') -Pending 0 -Status 'open')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match 'Not named here: a session still open with nothing queued on it'
+        $text | Should -Match 'records no field saying a poll was armed'
+    }
+
+    # The store belongs to lavish-axi. The digest reads it for one fact and must leave it exactly
+    # as it found it - a hook that corrupted another tool's own record before the session had even
+    # started would be a failure nobody could trace back here. Observed from the file rather than
+    # argued from the source: same bytes, same modification time, and the surface named proves the
+    # run actually opened it.
+    It 'leaves the session store exactly as it found it' {
+        $f = New-Fixture 'surface-readonly'
+        $gate = Join-Path $f.Data 'kh-ro\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $gate -Pending 1 -Status 'feedback')
+        ) | Out-Null
+
+        $stat = {
+            $i = Get-Item -LiteralPath $f.LavishState
+            "$((Get-FileHash -LiteralPath $f.LavishState -Algorithm SHA256).Hash)|$($i.LastWriteTimeUtc.Ticks)|$($i.Length)"
+        }
+        $before = & $stat
+        $text = Get-Digest $f
+        $after = & $stat
+
+        $text.Contains($gate) |
+            Should -BeTrue -Because 'a store the run never opened would be unchanged for the wrong reason'
+        $after | Should -Be $before -Because 'the digest reads another tool''s record and never writes it'
+    }
+
+    # An open session is not evidence anyone is waiting. Counting them keeps the digest honest
+    # about what it looked at without turning dozens of settled decisions into a to-do list.
+    It 'counts a surface with nothing queued rather than naming it' {
+        $f = New-Fixture 'surface-quiet'
+        $quiet = Join-Path $f.Data 'kh-quiet\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $quiet -Pending 0 -Status 'open')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match 'none of the 1 .* is holding anything nobody'
+        $text.Contains($quiet) |
+            Should -BeFalse -Because 'a settled decision named at every session start is noise, not work'
+    }
+
+    It 'leaves alone a session whose file is outside this installation''s data directory' {
+        $f = New-Fixture 'surface-elsewhere'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File (Join-Path $TestDrive 'somewhere-else\gate.html') -Pending 4)
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match 'none of the 0 '
+        $text.Contains('4 queued') |
+            Should -BeFalse -Because 'another tool''s review surfaces are not this fleet''s work'
+    }
+
+    # Criterion 7, and the failure it is for: zero means nobody sent anything, which is a settled
+    # fact this section may be quiet about. A field that is absent or is not a whole number is the
+    # tool not answering, and reading that as zero drops the King's own reply out of the digest.
+    It 'lists a surface whose queued count could not be read, and says so' {
+        $f = New-Fixture 'surface-unreadable-count'
+        $a = Join-Path $f.Data 'kh-a\gate.html'
+        $b = Join-Path $f.Data 'kh-b\gate.html'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File $a -Status 'open'),
+            (New-LavishSession -File $b -Pending 'lots' -Status 'open')
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match '2 of 2 .* hold something nobody'
+        @($text -split "`n" | Where-Object { $_.Contains('queued count unreadable') }).Count |
+            Should -Be 2 -Because 'an absent count and an unparseable one are both the tool not answering'
+        $text.Contains($a) | Should -BeTrue
+        $text.Contains($b) | Should -BeTrue
+    }
+
+    It 'says the status the tool gave it, and says so plainly when it gave none' {
+        $f = New-Fixture 'surface-no-status'
+        $row = New-LavishSession -File (Join-Path $f.Data 'kh-c\gate.html') -Pending 1
+        $row.Remove('status')
+        New-LavishStore -Fixture $f -Sessions @($row) | Out-Null
+
+        (Get-Digest $f).Contains('1 queued, status status not given') |
+            Should -BeTrue -Because 'the digest does not own that vocabulary and never invents a word for it'
+    }
+
+    It 'says so when the tool gave no time, rather than printing a made-up one' {
+        $f = New-Fixture 'surface-no-stamp'
+        $row = New-LavishSession -File (Join-Path $f.Data 'kh-e\gate.html') -Pending 1
+        $row.Remove('updated_at')
+        New-LavishStore -Fixture $f -Sessions @($row) | Out-Null
+
+        (Get-Digest $f).Contains('status open, last touched not given') |
+            Should -BeTrue -Because 'a time nobody gave is not a time to fill in'
+    }
+
+    It 'does not count a session that names no file as one of this installation''s' {
+        $f = New-Fixture 'surface-no-file'
+        $row = New-LavishSession -File (Join-Path $f.Data 'kh-f\gate.html') -Pending 1
+        $row['file'] = ''
+        New-LavishStore -Fixture $f -Sessions @($row) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match 'none of the 0 ' `
+            -Because 'a session with no path cannot be shown to be ours, and a poll could not take it'
+        $text.Contains('1 queued') | Should -BeFalse
+    }
+
+    It 'renders the timestamp one unambiguous way rather than in the machine''s date format' {
+        $f = New-Fixture 'surface-stamp'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File (Join-Path $f.Data 'kh-d\gate.html') -Pending 1 `
+                               -Updated '2026-09-16T11:34:32.101Z')
+        ) | Out-Null
+
+        (Get-Digest $f).Contains('2026-09-16 11:34:32Z') |
+            Should -BeTrue -Because '09/16/2026 is two different days depending on who reads it'
+    }
+
+    It 'stays bounded when a machine has more surfaces than the digest may print' {
+        $f = New-Fixture 'surface-many'
+        New-LavishStore -Fixture $f -Sessions @(
+            0..29 | ForEach-Object {
+                New-LavishSession -File (Join-Path $f.Data "kh-$_\gate.html") -Pending 1
+            }
+        ) | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match '30 of 30 .* hold something nobody'
+        $text.Contains('... and 5 more') |
+            Should -BeTrue -Because 'the tail is counted rather than printed, as every other list here is'
+    }
+}
+
+# Every one of these is an answer the digest must not give confidently. "No surface is waiting" is
+# the one sentence a broken reader would produce by accident, and it is indistinguishable from the
+# truth - so each failure says what could not be read instead.
+Describe 'a session store that cannot be read says so rather than saying nothing is waiting' {
+    It 'says no store exists rather than that nothing is waiting' {
+        $f = New-Fixture 'store-absent'
+        $text = Get-Digest $f
+        $text.Contains('no session store at') | Should -BeTrue
+        $text | Should -Match 'there is nothing to re-arm'
+        $text | Should -Not -Match 'hold something nobody'
+    }
+
+    It 'names the failure when the store is not the JSON it reads' {
+        $f = New-Fixture 'store-garbage'
+        New-LavishStore -Fixture $f -Sessions @() -RawText 'this is not json {{{' | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match 'could not be read'
+        $text | Should -Not -Match 'none of the \d+ ' `
+            -Because 'a store nobody could parse is not a store saying nothing is waiting'
+    }
+
+    It 'tells a store that named no sessions from a store that said there are none' {
+        $f = New-Fixture 'store-no-field'
+        New-LavishStore -Fixture $f -Sessions @() -NoSessionsField | Out-Null
+        $text = Get-Digest $f
+
+        $text | Should -Match 'named no sessions at all'
+        $text | Should -Match 'which surfaces are open was not established'
+
+        $g = New-Fixture 'store-empty-map'
+        New-LavishStore -Fixture $g -Sessions @() | Out-Null
+        (Get-Digest $g) | Should -Match 'none of the 0 ' `
+            -Because 'an empty map is the tool affirmatively saying there are none'
+    }
+
+    It 'renders every other section when the store cannot be read' {
+        $f = New-Fixture 'store-garbage-rest'
+        New-LavishStore -Fixture $f -Sessions @() -RawText '[[[' | Out-Null
+        { Get-Digest $f } | Should -Not -Throw
+        foreach ($section in @('FLEET', 'RE-ARM', 'QUEUE', 'CONTEXT')) {
+            (Get-Digest $f).Contains($section) |
+                Should -BeTrue -Because "one unreadable file must cost one line, not the digest: $section"
+        }
+    }
+}
+
+# The default nobody passes is the one the hook uses, so it is the one that has to work. Both
+# branches of it are the tool's own documented pair - its override variable first, the home
+# directory second - and neither is exercised by any other case, because every other case passes
+# the path explicitly to keep the suite off the live store.
+Describe 'the store path resolves the way lavish-axi resolves it' {
+    BeforeAll {
+        $script:SavedStateDir = $env:LAVISH_AXI_STATE_DIR
+        $script:SavedProfile  = $env:USERPROFILE
+    }
+    AfterAll {
+        $env:LAVISH_AXI_STATE_DIR = $script:SavedStateDir
+        $env:USERPROFILE          = $script:SavedProfile
+    }
+
+    It 'takes LAVISH_AXI_STATE_DIR when it is set' {
+        $f = New-Fixture 'resolve-statedir'
+        New-LavishStore -Fixture $f -Sessions @(
+            (New-LavishSession -File (Join-Path $f.Data 'kh-env\gate.html') -Pending 1)
+        ) | Out-Null
+
+        $env:LAVISH_AXI_STATE_DIR = Split-Path $f.LavishState -Parent
+        $env:USERPROFILE          = Join-Path $TestDrive 'no-such-profile'
+        (Get-Digest $f -ResolveLavishStatePath).Contains((Join-Path $f.Data 'kh-env\gate.html')) |
+            Should -BeTrue -Because 'the tool honours that variable, so this has to honour it too'
+    }
+
+    It 'falls back to the home directory when it is not' {
+        $f = New-Fixture 'resolve-profile'
+        $fakeHome = Join-Path $f.Root 'profile'
+        New-Item -ItemType Directory -Force -Path (Join-Path $fakeHome '.lavish-axi') | Out-Null
+        ([ordered]@{ sessions = [ordered]@{ k = (New-LavishSession `
+            -File (Join-Path $f.Data 'kh-home\gate.html') -Pending 1) } } | ConvertTo-Json -Depth 6) |
+            Set-Content -LiteralPath (Join-Path $fakeHome '.lavish-axi\state.json') -Encoding utf8
+
+        Remove-Item Env:\LAVISH_AXI_STATE_DIR -ErrorAction SilentlyContinue
+        $env:USERPROFILE = $fakeHome
+        (Get-Digest $f -ResolveLavishStatePath).Contains((Join-Path $f.Data 'kh-home\gate.html')) |
+            Should -BeTrue -Because 'that is where the tool keeps it when nothing overrides the location'
+    }
+
+    It 'says there is nowhere to look rather than inventing a path' {
+        $f = New-Fixture 'resolve-nothing'
+        Remove-Item Env:\LAVISH_AXI_STATE_DIR -ErrorAction SilentlyContinue
+        $env:USERPROFILE = ''
+        $text = Get-Digest $f -ResolveLavishStatePath
+
+        $text | Should -Match 'no home directory to resolve lavish-axi''s session store against'
+        $text | Should -Not -Match 'none of the \d+ ' `
+            -Because 'a path invented here holds nothing, which reads as nothing being waited on'
+    }
+}
+
+# A `fief` session's warm worker carries every ticket or fix on its branch. The digest is this
+# session's whole picture of the fleet, so it shows that worker as one line with its list - and an
+# unreadable list as unreadable, never as a session with nothing on it.
+Describe 'a session worker is printed as one worker with its list of items' {
+    BeforeAll {
+        $script:Sess = New-Fixture 'session-worker'
+        @{
+            workers = @{
+                'acme-api-session' = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-api'; stage = 'implementing'
+                                        branch = 'feature-x'; session = $true; checkout = $true
+                                        items = @(@{ id = 'T-1001'; kind = 'ticket' }, @{ id = 'fix-header'; kind = 'adhoc' }) }
+                'acme-web-session' = @{ ticket = 'T-2001'; kind = 'ticket'; repo = 'acme-web'; stage = 'implementing'
+                                        session = $true; items = @(@{ label = 'T-2001' }) }
+                'T-3001'           = @{ ticket = 'T-3001'; kind = 'ticket'; repo = 'acme-docs'; stage = 'ready' }
+            }
+        } | ConvertTo-Json -Depth 10 | Set-Content -Path $script:Sess.State -Encoding utf8
+        $script:SessText = Get-Digest $script:Sess
+    }
+
+    It 'names every id on the session branch, in order, on the worker''s one line' {
+        $lines = @($script:SessText -split "`r?`n" | Where-Object { $_ -match '^\s*- acme-api-session ' })
+        $lines.Count | Should -Be 1
+        $lines[0].Contains('session worker in the checkout on feature-x carrying T-1001, fix-header') |
+            Should -BeTrue
+    }
+
+    It 'says an item list it cannot read is unreadable' {
+        $line = @($script:SessText -split "`r?`n" | Where-Object { $_ -match '^\s*- acme-web-session ' })[0]
+        $line.Contains('items unreadable') | Should -BeTrue
+    }
+
+    It 'prints an ordinary worker exactly as before' {
+        $line = @($script:SessText -split "`r?`n" | Where-Object { $_ -match '^\s*- T-3001 ' })[0]
+        # The ticket is said only where it differs from the worker id, which it does not here.
+        $line.Trim() | Should -Be '- T-3001 (acme-docs) stage ready, liveness unknown'
+    }
+}
+
+# THE DIGEST HAS TO ARRIVE WHOLE. Claude Code caps a hook's additionalContext at 10,000 characters
+# and replaces anything longer with a saved file and a 2,000-character preview that nothing makes the
+# session open - every digest measured between 2026-10-02 and 2026-10-22 was 39.9k to 52.0k
+# characters and every one was cut, and two sessions ran without the King's instructions because of
+# it. The realistic fixture below is this installation's own shape on 2026-10-22, in counts and
+# sizes rather than content: a 4,200-character instructions.md, memory files of 12,400 and 10,000
+# characters, 25 projects, 228 workers of which 163 landed, 26 un-dispatched briefs, 99 ready items,
+# 45 held of which 27 are on a decision of the King's, and a regency in force.
+Describe 'the digest arrives whole, under the harness''s inline limit' {
+    BeforeAll {
+        $script:Limit = 10000
+
+        function New-RealisticFixture {
+            param([Parameter(Mandatory)][string]$Name, [int]$InstructionsChars = 4200)
+            $f = New-Fixture $Name
+            $para = 'The King states a standing preference here, in his own words, with its reason. '
+            $text = ($para * [Math]::Ceiling($InstructionsChars / $para.Length)).Substring(0, $InstructionsChars)
+            Set-Content -LiteralPath $f.Instructions -Value $text -Encoding utf8
+            $mem = 'A curated memory line about how the King works, dated and backed by evidence. '
+            Set-Content -LiteralPath (Join-Path $f.Data 'king.md') -Encoding utf8 `
+                -Value ($mem * 160).Substring(0, 12400)
+            Set-Content -LiteralPath (Join-Path $f.Data 'learnings.md') -Encoding utf8 `
+                -Value ($mem * 130).Substring(0, 10000)
+            Set-Content -Path (Join-Path $f.Root 'state\.afk') -Encoding utf8 `
+                -Value @('since: 2026-10-21T18:01:30.4884001Z')
+
+            for ($i = 1; $i -le 25; $i++) {
+                $repo = Join-Path $f.Root "repos\project-$i"
+                New-Item -ItemType Directory -Force -Path $repo | Out-Null
+                $mode = if ($i % 4 -eq 0) { 'no-mistakes +yolo +merge' } else { 'direct-PR' }
+                Add-RegistryEntry $f "- project-$i [$mode] - project number $i (added 2026-01-01)" $repo
+            }
+
+            $w = @{}
+            $stages = @('dispatched') * 6 + @('implementing') * 8 + @('gating') * 37 + @('ready') * 14 +
+                      @('landed') * 163
+            for ($i = 0; $i -lt $stages.Count; $i++) {
+                $id = "worker-task-number-$i"
+                # Unfinished work sits in 11 of the 25 projects, as it did here; landed work in all.
+                $spread = if ($stages[$i] -eq 'landed') { 25 } else { 11 }
+                $w[$id] = @{ ticket = $id; kind = 'adhoc'; repo = "project-$(($i % $spread) + 1)"
+                             stage = $stages[$i] }
+                if ($i % 3 -eq 0) { $w[$id].waiting_on = "$id-a-decision-it-parked-on" }
+                New-Item -ItemType Directory -Force -Path (Join-Path $f.Data $id) | Out-Null
+                Set-Content -LiteralPath (Join-Path $f.Data "$id\report.md") -Value 'findings' -Encoding utf8
+            }
+            @{ workers = $w } | ConvertTo-Json -Depth 10 | Set-Content -Path $f.State -Encoding utf8
+            for ($i = 0; $i -lt 26; $i++) {
+                New-Item -ItemType Directory -Force -Path (Join-Path $f.Data "brief-not-sent-$i") | Out-Null
+                Set-Content -LiteralPath (Join-Path $f.Data "brief-not-sent-$i\brief.md") -Value '# b' -Encoding utf8
+            }
+            $f
+        }
+
+        function New-RealisticQueue {
+            $lines = @('count: 99', 'ready[99]{id,state,kind,repo,title}:')
+            for ($i = 0; $i -lt 99; $i++) {
+                $lines += "  ready-item-number-$i,queued,task,project-$(($i % 25) + 1),A queued piece of work number $i"
+            }
+            $lines += 'held[45]{id,state,kind,repo,title,hold_reason,hold_kind,hold_until}:'
+            for ($i = 0; $i -lt 45; $i++) {
+                $kind = if ($i -lt 27) { 'captain' } else { 'future' }
+                $lines += "  held-decision-number-$i,queued,task,project-$(($i % 11) + 1),A held item,Held for a reason,$kind,`"-`""
+            }
+            $lines
+        }
+
+        $script:Real     = New-RealisticFixture 'realistic'
+        $script:RealText = Get-Digest $script:Real -QueueToon (New-RealisticQueue)
+    }
+
+    It 'stays under the limit at this installation''s own size' {
+        $script:RealText.Length | Should -BeLessOrEqual $script:Limit -Because (
+            "the harness cuts anything over $($script:Limit) characters to a preview; this was " +
+            "$($script:RealText.Length)")
+        $script:RealText.Contains('OVER THE INLINE LIMIT') | Should -BeFalse
+    }
+
+    It 'prints instructions.md whole, and before anything else in the digest' {
+        $start = $script:RealText.IndexOf('----- BEGIN instructions.md')
+        $end   = $script:RealText.IndexOf('----- END instructions.md -----')
+        $start | Should -BeGreaterThan -1
+        $end - $start | Should -BeGreaterThan 4200 -Because 'all of it is there, not a summary'
+        $start | Should -BeLessThan $script:RealText.IndexOf('VERSION:')
+        $start | Should -BeLessThan $script:RealText.IndexOf('FLEET')
+    }
+
+    It 'keeps the away block and every re-arm line' {
+        $script:RealText.Contains('AWAY: a regency is in force') | Should -BeTrue
+        $script:RealText.Contains('Watch-UsagePulse') | Should -BeTrue
+        $script:RealText.Contains('Whether to arm it at all is yours') | Should -BeTrue
+    }
+
+    It 'names a memory file that does not fit, with its path, and tells the reader to read it' {
+        $line = @($script:RealText -split "`r?`n" | Where-Object { $_ -like '----- NOT PRINTED king.md*' })[0]
+        $line | Should -Not -BeNullOrEmpty
+        $line | Should -BeLike "*$(Join-Path $script:Real.Data 'king.md')*Read it in full*"
+    }
+
+    It 'names every hold on a decision of the King''s, by id, and counts the rest' {
+        $script:RealText.Contains('99 ready, 45 held, 27 of them on a decision of yours') | Should -BeTrue
+        $ids = (0..26 | ForEach-Object { "held-decision-number-$_" }) -join ', '
+        $script:RealText.Contains("Waiting on your decision: $ids") | Should -BeTrue
+        $script:RealText.Contains('held-decision-number-27') | Should -BeFalse -Because 'not a decision of his'
+        $script:RealText.Contains('ready-item-number-0') | Should -BeFalse -Because 'ready work is a count'
+    }
+
+    It 'lists live and unfinished workers up to its cap and counts the rest' {
+        $script:RealText.Contains('Workers: 228 recorded - 65 live or not finished, 163 landed') |
+            Should -BeTrue
+        $script:RealText.Contains('... and 57 more') | Should -BeTrue
+    }
+
+    It 'says so on its first line when what cannot give still carries it over the limit' {
+        $f = New-RealisticFixture 'over-limit' -InstructionsChars 12000
+        $text = Get-Digest $f -QueueToon (New-RealisticQueue)
+        $text.Length | Should -BeGreaterThan $script:Limit
+        @($text -split "`r?`n")[1] | Should -BeLike 'OVER THE INLINE LIMIT*Read the saved file in full*'
+        $text.Contains('----- END instructions.md -----') | Should -BeTrue -Because 'it is never cut'
+    }
+
+    It 'prints a memory file whole where it fits' {
+        $f = New-Fixture 'memory-fits'
+        Set-Content -LiteralPath (Join-Path $f.Data 'king.md') -Value 'The King prefers plain words.' -Encoding utf8
+        $text = Get-Digest $f
+        $text.Contains('----- BEGIN king.md') | Should -BeTrue
+        $text.Contains('The King prefers plain words.') | Should -BeTrue
+        $text.Contains('NOT PRINTED') | Should -BeFalse
+    }
+}
+
+# A backlog answer this digest cannot decode is not an empty backlog. Saying "0 ready" over it would
+# be a state word made up from a failed read.
+Describe 'a queue answer that cannot be read says so rather than reading as empty' {
+    It 'names the failure and the command to run instead' {
+        $text = Get-Digest (New-Fixture 'queue-garbled') -QueueToon @('ready[3]{id,state}:', '  only-one,queued')
+        $line = @($text -split "`r?`n" | Where-Object { $_ -like '  QUEUE:*' })[0]
+        $line | Should -BeLike '*could not decode*'
+        $line | Should -BeLike '*run tasks-axi ready --include-held yourself*'
+        $text.Contains(' ready, ') | Should -BeFalse
+    }
+
+    It 'reads an answer with no held group as nothing held' {
+        $text = Get-Digest (New-Fixture 'queue-none-held') -QueueToon @('count: 0', 'ready: 0 unblocked queued tasks')
+        $text.Contains('0 ready, 0 held, 0 of them on a decision of yours') | Should -BeTrue
+    }
+}
+
+# The weekly dependency check is due-based: nothing schedules it, and the next session to start after
+# seven days says so. Each case writes its own record into the fixture's state\ - the live one is
+# never read - and the filed case builds a real backlog in the fixture root with tasks-axi itself,
+# because whether an item is open is that tool's answer and not something this suite should fake.
+Describe 'the digest says when the weekly dependency check is due' {
+    BeforeAll {
+        function Set-CheckRecord {
+            param($Fixture, [string]$Text)
+            Set-Content -LiteralPath (Join-Path $Fixture.Root 'state\dependency-check.json') -Value $Text -Encoding utf8
+        }
+        function Set-CheckAge {
+            param($Fixture, [double]$Days)
+            $when = [datetime]::UtcNow.AddDays(-$Days).ToString('o')
+            Set-CheckRecord $Fixture "{`"owner`":`"kingshand-dependency-check`",`"lastRun`":`"$when`"}"
+        }
+    }
+
+    It 'says how long it has been when the last run is past seven days' {
+        $f = New-Fixture 'dep-due' -Maintainer
+        Set-CheckAge $f 12.5
+        $text = Get-Digest $f
+        $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check last ran 12 days ago'
+        $text.Contains('Ask the King: run it now, or file it as dep-check-') | Should -BeTrue
+    }
+
+    It 'says nothing when the check is not due' {
+        $f = New-Fixture 'dep-fresh' -Maintainer
+        Set-CheckAge $f 2
+        (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') | Should -BeFalse
+    }
+
+    It 'says so when the check has never run' {
+        $text = Get-Digest (New-Fixture 'dep-never' -Maintainer)
+        $text.Contains('DEPENDENCY_CHECK_DUE: the weekly dependency check has never run on this machine.') |
+            Should -BeTrue
+    }
+
+    It 'reads a record it cannot read as unreadable and asks about it as due' {
+        $f = New-Fixture 'dep-garbled' -Maintainer
+        Set-CheckRecord $f 'not json at all'
+        $text = Get-Digest $f
+        $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check cannot be told from its record, so it is treated as due'
+        $text | Should -Not -Match 'last ran \d+ days ago' -Because 'an unreadable record never becomes a date'
+    }
+
+    It 'stays quiet when the check is already filed and open' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
+        $f = New-Fixture 'dep-filed' -Maintainer
+        Set-CheckAge $f 12
+        Push-Location $f.Root
+        try { $null = tasks-axi add dep-check-2026-w01 'Weekly dependency check' --kind dependency-check 2>&1 }
+        finally { Pop-Location }
+        (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') |
+            Should -BeFalse -Because 'an open item means the King has already answered this week'
+    }
+
+    It 'asks again once the filed item is done' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
+        $f = New-Fixture 'dep-filed-done' -Maintainer
+        Set-CheckAge $f 12
+        Push-Location $f.Root
+        try {
+            $null = tasks-axi add dep-check-2026-w01 'Weekly dependency check' --kind dependency-check 2>&1
+            $null = tasks-axi done dep-check-2026-w01 2>&1
+        } finally { Pop-Location }
+        (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') | Should -BeTrue
+    }
+
+    It 'asks, and says so, when whether it is filed could not be read' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
+        $f = New-Fixture 'dep-queue-broken' -Maintainer
+        Set-CheckAge $f 12
+        Set-Content -LiteralPath (Join-Path $f.Root '.tasks.toml') -Value 'backend = "nonsense"' -Encoding utf8
+        $text = Get-Digest $f
+        $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check last ran 12 days ago'
+        $text.Contains('Whether it is already filed could not be read - tasks-axi exited 1.') | Should -BeTrue
+    }
+
+    It 'still prints the rest of the digest when the check cannot be asked' {
+        $f = New-Fixture 'dep-dir' -Maintainer
+        New-Item -ItemType Directory -Path (Join-Path $f.Root 'state\dependency-check.json') | Out-Null
+        $text = Get-Digest $f
+        $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check cannot be told from its record'
+        $text.Contains('=== END KINGSHAND SESSION START ===') | Should -BeTrue
+    }
+}
+
+# Moving a pin is a maintainer's job, so only an installation marked as a maintainer's is asked about
+# it. Every case here would be due if it were asked, so silence can only come from the marker.
+Describe 'the weekly dependency check is asked only on a maintainer''s installation' {
+    It 'says nothing without the marker, even when the check has never run' {
+        $text = Get-Digest (New-Fixture 'dep-user')
+        $text.Contains('DEPENDENCY_CHECK_DUE') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $TestDrive 'dep-user\state\dependency-check.json') | Should -BeFalse
+    }
+
+    It 'says nothing without the marker when the record cannot be read either' {
+        $f = New-Fixture 'dep-user-garbled'
+        Set-Content -LiteralPath (Join-Path $f.Root 'state\dependency-check.json') -Value 'not json' -Encoding utf8
+        (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') | Should -BeFalse
+    }
+
+    It 'takes only a file as the marker, not a directory of that name' {
+        $f = New-Fixture 'dep-user-dir'
+        New-Item -ItemType Directory -Path $f.Maintainer | Out-Null
+        (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') | Should -BeFalse
+    }
+
+    It 'asks once the marker is there' {
+        (Get-Digest (New-Fixture 'dep-maintainer' -Maintainer)).Contains(
+            'DEPENDENCY_CHECK_DUE: the weekly dependency check has never run on this machine.') | Should -BeTrue
+    }
+}
+
+# Every installation is told when a newer release exists. bin\Update.psm1 and tests\Update.Tests.ps1
+# own the answer and its cache; these cases hold the digest's half - the one line, its wording, and
+# silence where there is nothing to say. Each notice case points the digest at a throwaway clone of
+# its own bare remote, so nothing reaches a server.
+Describe 'the digest says when a newer release exists, for every installation' {
+    BeforeAll {
+        function New-ReleaseClone {
+            param([Parameter(Mandatory)][string]$Name, [string[]]$Releases = @(), [string]$Installed = '0.1.0')
+            $base   = Join-Path $TestDrive "rel-$Name"
+            $remote = Join-Path $base 'remote'
+            $seed   = Join-Path $base 'seed'
+            $clone  = Join-Path $base 'clone'
+            git init --bare -b main $remote -q
+            git init -b main $seed -q
+            git -C $seed config user.name 'Test'
+            git -C $seed config user.email 'test@example.invalid'
+            Set-Content -LiteralPath (Join-Path $seed 'VERSION') -Value $Installed -Encoding utf8
+            git -C $seed add -A
+            git -C $seed commit -q -m 'Seed'
+            foreach ($r in $Releases) { git -C $seed tag $r }
+            git -C $seed remote add origin $remote
+            git -C $seed push -q origin main --tags 2>&1 | Out-Null
+            git clone -q $remote $clone 2>&1 | Out-Null
+            $clone
+        }
+    }
+
+    It 'prints one line naming both versions and /update when a newer release exists' {
+        $f = New-Fixture 'rel-newer'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'newer' -Releases @('v0.1.0', 'v0.2.0')
+        $text = Get-Digest $f
+        $text.Contains('UPDATE_AVAILABLE: 0.1.0 -> 0.2.0 - run /update') | Should -BeTrue
+        @($text -split "`r?`n" | Where-Object { $_ -like '*UPDATE_*' }).Count | Should -Be 1
+        Test-Path -LiteralPath (Join-Path $f.Root 'state\release-check.json') |
+            Should -BeTrue -Because 'the answer is cached beside the other state, so the next session today does not ask'
+    }
+
+    It 'says nothing when the installed release is the latest' {
+        $f = New-Fixture 'rel-same'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'same' -Releases @('v0.1.0')
+        (Get-Digest $f).Contains('UPDATE_') | Should -BeFalse
+    }
+
+    It 'says nothing when the installed version is ahead of every release' {
+        $f = New-Fixture 'rel-older'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'older' -Releases @('v0.0.9') -Installed '0.1.0'
+        (Get-Digest $f).Contains('UPDATE_') | Should -BeFalse
+    }
+
+    It 'says nothing on a checkout off the release branch' {
+        $f = New-Fixture 'rel-dev'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'dev' -Releases @('v0.1.0', 'v0.2.0')
+        git -C $f.ReleaseRepo checkout -q -b dev 2>&1 | Out-Null
+        (Get-Digest $f).Contains('UPDATE_') | Should -BeFalse
+    }
+
+    It 'says in one line that it could not check, naming no version, when the tags cannot be read' {
+        $f = New-Fixture 'rel-unreadable'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'unreadable' -Releases @('v0.1.0', 'v0.2.0')
+        git -C $f.ReleaseRepo remote set-url origin (Join-Path $TestDrive 'rel-nowhere')
+        $text = Get-Digest $f
+        $line = @($text -split "`r?`n" | Where-Object { $_ -like 'UPDATE_CHECK:*' })
+        $line.Count | Should -Be 1
+        $line[0] | Should -BeLike 'UPDATE_CHECK: could not check for a newer release - *'
+        $text.Contains('UPDATE_AVAILABLE') | Should -BeFalse
+        $text.Contains('=== END KINGSHAND SESSION START ===') | Should -BeTrue
+    }
+
+    It 'says when a failed check was made once it is answered from the cache' {
+        $f = New-Fixture 'rel-cachedfail'
+        $f.ReleaseRepo = New-ReleaseClone -Name 'cachedfail' -Releases @('v0.1.0')
+        git -C $f.ReleaseRepo remote set-url origin (Join-Path $TestDrive 'rel-nowhere-either')
+        $null = Get-Digest $f
+        (Get-Digest $f) | Should -Match 'UPDATE_CHECK: could not check for a newer release \(as of \d{4}-\d\d-\d\d \d\d:\d\d UTC\) - '
+    }
+
+    It 'asks nothing and writes nothing before setup has run' {
+        $f = New-Fixture 'rel-fresh' -NoDataDirectory
+        $f.ReleaseRepo = New-ReleaseClone -Name 'fresh' -Releases @('v0.1.0', 'v0.2.0')
+        (Get-Digest $f).Contains('UPDATE_') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $f.Root 'state\release-check.json') | Should -BeFalse
     }
 }

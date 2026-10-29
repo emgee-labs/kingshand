@@ -83,6 +83,13 @@ back out of the brief's prose. Staging a file without naming it would have been 
 failure with one extra step - a copy beside the brief that nothing tells the worker to open - so
 the write is what makes the attachment worth having.
 
+*Amended 2026-10-22.* Those lines no longer go into the brief. The dispatcher writes them to
+`<brief stem>.dispatch.md` beside it, composed in full on every dispatch, and the worker's start
+prompt names that file beside the brief. An edit to the brief is an edit to a file the Hand has just
+written, and the harness hands it back into the Hand's own context every time - 249 echoes of 95
+briefs in fourteen days. The removal now keys on the dispatcher's own line in its own earlier
+dispatch file. Still whole-line comparisons against composed text, and still no parser.
+
 **Every `-ReadPath` entry exists on disk.** A brief naming a file that is not there is a brief the
 worker cannot carry out.
 

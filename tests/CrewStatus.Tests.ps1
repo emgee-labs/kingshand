@@ -272,7 +272,9 @@ Describe 'a worker sitting on a prompt reports blocked, whatever herdr calls it'
 }
 
 Describe 'the output shape other code and the skills format on' {
-    It 'emits exactly the eight documented properties, under their existing names' {
+    # Eight properties grew to eleven when a session worker learned to carry several items. The
+    # three new ones come last, so every one of the original eight keeps its place and its name.
+    It 'emits exactly the eleven documented properties, the original eight first and unmoved' {
         Set-HerdrAgents @(@{ name = 't-1001'; agent_status = 'working'; title = 'Running tests' })
         $state = New-CrewFile -Name 'shape' -Workers @{
             'T-1001' = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-web'; stage = 'gating' }
@@ -280,11 +282,49 @@ Describe 'the output shape other code and the skills format on' {
 
         $row = (Get-Status $state)[0]
         @($row.PSObject.Properties.Name) |
-            Should -Be @('id', 'ticket', 'repo', 'stage', 'live', 'agentState', 'agentStatus', 'waitingOn')
+            Should -Be @('id', 'ticket', 'repo', 'stage', 'live', 'agentState', 'agentStatus', 'waitingOn',
+                         'session', 'items', 'itemsError')
         $row.ticket | Should -Be 'T-1001'
         $row.repo   | Should -Be 'acme-web'
         $row.stage  | Should -Be 'gating'
         $row.live   | Should -BeOfType [bool]
+    }
+
+    It 'reads an ordinary worker as not a session, carrying its one ticket' {
+        Set-HerdrAgents @()
+        $state = New-CrewFile -Name 'ordinary-items' -Workers @{
+            'T-1001' = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-web'; stage = 'gating' }
+        }
+        $row = (Get-Status $state)[0]
+        $row.session      | Should -BeFalse
+        @($row.items)     | Should -Be @('T-1001')
+        $row.itemsError   | Should -Be ''
+    }
+
+    # A `fief` session's warm worker is one worker with its list, not one row per fix.
+    It 'reads a session worker as one row carrying every id on its branch, in order' {
+        Set-HerdrAgents @()
+        $state = New-CrewFile -Name 'session-items' -Workers @{
+            'acme-api-session' = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-api'; stage = 'implementing'
+                                    session = $true
+                                    items = @(@{ id = 'T-1001'; kind = 'ticket' }, @{ id = 'fix-header'; kind = 'adhoc' },
+                                              @{ id = 'T-1003'; kind = 'ticket' }) }
+        }
+        $rows = @(Get-Status $state)
+        $rows.Count          | Should -Be 1
+        $rows[0].session     | Should -BeTrue
+        @($rows[0].items)    | Should -Be @('T-1001', 'fix-header', 'T-1003')
+    }
+
+    It 'says an item list it cannot read is unreadable rather than showing it empty' {
+        Set-HerdrAgents @()
+        $state = New-CrewFile -Name 'broken-items' -Workers @{
+            'acme-api-session' = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-api'; stage = 'implementing'
+                                    session = $true; items = @(@{ name = 'T-1001' }) }
+        }
+        $row = (Get-Status $state)[0]
+        @($row.items).Count | Should -Be 0
+        $row.itemsError     | Should -BeLike '*cannot be read*'
     }
 
     # A worker parked on the King's own decision has settled, so herdr reports it `idle` exactly

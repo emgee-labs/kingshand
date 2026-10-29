@@ -68,11 +68,11 @@ file, because that line is the one place a worker holding both will read it, and
 work out which source wins picks wrong half the time.
 
 **It does not vary with whether the project's own rules file exists.** That is not cosmetic. The
-dispatcher finds the line an earlier dispatch wrote by composing exactly the same text again and
-comparing whole lines. A wording that depended on another file being present would be composed
-differently on the dispatch that retires it, so the old bullet could never be found - and it would
-sit in the brief naming a copy that had been deleted, which is worse than the staleness the pruning
-exists for.
+dispatcher recognises the line an earlier dispatch wrote in its dispatch file by composing exactly
+the same text again and comparing whole lines, and that recognition is the only evidence that a
+staged copy is its own to delete. A wording that depended on another file being present would be
+composed differently on the dispatch that retires it, so the old line could never be recognised and
+the copy it named would stay in `read-first\` for good.
 
 ## Retiring a family: the copy is the only record
 
@@ -87,7 +87,8 @@ The candidates come from **the staging directory** instead - `data\<id>\read-fir
 copies an earlier dispatch made itself. That is a listing of real file names, not anything read out
 of the brief's prose, so it introduces no parser. Each candidate leaf is turned back into the line
 this dispatch *would* have composed for a family of that name, and the decision is the same
-whole-line comparison the per-project pruning already makes, against wording nothing else writes.
+whole-line comparison the per-project pruning already makes against the earlier dispatch file,
+whose wording nothing else writes.
 
 Three guards keep it off files that are not the dispatcher's to touch:
 
@@ -96,7 +97,26 @@ Three guards keep it off files that are not the dispatcher's to touch:
 - a name the index could not turn into a file name was never a family, because the registry parser
   drops such a token rather than reporting it.
 
-A leaf that was never a family's composes a line that is not in the brief, and is left where it is.
+A leaf that was never a family's composes a line the earlier dispatch file never held, and is left
+where it is.
+
+## Passed by hand is refused, not deduplicated
+
+The staged leaf is `family-<name>.md`, never the source's own `<name>.md`, so a `-ReadPath` naming
+`data\families\<name>.md` would stage the same file twice under two names. An earlier version
+skipped the auto-attach on that dispatch, and the skip held only for that dispatch: the next one of
+the same ticket passes nothing, stages `family-<name>.md` fresh, and prunes only the leaves the
+dispatcher composes, so the hand-passed copy stays behind frozen beside a current one. Refusing
+the path where it arrives makes muster's "never passed" mechanical, deletes the skip, and needs no
+pruning of a copy the dispatcher did not make - decided by the King on 2026-10-30.
+
+## Indexed per member, by whoever writes it
+
+The family's file is listed in every member project's own index, because that is the index a
+reader working on that project opens. Registration lists it only where it already exists: an entry
+pointing at nothing is `missing` drift, and the documented remedy for that count deletes the line
+before the file arrives. Where it does not exist yet, whoever writes it lists it for every project
+then in the family. `annex` Step 4c owns the obligation; decided by the King on 2026-10-30.
 The `family-` prefix makes the scan strictly safer than the `rules-*.md` glob it started as: that
 one had to consider every project's own rules file and rule it out, where this one cannot match a
 project's file at all.
@@ -135,9 +155,8 @@ says which of the three it is. A bare `<name>.md` there could collide with anyth
   two, and for a stronger reason: a path that arrives on every brief for every project in a family
   would switch the gate off for the whole family at once.
 - **A project in no family dispatches byte-identically to a build without this change.** The
-  lead-in the dispatcher writes above its bullets is unchanged, deliberately: changing it would give
-  a brief written before this change a second lead-in on its next dispatch, and the wording is not
-  made false by a family file, which is attached because of this project's own registry entry.
+  lead-in the dispatcher writes above its lines is unchanged, deliberately: the wording is not made
+  false by a family file, which is attached because of this project's own registry entry.
 - **A family's file and a project's own file cannot be the same file.** That is what the separate
   directory buys, and it is load-bearing for the composed line's wording: the line asserts the file
   holds what every project in the family shares, and nothing checks that - it is true because no

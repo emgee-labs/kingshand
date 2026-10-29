@@ -9,7 +9,7 @@ version: 1.0.0
 
 ## Overview
 
-This skill lives in `.claude\skills\` beside the other fifteen, and every one of them is readable
+This skill lives in `.claude\skills\` beside the other nineteen, and every one of them is readable
 the moment someone opens Claude Code in this directory - nothing has to be installed or linked
 first. That is what breaks the bootstrap cycle, and it is also why a Claude Code session started
 anywhere else on this machine never loads any of them.
@@ -120,7 +120,8 @@ an elevated shell. Nothing here elevates itself.
 Both are choices, not omissions, and the user should hear them now rather than discover them:
 
 - **`no-mistakes` was not installed.** It is optional, has no package-manager source, and only
-  projects registered with the `no-mistakes` posture need it.
+  projects registered with the `no-mistakes` posture need it. Say this one only when they chose
+  the local answer in Step 1; with the review pipeline it was installed, and Step 2 named it.
 - **`config\ado.json` was not written.** When that file is absent, `muster` asks for the Azure
   DevOps organization and project the first time it needs them, rather than inventing values that
   would then be trusted as configured. Say in the same breath that **Azure DevOps integration is
@@ -131,7 +132,8 @@ Both are choices, not omissions, and the user should hear them now rather than d
 ## Step 4 - What to do next
 
 1. **Open a new shell.** `KINGSHAND_HOME` is set for the user, and this session started before it
-   existed.
+   existed. **Then quit this Claude Code session and start `claude` again from that new shell** -
+   every tool installed just now went onto a PATH this session cannot see.
 2. **Write `instructions.md`.** It was just created from the template. It is their standing word -
    how they want to be spoken to, their delivery defaults, their conventions - and nothing here
    ever rewrites it, not `chronicle`, not another install run. It is gitignored.

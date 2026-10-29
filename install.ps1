@@ -19,6 +19,8 @@
   installs it, because a script that silently `npm install -g`s things into a user's machine is a
   script nobody should run. `-InstallMissing` is the opt-in that runs those commands: the flag is
   the consent, and every command is printed before it runs so nothing happens off-screen.
+  `-SyncPins` is the same kind of consent for one narrower thing: moving what is already installed
+  to the versions dependencies.json pins.
 
 .PARAMETER ProjectRoot
   A directory your repositories live under. Repeatable. Added to .claude\settings.json so the
@@ -36,6 +38,12 @@
   "my King", "boss", your own name, anything. Only ever applied when instructions.md is being
   created; a file you already wrote is never touched. The Hand cannot write this itself: the
   permission layer denies it edits to instructions.md, which is the point of that file.
+.PARAMETER SyncPins
+  Move every installed dependency to the version dependencies.json pins for this release, and
+  report each move. `/update` runs this after it fast-forwards, so nobody has to. It never moves a
+  dependency past its pin, only replaces the copies this installer put under tools\ - a copy you
+  manage on PATH is reported with the command and left alone - and never replaces herdr while its
+  server is running. -InstallMissing does the same moves as well as installing what is missing.
 .PARAMETER WithReviewGate
   Also install `no-mistakes`, the review gate the `no-mistakes` and `no-mistakes-prod-only`
   postures run their pull requests through. Off by default and deliberately a separate switch
@@ -56,6 +64,7 @@ param(
     [string]$AddressAs,
     [switch]$Force,
     [switch]$InstallMissing,
+    [switch]$SyncPins,
     [switch]$WithReviewGate
 )
 
@@ -68,6 +77,11 @@ Import-Module (Join-Path $Root 'bin\Paths.psm1') -Force
 # rule written out here. It is not on PATH, so Get-Command would report it missing on a machine
 # where it is installed and working perfectly.
 Import-Module (Join-Path $Root 'bin\Herdr.psm1') -Force
+# The pinned versions every dependency is installed at. bin\Dependencies.psm1 owns the manifest and
+# every version read; this script only acts on what it answers.
+Import-Module (Join-Path $Root 'bin\Dependencies.psm1') -Force
+$pins = @{}
+foreach ($p in (Read-DependencyPins -Path (Get-DependencyManifestPath -Root $Root))) { $pins[$p.name] = $p }
 
 # Set by Test-Prerequisite. Initialised here because StrictMode makes an unset variable an error,
 # and this one is only assigned on the machines that have the problem.
@@ -98,8 +112,8 @@ function Write-Did  { param([string]$Text) Write-Host "  DONE  $Text" }
 $tools = @(
     @{ Name = 'claude';     Manager = 'npm';    Install = 'npm install -g @anthropic-ai/claude-code'; What = 'Claude Code' }
     @{ Name = 'git';        Manager = 'winget'; Install = 'winget install --id Git.Git';              What = 'Git for Windows' }
-    @{ Name = 'lavish-axi'; Manager = 'npm';    Install = 'npm install -g lavish-axi';                What = 'the review surface' }
-    @{ Name = 'tasks-axi';  Manager = 'npm';    Install = 'npm install -g tasks-axi';                 What = 'the durable backlog' }
+    @{ Name = 'lavish-axi'; Manager = 'npm';    Install = (Get-DependencySyncCommand -Pin $pins['lavish-axi']); What = 'the review surface' }
+    @{ Name = 'tasks-axi';  Manager = 'npm';    Install = (Get-DependencySyncCommand -Pin $pins['tasks-axi']);  What = 'the durable backlog' }
     # Only a push-capable posture opens a pull request, and only a pull request needs gh.
     # Someone whose work stops at a finished local branch never calls it, so it never blocks here.
     # `annex` closes the gap that leaves, by refusing a push-capable posture on a machine with no gh.
@@ -133,6 +147,19 @@ function Test-Prerequisite {
         }
     }
 
+    # Every npm command above fails on a machine with no Node.js, which is every fresh Windows
+    # machine, so Node is named first rather than left for "npm is not recognized" to reveal.
+    # Its manager is its own: -InstallMissing installs it on its own path, before anything npm
+    # installs, and the generic loop must not run it a second time.
+    $needsNpm = @($still | Where-Object { $_.Manager -eq 'npm' }).Count -gt 0
+    if ($needsNpm -and -not (Get-NpmCommand)) {
+        Write-Miss ("{0,-12} {1}" -f 'npm', (Get-NpmMissingHint))
+        $still.Insert(0, @{
+            Name = 'Node.js'; Manager = 'nodejs'
+            Install = 'winget install --id OpenJS.NodeJS.LTS'; What = 'npm, which the tools above install through'
+        })
+    }
+
     # The executable, and specifically WHICH form of it. npm's claude.cmd wrapper forwards with %*,
     # which lets cmd.exe re-parse the quotes inside an argument, so anything carrying JSON arrives
     # truncated. The review gate passes a JSON schema on every agent step, so a wrapper-only machine
@@ -142,7 +169,9 @@ function Test-Prerequisite {
         Write-Ok ("{0,-12} {1}" -f 'claude.exe', $claudeExe)
         if (Test-ClaudeCommandIsWrapper -Path $claudeExe) { $script:ClaudeIsWrapper = $true }
     }
-    else {
+    elseif (@($still | Where-Object { $_.Name -eq 'claude' }).Count -eq 0) {
+        # Only where `claude` itself resolved and neither form of it did. Where `claude` is missing
+        # outright the loop above has already said so, and saying it twice reads as two problems.
         Write-Miss (Get-ClaudeCommandHint)
         $still.Add(@{
             Name = 'claude'; Manager = 'npm'
@@ -209,11 +238,18 @@ function Update-PathFromRegistry {
 function Invoke-InstallCommand {
     param([Parameter(Mandatory)][string]$Command)
     Write-Host "  RUN   $Command"
+    # npm runs through the shim bin\Dependencies.psm1 picks, which is the one that keeps its
+    # arguments; the command printed above stays the one a person would type.
+    $run = $Command
+    if ($Command.StartsWith('npm ')) {
+        $npm = Get-NpmCommand
+        if ($npm) { $run = "& '$($npm.Replace("'", "''"))' " + $Command.Substring(4) }
+    }
     $previous = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     $global:LASTEXITCODE = 0
     try {
-        & ([scriptblock]::Create($Command)) 2>&1 | ForEach-Object { Write-Host "        $_" }
+        & ([scriptblock]::Create($run)) 2>&1 | ForEach-Object { Write-Host "        $_" }
         return ($LASTEXITCODE -eq 0)
     } catch {
         Write-Host "        $($_.Exception.Message)"
@@ -223,21 +259,34 @@ function Invoke-InstallCommand {
     }
 }
 
-# Fetches herdr into tools\herdr\ and proves it is the file herdr.dev published before unpacking it.
+# Fetches the pinned herdr into tools\herdr\ and proves it is the file herdr.dev published before
+# unpacking it.
 #
-# https://herdr.dev/latest.json is the source of truth. It carries `version`, `protocol`, the
-# download under `assets.windows-x86_64` and its digest under `sha256.windows-x86_64`, so a newer
-# herdr installs without editing this script. kingshand's command line was verified against
-# herdr 0.8.2, protocol 20 - a different protocol still installs, and says so, because
-# bin\Herdr.psm1 was proven against that one and nothing else.
+# THE PIN DECIDES WHICH HERDR, AND latest.json SAYS WHERE IT IS. dependencies.json names the version
+# and protocol bin\Herdr.psm1 was verified against - herdr 0.9.5, protocol 22 - and the SHA-256 of
+# each platform's download. https://herdr.dev/latest.json carries a `releases` map keyed by version,
+# and the pinned version's entry there gives the download. A newer herdr published since is never
+# installed by this: moving the pin is a maintainer's change, made in dependencies.json after
+# bin\Herdr.psm1 has been re-verified against it.
 #
-# THE SHA-256 IS COMPARED BEFORE ANYTHING IS EXTRACTED. This is an executable being put onto a
-# user's machine from the network, and a truncated download and a substituted one are
-# indistinguishable until the digest is checked. An archive that has already been unpacked cannot
-# be un-unpacked, so the download lands in a temp file, the digest is compared there, and a
-# mismatch deletes the file and returns without writing a single byte into tools\herdr\.
+# THE SHA-256 IS COMPARED BEFORE ANYTHING IS EXTRACTED, against the pin and against latest.json both.
+# This is an executable being put onto a user's machine from the network, and a truncated download
+# and a substituted one are indistinguishable until the digest is checked. An archive that has
+# already been unpacked cannot be un-unpacked, so the download lands in a temp file, the digest is
+# compared there, and a mismatch deletes the file and returns without writing a single byte into
+# tools\herdr\. A latest.json whose digest for the pinned version differs from the pin is refused
+# too: one of the two records is wrong, and installing would mean guessing which.
+#
+# A HERDR ALREADY IN tools\herdr\ IS REPLACED ONLY WITH ITS SERVER STOPPED. A running server keeps
+# every worker's pane, and a binary swapped underneath it leaves a client and server on two
+# protocols that cannot talk - so a running server, or one whose state cannot be read, is a refusal
+# that says what to do. The new build is unpacked beside the old one first, under a name only this
+# run uses, and the old one is only removed once the new one is known to be whole.
 function Install-Herdr {
-    param([Parameter(Mandatory)][string]$Destination)
+    param(
+        [Parameter(Mandatory)][string]$Destination,
+        [Parameter(Mandatory)]$Pin
+    )
 
     # StrictMode turns a missing property into an exception, so every field of a file fetched over
     # the network is read through this rather than dereferenced and hoped for.
@@ -245,6 +294,19 @@ function Install-Herdr {
         param($Object, [string]$Name)
         if ($Object -and $Object.PSObject.Properties.Name -contains $Name) { return $Object.$Name }
         $null
+    }
+
+    $version = $Pin.version
+    $pinned  = Get-HerdrPinnedDigest -Pin $Pin
+
+    $exe = Join-Path $Destination 'herdr.exe'
+    if (Test-Path -LiteralPath $exe -PathType Leaf) {
+        $replace = Test-HerdrReplaceable
+        if (-not $replace.ok) {
+            Write-Miss "herdr $version was not installed over the herdr in $Destination."
+            Write-Host  "        $($replace.reason)"
+            return $false
+        }
     }
 
     $manifestUrl = 'https://herdr.dev/latest.json'
@@ -263,20 +325,40 @@ function Install-Herdr {
         return $false
     }
 
-    $version  = Get-ManifestValue $manifest 'version'
-    $protocol = Get-ManifestValue $manifest 'protocol'
-    $asset    = Get-ManifestValue (Get-ManifestValue $manifest 'assets') 'windows-x86_64'
-    $expected = Get-ManifestValue (Get-ManifestValue $manifest 'sha256') 'windows-x86_64'
+    # The pinned version's own entry. The top level describes whatever is newest, which is the
+    # pinned version only until herdr publishes another.
+    $release = Get-ManifestValue (Get-ManifestValue $manifest 'releases') $version
+    if (-not $release -and "$(Get-ManifestValue $manifest 'version')" -eq $version) { $release = $manifest }
+    if (-not $release) {
+        Write-Miss "herdr $version was not installed: $manifestUrl no longer lists it."
+        Write-Host  '        Nothing was downloaded. The pin in dependencies.json needs a maintainer to move it.'
+        return $false
+    }
+
+    $protocol = Get-ManifestValue $release 'protocol'
+    $asset    = Get-ManifestValue (Get-ManifestValue $release 'assets') 'windows-x86_64'
+    $expected = Get-ManifestValue (Get-ManifestValue $release 'sha256') 'windows-x86_64'
 
     if (-not $asset -or -not $expected) {
         # No digest means no way to verify, and an unverifiable binary is not installed at all.
-        Write-Miss 'herdr was not installed: latest.json named no windows-x86_64 build, or no SHA-256 for one.'
+        Write-Miss "herdr $version was not installed: latest.json named no windows-x86_64 build, or no SHA-256 for one."
         Write-Host  "        Nothing was downloaded. Put herdr.exe in $Destination by hand if you have it, then re-run this."
         return $false
     }
 
     if ($asset -notmatch '^https?://') { $asset = 'https://herdr.dev/' + $asset.TrimStart('/') }
-    $want = ($expected -replace '^sha256:', '').Trim()
+    $want = ($expected -replace '^sha256:', '').Trim().ToLowerInvariant()
+    if ($want -ne $pinned) {
+        Write-Miss "herdr $version was not installed: latest.json publishes a different SHA-256 for it than dependencies.json pins."
+        Write-Host  "        pinned    $pinned"
+        Write-Host  "        published $want"
+        Write-Host  '        Nothing was downloaded. One of the two records is wrong, and installing would mean guessing which.'
+        return $false
+    }
+    if ("$protocol" -ne "$($Pin.protocol)") {
+        Write-Miss "herdr $version was not installed: latest.json says it speaks protocol $protocol, and dependencies.json pins protocol $($Pin.protocol)."
+        return $false
+    }
 
     $temp = Join-Path ([IO.Path]::GetTempPath()) (
         'herdr-' + [guid]::NewGuid().ToString('N') + [IO.Path]::GetExtension(([uri]$asset).AbsolutePath))
@@ -302,36 +384,56 @@ function Install-Herdr {
         Write-Host  '        A mismatch is either a corrupted download or a file that is not the one herdr.dev published. Do not install it by hand until you know which.'
         return $false
     }
-    Write-Ok "herdr $version matches the published SHA-256: $want"
+    Write-Ok "herdr $version matches the pinned and published SHA-256: $want"
 
-    if (-not (Test-Path -LiteralPath $Destination)) {
-        New-Item -ItemType Directory -Force -Path $Destination | Out-Null
-    }
+    $parent = Split-Path -Parent $Destination
+    if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    $staging = Join-Path $parent ('herdr.new-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $staging | Out-Null
 
-    if ([IO.Path]::GetExtension($temp) -eq '.zip') {
-        Expand-Archive -LiteralPath $temp -DestinationPath $Destination -Force
-    } else {
-        Copy-Item -LiteralPath $temp -Destination (Join-Path $Destination 'herdr.exe') -Force
+    try {
+        if ([IO.Path]::GetExtension($temp) -eq '.zip') {
+            Expand-Archive -LiteralPath $temp -DestinationPath $staging -Force
+        } else {
+            Copy-Item -LiteralPath $temp -Destination (Join-Path $staging 'herdr.exe') -Force
+        }
+    } finally {
+        Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
     }
-    Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
 
     # bin\Herdr.psm1 looks for tools\herdr\herdr.exe and nothing else, so an archive that nests the
     # binary one directory down is flattened here rather than left for the discovery rule to guess.
-    $exe = Join-Path $Destination 'herdr.exe'
-    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
-        $found = @(Get-ChildItem -Path $Destination -Filter 'herdr.exe' -Recurse -File) | Select-Object -First 1
-        if ($found) { Move-Item -LiteralPath $found.FullName -Destination $exe -Force }
-    }
-    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
-        Write-Miss "herdr $version unpacked, but no herdr.exe was found under $Destination."
+    # The directory it sits in moves with it: 0.9.x ships its console host beside the binary.
+    $found = @(Get-ChildItem -Path $staging -Filter 'herdr.exe' -Recurse -File) | Select-Object -First 1
+    if (-not $found) {
+        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Miss "herdr $version unpacked, but no herdr.exe was in it. Nothing in $Destination was changed."
         return $false
     }
+    $unpacked = Split-Path -Parent $found.FullName
 
-    Write-Did "herdr $version installed to $Destination. It is deliberately not added to PATH."
-    if ("$protocol" -ne '20') {
-        Write-Host ("        NOTE  kingshand was verified against herdr 0.8.2, protocol 20; this build reports " +
-                    "protocol $protocol. It is installed anyway - if dispatch misbehaves, suspect this first.")
+    # The old copy is moved aside rather than deleted first, so a move that fails part way puts it
+    # back and the machine is never left with no herdr at all.
+    $old = $null
+    try {
+        if (Test-Path -LiteralPath $Destination) {
+            $old = Join-Path $parent ('herdr.old-' + [guid]::NewGuid().ToString('N'))
+            Move-Item -LiteralPath $Destination -Destination $old -ErrorAction Stop
+        }
+        Move-Item -LiteralPath $unpacked -Destination $Destination -ErrorAction Stop
+        if ($old) { Remove-Item -LiteralPath $old -Recurse -Force -ErrorAction SilentlyContinue }
+    } catch {
+        if ($old -and (Test-Path -LiteralPath $old) -and -not (Test-Path -LiteralPath $Destination)) {
+            Move-Item -LiteralPath $old -Destination $Destination -ErrorAction SilentlyContinue
+        }
+        Write-Miss "herdr $version was verified but could not replace $Destination - $($_.Exception.Message)"
+        Write-Host  '        A herdr process is probably still using it. The herdr that was there is still there.'
+        return $false
+    } finally {
+        if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue }
     }
+
+    Write-Did "herdr $version, protocol $protocol, installed to $Destination. It is deliberately not added to PATH."
     $true
 }
 
@@ -344,18 +446,25 @@ function Install-Herdr {
 #
 # Same contract as herdr: verify before extracting, and refuse rather than install something that
 # does not match. This one downloads roughly 14 MB.
+#
+# The release fetched is the one dependencies.json pins, by its tag, never whatever is latest - from
+# the repository the pin names, which is kunchenguid/no-mistakes.
 function Install-NoMistakes {
-    param([Parameter(Mandatory)][string]$Destination)
+    param(
+        [Parameter(Mandatory)][string]$Destination,
+        [Parameter(Mandatory)]$Pin
+    )
 
     $arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
         'Arm64' { 'arm64' }
         default { 'amd64' }
     }
 
-    Write-Host '  RUN   fetch https://api.github.com/repos/kunchenguid/no-mistakes/releases/latest'
+    $releaseUrl = "https://api.github.com/repos/$($Pin.repository)/releases/tags/v$($Pin.version)"
+    Write-Host "  RUN   fetch $releaseUrl"
     $release = $null
     try {
-        $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/kunchenguid/no-mistakes/releases/latest' `
+        $release = Invoke-RestMethod -Uri $releaseUrl `
                                      -Headers @{ 'User-Agent' = 'kingshand-installer' } -TimeoutSec 30 -ErrorAction Stop
     } catch {
         Write-Miss 'the review gate was not installed: its release feed could not be reached.'
@@ -409,8 +518,17 @@ function Install-NoMistakes {
     if (-not (Test-Path -LiteralPath $Destination)) {
         New-Item -ItemType Directory -Force -Path $Destination | Out-Null
     }
-    Expand-Archive -LiteralPath $temp -DestinationPath $Destination -Force
-    Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+    # Replacing a copy that is already there fails while a gate run holds its binary open, and that
+    # is reported rather than allowed to end the whole install.
+    try {
+        Expand-Archive -LiteralPath $temp -DestinationPath $Destination -Force -ErrorAction Stop
+    } catch {
+        Write-Miss "the review gate $($release.tag_name) was verified but could not be unpacked into $Destination - $($_.Exception.Message)"
+        Write-Host  '        A gate run is probably still using it. Let it finish, then run: .\install.ps1 -SyncPins'
+        return $false
+    } finally {
+        Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+    }
 
     # Flattened for the same reason herdr's is: Get-NoMistakesCommandPath looks for exactly
     # tools\no-mistakes\no-mistakes.exe and should not have to guess at an archive's shape.
@@ -442,7 +560,7 @@ if ($reviewGate) {
     Write-Ok ("{0,-12} {1}" -f 'no-mistakes', $reviewGate)
 } elseif ($WithReviewGate) {
     Write-Step 'Installing the review gate'
-    if (Install-NoMistakes -Destination (Join-Path $Root 'tools\no-mistakes')) {
+    if (Install-NoMistakes -Destination (Join-Path $Root 'tools\no-mistakes') -Pin $pins['no-mistakes']) {
         $actions.Add('tools\no-mistakes\')
     }
 } else {
@@ -470,16 +588,23 @@ if ($InstallMissing -and ($missing.Count + $optional.Count) -gt 0) {
     if (-not (Get-Command 'npm' -ErrorAction SilentlyContinue)) {
         if ($hasWinget) {
             Write-Host '  npm is missing. Installing Node.js, which provides it.'
-            if (Invoke-InstallCommand 'winget install --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements') {
-                Update-PathFromRegistry
-            }
-            if (-not (Get-Command 'npm' -ErrorAction SilentlyContinue)) {
+            $nodeCommand = 'winget install --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements'
+            $nodeOk = Invoke-InstallCommand $nodeCommand
+            if ($nodeOk) { Update-PathFromRegistry }
+            if (-not $nodeOk) {
+                # Node.js installs for the whole machine, so on an account without administrator
+                # rights this is the step that fails - and saying it "installed" sent people to
+                # open a new shell for a Node that was never there.
+                $blocked['npm'] = ('Node.js did not install. If that was for want of administrator ' +
+                                   "rights, run this in an elevated PowerShell: $nodeCommand - or " +
+                                   'install it from https://nodejs.org - then open a new shell and run this again.')
+            } elseif (-not (Get-Command 'npm' -ErrorAction SilentlyContinue)) {
                 $blocked['npm'] = 'Node.js installed but npm is still not on PATH. Open a new shell and run this script again.'
             } else {
                 Write-Did 'npm is available.'
             }
         } else {
-            $blocked['npm'] = 'Install Node.js from https://nodejs.org, then run this again.'
+            $blocked['npm'] = 'Install Node.js from https://nodejs.org, open a new shell so PATH picks it up, then run this again.'
         }
     }
 
@@ -497,7 +622,7 @@ if ($InstallMissing -and ($missing.Count + $optional.Count) -gt 0) {
     # and running it twice would report a second success for work that already happened.
     $planned = [ordered]@{}
     foreach ($m in $installable) {
-        if ($m.Manager -eq 'psgallery' -or $m.Manager -eq 'herdr' -or $blocked.Contains($m.Manager)) { continue }
+        if ($m.Manager -in 'psgallery', 'herdr', 'nodejs' -or $blocked.Contains($m.Manager)) { continue }
         if ($planned.Contains($m.Install)) { $planned[$m.Install] = "$($planned[$m.Install]), $($m.Name)" }
         else { $planned[$m.Install] = $m.Name }
     }
@@ -524,7 +649,7 @@ if ($InstallMissing -and ($missing.Count + $optional.Count) -gt 0) {
         # Recorded in $actions, not discarded. A run that downloads and extracts a binary and then
         # signs off with "changed: nothing - this installation was already set up" is telling the
         # reader something false about their own machine, and the summary is the part people keep.
-        if (Install-Herdr -Destination (Join-Path $Root 'tools\herdr')) {
+        if (Install-Herdr -Destination (Join-Path $Root 'tools\herdr') -Pin $pins['herdr']) {
             $actions.Add('tools\herdr\')
         }
     }
@@ -547,6 +672,89 @@ if ($InstallMissing -and ($missing.Count + $optional.Count) -gt 0) {
     # now present.
     Write-Step 'Prerequisites, re-checked'
     $missing = @(Test-Prerequisite)
+}
+
+# --------------------------------------------------------------------------------
+# 1b. Pinned versions. dependencies.json names the version of each dependency this
+#     release was verified with. Every one is reported against what is installed;
+#     with -SyncPins or -InstallMissing, each that is off its pin is moved to it.
+#
+#     A move goes TO the pin, never past it, and only touches what this installer
+#     owns: an npm global, or a copy under tools\. A herdr or review gate the user
+#     put on PATH themselves is reported with the command and left alone, and Claude
+#     Code is pinned by minimum only, because it updates itself.
+#
+#     herdr is never replaced under a running server - Install-Herdr owns that
+#     refusal. A pin that a requested sync could not reach makes this script exit 1,
+#     so `/update` reports it rather than claiming a clean install.
+# --------------------------------------------------------------------------------
+Write-Step 'Pinned versions'
+
+$syncing  = $SyncPins -or $InstallMissing
+$offPin   = [System.Collections.Generic.List[string]]::new()
+$reportedAbove = @($tools | ForEach-Object { $_.Name }) + @('claude-code', 'herdr', 'no-mistakes')
+
+foreach ($s in @(Get-DependencyPinStatus -Root $Root)) {
+    $label = "{0,-12}" -f $s.name
+    if ($s.state -eq 'current') { Write-Ok "$label $($s.installed), as pinned"; continue }
+    if ($s.state -eq 'satisfied') {
+        Write-Ok "$label $($s.installed), at least the $($s.minimum) this release needs"
+        continue
+    }
+    if ($s.state -eq 'missing') {
+        # Reported, and installed at its pin, by the prerequisite pass above - all but an optional
+        # tool that pass does not check, which nothing installs and only this line names.
+        if ($reportedAbove -notcontains $s.name) {
+            Write-Host "  NOTE  $label not installed - optional. Add it at its pin with: $($s.command)"
+        }
+        continue
+    }
+    if ($s.state -eq 'unreadable' -and $s.source -eq 'npm' -and $s.name -ne 'claude-code' -and -not (Get-NpmCommand)) {
+        # No npm, so no npm version can be read at all. The prerequisite pass above has already
+        # named Node.js and every required npm tool as missing, so repeating each here as a MISS
+        # only lengthens the list a new user has to read; an optional one is said once, as optional.
+        if ($reportedAbove -notcontains $s.name) {
+            Write-Host "  NOTE  $label optional, and not checked - npm is not on PATH. Once it is, add it with: $($s.command)"
+        }
+        continue
+    }
+    if ($s.state -eq 'unreadable') {
+        Write-Miss "$label its version could not be read - $($s.detail)"
+        if ($syncing) { $offPin.Add($s.name) }
+        continue
+    }
+
+    # behind or ahead from here on.
+    $want = if ($s.pinned) { $s.pinned } else { $s.minimum }
+    $what = "$label $($s.installed) installed, this release is verified with $want"
+
+    if ($s.minimum) {
+        # Updates itself; never moved by this script.
+        Write-Host "  NOTE  $what or newer. Update it with: $($s.command)"
+        continue
+    }
+    if (-not $syncing) {
+        Write-Host "  NOTE  $what. Move it with: $($s.command)"
+        continue
+    }
+    if ($s.source -ne 'npm' -and -not $s.bundled) {
+        Write-Miss "$what. It is at $($s.path), which you manage rather than this installer - move it to $want yourself."
+        $offPin.Add($s.name)
+        continue
+    }
+
+    Write-Host "  FOR   $($s.name) $($s.installed) -> $want"
+    $moved = switch ($s.source) {
+        'npm'    { Invoke-InstallCommand -Command $s.command }
+        'herdr'  { Install-Herdr -Destination (Join-Path $Root 'tools\herdr') -Pin $pins[$s.name] }
+        'github' { Install-NoMistakes -Destination (Join-Path $Root 'tools\no-mistakes') -Pin $pins[$s.name] }
+    }
+    if ($moved) {
+        Write-Did "$($s.name) moved from $($s.installed) to $want."
+        $actions.Add("$($s.name) $want")
+    } else {
+        $offPin.Add($s.name)
+    }
 }
 
 # --------------------------------------------------------------------------------
@@ -810,12 +1018,20 @@ if ($optional.Count -gt 0) {
     $optional | ForEach-Object { Write-Host ("  - {0}: {1}" -f $_.Name, $_.Install) }
 }
 
+if ($offPin.Count -gt 0) {
+    Write-Host ""
+    Write-Host ("Not moved to the version this release pins: " + ($offPin -join ', ') +
+                ". Each says why under Pinned versions above.")
+    if ($missing.Count -eq 0) { exit 1 }
+}
+
 if ($missing.Count -gt 0) {
     Write-Host ""
     Write-Host "Install these before dispatching anything:"
     $missing | ForEach-Object { Write-Host ("  - {0}: {1}" -f $_.Name, $_.Install) }
     Write-Host ""
-    Write-Host "Then re-run: .\install.ps1"
+    Write-Host "Then open a new shell, so PATH picks up what you installed, and re-run: .\install.ps1"
+    if (-not $InstallMissing) { Write-Host "Or let this script install them for you: .\install.ps1 -InstallMissing" }
     exit 1
 }
 

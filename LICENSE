@@ -8,6 +8,11 @@ this project's skills, of the delivery-posture and knowledge-routing contracts, 
 line format, and of the startup-memory budget estimate. Its licence terms are reproduced below
 and apply to those portions.
 
+`bin\assets\toon\toon.mjs` is @toon-format/toon (https://github.com/toon-format/toon), Copyright
+(c) 2025-PRESENT Johann Schopplich, vendored unmodified under the MIT License. It is the reference
+implementation of the TOON format and is what `bin\GateRun.psm1` decodes the review gate's output
+with. Its own licence file is kept beside it at `bin\assets\toon\LICENSE` and applies to that file.
+
 The `herald` skill adapts the ten output-shaping rules of i-have-adhd
 (https://github.com/ayghri/i-have-adhd), Copyright (c) ayghri, used under the MIT License. The
 wording is rewritten for this project and the precedence rules are this project's own, but the

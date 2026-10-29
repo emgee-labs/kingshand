@@ -1,6 +1,6 @@
 ---
 name: statute
-description: Reference for changing kingshand's own tracked material - `CLAUDE.md`, `bin\`, `.claude\skills\`, `tests\`, `docs\`. Load it before editing any of that material, whether working as the Hand directly or as a worker briefed on a kingshand-repo task. Covers the knowledge-placement decision tree, the one-owner rule for contracts, the inline-stub pattern for content moved into a skill, size discipline for the always-loaded file, trigger hygiene for new skills, the rule that a prose rule needs a test, matching a new rule's form to the failure it is for, and kingshand's style rules.
+description: Reference for changing kingshand's own tracked material - `CLAUDE.md`, `bin\`, `.claude\skills\`, `tests\`, `docs\`. Load it before editing any of that material, whether working as the Hand directly or as a worker briefed on a kingshand-repo task. Covers the knowledge-placement decision tree, the one-owner rule for contracts, the inline-stub pattern for content moved into a skill, size discipline for the always-loaded file, trigger hygiene for new skills, the rule that a prose rule needs a test, matching a new rule's form to the failure it is for, the dependency pins and their weekly refresh, and kingshand's style rules. Also load it to run that weekly refresh.
 version: 1.0.0
 ---
 
@@ -102,8 +102,9 @@ the skill which of the two is meant to load it and when.
 
 Briefs for tasks that touch kingshand's own tracked material should tell the worker to load this
 skill. Nothing in the dispatcher acts on that case. `Dispatch-Worker.ps1` does match the repo path
-against `data\projects.md`, and it does add lines to a brief - one `Read first` line per standing
-file it attached for the resolved project - but it composes those lines itself and knows nothing
+against `data\projects.md`, and it does add lines for a brief - one `Read first` line per standing
+file it attached for the resolved project, in the dispatch file beside the brief rather than in the
+brief itself - but it composes those lines itself and knows nothing
 about what a task touches. Add the instruction to kingshand-repo briefs by hand instead, or put it
 in `data\rules-kingshand.md`, which reaches every worker dispatched here without anyone passing it.
 
@@ -149,6 +150,32 @@ suppresses code blocks, so say what to do in that case instead of carving it out
 rule 5 is the worked example on our own material, a length prohibition with two exemptions hung
 off it - and it stays as written, because this guidance shapes the next rule rather than
 reopening one already in force.
+
+## Dependency pins
+
+`dependencies.json` at the repo root records the exact version of every dependency a release was
+verified with - herdr with each platform's SHA-256, the review gate, and the npm tools - and a
+minimum for Claude Code, which updates itself. `install.ps1 -SyncPins` moves a user to those pins
+and `/update` runs it, so **a pin is what every user ends up on, and is never moved past.**
+`bin\Dependencies.psm1` owns the manifest's fields and how each version is read.
+
+**Moving a pin is a maintainer's job, done weekly, and it ships only in a release.** **Only an
+installation carrying the maintainer marker is asked about it**: the session-start digest raises the
+weekly check only where the gitignored file `config\maintainer` exists, and says nothing of it
+anywhere else. Nothing infers the marker from remotes or push rights. A maintainer turns it on
+once, with `New-Item -ItemType File -Force "$env:KINGSHAND_HOME\config\maintainer"`, and deleting
+the file turns it off. The refresh:
+
+1. Run `bin\Update-DependencyPins.ps1 -Record`. It lists each pin, the latest published version,
+   and whether moving to it crosses a breaking line, and records that the weekly check ran - **a
+   run without `-Record` is a look and does not reset the clock** the session-start digest reads.
+   If the check was filed as a backlog item, close that item with `tasks-axi done`.
+2. For each move that is not breaking, bump the pin in `dependencies.json` on a branch - for herdr,
+   the version, the protocol and every platform's SHA-256, copied from `https://herdr.dev/latest.json`.
+3. Run the whole suite, and for herdr the live checks against a separate test server that
+   `docs\2026-10-22-herdr-0-9-5.md` describes. Ship only what passes, in that week's release.
+4. **A breaking move stays pinned and becomes its own task** - a herdr protocol change or a major
+   version is re-verified on its own branch, never folded into the weekly bump.
 
 ## Style rules
 

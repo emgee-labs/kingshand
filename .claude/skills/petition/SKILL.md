@@ -153,11 +153,12 @@ task.
 Where you decide, the answer goes back to the parked worker as a steer, and `muster` Step 6 owns
 that route. Where you wait, leave the decision open until he answers it.
 
-**Either branch is registered under `decree`, and its note is where those three things live.** A
-regency digest is built inside one session, so a restart or a compaction before he is back takes
-it with it - and a decision he was never told about is the opposite of the reviewability this
-section exists for. `decree` owns that lifecycle, including the pass that registers a decision you
-answered yourself and closes it in the same breath; nothing here restates it.
+**Either branch is registered under `decree`, and its note is where those three things live.** The
+away journal carries the same three into his return digest and survives a restart, but it is a
+record and never an authority - only the note durably says the work was allowed, and a decision the
+queue never recorded is the opposite of the reviewability this section exists for. `decree` owns
+that lifecycle, including the pass that registers a decision you answered yourself and closes it in
+the same breath; nothing here restates it.
 
 ## Classification examples
 

@@ -2,7 +2,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
-[![Tests](https://img.shields.io/badge/tests-1756%20passing-3fb950)](tests)
+[![Tests](https://img.shields.io/badge/tests-2618%20passing-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 # You rule. It executes.
@@ -41,13 +41,16 @@ reads.
   rather than inferred.
 - **A durable queue.** Work items, dependencies and held decisions survive a restart, because a
   decision that lives only in the conversation is a decision you will lose.
-- **A session-start digest.** The version you are on, registered projects, live workers, the queue,
-  the index of everything the tool holds for you, your standing instructions and the curated
-  memory, printed once at session open. A restart is meant to be a non-event.
+- **A session-start digest.** The version you are on, registered projects, live workers, what the
+  last restart quietly killed and has to be picked back up, the queue, the index of everything the
+  tool holds for you, your standing instructions and the curated memory, printed once at session
+  open. A restart is meant to be a non-event.
 - **A version, and one command to move it.** `/update` fast-forwards this installation to the
   latest tagged release, re-runs the installer, and tells you what you moved from, what you moved
   to, and what changed. It updates to a release rather than to whatever was pushed last, and it
-  refuses outright while a worker is live or your tree is dirty.
+  refuses outright while a worker is live or your tree is dirty. Once a day the session-start
+  digest checks the release tags and tells you when a newer release exists; it never updates on its
+  own.
 - **Nothing settled goes unread.** Every durable file the tool keeps for you gets one line in an
   index, and every brief names the files its worker must read before it starts - so a decision you
   already made cannot sit in a file nobody opens while the work ships without it.
@@ -55,10 +58,12 @@ reads.
   numbered steps, lists capped at five, no preamble. Anything you have to decide on opens as a
   review surface in your browser rather than a wall of chat, because a choice buried in a paragraph
   is a choice you have to dig back out. Ask for the long version any time; `herald` owns the shape
-  and is the switch.
+  and is the switch. Say **`quick question`** and replies drop to a line or two with nothing
+  rendered at all - `parley` owns that mode, it is off until you ask for it, and it changes how
+  much gets written rather than what you get asked before anything ships.
 - **Your preferences stay yours.** `instructions.md` is read every session and never written by the
   tool - enforced by the permission layer, not just asked for in prose.
-- **Your other projects are untouched.** All seventeen skills live in this repository's own
+- **Your other projects are untouched.** All twenty skills live in this repository's own
   `.claude\skills\`. Nothing is written into `~\.claude\`, so a session anywhere else on the machine
   behaves exactly as it did before.
 
@@ -66,16 +71,22 @@ reads.
 
 ### Requirements
 
-Six things, and the installer fetches or names every one of them.
+Seven things. **Install the first two yourself** - you need Git to clone this and PowerShell 7 to
+run the installer - and the installer fetches or names the other five.
 
 | | Why | Install |
 |---|---|---|
-| PowerShell 7+ | every script targets it | `winget install --id Microsoft.PowerShell` |
-| Claude Code | the Hand and every worker | `npm install -g @anthropic-ai/claude-code` |
+| PowerShell 7+ | every script targets it. Windows ships only Windows PowerShell 5.1, which will not run them | `winget install --id Microsoft.PowerShell` |
 | Git for Windows | worktrees are the isolation | `winget install --id Git.Git` |
-| `lavish-axi` | the review surface both gates render to | `npm install -g lavish-axi` |
-| `tasks-axi` | the durable backlog | `npm install -g tasks-axi` |
-| `herdr` | the terminal every worker is spawned and watched through | fetched by the installer |
+| Node.js | npm, which the next three install through | `winget install --id OpenJS.NodeJS.LTS` |
+| Claude Code | the Hand and every worker | `npm install -g @anthropic-ai/claude-code` |
+| `lavish-axi` | the review surface both gates render to | `npm install -g lavish-axi@<pin>` |
+| `tasks-axi` | the durable backlog | `npm install -g tasks-axi@<pin>` |
+| `herdr` | the terminal every worker is spawned and watched through | fetched by the installer, at its pinned version |
+
+`<pin>` is the version `dependencies.json` names; the installer prints each command with it filled
+in. Node.js installs for the whole machine, so on an account without administrator rights it needs
+someone who has them, or the installer from [nodejs.org](https://nodejs.org).
 
 Everything below this line is optional, and a run with none of it installed reports no failure.
 
@@ -100,11 +111,13 @@ organization and a token. Nothing here installs it and nothing here needs it. Wi
 Hand says so once and asks you to paste the ticket or describe the work, and handles it as adhoc -
 which is the ordinary path and works exactly as well.
 
-**`quota-axi`, only for the usage pulse.** It is what reports how much of the current usage window
-is spent, and kingshand asks it rather than reading a credential file or a transcript of its own.
-Nothing here installs it: `npm install -g quota-axi`. Without it everything still dispatches - the
-pulse says the usage is not known and the refusal near the limit fails open on purpose, because a
-reader that breaks must not make the tool undispatchable.
+**`quota-axi`, only as the usage reading's fallback.** How much of the current usage window is
+spent is read from one small headless Claude Code turn first; quota-axi is asked only when that
+cannot answer, and never more than once every fifteen minutes. Kingshand asks these rather than
+reading a credential file or a transcript of its own. Nothing here installs it:
+`npm install -g quota-axi`. Without it everything still dispatches - where the headless turn also
+fails, the pulse says the usage is not known and the refusal near the limit fails open on purpose,
+because a reader that breaks must not make the tool undispatchable.
 
 **Pester 6+, only to run this repository's own tests.** Nothing in `bin\` and no skill imports it,
 so an installation without Pester dispatches, gates and lands identically. `Install-Module Pester
@@ -121,7 +134,8 @@ when the config is unset, and it never writes either line twice.
 ### Install and launch
 
 Clone it wherever you keep things. Any drive, any folder, spaces in the path are fine - it works
-out its own location and nothing here assumes otherwise.
+out its own location and nothing here assumes otherwise. Every command here runs in PowerShell 7 -
+start it with `pwsh` - and not in Windows PowerShell, which refuses the scripts.
 
 ```powershell
 git clone https://github.com/emgee-labs/kingshand
@@ -133,18 +147,31 @@ Then type **`set it up`** - or `setup`, or `/setup`. Every skill ships inside th
 they are readable in a fresh clone with nothing installed yet. The installer names what it found,
 what it installed, and what still needs you.
 
-The manual equivalent:
+**No Claude Code yet?** Then `claude` above has nothing to start, so run the installer by hand
+first, from the same folder. This is also the manual equivalent of `set it up`:
 
 ```powershell
 .\install.ps1 -InstallMissing
 ```
 
+Then open a new `pwsh`, so it sees what was installed, and carry on from `claude`. The first time
+Claude Code starts it asks you to sign in, to trust this folder, and to accept the permission mode
+this repository ships with - [Permissions](#permissions-and-what-you-are-agreeing-to) below says
+what that mode is.
+
 **`-InstallMissing` is opt-in.** Without it, nothing is installed and each missing tool is reported
 with the exact command that fixes it. Nothing self-elevates. `herdr` is the one thing fetched
-directly: it is checked against the SHA-256 published in `https://herdr.dev/latest.json` before it
-is extracted, a mismatch deletes the download and installs nothing, and an offline machine is told
-so in one line rather than shown a web exception. Open a new shell afterwards so `KINGSHAND_HOME`
-is picked up.
+directly: it is checked against the SHA-256 `dependencies.json` pins and the one published in
+`https://herdr.dev/latest.json` before it is extracted, a mismatch deletes the download and
+installs nothing, and an offline machine is told so in one line rather than shown a web exception.
+Open a new shell afterwards so `KINGSHAND_HOME` is picked up.
+
+**Every dependency is pinned.** `dependencies.json` records the exact version of herdr, the review
+gate, `lavish-axi`, `tasks-axi` and `quota-axi` that this release was verified with, and the
+oldest Claude Code it needs. The installer reports each one against what you have, and
+`.\install.ps1 -SyncPins` moves each to its pin - never past it, only the copies the installer
+itself owns, and never herdr while its server is running. `/update` runs that for you after it moves
+to a new release.
 
 ### Talk to it
 
@@ -196,7 +223,7 @@ astray - neither of which a detached background session allows.
 
 ## Built-in skills
 
-Seventeen, all project-local. Eleven you invoke; six the Hand loads for itself.
+Twenty, all project-local. Fourteen you invoke; six the Hand loads for itself.
 
 | Skill | What it is for |
 |---|---|
@@ -207,7 +234,10 @@ Seventeen, all project-local. Eleven you invoke; six the Hand loads for itself.
 | `survey` | Where everything stands - the catch-up digest |
 | `herald` | Owns reply shape, which is on by default. Load it to turn it off |
 | `vigil` | Owns the usage pulse, which is on by default. Load it to turn it off |
+| `parley` | Quick mode for small work - one or two line replies, nothing rendered, no review gate on the dispatch. Off until you say `quick question` |
+| `fief` | A session for one project - every request routes there, and one worker makes a run of fixes on one branch in your own checkout, committing and pushing only when you say. Off until you say `<project> session` |
 | `regency` | Hold the fleet while you are away, and batch what does not need you - `petition` below says what may be decided in your stead. Also `/afk` |
+| `nights-watch` | Work the queue while you sleep - only items the backlog proves are decided, merging only where a project declares `+watch-merge`, pausing across a usage-window reset. `/nights-watch` |
 | `audience` | What happened while you were away from this session |
 | `chronicle` | Curate durable memory before a context reset |
 | `counsel` | Break a story or a whole feature into work, and find where the stories overlap |
@@ -228,20 +258,31 @@ discovered later.
 
 What still constrains it:
 
-- Workers only ever run inside their own git worktree, never in your checkout.
+- Workers run inside their own git worktree, never in your checkout - except the one worker of a
+  `fief` session, which runs in your checkout only because you asked for it, on the branch you
+  already have checked out. Its settings file there is recorded before it is edited and put back
+  exactly at cleanup.
 - Each worktree is recorded as trusted in your own `~\.claude.json` before its worker starts, so an
   unattended worker does not stop on Claude Code's folder-trust dialog with nobody there to answer.
-  That entry is exactly the worktree kingshand just created - never its parent repository, and never
+  That entry is exactly the worktree kingshand just created - never its parent repository, except
+  the checkout a `fief` session's worker runs in, and never
   the machine. With no `~\.claude.json`, nothing is written and the worker stops at the dialog.
+- Each worker may edit files under its own worktree's `.claude` folder - a skill, an agent - with no
+  prompt, so a brief that allows a skill edit does not stop on a menu. That grant never reaches
+  `~\.claude` or another repository, and never covers the folder's own `settings.json` or
+  `settings.local.json`, which hold permissions.
 - Nothing is dispatched into a repository you have not registered.
 - Nothing pushes unless that project is registered with a push-capable posture, and nothing is
-  merged on the forge unless that project's registry entry declares `+merge`, which is off unless
-  you write it.
+  merged on the forge unless that project's registry entry declares `+merge` - or `+watch-merge`,
+  which night's watch alone reads - each off unless you write it.
 - With `yolo` off, nothing goes to a server until you say so - not a push, a pull request, a
   comment, or a work item.
 - `deny` blocks reads of `~\.ssh`, AWS credentials and `config\credentials\`, and blocks edits to
   `instructions.md` - your standing instructions are protected by the permission layer, not just by
-  prose asking nicely.
+  prose asking nicely. It also denies six tools the Hand never calls - `Artifact`, `SendFeedback`,
+  `ScheduleWakeup`, `ReportFindings`, `ShareOnboardingGuide` and `ListAgents` - because a tool
+  denied by name is taken out of context entirely, and their schemas cost about 16k tokens on every
+  call. Remove a name from the list to get that tool back.
 
 If you would rather approve each call, remove `defaultMode` from `.claude\settings.json`. Expect a
 great many prompts.
@@ -251,11 +292,14 @@ great many prompts.
 ```
 CLAUDE.md               the Hand's always-loaded instructions - identity, hard rules, contracts
 VERSION                 this installation's version, and the only place it is written down
+dependencies.json       the exact version of each dependency this release was verified with
 bin\                    dispatch, worker state, registry, snapshot, digest, herdr, workspace prep,
-                        version, self-update, browser verification and the usage window
-.claude\skills\         seventeen project-local skills. They load only in this directory
+                        version, self-update, browser verification, the away journal, the usage
+                        window, a gate run's state and the wait on it, night's watch's guards,
+                        the dependency pins
+.claude\skills\         twenty project-local skills. They load only in this directory
 tests\                  the Pester suite
-tools\herdr\            herdr, fetched and SHA-256 verified by the installer - gitignored,
+tools\herdr\            herdr at its pinned version, SHA-256 verified by the installer - gitignored,
                         and deliberately not on PATH
 docs\                   the architecture decisions worth keeping
 .no-mistakes.yaml       the branch kingshand's own work integrates into - dev, which every pull
@@ -290,7 +334,7 @@ the startup-memory estimate all come from there. Where a rule here reads well, i
 it was proven there first.
 
 What differs is the layer underneath. Firstmate supervises workers itself, across six terminal
-backends and roughly 56,000 lines of shell. Kingshand keeps about 9,000 lines of PowerShell -
+backends and roughly 56,000 lines of shell. Kingshand keeps about 16,000 lines of PowerShell -
 everything in `bin\` plus the installer - over a single terminal runtime, which is why it runs on
 Windows at all, and why it cannot do some of what firstmate does. `docs\` records that trade and
 what would reverse it.

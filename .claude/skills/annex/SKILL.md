@@ -81,6 +81,12 @@ pushes and so has no forge and no pull request to merge. Do not offer it on a `l
 at all - inviting a choice the writer refuses turns a whole preflight into a failure at the last
 step.
 
+`+watch-merge` is night's watch's own token, independent of `+merge`: whether this repository's
+green pull requests may be merged while night's watch is in force. It is held to the same rules -
+**off by default, never proposed, written only where the user says so in the moment**, push-capable
+postures only - and `+merge` neither implies it nor is implied by it. `muster` Step 7 owns what it
+permits.
+
 Tell the user what these mean in one line each if they have not seen them before, then confirm
 name, path, mode and yolo together - and merge alongside them **where the chosen mode is
 push-capable**. **Merge is read back like the rest, never assumed from the conversation** - it is
@@ -184,7 +190,7 @@ A worker never runs `init` itself. It is environment setup, outside any task's s
 worker that tried would be writing configuration its brief never authorised.
 
 ```powershell
-Add-ProjectEntry -Name "<name>" -Path $path -Mode "<mode>" -Description "<desc>" [-Yolo] [-Merge] [-Family "<family>"]
+Add-ProjectEntry -Name "<name>" -Path $path -Mode "<mode>" -Description "<desc>" [-Yolo] [-Merge] [-WatchMerge] [-Family "<family>"]
 ```
 
 `-Merge` is available on the push-capable modes only. Passing it with `-Mode local-only` throws
@@ -192,7 +198,7 @@ rather than registering anything, so it is not the freely optional flag the brac
 
 Leave `-Merge` off unless the user asked for it in this conversation. Without it the entry is
 written exactly as it always was and the permission is absent, which is the off state - there is
-no "+merge off" spelling to write instead.
+no "+merge off" spelling to write instead. `-WatchMerge` follows exactly the same rules.
 
 `-Family` names the family this project belongs to and writes a `+family:<name>` token. Leave it
 off unless the user named a family: most projects belong to none, that is the ordinary state, and
@@ -215,6 +221,40 @@ Confirm in one line: the name, the posture, and the gate state.
 If the posture is `no-mistakes` or `no-mistakes-prod-only` and the gate is not initialised, say so
 plainly - work dispatched there will stop at its review gate until `no-mistakes init` is run in
 that repository.
+
+### Say what can report a check here, where the posture reaches a pull request
+
+**Only on a push-capable mode** - `direct-PR`, `no-mistakes` or `no-mistakes-prod-only`. A
+`local-only` project opens no pull request and runs no pipeline, so nothing there ever waits on a
+check and a line about CI is noise.
+
+Import is the moment to say it, because the alternative is the user finding out from a run that
+behaves oddly for an hour. Ask the module the dispatcher asks, so the answer here and the answer at
+dispatch are one answer rather than two readings:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Ci.psm1 -Force
+$ci = Get-RepoCiStatus -RepoPath $path
+"$($ci.status) - $($ci.detail)"
+```
+
+One line to the user, and never more than one:
+
+- `has-ci` - **say nothing at all.** It is the ordinary case, and a line about it is noise.
+- `no-ci` - say plainly that nothing reports a check on this repository, so work here is delivered
+  as a pull request and stops there rather than waiting for a green that cannot arrive. **Do not
+  offer to add CI.** An absence is a decision somebody made, and `muster` Step 1b owns that rule -
+  this is the cross-reference to it, not a second statement of it.
+- `unknown` - say which part of the lookup failed, from `$ci.detail`, and that delivery will stop
+  at the pull request under that uncertainty. This is the one that pays for itself with a new
+  user: a push-capable mode has already been refused above if `gh` is missing, so what is usually
+  left is an unauthenticated `gh` or a remote this cannot see, and both are a minute's work once
+  somebody says so.
+
+**The answer is not recorded in the registry.** CI comes and goes, so a value written at import is
+wrong the first time somebody adds a workflow or deletes the last one - and `Get-RepoCiStatus` is
+cheap and already runs on every dispatch. This is a sentence said once at import, not a field, and
+`data\projects.md`'s format does not change.
 
 ## Step 4b - Offer the project's standing rules file
 
@@ -265,8 +305,8 @@ budget and archives what goes stale; this file is outside that budget and outsid
 it stands until the King changes or removes it.
 
 Every dispatch into this project attaches the file automatically - `bin\Dispatch-Worker.ps1` stages
-it beside the brief and names the copy under `Read first` - so nobody has to remember to pass it,
-and editing the file is the whole of changing what workers are told.
+it beside the brief and names the copy under `Read first` in the dispatch file it writes there -
+so nobody has to remember to pass it, and editing the file is the whole of changing what workers are told.
 
 ## Step 4c - Offer the family, where this repository shares its conventions
 
@@ -292,29 +332,42 @@ project names: a family's file and a project's own rules file can never be one f
 **Do not write the family's file here.** Adding a project to a family says which shared rules it
 should get; it does not settle what they are. Write it the day there is something to put in it,
 through the same call as the file above with the family's path in place of the project's, creating
-`data\families\` if it is not there yet - and index it in that same call, the way every durable file
-under `data\` is indexed as it is written. The drift scan recurses into `data\`, subdirectories
-included, so a family's file counts as drift from the day it is written until an index lists it.
+`data\families\` if it is not there yet.
 
-**Registering a project into a family indexes nothing**, because the file usually does not exist
-yet and an entry pointing at nothing is `missing` drift that the documented remedy,
-`Remove-IndexEntry -Missing -All`, then deletes - so the line would be gone before the file arrived.
-Every member project still lists it, per the reasoning below; that happens in the turn it is
-written, once per member, rather than at import.
+**The family's file is indexed under every project in the family, and who does it depends on
+whether the file exists yet.** This section owns that obligation; every other mention points here.
+
+- **Registering a project into a family indexes the file only when it already exists.** Where it
+  does, list it for the project just registered:
+
+  ```powershell
+  Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
+  Add-IndexEntry -Project "<name>" -Path "data\families\<family>.md" `
+      -Summary "standing rules shared by the <family> family: conventions, vocabulary and exclusions"
+  ```
+
+  Where it does not, registration indexes nothing: an entry pointing at nothing is `missing` drift,
+  and the documented remedy, `Remove-IndexEntry -Missing -All`, would delete it before the file
+  arrived.
+- **Whoever writes the family's file indexes it for every project then in the family**, in the
+  turn it is written - `Write-DataFile` for one member and the `Add-IndexEntry` call above for each
+  of the others, the members being every registry entry carrying that `+family:` token. The drift
+  scan recurses into `data\`, subdirectories included, so the file counts as drift until an index
+  lists it.
 
 **List it per member project, not once in the root index.** A reader working on a project opens
 `data\index\<project>.md`, and the root `data\index.md` is for kingshand's own operational files -
 a family's file listed there would both stretch that contract and land where the project reader
-never looks. `Add-IndexEntry` is what lists it for the second and every later member, because it
-lists a file another writer owns and tolerates the entry already being there: it matches on the
-resolved relative path, rewrites that line in place and keeps the original `(added ...)` date. So a
-second member listing the same file is a no-op rather than a duplicate line.
+never looks. `Add-IndexEntry` lists a file another writer owns and tolerates the entry already
+being there: it matches on the resolved relative path, rewrites that line in place and keeps the
+original `(added ...)` date. So listing the same file for a member that already has it is a no-op
+rather than a duplicate line.
 
 **A declared family with no file yet is an ordinary state**, exactly as an absent project rules
 file is, and dispatch treats it as one: nothing is attached and nothing is said.
 
 **Where the family's file and the project's own disagree, the project's own wins** - it is the more
-specific of the two, and the line dispatch writes into the brief says so, so a worker holding both
+specific of the two, and the line dispatch writes beside the brief says so, so a worker holding both
 never has to work it out. Put a rule in the family's file only when it is true of every project in
 the family; put the exception in the one project's file.
 
@@ -330,7 +383,9 @@ Get-AllProjects | ForEach-Object { [pscustomobject]$_ } |
 `Select-Object name, ...` does not project hashtable keys: without the cast the table prints its
 header and zero populated rows, so "what is registered" answers blank.
 
-Answer in at most six lines. If there is more to say than that, render it and use lavish.
+Answer in at most six lines. If there is more to say than that, render it and use lavish - and if
+you then wait on that surface, `muster`'s `## The review surface` section owns answering in it and
+re-arming the poll.
 
 ## Changing a posture later
 

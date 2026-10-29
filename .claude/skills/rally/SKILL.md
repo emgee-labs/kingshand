@@ -41,7 +41,7 @@ Get-HerdrAgentPromptBox -Name "<worker id>"      # what is sitting in its input 
 Read-HerdrAgent -Name "<worker id>" -Lines 60    # what is on that worker's screen right now
 Send-HerdrPrompt -Name "<worker id>" -Text "..." # steer it: text in, Enter sent
 Send-HerdrKeys  -Name "<worker id>" -Keys down,enter   # answer a prompt, one key per call
-Stop-HerdrAgent -Name "<worker id>"              # /exit, then confirm it is gone
+Stop-HerdrAgent -Name "<worker id>"              # /exit, then confirm gone; refuses box text
 Remove-HerdrPane -PaneId "<pane id>"             # discard the pane the worker was in
 ```
 
@@ -53,8 +53,9 @@ as a result rather than an error.
 
 **Steering is still not a conversation.** The worker cannot reply to you, its brief still forbids
 it from asking anything, and a steer that would answer a prompt a worker is blocked on is still
-the King's to make first. A decision the worker *wrote into its `report.md`* is the other case and
-not this one: `petition` owns whether you may answer that and by what test, and it is the only
+the King's to make first, except where `regency`'s `A worker is blocked on a prompt` lets you
+answer it while he is away. A decision the worker *wrote into its `report.md`* is the other case
+and not this one: `petition` owns whether you may answer that and by what test, and it is the only
 place that test is stated, with `muster` Step 6 owning the route the answer takes back. Do not
 write text into the worktree hoping the worker reads it, and do not describe a steer as done
 without checking `Read-HerdrAgent` afterwards to see that it landed.
@@ -155,6 +156,12 @@ produced has that protection.
 `Stop-HerdrAgent` sends `/exit` and waits for the worker to disappear. Never substitute
 `Stop-Process` or any other force-kill.
 
+**A stop sends nothing while the worker's input box holds text.** `/exit` is typed in behind that
+text and submitted with it as one prompt, so the worker would act on the text instead of exiting.
+The result comes back with `stopped` false, `refused` set to `prompt-box-not-empty` and the text
+quoted in `promptBox`. The text is the same unexplained box as below: quote it, never clear it,
+and stop the worker only once the King has decided what that text is and the box is empty.
+
 **A force-killed worker leaves its pane permanently unusable.** It never sends its terminal-mode
 reset, so the pane stays in Kitty keyboard protocol with bracketed paste on: every later keystroke
 is echoed as literal text instead of being interpreted, `ctrl+c` arrives as `[99;5u`, and starting
@@ -192,7 +199,8 @@ Hand had written it. Clearing it destroys the only evidence the event happened. 
 which worker it was on, and move on.
 
 Both send paths already refuse a non-empty box and the refusal names the worker and quotes the
-content, so **the exception is the escalation**: report what it said, and pass `-AllowNonEmptyBox`
+content - a stop does too, and `Always /exit, never a kill` above owns that one - so **the
+exception is the escalation**: report what it said, and pass `-AllowNonEmptyBox`
 only once the King has seen it. `Get-HerdrAgentProgressSignal` and every `Wait-HerdrAgentProgress`
 report carry `promptBox` too, so an unexplained box arrives on a wake you already handle.
 
@@ -285,18 +293,20 @@ the rule above describes and its stage is left alone.
    confirm it landed. This is the cheap step and it comes first now: throwing a dispatch away for
    something one sentence fixes is waste, and it was the only option before herdr.
 
-3. **A blocked worker is the user's decision, not yours.** `blocked` means it is sitting on an
-   interactive prompt, and herdr will refuse a prompt at that worker until the prompt is answered.
-   Confirm it with `Test-HerdrAgentAwaitingInput` rather than herdr's state word, and confirm the
-   same way before concluding a worker is *not* blocked - that direction is the dangerous one.
+3. **A blocked worker is the user's decision, not yours, outside `regency`.** `blocked` means it
+   is sitting on an interactive prompt, and herdr will refuse a prompt at that worker until the
+   prompt is answered. Confirm it with `Test-HerdrAgentAwaitingInput` rather than herdr's state
+   word, and confirm the same way before concluding a worker is *not* blocked - that direction is
+   the dangerous one.
    Read the options off the screen, tell the user plainly what the worker is asking and what the
    choices are, and get their answer before touching anything. Then answer it with
    `Send-HerdrKeys`, one key per call, reading the screen back between the arrow and the Enter.
 
-   **Never answer a blocked prompt on the user's behalf**, and never guess at an option you have
-   not read. Never open the sequence with a bare Enter either: with no menu on the screen it goes
-   to the input box and submits whatever is rendered there, which is what the section above is
-   about. There is no interactive terminal to hand the worker over in - the panes are headless
+   **Never answer a blocked prompt on the user's behalf outside `regency`'s `A worker is blocked
+   on a prompt`**, which alone says when you may while he is away, and never guess at an option
+   you have not read. Never open the sequence with a bare Enter either: with no menu on the
+   screen it goes to the input box and submits whatever is rendered there, which is what the
+   section above is about. There is no interactive terminal to hand the worker over in - the panes are headless
    and there is no window to attach to - so the Hand is the only route to that prompt, which makes
    getting the answer first the whole safeguard rather than a nicety. Note it too: the worker's
    brief forbade opening that prompt, so its brief was not followed and the rest of its work
@@ -305,6 +315,13 @@ the rule above describes and its stage is left alone.
 4. **Relaunch.** If the worker is genuinely wedged, relaunch it - stop the worker, reconcile its
    worktree per the section above, then dispatch a fresh one through the normal `muster` path with
    the same brief plus a concise progress note saying what was already done and what remains.
+   **A worker recorded with `checkout` is relaunched as `fief`'s `A wedged warm worker`
+   paragraph says**: plain `Stop-CheckoutWorker`, the same name, brief and branch with
+   `-InCheckout`, then `Set-CrewRelaunch` - never `Add-CrewWorker`, which refuses the id, and
+   never a removed and re-added record, which loses its items and the hold it parked on. **A
+   worker recorded with `session` and no `checkout` is isolated**: it is stopped and relaunched
+   through the worktree path above, and still re-recorded with `Set-CrewRelaunch`, with no
+   `-SettingsRecord`, never `Add-CrewWorker`.
 
    Genuine wedging means looping, unresponsive, repeating the same obstacle, or truly dead. **A
    low context reading is not wedging; modern harnesses auto-compact and keep going.**

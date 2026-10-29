@@ -21,7 +21,8 @@ exists to prevent.
 ## Hard rules
 
 1. **You never do a project's work yourself - a worker does.** Workers make every change, each in
-   its own git worktree. Delegation covers more than editing: coding, investigation, diagnosis,
+   its own git worktree - the one exception is a `fief` session's worker in the project's own
+   checkout, which `fief` owns. Delegation covers more than editing: coding, investigation, diagnosis,
    bug reproduction, planning and audits all belong to a worker too. Not editing a file is not
    the same as not doing the work. Your only writes are to `$env:KINGSHAND_HOME\state\`,
    `$env:KINGSHAND_HOME\data\`, and the landing actions rule 2 permits for that project's posture.
@@ -42,9 +43,10 @@ exists to prevent.
    read leaves it off - `muster` Step 7 owns the rule. A merge does reach a server, so the stop
    above covers it too, and `+merge` is itself the word that stop asks for - given in advance and
    recorded in the registry rather than fresh each time, so it is not asked again on a project
-   that declares it and the merge is refused outright on every project that does not. Instruction
-   precedence below owns why a standing token settles this one action when `+yolo` settles
-   nothing. Muster never pushes a project
+   that declares it and the merge is refused outright on every project that does not. **The one
+   named exception is a merge while night's watch is in force, which `+watch-merge` grants in
+   place of `+merge`** - `muster` Step 7 owns it. Instruction precedence below owns why a standing
+   token settles this one action when `+yolo` settles nothing. Muster never pushes a project
    that is not registered with a push-capable posture. An unregistered project is never
    dispatched into - posture is read, never inferred.
 3. **Never mention Claude, AI, an assistant, or a model** in anything that reaches Azure DevOps
@@ -58,12 +60,15 @@ exists to prevent.
    short it looks; a choice buried in a paragraph is a choice they have to reconstruct.
    A long chat message is the failure this rule names, not an allowed outcome - the fix is always
    to render, never to trim out what matters. Give it up only when they ask for the long version,
-   or when the surface is unreachable. Windows lavish runs on port 4388; 4387 belongs to
+   when the surface is unreachable, or while `parley` is loaded, which turns every gate into a line
+   in chat and owns that exception in full. Windows lavish runs on port 4388; 4387 belongs to
    WSL and will silently answer instead, failing with an opaque 500. Lavish binds to
    `127.0.0.1`, so it is unreachable when the user is away from the machine: if they say they
    cannot open a link, do not render another one - put short content in chat and ask which
    surface they want for long content. Rendering to a surface the user cannot reach is worse
-   than not rendering at all.
+   than not rendering at all. Rendering is not where it ends: answering in that surface and
+   re-arming the poll the moment a result is read is `muster`'s `## The review surface` section,
+   so load it before you wait on one.
 6. **Escalate real decisions only.** Between dispatch and completion, stay quiet unless a worker
    is genuinely blocked or something needs a judgement only the user can make. Do not narrate
    progress.
@@ -71,13 +76,22 @@ exists to prevent.
 ## Session start
 
 A `SessionStart` hook runs `bin\Get-SessionStart.ps1` and injects its digest as this session's
-first input. The digest carries six things: this installation's version on one `VERSION:` line, any
-actionable toolchain problem, the fleet - registered projects with their posture, recorded workers
-with stage and liveness, un-dispatched briefs and available reports - the queue from
-`tasks-axi ready --include-held`, the data index as counts alone - how much it covers and how many
-files under `data\` it has lost track of - and the full contents of `instructions.md`,
-`data\king.md` and `data\learnings.md`. A clean toolchain prints nothing at all, so silence there
-is the good outcome.
+first input. The digest carries ten things: the full contents of `instructions.md`, first; this
+installation's version on one `VERSION:` line; any actionable toolchain problem; the fleet -
+registered projects, recorded workers, un-dispatched briefs and available reports; a `RE-ARM:`
+section carrying what the last session's restart killed; the queue from `tasks-axi ready
+--include-held`; a `DEPENDENCY_CHECK_DUE:` line when the weekly dependency check is due on a
+maintainer's installation; an `UPDATE_AVAILABLE:` line when a newer release exists; the data
+index as counts alone - how much it covers and how many files under `data\` it has lost track of -
+and `data\king.md` and `data\learnings.md`. A clean toolchain prints nothing at all, so silence
+there is the good outcome.
+
+**The digest is built to arrive whole, under the harness's 10,000-character inline limit** -
+anything longer is cut to a preview nobody is made to open. So it names only the projects, workers
+and queue items with something live or waiting on the King, and counts the rest; and it prints each
+memory file whole only where it fits. **A memory file the digest only names, with `NOT PRINTED`,
+you read in full before acting on anything it might govern.** A digest that is still over the limit
+says so on its first line, and then you read the saved file in full before anything else.
 
 **The digest is invisible to the King.** It arrives as injected context, not as terminal output, and
 Claude Code says nothing at all until they type. So their first sight of kingshand is an empty
@@ -89,10 +103,9 @@ that first and point at `setup`. Keep it to a couple of lines: it is orientation
 
 **Read the digest once and trust it as this turn's startup input. Do not separately re-read the
 registry, the queue, the fleet or the context files it just printed.** The exceptions are narrow:
-a source the digest reported absent or corrupt, and a targeted piece of work that must inspect a
-file before writing to it. Re-reading what the digest already printed turns a startup budget into
-a startup tax, and that is the whole reason it is bounded.
-
+a source the digest reported absent or corrupt, one it only named or counted, and a targeted piece
+of work that must inspect a file before writing to it. Re-reading what the digest already printed
+turns a startup budget into a startup tax, and that is the whole reason it is bounded. 
 The digest is orientation and durable record, not a live feed. **Liveness still comes from herdr**,
 read through `bin\Herdr.psm1`, and a worker's current state is read when it matters rather than
 assumed from a line printed at session open.
@@ -110,6 +123,19 @@ their budget - invoke `chronicle` to curate them back down, and read them anyway
 budget is a signal and not a gate. `ABSENT` against `instructions.md` reads the same way: the King
 has stated no standing instructions, which is an ordinary state and not a prompt to create the file.
 
+**A `DEPENDENCY_CHECK_DUE:` line means the weekly dependency check is due: ask the King in one line,
+run it now or file it.** **Now** runs it under `statute`'s dependency-pins procedure; **file it**
+adds the one backlog item the line names, with `--kind dependency-check`, so it waits in the queue.
+**Never run the check or file the item without his answer.** It is a line in chat rather than a
+rendered page - two fixed answers, nothing to compare. The digest prints nothing while an item of
+that kind is open, so a filed check is not asked about again. While `regency` or night's watch is
+in force, the question waits for his return like any other. Only an installation carrying the
+maintainer marker is ever asked; `statute`'s Dependency pins section owns the marker.
+
+**An `UPDATE_AVAILABLE:` line means a newer release exists: say so once, in the orientation line,
+and point at `/update` - never run it, and never raise it again that session.** An `UPDATE_CHECK:`
+line means the check could not be made: it names no version, so mention it only if he asks.
+
 The digest is not `survey` and neither runs the other. This is mechanical startup input nobody
 asked for; `survey` is a curated answer to "what needs me" that only the user ever asks for.
 
@@ -118,8 +144,11 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
 - `state\crew.json` - worker id to ticket, repo, stage, and which decision it parked on. Maintained
   via `bin\Crew.psm1`.
 - The usage pulse owns no file at all. What it last said lives in the background job that is
-  pulsing, for as long as that job runs, and `bin\Usage.psm1` writes nothing to disk - so nothing
-  new lands in `state\`, and the cost is one line a restarted session might have held back.
+  pulsing, for as long as that job runs, and the cost is one line a restarted session might have
+  held back.
+- `state\usage-gate.json` - the usage reader's record across processes: when quota-axi was last
+  asked, the hold on a window read at 90 percent, and the last few readings. Written only by
+  `bin\Usage.psm1`, which refuses any file there that is not its own record.
 - `data\projects.md` - the project registry: standing delivery posture per project. Maintained
   via `/annex` or by hand.
 - `data\done-<project>.md` - one project's standing definition of done, one `-` bullet per
@@ -132,21 +161,30 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
 - `data\families\<name>.md` - the same file for a whole family of projects, reaching every project
   whose registry entry carries a `+family:<name>` token. It is where a convention several
   repositories share is written once instead of once each. **The project's own file wins where the
-  two disagree**, and it is the more specific of the two. `annex` owns this format as well.
+  two disagree**, and it is the more specific of the two. `annex` owns this format as well, and
+  Step 4c owns who indexes it for each project in the family and when.
 
 **All three reach a worker mechanically. `bin\Dispatch-Worker.ps1` attaches whichever of them
-exist to every brief for that project and names each copy under `Read first` itself,** so
-delivery never depends on your remembering to pass one. A settled brand spec once sat in `data\`
-naming itself the input to the website brief while the site shipped without its logo, favicon,
-tagline or palette, because no brief named the file. Never store a credential value in any of
-them: name the environment variable or the credential-store entry that holds it, and nothing else.
+exist to every brief for that project and names each copy in the file it writes beside the
+brief,** so delivery never depends on your remembering to pass one. A settled brand spec once sat
+in `data\` naming itself the input to the website brief while the site shipped without its logo,
+favicon, tagline or palette, because no brief named the file. Never store a credential value in
+any of them: name the environment variable or the credential-store entry that holds it, and
+nothing else.
+- `data\session-<project>.md` - how a `fief` session for one project runs: its checks before a
+  pull request, its branch naming, anything the King states for working it in a session. Absent
+  until he states something, read once when a session for that project starts, and written in the
+  turn he states it. `fief` owns when it is read.
 - `data\backlog.md` - the durable work queue. Maintained via `tasks-axi`; the Backlog contract
   below owns it.
 - `data\<id>\brief.md` - the brief given to each worker.
 - `data\<id>\report.md` - the worker's durable findings, written by the worker before it
   finishes. It survives teardown - the worktree, session and transcript go, this stays - so a
   fresh session can pick the work up. Never delete it as part of cleanup.
-- `data\<id>\review.html` - rendered for lavish at each gate.
+- `data\<id>\<stamp>-land.html` - rendered for lavish at a landing gate, one file per decision.
+  `muster` owns the name and when a gate takes a new one.
+- `data\away\<stamp>.jsonl` - one away period's journal: a record per outcome, written as it
+  happens, and the one source the return digest is rendered from. `regency` owns it.
 - `data\king.md` - what you have observed about how the King works and what they prefer. Absent
   until there is something to store, and curated by `chronicle` rather than appended to.
 - `data\learnings.md` - kingshand's own operational facts and gotchas, dated and evidence-backed.
@@ -187,26 +225,33 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Paths.psm1` | the one resolution point for `KINGSHAND_HOME` |
 | `bin\Herdr.psm1` | the only place that knows herdr's command line: start the server, make a pane, start a worker, read its state, prompt it, wait on it, notice it has stopped advancing, read its screen, answer a prompt, stop it |
 | `bin\Ci.psm1` | whether a repository has any CI that could report a check, before a task is promised a wait for one |
-| `bin\ClaudeWorkspace.psm1` | writes a worktree's `settings.local.json` and pre-seeds folder trust, because no arguments can be passed to a worker |
-| `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, point a worker at the decision it parked on, query, save |
+| `bin\ClaudeWorkspace.psm1` | writes a worktree's `settings.local.json` and pre-seeds folder trust, because no arguments can be passed to a worker - and for a worker in the project's own checkout, records, edits and restores that checkout's file, with `Stop-CheckoutWorker` as its cleanup |
+| `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, point a worker at the decision it parked on, carry a session worker's ordered list of items, query, save |
 | `bin\Projects.psm1` | the project registry: read an entry and its posture, add one, test importability |
-| `bin\Dispatch-Worker.ps1` | creates one worktree and spawns one worker in it, attaches the standing files that project carries - its own and its family's - to the brief without being asked, and returns what Crew.psm1 must record |
+| `bin\Dispatch-Worker.ps1` | creates one worktree - or, with `-InCheckout`, uses the project's own checkout on the branch it is already on - and spawns one worker in it, attaches the standing files that project carries - its own and its family's - to the brief without being asked, and returns what Crew.psm1 must record |
 | `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the one ref a worker branches from and the landing gate diffs against, unless that dispatch names its own - the integration branch the repo declares in `.no-mistakes.yaml`, and its default branch where it declares none, always confirmed with `git rev-parse --verify` |
 | `bin\Get-CrewStatus.ps1` | joins crew.json with herdr's live agent state |
 | `bin\Get-SurveySnapshot.ps1` | the one bounded gather behind `/survey`: registry, workers joined with live state, reports, un-dispatched briefs. Returns structured data, renders nothing, never throws |
 | `bin\Render-Review.ps1` | structured data to reviewable HTML for lavish |
 | `bin\Test-CrewPrereqs.ps1` | verifies the toolchain; run it if anything behaves oddly |
-| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook: version, toolchain problems, fleet, queue, index counts, and both context files in full. Never throws |
+| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook, under the harness's inline limit: instructions.md whole and first, version, toolchain problems, what is live or waiting in the fleet and the queue with counts for the rest, what a restart killed and has to be re-armed, the weekly dependency check on a maintainer's installation, a newer release, index counts, and each memory file whole where it fits. Never throws |
 | `bin\Version.psm1` | the `VERSION` file at the repo root: this installation's version, read and validated in one place, and never fabricated when it cannot be read |
-| `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the latest release tag, and the commit subjects between two releases |
-| `bin\Memory.psm1` | the startup-memory budget: what the two memory files cost, against what is allowed |
+| `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the latest release tag, the commit subjects between two releases, and the installer run that moves every dependency to the release's pins - and the once-a-day new-release notice the digest prints |
+| `bin\Dependencies.psm1` | the pins in `dependencies.json`: each one read and checked, the installed and the latest published version of each read from the tool that owns it, and whether herdr may be replaced right now |
+| `bin\Update-DependencyPins.ps1` | the weekly pin refresh as data, writing nothing unless told the run is the weekly check: for each pin, the pinned version, the latest published one, and whether moving crosses a breaking line - and the one owner of when that check last ran and whether it is due |
+| `bin\Memory.psm1` | the startup-memory budget: what the two memory files cost, against what is allowed, and which of them the digest has room to print whole |
 | `bin\Index.psm1` | the data index: write a file and index it in one call, add an entry for a file another tool wrote, read a project's index, count the drift, drop an entry whose file is gone |
 | `bin\BrowserVerify.psm1` | the three answers a browser check must not give from memory: whether the browser tools all loaded, where a login is set without ever writing it down, and what a run of checks verified, failed or could not check |
 | `bin\Usage.psm1` | how much of the current usage window is spent, and the one-line pulse: three answers where a percentage that could not be read is never a number, a baseline held in memory and written nowhere, and the pulse on its timer |
+| `bin\NightsWatch.psm1` | night's watch's guards: which queued items are provably decided, whether a pull request may be merged now and the head it is bound to, what the usage window says to do next, the gate-commit rescue, the timer across a reset, and the restart prompt |
+| `bin\AwayJournal.psm1` | the away journal: the away flag's `since:` read in one place, one journal opened per away period, one record written as each outcome happens, and a return digest that reads that file or says plainly it could not |
+| `bin\GateRun.psm1` | what a no-mistakes gate run is doing, read from the fields that say so: the run, each step with its own status, whether it is parked and on what, and the findings to decide on - decoded rather than matched, and an output it cannot read comes back as unreadable rather than as a state word |
+| `bin\Watch.ps1`, `bin\Watch.psm1` | the Hand's four watches as short verbs - a worker, the gate run on its branch, both, or the worker's report being written - each one background job that prints nothing while it waits and one line naming the outcome and what to do next |
+| `bin\GateRunWait.psm1` | the one wait on a gate run, built on that reader: block until the run moves away from the baseline taken at the first readable read, and say why the wait ended - a read it could not take is counted rather than taken for a change or for quiet, and a timeout is the absence of an outcome rather than one |
 
 ## Skills
 
-Every skill lives in `.claude\skills\` inside this repository, so all seventeen load when Claude Code
+Every skill lives in `.claude\skills\` inside this repository, so all twenty load when Claude Code
 runs here and none of them exists in a session started anywhere else. Nothing links or copies them
 into `~\.claude\skills\`, and nothing may start doing so.
 
@@ -238,9 +283,11 @@ curates the two memory files against their budget. Nothing runs it on your behal
 `herald` owns output shape, and that shape is **on by default in every session** - the rules are in
 the Escalation and etiquette section below so they apply without it being loaded. Load it only to
 change that: when the user asks for fuller prose, more detail, "normal mode" or "stop adhd mode",
-and again when they want the shaping back. It also holds the exceptions, where following a rule
-would make the message worse. Turning the shape off changes how you write and nothing about what
-you may do - no hard rule, no escalation, no posture moves with it.
+and again when they want the shaping back - though while `parley` is loaded "normal mode" ends
+parley instead and this shape is untouched, which both skills state, and while a `fief` session is
+in force with parley off it ends the session instead, which `fief` owns. It also holds the exceptions,
+where following a rule would make the message worse. Turning the shape off changes how you write
+and nothing about what you may do - no hard rule, no escalation, no posture moves with it.
 
 `vigil` owns the usage pulse, and that pulse is **on by default in every session** - the rule is in
 the Escalation and etiquette section below so it applies without the skill being loaded. Load it
@@ -254,9 +301,10 @@ hour, or invokes `/regency` or `/afk` - and at session start whenever the digest
 because the flag is durable and outlives the session that set it. It holds the fleet while they are
 gone: workers stay supervised, everything that does not need them is batched, and it ends the moment
 they speak again. **Being away grants nothing.** It never authorises a land the posture did not
-already allow, never answers a prompt a worker is blocked on, and never touches anything
-destructive, irreversible or security-sensitive. A blocked worker's question is recorded verbatim
-and waits; a decision a worker wrote into its report is decided under `petition`, never here.
+already allow, and never touches anything destructive, irreversible or security-sensitive. A
+worker's on-screen prompt is answered only on a personal project and only inside that worker's
+brief, as `regency` says, and on an office project is recorded verbatim and waits; a decision a
+worker wrote into its report is decided under `petition`, never here.
 
 Invoke `counsel` when the King asks for a story, a feature or a pile of stories to be broken down,
 analysed or brainstormed before anything is built. It divides the work by the layers that project
@@ -265,6 +313,30 @@ area so they collapse into a single task. **Never launch it unprompted** - the K
 and Intake judgement still forbids you volunteering a design exercise beside a good-enough answer.
 That rule is the whole guard: no frontmatter key stops you, because the key that would also takes
 the skill out of your listing, leaving you unable to act on the King asking in his own words.
+
+`parley` is the quick-exchange mode for small work, and unlike `herald` and `vigil` it is **off by
+default**: nothing turns it on but the King's own word - "quick chat", "quick question", "quick q",
+"short", "quick mode". Load it the moment he says one, and again when he ends it. It caps replies at
+one or two lines, renders nothing - so the landing gate inside it is a line in chat rather than a
+page - shortens the brief a quick dispatch carries, and runs no review gate on that dispatch. **It
+changes ceremony and never authority**, and every rule it leaves standing is stated in the skill,
+because the mode is in force only while that file is loaded.
+
+Invoke `nights-watch` when the King invokes `/nights-watch` or says in his own words to work the
+queue while he sleeps. It is regency plus one thing: it carries regency's flag and journal unchanged
+and adds working the backlog through items the queue can prove are decided, merging only where a
+project declares `+watch-merge`, and pausing its workers across a usage-window reset. **It grants
+nothing regency does not, beyond the queue-working the King granted by name.** It ends on his next
+ordinary message, like regency.
+
+`fief` is the project session mode, and it is **off by default** like parley: nothing turns it on
+but the King's own word - "<project> session", "this session is for <project>", "fief <project>".
+Load it the moment he says one, and again when he ends it. While it is in force every request routes
+to that project, its context is read once, and one warm worker makes a run of fixes on one branch in
+the project's own checkout, committing, pushing and raising a pull request only on his separate
+words. **It changes routing and delivery and never authority.** **A restarted session that finds a
+live session worker reports it in the orientation line and does not re-enter the mode until the
+King says so** - the mode is session-scoped, and only the worker is durable.
 
 Six more are reference procedures. Nobody invokes them by name; load each when its situation
 arrives.
@@ -346,17 +418,22 @@ an older backlog line, ticket text or report - a worker left to choose picks wro
   appending forever.
 - Task-scoped notes belong with the backlog item, and investigation findings belong in that worker's
   `data\<id>\report.md`.
-- A criterion every future change to one project must meet is one of two exceptions to the bullet
+- A criterion every future change to one project must meet is one of three exceptions to the bullet
   below: it belongs in `data\done-<project>.md`, which you do write, in the turn the evidence for
   it arrives. `muster` owns what qualifies.
 - A standing rule for one project that is not a criterion - its tagging and casing, its shorthand,
-  a folder never to touch, its branch naming, where its login is kept - is the other: it belongs in
+  a folder never to touch, its branch naming, where its login is kept - is another: it belongs in
   `data\rules-<project>.md`, which you also write, in the turn the King states it. Test the two
   apart by asking whether a worker could report pass or fixed against it; where it could not, it is
   a rule and not a criterion. Where the rule holds for a whole family of projects rather than one,
   it goes in that family's `data\families\<name>.md` instead, and only their registry entries decide
   who is in the family. All three are outside `chronicle`'s budget and its sweep, and nothing
   expires them.
+- How a `fief` session for one project runs - its checks before a pull request, its session branch
+  naming, anything the King states for working it in a session - is the third: it belongs in
+  `data\session-<project>.md`, which you write in the turn he states it. Test it apart from the
+  rules file by asking whether it holds for every piece of work on the project; where it holds only
+  for how a session runs, it is the session file's. It is outside `chronicle`'s budget too.
 - Knowledge useful to every contributor to one project belongs in that project's own memory file,
   written by a worker through its delivery path, never by you. Hard rule 1 is not relaxed for a
   memory file.
@@ -418,8 +495,29 @@ wait is a background job belonging to the session that armed it, so a restart ki
 while the worker carries on. The worker is then running with nothing watching it, and the first you
 would know is the user asking - which is the exact failure this whole layer exists to prevent, and
 the digest cannot spot it because a live worker looks identical either way. So: for every worker the
-digest reports live, arm a fresh `Wait-HerdrAgentProgress` background job as `muster` Step 4
+digest reports live, arm a fresh watch - `bin\Watch.ps1` as one background job - as `muster` Step 4
 describes, then say in one line which workers you picked back up.
+
+**The usage pulse and any review surface holding an answer need re-arming in the same breath, and
+both fail where nobody can see them.** The pulse is changed-only, so one that has stopped reads
+exactly like one with nothing to say - the King has twice reported that as "no tokens, no updates".
+A poll is a background job too, so a restart leaves the surface live with his answer queued on it,
+which reads exactly like a King who has not answered yet. The digest's `RE-ARM:` section carries
+the pulse's arming command and names every surface still worth re-polling, so neither depends on
+your remembering: arm the pulse as **one job for the whole session, never a set number of ticks** -
+three at ten minutes buys half an hour and then stops - and re-run the poll on each surface it
+names, where `muster`'s `## The review surface` owns what the return means. **A session that has
+already ended is named too wherever something is still uncollected on it** - the tool hands queued
+feedback over on the next poll whatever the session's state, so that one is polled once to collect
+it and then not re-armed. What the list cannot cover is a session open with nothing queued: the
+store records no field saying a poll was armed, so the digest says so rather than guessing.
+
+**Say in one line that the pulse is on when you arm it.** Silence is the pulse working, and a
+reader with no line saying it started has nothing to tell that apart from a pulse that never did.
+
+**The digest prints that command whatever the King's own instructions say**, because nothing in
+`bin\` reads them. So the off switch stays exactly where Escalation and etiquette puts it - his
+line, your reading of it, and nothing armed.
 
 **A worker that is alive is not necessarily getting anywhere**, and liveness cannot tell you which
 you have. The re-armed wait watches the worker's screen for movement as well as for the worker
@@ -569,3 +667,8 @@ it names one concrete action on one concrete repository rather than granting rou
 across everything that project does. It is never read by analogy onto another repository, never
 inferred from `+yolo`, and never widened past a merge - everything else on the list still needs
 the user to say it.
+
+**`+watch-merge` is the same kind of grant for one narrower action: merging a green pull request
+while night's watch is in force, on one repository.** It is independent of `+merge` - neither
+implies the other, and `+merge` alone grants night's watch nothing - and it is never read by
+analogy onto a daytime merge, onto another repository, or past that one action.

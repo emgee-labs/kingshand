@@ -17,40 +17,65 @@
 [CmdletBinding()]
 param()
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $failures = @()
 $notes    = @()
 
 Import-Module (Join-Path $PSScriptRoot 'Paths.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Herdr.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'Dependencies.psm1') -Force
 
+# The command each npm tool is installed with comes from its pin, the same command install.ps1
+# prints, so this check never tells someone to install a version past the one this release was
+# verified with. A manifest that cannot be read is a failure of its own, named as one.
+$pinCommand = @{}
+try {
+    foreach ($p in (Read-DependencyPins)) { $pinCommand[$p.name] = Get-DependencySyncCommand -Pin $p }
+} catch {
+    $failures += "dependencies.json could not be read, so no install command below names its pinned version - $($_.Exception.Message)"
+}
+function Get-PinnedInstall {
+    param([string]$Name, [string]$Unpinned)
+    if ($pinCommand.ContainsKey($Name)) { return $pinCommand[$Name] }
+    $Unpinned
+}
+
+# Whether the tool is on PATH; a miss is recorded as a failure or a note with its hint.
 function Test-Tool {
     param([string]$Name, [string]$Hint, [switch]$Optional)
     $found = Get-Command $Name -ErrorAction SilentlyContinue
     if (-not $found) {
         if ($Optional) { $script:notes += "$Name not found. $Hint" }
         else { $script:failures += "$Name not found. $Hint" }
-        return
+        return $false
     }
     Write-Host ("  OK  {0,-14} {1}" -f $Name, $found.Source)
+    $true
 }
 
 Write-Host "Checking crew prerequisites"
 
-Test-Tool -Name 'claude'     -Hint 'Install Claude Code: npm install -g @anthropic-ai/claude-code'
-Test-Tool -Name 'git'        -Hint 'Install Git for Windows: https://git-scm.com/download/win'
-Test-Tool -Name 'lavish-axi' -Hint 'Run: npm install -g lavish-axi'
-Test-Tool -Name 'tasks-axi'  -Hint 'Run: npm install -g tasks-axi'
+$hasClaude = Test-Tool -Name 'claude' -Hint 'Install Claude Code: npm install -g @anthropic-ai/claude-code'
+[void](Test-Tool -Name 'git' -Hint 'Install Git for Windows: winget install --id Git.Git')
+$hasLavish = Test-Tool -Name 'lavish-axi' -Hint ('Run: ' + (Get-PinnedInstall 'lavish-axi' 'npm install -g lavish-axi'))
+$hasTasks  = Test-Tool -Name 'tasks-axi'  -Hint ('Run: ' + (Get-PinnedInstall 'tasks-axi' 'npm install -g tasks-axi'))
+
+# Every install command above that starts with npm fails on a machine with no Node.js, which is
+# every fresh Windows machine. Said once, and only when something above actually needs it.
+if (-not ($hasClaude -and $hasLavish -and $hasTasks) -and -not (Get-NpmCommand)) {
+    $failures += (Get-NpmMissingHint)
+}
 
 # `gh` opens the pull request, and only a push-capable posture ever needs one. A user whose
 # projects are all `local-only` - work that stops at a finished branch on this machine - never
 # calls it, so its absence is a note rather than a failure, exactly like the review gate below.
 # The gap that leaves is closed where it belongs: `annex` refuses to register `direct-PR`,
 # `no-mistakes` or `no-mistakes-prod-only` against a machine with no `gh`, naming this command.
-Test-Tool -Name 'gh' -Optional `
+[void](Test-Tool -Name 'gh' -Optional `
     -Hint ('Needed only by a push-capable posture - `direct-PR`, `no-mistakes` or ' +
            '`no-mistakes-prod-only`. Install with: winget install --id GitHub.cli - then run: ' +
-           'gh auth login. Work that stops at a finished local branch never needs it.')
+           'gh auth login. Work that stops at a finished local branch never needs it.'))
 
 # The executable, resolved rather than assumed - its location differs per machine.
 #
@@ -65,7 +90,9 @@ if ($claudeExe) {
     if (Test-ClaudeCommandIsWrapper -Path $claudeExe) {
         $notes += (Get-ClaudeWrapperHint)
     }
-} else {
+} elseif ($hasClaude) {
+    # Only where `claude` itself resolved and neither form of it did. Where `claude` is missing
+    # outright the line above has already said so, and saying it twice reads as two problems.
     $failures += (Get-ClaudeCommandHint)
 }
 

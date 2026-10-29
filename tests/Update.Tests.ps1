@@ -48,7 +48,7 @@ BeforeAll {
         '#Requires -Version 7.0'
         '# A stub, not the real installer. It records that it ran, OUTSIDE the repository, so the'
         '# working tree it was called from stays clean.'
-        'Set-Content -LiteralPath (Join-Path (Split-Path $PSScriptRoot -Parent) ''install-ran.txt'') -Value ''ran'''
+        'Set-Content -LiteralPath (Join-Path (Split-Path $PSScriptRoot -Parent) ''install-ran.txt'') -Value (''ran '' + ($args -join '' ''))'
         'Write-Host ''stub installer ran'''
         'exit {0}'
     )
@@ -383,6 +383,16 @@ Describe 'an update that can happen moves the installation and reports the move'
             Should -BeTrue -Because 'the default -InstallScript is the install.ps1 at the root being updated'
     }
 
+    It 'asks the installer to move every dependency to the release''s pins' {
+        $f = New-Installation -Name 'syncpins'
+        Publish-Release -Fixture $f -Version '0.2.0' -Subjects @('Move a pin')
+
+        $null = Invoke-KingshandUpdate -Root $f.Path
+
+        (Get-Content -LiteralPath $f.Marker -Raw) |
+            Should -Match '-SyncPins' -Because 'an update that left dependencies off their pins would leave every user to move them by hand'
+    }
+
     It 'reports an installer that did not finish, rather than reporting plain success' {
         $f = New-Installation -Name 'badinstaller' -InstallExit 3
         Publish-Release -Fixture $f -Version '0.2.0' -Subjects @('Change a thing')
@@ -697,5 +707,191 @@ Describe 'the guard readers answer for themselves' {
         $f = New-Installation -Name 'refreader'
         { Resolve-CommitId -RepoPath $f.Path -Ref 'v9.9.9' } |
             Should -Throw -ExpectedMessage '*does not name a commit*'
+    }
+}
+
+# The new-release notice reads the same remote `/update` would fetch from, but only with
+# `git ls-remote` - so every case here uses New-Installation's own bare remote, and nothing reaches
+# a server. Each case gets its own cache path under the installation's state\, which is what the
+# session-start digest passes.
+Describe 'every installation hears of a newer release, at most once a day' {
+    BeforeAll {
+        function Get-CachePath { param($Fixture) Join-Path $Fixture.Path 'state\release-check.json' }
+        function Get-Notice { param($Fixture) Get-ReleaseNotice -Root $Fixture.Path -CachePath (Get-CachePath $Fixture) }
+        function Set-CacheField {
+            param($Fixture, [string]$Key, [string]$Value)
+            $cache = Get-Content -LiteralPath (Get-CachePath $Fixture) -Raw | ConvertFrom-Json -AsHashtable
+            $cache[$Key] = $Value
+            $cache | ConvertTo-Json | Set-Content -LiteralPath (Get-CachePath $Fixture) -Encoding utf8
+        }
+    }
+
+    It 'names both versions when the remote has a newer release' {
+        $f = New-Installation -Name 'notice-newer' -TagSeed
+        Publish-Release -Fixture $f -Version '0.2.0' -Subjects @('Add a thing')
+
+        $n = Get-Notice $f
+        $n.state     | Should -Be 'newer'
+        $n.installed | Should -Be '0.1.0'
+        $n.latest    | Should -Be '0.2.0' -Because 'the version is said without the tag''s v'
+    }
+
+    It 'is current when the latest release is the one installed' {
+        $f = New-Installation -Name 'notice-same' -TagSeed
+        (Get-Notice $f).state | Should -Be 'current'
+    }
+
+    It 'says nothing newer when the installed version is ahead of every release' {
+        $f = New-Installation -Name 'notice-older' -TagSeed
+        Set-Content -LiteralPath (Join-Path $f.Path 'VERSION') -Value '0.3.0' -Encoding utf8
+        (Get-Notice $f).state | Should -Be 'ahead'
+    }
+
+    It 'picks the latest release by the same rule /update moves by' {
+        $f = New-Installation -Name 'notice-rule' -TagSeed
+        Publish-Release -Fixture $f -Version '0.9.0' -Subjects @('Nine')
+        Publish-Release -Fixture $f -Version '0.10.0' -Subjects @('Ten')
+        git -C $f.Seed tag 'v1.0.0-rc1'
+        git -C $f.Seed tag 'v2-backup'
+        git -C $f.Seed push -q origin --tags 2>&1 | Out-Null
+
+        $n = Get-Notice $f
+        $n.latest | Should -Be '0.10.0' -Because 'v0.10.0 beats v0.9.0, and neither an rc nor a backup tag is a release'
+        $n.latest | Should -Be ((Get-LatestReleaseTag -RepoPath $f.Seed).Substring(1))
+    }
+
+    It 'says no release has been cut where the remote has none' {
+        $f = New-Installation -Name 'notice-norelease'
+        (Get-Notice $f).state | Should -Be 'no-release'
+    }
+
+    It 'says nothing and asks nothing on a checkout off the release branch' {
+        $f = New-Installation -Name 'notice-dev' -TagSeed
+        Publish-Release -Fixture $f -Version '0.2.0' -Subjects @('Add a thing')
+        git -C $f.Path checkout -q -b dev 2>&1 | Out-Null
+
+        (Get-Notice $f).state | Should -Be 'off-release-branch'
+        Test-Path -LiteralPath (Get-CachePath $f) |
+            Should -BeFalse -Because 'a maintainer on dev is ahead by design, so the remote is not asked'
+    }
+
+    It 'names the failure, never a version, when the remote cannot be reached' {
+        $f = New-Installation -Name 'notice-unreachable' -TagSeed
+        git -C $f.Path remote set-url origin (Join-Path $TestDrive 'no-such-remote')
+
+        $n = Get-Notice $f
+        $n.state  | Should -Be 'unreadable'
+        $n.latest | Should -BeNullOrEmpty
+        $n.detail | Should -BeLike '*could not list the tags on origin*'
+    }
+
+    It 'names the failure when there is no remote to ask' {
+        $f = New-Installation -Name 'notice-noremote' -TagSeed -NoRemote
+        $n = Get-Notice $f
+        $n.state  | Should -Be 'unreadable'
+        $n.detail | Should -BeLike '*no origin remote*'
+    }
+
+    It 'names the failure when the installed version cannot be read' {
+        $f = New-Installation -Name 'notice-noversion' -TagSeed
+        Remove-Item -LiteralPath (Join-Path $f.Path 'VERSION')
+        $n = Get-Notice $f
+        $n.state  | Should -Be 'unreadable'
+        $n.detail | Should -BeLike '*There is no VERSION file*'
+    }
+
+    It 'names the failure when the checkout is not a git repository' {
+        $plain = Join-Path $TestDrive 'notice-notarepo'
+        New-Item -ItemType Directory -Force -Path $plain | Out-Null
+        Set-Content -LiteralPath (Join-Path $plain 'VERSION') -Value '0.1.0' -Encoding utf8
+        $n = Get-ReleaseNotice -Root $plain -CachePath (Join-Path $plain 'state\release-check.json')
+        $n.state  | Should -Be 'unreadable'
+        $n.detail | Should -BeLike '*could not be read*'
+    }
+
+    It 'refuses an answer it cannot read as tags, and a remote that does not answer in time' {
+        $f = New-Installation -Name 'notice-shim' -TagSeed
+        $shims = Join-Path $TestDrive 'notice-shims'
+        New-Item -ItemType Directory -Force -Path $shims | Out-Null
+        $garbled = Join-Path $shims 'garbled.cmd'
+        Set-Content -LiteralPath $garbled -Encoding ascii -Value @('@echo off', 'echo this is not a tag line')
+        $slow = Join-Path $shims 'slow.cmd'
+        Set-Content -LiteralPath $slow -Encoding ascii -Value @('@echo off', 'ping -n 30 127.0.0.1 >nul')
+
+        Mock -ModuleName Update Get-Command { [pscustomobject]@{ Source = $garbled } } -ParameterFilter { $Name -eq 'git' }
+        { Get-RemoteReleaseTag -RepoPath $f.Path } | Should -Throw -ExpectedMessage '*a line that is not a tag*'
+
+        Mock -ModuleName Update Get-Command { [pscustomobject]@{ Source = $slow } } -ParameterFilter { $Name -eq 'git' }
+        { Get-RemoteReleaseTag -RepoPath $f.Path } | Should -Throw -ExpectedMessage '*did not answer within*'
+    }
+
+    It 'asks the remote once a day and answers from the cache in between' {
+        $f = New-Installation -Name 'notice-cache' -TagSeed
+        $first = Get-Notice $f
+        $first.fromCache | Should -BeFalse
+        $first.state     | Should -Be 'current'
+
+        Publish-Release -Fixture $f -Version '0.2.0' -Subjects @('Add a thing')
+        $second = Get-Notice $f
+        $second.fromCache | Should -BeTrue
+        $second.state     | Should -Be 'current' -Because 'the remote is not asked again the same day'
+
+        # A day old: asked again, and the new release is seen.
+        Set-CacheField $f 'checkedAt' ([datetime]::UtcNow.AddDays(-1).AddMinutes(-1).ToString('o'))
+        $third = Get-Notice $f
+        $third.fromCache | Should -BeFalse
+        $third.state     | Should -Be 'newer'
+    }
+
+    It 'compares a cached tag against VERSION afresh, so an update clears the notice at once' {
+        $f = New-Installation -Name 'notice-afterupdate' -TagSeed
+        Publish-Release -Fixture $f -Version '0.2.0' -Subjects @('Add a thing')
+        (Get-Notice $f).state | Should -Be 'newer'
+
+        Set-Content -LiteralPath (Join-Path $f.Path 'VERSION') -Value '0.2.0' -Encoding utf8
+        $n = Get-Notice $f
+        $n.fromCache | Should -BeTrue
+        $n.state     | Should -Be 'current'
+    }
+
+    It 'caches a failed ask too, and says when it was made' {
+        $f = New-Installation -Name 'notice-cachedfail' -TagSeed
+        git -C $f.Path remote set-url origin (Join-Path $TestDrive 'no-such-remote-either')
+        (Get-Notice $f).fromCache | Should -BeFalse
+
+        $n = Get-Notice $f
+        $n.state     | Should -Be 'unreadable'
+        $n.fromCache | Should -BeTrue
+        $n.checkedAt | Should -Not -BeNullOrEmpty
+    }
+
+    It 'asks again when the cache is dated in the future or was for another remote' {
+        $f = New-Installation -Name 'notice-cachefuture' -TagSeed
+        $null = Get-Notice $f
+        Set-CacheField $f 'checkedAt' ([datetime]::UtcNow.AddDays(3).ToString('o'))
+        (Get-Notice $f).fromCache | Should -BeFalse
+
+        Set-CacheField $f 'remote' 'https://example.invalid/elsewhere.git'
+        (Get-Notice $f).fromCache | Should -BeFalse
+    }
+
+    It 'never overwrites a file at the cache path that is not its own' {
+        $f = New-Installation -Name 'notice-foreign' -TagSeed
+        New-Item -ItemType Directory -Force -Path (Split-Path (Get-CachePath $f) -Parent) | Out-Null
+        Set-Content -LiteralPath (Get-CachePath $f) -Value 'somebody else''s file' -Encoding utf8
+
+        $n = Get-Notice $f
+        $n.state  | Should -Be 'unreadable'
+        $n.detail | Should -BeLike '*not the release check''s own cache*'
+        (Get-Content -LiteralPath (Get-CachePath $f) -Raw).Trim() | Should -Be 'somebody else''s file'
+    }
+
+    It 'refuses a cache path that is not its own file name' {
+        $f = New-Installation -Name 'notice-wrongname' -TagSeed
+        $other = Join-Path $f.Path 'state\crew.json'
+        $n = Get-ReleaseNotice -Root $f.Path -CachePath $other
+        $n.state  | Should -Be 'unreadable'
+        $n.detail | Should -BeLike '*has to be named release-check.json*'
+        Test-Path -LiteralPath $other | Should -BeFalse
     }
 }

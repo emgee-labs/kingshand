@@ -2,8 +2,9 @@
 Set-StrictMode -Version Latest
 
 # Self-update: move this installation to the latest tagged release, re-run the installer, and say
-# what moved. The `/update` skill is the only caller, and `Invoke-KingshandUpdate` is the only
-# entry point it needs.
+# what moved. The `/update` skill is the only caller of `Invoke-KingshandUpdate`, the only entry
+# point it needs. The session-start digest calls `Get-ReleaseNotice`, near the end, to say that a
+# newer release exists - and only to say so.
 #
 # TO A TAG, NEVER TO A BRANCH HEAD. That is the whole design. A tag is a release somebody decided
 # to cut; a branch head is whatever happened to be pushed last, which on this repository is a
@@ -27,7 +28,8 @@ Set-StrictMode -Version Latest
 #
 # The user's own state is never involved. `data\`, `state\`, `config\`, `tools\` and
 # `instructions.md` are gitignored, so no fetch or fast-forward can reach them, and this module
-# adds no machinery to protect what git already ignores.
+# adds no machinery to protect what git already ignores. The one thing that does move under
+# `tools\` is a dependency the re-run installer brings to the release's pinned version.
 #
 # NOT -Force on either import - a module never forces a nested import. The rule and the failure it
 # prevents are in the `statute` skill's style rules.
@@ -171,13 +173,26 @@ function Get-LatestReleaseTag {
     $global:LASTEXITCODE = 0
     if ($code -ne 0) { throw "git could not list the tags in $RepoPath - $(($out | Out-String).Trim())" }
 
-    $tags = @($out | ForEach-Object { "$_".Trim() } | Where-Object { $_ -match $script:ReleaseTagPattern })
-    if ($tags.Count -eq 0) {
+    $latest = Select-LatestReleaseTag -Tags @($out | ForEach-Object { "$_" })
+    if (-not $latest) {
         throw ('No release has been tagged in this repository yet, so there is nothing to update ' +
                'to. A release is a tag like v0.1.0 on the release branch; until one is cut, ' +
                'nothing here moves.')
     }
-    $tags[0]
+    $latest
+}
+
+# THE ONE RULE FOR "LATEST": the first release tag in a list git has already sorted with
+# `-v:refname`, or $null where the list holds none. Both readers below - the local tags `/update`
+# moves to and the remote tags the session-start notice compares against - sort with git and pick
+# here, so the notice can never name a release `/update` would not move to.
+function Select-LatestReleaseTag {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][AllowEmptyString()][string[]]$Tags)
+
+    $releases = @($Tags | ForEach-Object { "$_".Trim() } | Where-Object { $_ -match $script:ReleaseTagPattern })
+    if ($releases.Count -eq 0) { return $null }
+    $releases[0]
 }
 
 # One commit's short hash, or a throw. Used for the from and to a report names.
@@ -470,12 +485,17 @@ function Invoke-KingshandUpdate {
     # install.ps1 is idempotent and is called, never reimplemented. Its output is captured so a
     # caller reports the outcome rather than leaking a wall of installer text.
     #
+    # -SyncPins, so every dependency moves to the version the new release pins and nobody has to do
+    # it by hand. install.ps1 owns what that moves and what it refuses - it never goes past a pin and
+    # never replaces herdr under a running server - and a pin it could not reach exits non-zero,
+    # which arrives here as installOk false with the reason in installError.
+    #
     # $LASTEXITCODE is cleared first because it is global and holds whatever the last native
     # command left there. A script that returns without calling `exit` would otherwise be read as
     # having failed with some earlier command's status.
     try {
         $global:LASTEXITCODE = 0
-        $installOut = @(& $InstallScript *>&1)
+        $installOut = @(& $InstallScript -SyncPins *>&1)
         $installCode = $LASTEXITCODE
         $global:LASTEXITCODE = 0
         $result.installOk = ($installCode -eq 0)
@@ -494,6 +514,236 @@ function Invoke-KingshandUpdate {
     [pscustomobject]$result
 }
 
+# --------------------------------------------------------------------------------------------------
+# THE NEW-RELEASE NOTICE. Every installation is told at session start when a newer release exists
+# than the one it is on, so nobody has to remember to ask. It only says so: moving is still `/update`,
+# run on the user's word. The session-start digest is the one caller.
+#
+# The remote is asked with `git ls-remote`, never a forge's API: plain git has no rate limit, needs
+# no token, and works against any remote a clone was made from. It is asked at most once a day, and
+# the answer - a tag or the reason there is none - is cached in state\release-check.json, which this
+# module alone writes. A cached tag is compared against VERSION afresh every time, so the notice
+# stops the session after `/update` has run rather than a day later.
+#
+# OFF THE RELEASE BRANCH IT SAYS NOTHING, and asks nothing. A maintainer on the integration branch is
+# ahead of every release by design, and `/update` refuses anywhere but the release branch - so a
+# notice there would point at a command that cannot run. A detached HEAD is the same case.
+# --------------------------------------------------------------------------------------------------
+$script:ReleaseCheckName   = 'release-check.json'
+$script:ReleaseCheckOwner  = 'kingshand-release-check'
+$script:ReleaseCheckEvery  = [timespan]::FromDays(1)
+$script:ReleaseCheckRemote = 'origin'
+
+# ls-remote reaches a server from inside a hook that has a 60-second timeout. A remote that stalls
+# is killed here, so a slow network costs one "could not check" line rather than the session start.
+$script:LsRemoteTimeoutSeconds = 10
+
+# The latest release tag the remote has, $null where it has none, or a throw naming why it could
+# not be asked.
+#
+# ls-remote's answer is one `<object id><TAB><ref name>` pair per line, which is a closed shape:
+# anything else on a line is the tool not answering as expected and is refused rather than guessed
+# at. `--refs` drops the peeled `^{}` lines and `--sort=-v:refname` is the same ordering
+# `Get-LatestReleaseTag` asks for, so Select-LatestReleaseTag picks by the one rule.
+#
+# GIT_TERMINAL_PROMPT=0 and GCM_INTERACTIVE=never because a remote that wants a login would
+# otherwise sit waiting for an answer nobody at a hook can give.
+function Get-RemoteReleaseTag {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$RepoPath)
+
+    $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $git) { throw 'git is not on PATH.' }
+
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName               = $git.Source
+    $psi.UseShellExecute        = $false
+    $psi.CreateNoWindow         = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $psi.StandardErrorEncoding  = [System.Text.UTF8Encoding]::new($false)
+    $psi.Environment['GIT_TERMINAL_PROMPT'] = '0'
+    $psi.Environment['GCM_INTERACTIVE']     = 'never'
+    foreach ($a in @('-C', $RepoPath, 'ls-remote', '--tags', '--refs', '--sort=-v:refname',
+                     $script:ReleaseCheckRemote, $script:ReleaseTagGlob)) {
+        $psi.ArgumentList.Add($a)
+    }
+
+    $p = [System.Diagnostics.Process]::Start($psi)
+    try {
+        # Both streams are read before the wait, so a full pipe cannot block the child into a
+        # timeout it would not otherwise have hit.
+        $outTask = $p.StandardOutput.ReadToEndAsync()
+        $errTask = $p.StandardError.ReadToEndAsync()
+        if (-not $p.WaitForExit($script:LsRemoteTimeoutSeconds * 1000)) {
+            try { $p.Kill($true) } catch { }
+            throw "$($script:ReleaseCheckRemote) did not answer within $($script:LsRemoteTimeoutSeconds) seconds."
+        }
+        $null = [System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]]@($outTask, $errTask), 5000)
+        $stdout = if ($outTask.IsCompletedSuccessfully) { "$($outTask.Result)" } else { '' }
+        $stderr = if ($errTask.IsCompletedSuccessfully) { "$($errTask.Result)" } else { '' }
+        if ($p.ExitCode -ne 0) {
+            throw ("git could not list the tags on $($script:ReleaseCheckRemote) - " +
+                   (($stderr -replace '\s+', ' ').Trim()))
+        }
+    } finally {
+        $p.Dispose()
+    }
+
+    $names = foreach ($line in ($stdout -split "`r?`n")) {
+        if (-not $line.Trim()) { continue }
+        $parts = $line.Split("`t")
+        if ($parts.Count -ne 2 -or -not $parts[1].StartsWith('refs/tags/')) {
+            throw "git ls-remote answered with a line that is not a tag: '$line'"
+        }
+        $parts[1].Substring('refs/tags/'.Length)
+    }
+    Select-LatestReleaseTag -Tags @($names)
+}
+
+# The cached answer, or $null where it is too old, from another remote, or dated in the future. A
+# file at the path that is not this check's own is a throw, so it is never read as an answer and
+# never overwritten.
+function Read-ReleaseCheckCache {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$RemoteUrl)
+
+    $doc = $null
+    if (Test-Path -LiteralPath $Path -PathType Leaf) {
+        try {
+            $doc = [System.IO.File]::ReadAllText($Path, [System.Text.UTF8Encoding]::new($false)) |
+                ConvertFrom-Json -AsHashtable -ErrorAction Stop
+        } catch { $doc = $null }
+    }
+    if ($doc -isnot [System.Collections.IDictionary] -or "$($doc['owner'])" -ne $script:ReleaseCheckOwner) {
+        throw "$Path holds something that is not the release check's own cache, so it was left untouched"
+    }
+
+    # ConvertFrom-Json turns an ISO 8601 string into a DateTime on its own, so both shapes count.
+    $v = $doc['checkedAt']
+    $when = $null
+    if ($v -is [datetime]) {
+        $when = $v.ToUniversalTime()
+    } elseif ($v -is [string]) {
+        $parsed = [datetimeoffset]::MinValue
+        if ([datetimeoffset]::TryParseExact($v, 'o', [cultureinfo]::InvariantCulture,
+                [System.Globalization.DateTimeStyles]::None, [ref]$parsed)) {
+            $when = $parsed.UtcDateTime
+        }
+    }
+    $age = if ($when) { [datetime]::UtcNow - $when } else { $null }
+    if ($null -eq $age -or $age -lt [timespan]::Zero -or $age -ge $script:ReleaseCheckEvery) { return $null }
+    if ("$($doc['remote'])" -ne $RemoteUrl) { return $null }
+
+    [pscustomobject]@{
+        checkedAt = $when
+        latest    = $(if ($doc['latest']) { "$($doc['latest'])" } else { $null })
+        error     = "$($doc['error'])"
+    }
+}
+
+# Whether a newer release exists than the one this installation is on, as data.
+#
+# .state      newer | current | ahead | no-release | off-release-branch | unreadable
+# .installed  the version in VERSION, or '' where it could not be read
+# .latest     the latest release's version without its `v`, or ''
+# .checkedAt  when the remote was last asked, UTC, or $null where it was not reached
+# .fromCache  whether that answer came from today's cache rather than the remote
+# .detail     why it is unreadable, and only then
+#
+# Never throws. Every failure - no VERSION, no git, no remote, a remote that would not answer, a
+# cache that is not this module's - is `unreadable` with its own reason, and never a version. A
+# failed ask is cached like an answer, so an offline machine is not asked again until tomorrow.
+function Get-ReleaseNotice {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][string]$CachePath
+    )
+
+    $PSNativeCommandUseErrorActionPreference = $false
+    $out = [ordered]@{
+        state = 'unreadable'; installed = ''; latest = ''; checkedAt = $null; fromCache = $false; detail = ''
+    }
+    try {
+        # The one place this module writes outside the checkout's own git state, so the name is
+        # held to the one file it owns before anything else is read.
+        if ((Split-Path -Path $CachePath -Leaf) -ne $script:ReleaseCheckName) {
+            throw "the release check's cache has to be named $($script:ReleaseCheckName), and $CachePath is not"
+        }
+
+        $out.installed = Get-KingshandVersion -Path (Get-VersionFilePath -Root $Root)
+
+        $branch = Get-CheckedOutBranch -RepoPath $Root
+        if ($branch -ne $script:DefaultReleaseBranch) {
+            $out.state = 'off-release-branch'
+            return [pscustomobject]$out
+        }
+
+        $remoteUrl = (& git -C $Root remote get-url $script:ReleaseCheckRemote 2>$null | Out-String).Trim()
+        $global:LASTEXITCODE = 0
+        if (-not $remoteUrl) { throw "this installation has no $($script:ReleaseCheckRemote) remote to ask" }
+
+        $cached = $null
+        if (Test-Path -LiteralPath $CachePath) {
+            $cached = Read-ReleaseCheckCache -Path $CachePath -RemoteUrl $remoteUrl
+        }
+
+        if ($cached) {
+            $latestTag = $cached.latest
+            $askError  = $cached.error
+            $out.checkedAt = $cached.checkedAt
+            $out.fromCache = $true
+        } else {
+            $latestTag = $null
+            $askError  = ''
+            try { $latestTag = Get-RemoteReleaseTag -RepoPath $Root } catch { $askError = $_.Exception.Message }
+            $out.checkedAt = [datetime]::UtcNow
+
+            $dir = Split-Path -Path $CachePath -Parent
+            if ($dir -and -not (Test-Path -LiteralPath $dir -PathType Container)) {
+                New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            }
+            $body = [ordered]@{
+                owner     = $script:ReleaseCheckOwner
+                checkedAt = $out.checkedAt.ToString('o')
+                remote    = $remoteUrl
+                latest    = $latestTag
+                error     = $askError
+            } | ConvertTo-Json
+            $temp = "$CachePath.$([guid]::NewGuid().ToString('N')).tmp"
+            try {
+                [System.IO.File]::WriteAllText($temp, $body, [System.Text.UTF8Encoding]::new($false))
+                [System.IO.File]::Move($temp, $CachePath, $true)
+                $temp = $null
+            } finally {
+                if ($temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+            }
+        }
+
+        if ($askError) {
+            $out.detail = $askError
+            return [pscustomobject]$out
+        }
+        if (-not $latestTag) {
+            $out.state = 'no-release'
+            return [pscustomobject]$out
+        }
+
+        # Compared as semantic versions by the runtime's own type, so 0.10.0 is above 0.9.0 and a
+        # pre-release such as 1.0.0-rc.1 is below 1.0.0.
+        $out.latest = $latestTag.Substring(1)
+        $installed  = [System.Management.Automation.SemanticVersion]::new($out.installed)
+        $latest     = [System.Management.Automation.SemanticVersion]::new($out.latest)
+        $out.state  = if ($latest -gt $installed) { 'newer' } elseif ($latest -eq $installed) { 'current' } else { 'ahead' }
+    } catch {
+        $out.state  = 'unreadable'
+        $out.detail = "$($_.Exception.Message)".Trim().TrimEnd('.')
+    }
+    [pscustomobject]$out
+}
+
 Export-ModuleMember -Function Get-ReleaseBranchName, Get-LiveWorkerNames, Get-DirtyPaths,
-                              Get-CheckedOutBranch, Get-LatestReleaseTag, Resolve-CommitId,
-                              Get-ReleaseChanges, Test-RereadNeeded, Invoke-KingshandUpdate
+                              Get-CheckedOutBranch, Get-LatestReleaseTag, Select-LatestReleaseTag,
+                              Resolve-CommitId, Get-ReleaseChanges, Test-RereadNeeded,
+                              Invoke-KingshandUpdate, Get-RemoteReleaseTag, Get-ReleaseNotice

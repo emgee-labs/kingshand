@@ -1,6 +1,6 @@
 ---
 name: update
-description: Use when the user wants kingshand itself moved to the latest version - e.g. "/update", "update", "update kingshand", "get the latest kingshand", "am I on the latest?", "is there a newer version". Fast-forwards this installation to the latest tagged release, re-runs install.ps1, and reports the version it moved from, the version it moved to, and what changed between them. Refuses on a dirty tree, on any live worker, off the release branch, or where no release has been tagged yet.
+description: Use when the user wants kingshand itself moved to the latest version - e.g. "/update", "update", "update kingshand", "get the latest kingshand", "am I on the latest?", "is there a newer version". Fast-forwards this installation to the latest tagged release, re-runs install.ps1 to move every dependency to that release's pinned versions, and reports the version it moved from, the version it moved to, and what changed between them. Refuses on a dirty tree, on any live worker, off the release branch, or where no release has been tagged yet.
 tools: Bash, PowerShell, Read
 version: 1.0.0
 ---
@@ -42,7 +42,9 @@ subjects between the two releases; give at most five and say how many more there
 `rereadNeeded` is true, say that this session's own instructions moved and **read `CLAUDE.md`
 again now**, before doing anything else - you were started on the old ones. If `installOk` is
 false, say that plainly with `installError`: the update landed but the installer did not finish, so
-this installation may be configured for the version it left behind.
+this installation may be configured for the version it left behind. The usual cause is a
+dependency the installer could not move to the release's pin - herdr is never replaced while its
+server is running - and `installError` names it and what to do.
 
 **`already-current`** - one line. They are on the latest release, and name it.
 
@@ -74,6 +76,8 @@ update; "no, because X" is the answer.
 - **It never forces, stashes, resets, rebases or merges non-linearly.** The only write is a
   fast-forward, and one that cannot happen does not happen.
 - **It never touches the user's own state.** `data\`, `state\`, `config\`, `tools\` and
-  `instructions.md` are gitignored, so no fetch or fast-forward can reach them.
+  `instructions.md` are gitignored, so no fetch or fast-forward can reach them. What does move is
+  each dependency, to the version the release pins and never past it - the `statute` skill's
+  Dependency pins section owns that contract.
 - **It never reports success it did not have.** A version it could not read reads as unreadable,
   and no version is ever invented to fill the gap.
