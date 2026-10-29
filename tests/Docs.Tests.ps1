@@ -3807,15 +3807,22 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
             -Phrase 'You write the brief and you make this call, so you already hold the list'
     }
 
-    # Dispatch confirms its start prompt was taken and refuses by name when it was not - after the
-    # worker exists. The one thing the Hand must not do then is send the brief again, which would
-    # submit a second copy behind the first.
+    # Dispatch confirms its start prompt was taken and refuses by name only where the worker cannot
+    # be taken to have started - after the worker exists. A worker that may still start is returned
+    # with a warning, so it is recorded and watched rather than left live and untracked. The one
+    # thing the Hand must not do either way is send the brief again.
     It 'muster says dispatch confirms the start prompt, and forbids sending the brief again' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase '**Dispatch returns only once the worker has taken its start prompt**'
+            -Phrase '**Dispatch confirms the worker has taken its start prompt**'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'It refuses only for `(UNSENT)`, `(BLOCKED)` and `(GONE)`'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase 'that refusal comes after the worker and its worktree exist'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'For `not-started` or `unreadable` it returns with a warning and `startPrompt`'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'usual, and name the outcome to the King in one line.'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase ('**Never send the brief again**: a second copy would be submitted as a ' +
                      'second prompt.')

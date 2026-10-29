@@ -1049,13 +1049,14 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $script:FirstResult.id | Should -Be 'T-1001'
         }
 
-        # Four crew.json fields plus one dispatch-time observation, and nothing else. `readable`
+        # Four crew.json fields plus two dispatch-time observations, and nothing else. `readable`
         # is deliberately not crew state: it says whether the guard could see this worker's screen
         # at the moment it started, which the caller has to know because "no prompt found" and
         # "could not look" are different answers and only one means the worker is healthy.
-        It 'returns the four fields crew.json is built from, plus the readability answer' {
+        # `startPrompt` is what the start-prompt confirmation saw, `taken` on the ordinary path.
+        It 'returns the four fields crew.json is built from, plus the readability and start answers' {
             @($script:FirstResult.Keys | Sort-Object) |
-                Should -Be @('base', 'branch', 'id', 'readable', 'worktree')
+                Should -Be @('base', 'branch', 'id', 'readable', 'startPrompt', 'worktree')
         }
 
         It 'reports the worker as readable when its terminal is wide enough for the guard' {
@@ -1768,12 +1769,16 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 Should -Be 1 -Because 'the one resend is a bare Enter on the text already there'
         }
 
-        It 'refuses by name when the box empties but the worker never starts, and resends nothing' {
+        It 'returns with a warning when the box empties but the worker has not started, and resends nothing' {
             Set-AgentStartState -AfterPrompt 'idle'
             $f = New-DispatchFixture 'not-started'
 
-            { Invoke-ShortConfirmDispatch -Fixture $f -Name 'T-3102' } |
-                Should -Throw '*(NOT-STARTED)*'
+            $out = @(Invoke-ShortConfirmDispatch -Fixture $f -Name 'T-3102' 3>&1)
+            $warnings = @($out | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+            $r = $out | Where-Object { $_ -is [hashtable] }
+            $r.id          | Should -Be 'T-3102'
+            $r.startPrompt | Should -Be 'not-started'
+            @($warnings | Where-Object { "$_" -like '*(NOT-STARTED)*' }).Count | Should -Be 1
 
             $lines = Get-CallLines $f
             @($lines | Where-Object { $_ -like 'agent prompt*' }).Count | Should -Be 1
@@ -1785,7 +1790,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Set-AgentStartState
             $f = New-DispatchFixture 'taken'
             $r = Invoke-Dispatch -Fixture $f -Name 'T-3103'
-            $r.id | Should -Be 'T-3103'
+            $r.id          | Should -Be 'T-3103'
+            $r.startPrompt | Should -Be 'taken'
             @(Get-CallLines $f | Where-Object { $_ -like 'agent send-keys*' }).Count | Should -Be 0
         }
 

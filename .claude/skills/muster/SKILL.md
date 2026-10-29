@@ -1077,12 +1077,15 @@ not be taken warns and dispatches rather than blocking. The one exception is a c
 at or past the threshold, which refuses with no current reading behind it - `vigil` owns why, and
 relaying whichever of the two you get is the whole of what it asks of you.
 
-**Dispatch returns only once the worker has taken its start prompt** - its input box empty and
-the worker working, within seconds. Otherwise it refuses with the outcome in capitals, such as
-`(UNSENT)` or `(NOT-STARTED)`, and that refusal comes after the worker and its worktree exist.
-**Never send the brief again**: a second copy would be submitted as a second prompt. Read the
-worker's screen and load `rally`; `bin\Herdr.psm1` owns the outcomes and the one Enter it may
-resend.
+**Dispatch confirms the worker has taken its start prompt** - its input box empty and the worker
+working, within seconds - and `startPrompt` on its result names what it saw, `taken` on the
+ordinary path. It refuses only for `(UNSENT)`, `(BLOCKED)` and `(GONE)`, with the outcome in
+capitals, and that refusal comes after the worker and its worktree exist: read the worker's screen
+and load `rally`. For `not-started` or `unreadable` it returns with a warning and `startPrompt`
+naming the outcome, because the worker exists and may still start: record it and arm its watch as
+usual, and name the outcome to the King in one line.
+**Never send the brief again**: a second copy would be submitted as a second prompt.
+`bin\Herdr.psm1` owns the outcomes and the one Enter it may resend.
 
 **Dispatch attaches the project's own standing files itself and names them in a file of its own -
 it never edits your brief.** `data\done-<project>.md` and `data\rules-<project>.md` are staged
