@@ -137,8 +137,8 @@ function Format-WorkerWake {
         'settled' {
             if ($awaiting -or $state -eq 'blocked') {
                 return ("BLOCKED $Name - it is sitting on an interactive prompt it cannot pass. " +
-                        'Next: tell the King now what it is asking and load rally; never answer ' +
-                        "the prompt blind.$boxNote$tail")
+                        'Next: load rally and, unless regency is in force and says otherwise, ' +
+                        "tell the King now what it is asking; never answer the prompt blind.$boxNote$tail")
             }
             if ($box) {
                 return ("UNSENT $Name state=$state - its input box holds text that was never " +
@@ -161,8 +161,9 @@ function Format-WorkerWake {
             $quiet = Get-WatchField $Wake 'quietMinutes'
             if ($awaiting) {
                 return ("BLOCKED $Name - nothing on its screen moved for $quiet minutes and it is " +
-                        'sitting on a prompt. Next: tell the King what it is asking and load ' +
-                        "rally; never answer the prompt blind.$boxNote$tail")
+                        'sitting on a prompt. Next: load rally and, unless regency is in force ' +
+                        'and says otherwise, tell the King what it is asking; never answer ' +
+                        "the prompt blind.$boxNote$tail")
             }
             return ("STALLED $Name state=$state - nothing on its screen has moved for $quiet " +
                     'minutes. Next: tell the King what it stopped on and load rally; do not act ' +

@@ -203,9 +203,13 @@ Describe 'the away block routes a parked decision instead of forbidding an answe
             -Because 'that is the rule this change overrides, and the digest is read before regency'
     }
 
-    It 'keeps the blocked-prompt floor and routes a report''s decision to petition' {
+    It 'splits a blocked prompt by office and personal and routes a report''s decision to petition' {
         $script:AwayText.Contains('never answer a prompt a worker is blocked on') |
-            Should -BeTrue -Because 'the floor on an interactive prompt is untouched by the override'
+            Should -BeFalse -Because 'a personal project''s prompt inside its brief is answered while he is away'
+        $script:AwayText.Contains('only on a personal project and inside its brief') |
+            Should -BeTrue -Because 'the digest is read before regency and must carry the personal-project rule'
+        $script:AwayText.Contains('on an office project it waits') |
+            Should -BeTrue -Because 'an office project''s prompt still waits for the King'
         $script:AwayText.Contains('decided under `petition`') |
             Should -BeTrue -Because 'a decision written into a report is decided, not left parked'
     }

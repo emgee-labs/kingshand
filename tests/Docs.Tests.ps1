@@ -1798,12 +1798,13 @@ Describe 'rally states what steering can and cannot do, and protects unlanded wo
     # answer back into a parked worker. So the blanket "a steer that needs a decision from the user
     # is the user's to make first" read as a refusal of the very steer that route depends on - the
     # parked-until-morning failure again. Narrowed the same way CLAUDE.md and regency were, and no
-    # further: the blocked-prompt case is untouched and the test itself lives in petition alone.
+    # further: the blocked-prompt case is regency's, and the test itself lives in petition alone.
     It 'narrows the never-steer-a-decision rule to the blocked-prompt case' {
         $text = Get-DocText $script:StuckMd
         Assert-Phrase -Text $text -Where 'rally' `
             -Phrase ('a steer that would answer a prompt a worker is blocked on is still the ' +
-                     "King's to make first")
+                     "King's to make first, except where ``regency``'s ``A worker is blocked on " +
+                     'a prompt` lets you answer it while he is away')
         Assert-Phrase -Text $text -Where 'rally' `
             -Phrase ('A decision the worker *wrote into its `report.md`* is the other case and ' +
                      'not this one: `petition` owns whether you may answer that and by what test')
@@ -1891,10 +1892,11 @@ Describe 'rally states what steering can and cannot do, and protects unlanded wo
     It 'gets the user''s answer before answering a blocked prompt' {
         $text = Get-DocText $script:StuckMd
         Assert-Phrase -Text $text -Where 'the rally escalation' `
-            -Phrase '**A blocked worker is the user''s decision, not yours.**'
+            -Phrase '**A blocked worker is the user''s decision, not yours, outside `regency`.**'
         Assert-Phrase -Text $text -Where 'the rally escalation' `
-            -Phrase ('**Never answer a blocked prompt on the user''s behalf**, and never guess at ' +
-                     'an option you have not read.')
+            -Phrase ('**Never answer a blocked prompt on the user''s behalf outside `regency`''s ' +
+                     '`A worker is blocked on a prompt`**, which alone says when you may while ' +
+                     'he is away, and never guess at an option you have not read.')
     }
 
     It 'keeps the rule that a low context reading is not wedging' {
@@ -4686,16 +4688,30 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Regency | Should -Match 'holds no new powers'
         }
 
-        # The blocked-prompt floor is untouched and these three still pin it. What changed is the
-        # blanket rule that used to sit beside it, and the two cases now have to stay apart: a
-        # prompt drawn on a screen is still never answered, a decision written into a report is
-        # petition's. An assertion on the old phrase would be worthless here - the deliberate-change
-        # note quotes it so a reader can find it in git history - so this pins the new bullet and
-        # the absence of the old one's own heading, which is what a restoration would bring back.
-        It 'never answers a prompt a blocked worker is sitting on' {
-            $script:Regency | Should -Match 'Do \*\*not\*\* send it keys'
-            $script:Regency | Should -Match 'record the question verbatim'
-            $script:Regency | Should -Match 'A prompt drawn on a worker''s screen is the King''s\s+to answer and nobody else''s'
+        # The blocked-prompt rule was split on the King's instruction of 2026-10-29: an office
+        # project's prompt still waits for him untouched, a personal project's is answered inside
+        # the worker's brief and recorded. Each half is pinned, and so is the floor that keeps a
+        # personal prompt from becoming a way past petition's list.
+        It 'still never answers a prompt on an office project' {
+            $script:Regency | Should -Match '\*\*On an office project nothing changed\.\*\* Do \*\*not\*\* send it keys'
+            $script:Regency | Should -Match 'Record the question verbatim as `-Kind blocked`'
+        }
+
+        It 'answers a personal project''s prompt only inside the brief, and records it' {
+            $script:Regency | Should -Match '\*\*On a personal project, answer it when the answer stays inside that worker''s brief\*\*'
+            $script:Regency | Should -Match 'Read its screen first, every time'
+            $script:Regency | Should -Match 'Send the keys through `Send-HerdrKeys`, one key per call'
+            $script:Regency | Should -Match 'Record the prompt verbatim and the option chosen as\s+`-Kind decided -Basis judgement`'
+            $script:Regency | Should -Match 'Pick the narrowest option that is inside the brief'
+        }
+
+        It 'keeps petition''s floors on a personal project''s prompt' {
+            $script:Regency | Should -Match '\*\*It still waits for him\*\* when the answer would go outside the brief, or would be a delete, a\s+cost, anything irreversible or anything security-sensitive'
+        }
+
+        It 'reads office from personal and treats an unsettled project as office' {
+            $script:Regency | Should -Match '\*\*Office or personal is read, never guessed\.\*\*'
+            $script:Regency | Should -Match '\*\*Where none of those\s+settles it, treat it as office and let the prompt wait\*\*'
         }
 
         It 'sends a decision written into a report to petition and states the test nowhere itself' {
@@ -4713,6 +4729,16 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             # The old bullet's own heading. Restoring the blanket rule brings this back with it,
             # and nothing else in the file would notice.
             $script:Regency | Should -Not -Match '\*\*Answering a question a worker asked\.\*\*'
+        }
+
+        # The prompt rule's own change note. The old unscoped bullet's heading is asserted absent,
+        # because restoring it is what would quietly bring back the ten-hour stall.
+        It 'declares the prompt-rule change deliberate and quotes the King''s reason' {
+            $script:Regency | Should -Match '\*\*The prompt rule changed deliberately too, on the King''s instruction of 2026-10-29\.\*\*'
+            $script:Regency.Contains('"Rule was for office work so that edit any server related') |
+                Should -BeTrue -Because 'the King''s own words are the reason and must stay quoted'
+            $script:Regency | Should -Match 'that wording now holds for office projects only'
+            $script:Regency | Should -Not -Match '\*\*Anything a blocked worker is sitting on\.\*\*'
         }
 
         It 'says plainly that the change bought no authority over the floors' {
@@ -9567,13 +9593,16 @@ Describe 'CLAUDE.md keeps the away boundary to a pointer' {
 
     # The always-loaded file outranks every skill, so a stale blanket rule here could not be
     # corrected from petition at all - that is the one reason this change touches CLAUDE.md. It is
-    # narrowed to the blocked-prompt case, which is still absolute, plus one pointer.
+    # narrowed to the blocked-prompt case plus one pointer, and on 2026-10-29 that case itself was
+    # split: still absolute on an office project, answered inside the brief on a personal one.
     It 'narrows the never-answer rule to the prompt case and points the rest at petition' {
         Assert-Phrase -Text $script:AwayHand -Where 'CLAUDE.md' `
-            -Phrase 'never answers a prompt a worker is blocked on'
+            -Phrase ("A worker's on-screen prompt is answered only on a personal project and only " +
+                     "inside that worker's brief, as ``regency`` says, and on an office project " +
+                     'is recorded verbatim and waits')
         Assert-Phrase -Text $script:AwayHand -Where 'CLAUDE.md' `
-            -Phrase ("A blocked worker's question is recorded verbatim and waits; a decision a " +
-                     'worker wrote into its report is decided under `petition`, never here.')
+            -Phrase ('a decision a worker wrote into its report is decided under `petition`, ' +
+                     'never here.')
     }
 
     # Absence, because the failure is a second copy rather than a missing one. The test lives in
@@ -10301,6 +10330,16 @@ Describe 'night''s watch is regency plus queue-working, and merges only under +w
         Assert-Phrase -Text $script:NwHand -Where 'the CLAUDE.md Skills section' `
             -Phrase ('**It grants nothing regency does not, beyond the queue-working the King granted ' +
                      'by name.**')
+    }
+
+    # A pointer, not a copy: regency owns when a worker's prompt is answered, and a second
+    # statement here is the one that would be left saying "never" after regency changed.
+    It 'leaves a blocked worker''s prompt to regency rather than restating the rule' {
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase ('A blocked worker''s prompt stays regency''s case - its `A worker is blocked on ' +
+                     'a prompt` owns whether it is answered, and night''s watch adds nothing to it.')
+        $script:Nw.Contains('is never answered') |
+            Should -BeFalse -Because 'the never-answer rule now holds for office projects only, in regency'
     }
 
     It 'works only what the queue can prove is decided, and stops when that is empty' {

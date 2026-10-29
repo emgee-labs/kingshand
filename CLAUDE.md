@@ -296,9 +296,10 @@ hour, or invokes `/regency` or `/afk` - and at session start whenever the digest
 because the flag is durable and outlives the session that set it. It holds the fleet while they are
 gone: workers stay supervised, everything that does not need them is batched, and it ends the moment
 they speak again. **Being away grants nothing.** It never authorises a land the posture did not
-already allow, never answers a prompt a worker is blocked on, and never touches anything
-destructive, irreversible or security-sensitive. A blocked worker's question is recorded verbatim
-and waits; a decision a worker wrote into its report is decided under `petition`, never here.
+already allow, and never touches anything destructive, irreversible or security-sensitive. A
+worker's on-screen prompt is answered only on a personal project and only inside that worker's
+brief, as `regency` says, and on an office project is recorded verbatim and waits; a decision a
+worker wrote into its report is decided under `petition`, never here.
 
 Invoke `counsel` when the King asks for a story, a feature or a pile of stories to be broken down,
 analysed or brainstormed before anything is built. It divides the work by the layers that project

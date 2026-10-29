@@ -538,8 +538,9 @@ try {
     if ($afk.present) {
         $since = if ($afk.since) { ' (since: ' + $afk.since + ')' } else { '' }
         Add-Line "  AWAY: a regency is in force$since - load ``regency``. The King is not at the machine."
-        Add-Line ('        Batch everything that does not need them, never answer a prompt a worker ' +
-                  'is blocked on, and a decision a worker wrote into its report is decided under `petition`.')
+        Add-Line ('        Batch everything that does not need them, answer a worker''s prompt only on a ' +
+                  'personal project and inside its brief - on an office project it waits - and a ' +
+                  'decision a worker wrote into its report is decided under `petition`.')
         if ($afk.problem) {
             Add-Line ('        NO JOURNAL: ' + (Format-Fault $afk.problem) +
                       ' Nothing can be recorded for this away period until that is fixed.')

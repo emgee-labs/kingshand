@@ -53,8 +53,9 @@ as a result rather than an error.
 
 **Steering is still not a conversation.** The worker cannot reply to you, its brief still forbids
 it from asking anything, and a steer that would answer a prompt a worker is blocked on is still
-the King's to make first. A decision the worker *wrote into its `report.md`* is the other case and
-not this one: `petition` owns whether you may answer that and by what test, and it is the only
+the King's to make first, except where `regency`'s `A worker is blocked on a prompt` lets you
+answer it while he is away. A decision the worker *wrote into its `report.md`* is the other case
+and not this one: `petition` owns whether you may answer that and by what test, and it is the only
 place that test is stated, with `muster` Step 6 owning the route the answer takes back. Do not
 write text into the worktree hoping the worker reads it, and do not describe a steer as done
 without checking `Read-HerdrAgent` afterwards to see that it landed.
@@ -285,18 +286,20 @@ the rule above describes and its stage is left alone.
    confirm it landed. This is the cheap step and it comes first now: throwing a dispatch away for
    something one sentence fixes is waste, and it was the only option before herdr.
 
-3. **A blocked worker is the user's decision, not yours.** `blocked` means it is sitting on an
-   interactive prompt, and herdr will refuse a prompt at that worker until the prompt is answered.
-   Confirm it with `Test-HerdrAgentAwaitingInput` rather than herdr's state word, and confirm the
-   same way before concluding a worker is *not* blocked - that direction is the dangerous one.
+3. **A blocked worker is the user's decision, not yours, outside `regency`.** `blocked` means it
+   is sitting on an interactive prompt, and herdr will refuse a prompt at that worker until the
+   prompt is answered. Confirm it with `Test-HerdrAgentAwaitingInput` rather than herdr's state
+   word, and confirm the same way before concluding a worker is *not* blocked - that direction is
+   the dangerous one.
    Read the options off the screen, tell the user plainly what the worker is asking and what the
    choices are, and get their answer before touching anything. Then answer it with
    `Send-HerdrKeys`, one key per call, reading the screen back between the arrow and the Enter.
 
-   **Never answer a blocked prompt on the user's behalf**, and never guess at an option you have
-   not read. Never open the sequence with a bare Enter either: with no menu on the screen it goes
-   to the input box and submits whatever is rendered there, which is what the section above is
-   about. There is no interactive terminal to hand the worker over in - the panes are headless
+   **Never answer a blocked prompt on the user's behalf outside `regency`'s `A worker is blocked
+   on a prompt`**, which alone says when you may while he is away, and never guess at an option
+   you have not read. Never open the sequence with a bare Enter either: with no menu on the
+   screen it goes to the input box and submits whatever is rendered there, which is what the
+   section above is about. There is no interactive terminal to hand the worker over in - the panes are headless
    and there is no window to attach to - so the Hand is the only route to that prompt, which makes
    getting the answer first the whole safeguard rather than a nicety. Note it too: the worker's
    brief forbade opening that prompt, so its brief was not followed and the rest of its work
