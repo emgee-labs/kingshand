@@ -1346,7 +1346,8 @@ claims with the same suspicion.
 on an interactive prompt it cannot get past, which its brief forbade it from opening. Do not run
 this step against it, and **never answer that prompt blindly** - the choice on it is the user's,
 so tell them what the worker is asking and what the options are, and get their answer first -
-surface it to the user now and load `rally`.
+surface it to the user now and load `rally`. The one exception is `regency`'s `A worker is blocked
+on a prompt`, which alone says when a personal project's prompt is answered while he is away.
 
 **`idle` alone is not a completion signal, and neither is `done`.** Claude Code returns to its
 prompt box when a turn ends, so a worker that has said everything it is going to say reads `idle`

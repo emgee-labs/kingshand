@@ -286,7 +286,7 @@ the rule above describes and its stage is left alone.
    confirm it landed. This is the cheap step and it comes first now: throwing a dispatch away for
    something one sentence fixes is waste, and it was the only option before herdr.
 
-3. **A blocked worker is the user's decision, not yours.** `blocked` means it is sitting on an
+3. **A blocked worker is the user's decision, not yours, outside `regency`.** `blocked` means it is sitting on an
    interactive prompt, and herdr will refuse a prompt at that worker until the prompt is answered.
    Confirm it with `Test-HerdrAgentAwaitingInput` rather than herdr's state word, and confirm the
    same way before concluding a worker is *not* blocked - that direction is the dangerous one.

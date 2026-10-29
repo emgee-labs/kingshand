@@ -669,7 +669,7 @@ function New-WatchRestartPrompt {
 
 # Dismisses Claude Code's usage-limit dialog with Escape, and only that dialog. It is a harness
 # prompt about quota, not a decision about the work; any other prompt on the screen is left alone,
-# because a blocked worker's question is the King's.
+# because a blocked worker's question is the King's unless regency makes it the Hand's.
 function Clear-WatchLimitDialog {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Name)

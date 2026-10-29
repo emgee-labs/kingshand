@@ -1892,7 +1892,7 @@ Describe 'rally states what steering can and cannot do, and protects unlanded wo
     It 'gets the user''s answer before answering a blocked prompt' {
         $text = Get-DocText $script:StuckMd
         Assert-Phrase -Text $text -Where 'the rally escalation' `
-            -Phrase '**A blocked worker is the user''s decision, not yours.**'
+            -Phrase '**A blocked worker is the user''s decision, not yours, outside `regency`.**'
         Assert-Phrase -Text $text -Where 'the rally escalation' `
             -Phrase ('**Never answer a blocked prompt on the user''s behalf outside `regency`''s ' +
                      '`A worker is blocked on a prompt`**, which alone says when you may while ' +
