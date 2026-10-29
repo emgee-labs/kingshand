@@ -797,6 +797,100 @@ function Send-HerdrPrompt {
     $r.agent
 }
 
+# How long a start prompt is given to be taken before the confirmation below names what it saw.
+# Measured on a live worker, a pasted prompt sat in the box for about 300 ms and the worker read
+# idle for about 200 ms more before its turn started, so this is fifty times the slowest case seen.
+$script:PromptConfirmMs = 15000
+
+# Confirms that a prompt just submitted was TAKEN: the box is empty and herdr reads the worker
+# working, within a bounded wait. `agent prompt` returns once the text and its Enter are written,
+# not once Claude Code has acted on them, and a paste can be left sitting in the box unsent - the
+# case the watch reports as `UNSENT`. A dispatch that returned on the write alone handed the Hand a
+# worker that had not started.
+#
+# .outcome names what was seen, and only `taken` means the prompt was taken:
+#
+#   taken        the box is empty and herdr reads the worker working
+#   blocked      the screen shows an interactive prompt
+#   unsent       the box still holds text at the deadline, after the one resend allowed
+#   not-started  the box is empty and the worker never read working - nothing is resent, because
+#                the text may already have been submitted and a second copy would be a second prompt
+#   unreadable   the last read of the screen failed, so nothing could be confirmed
+#   gone         herdr no longer knows the worker
+#
+# THE RESEND IS ONE BARE ENTER, NEVER THE TEXT AGAIN, and only while the box holds text and the
+# worker is not working. The caller sent into an empty box - Send-HerdrPrompt refuses any other -
+# so text there now is the prompt that call wrote, and one Enter submits it once. Sending the text
+# again would type a second copy behind the first and submit both together. The box must have held
+# text for a third of the wait first, so the Enter `agent prompt` already sent is not raced.
+#
+# Nothing here reads what the box says: empty or not is the whole question.
+function Confirm-HerdrPromptTaken {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [int]$TimeoutMs = $script:PromptConfirmMs,
+        [int]$PollMs = 250
+    )
+
+    $agentName = ConvertTo-HerdrAgentName -Name $Name
+    $deadline  = (Get-Date).AddMilliseconds($TimeoutMs)
+    $resendMs  = [int]($TimeoutMs / 3)
+    $resent    = $false
+    $boxSince  = $null
+    $box       = ''
+    $state     = $null
+    $agent     = $null
+    $readOk    = $false
+
+    $result = {
+        param($outcome)
+        [pscustomobject]@{
+            taken     = ($outcome -eq 'taken')
+            outcome   = $outcome
+            resent    = $resent
+            promptBox = if ($readOk) { $box } else { '' }
+            state     = $state
+        }
+    }
+
+    while ($true) {
+        $agent = Get-HerdrAgent -Name $agentName
+        $read  = Read-HerdrAgentScreen -Name $agentName
+        $readOk = $read.ok
+        if ($readOk) {
+            $box = Get-HerdrPromptBoxText -Text $read.text
+            if (Test-HerdrScreenAwaitingInput -Text $read.text) {
+                $state = 'blocked'
+                return & $result 'blocked'
+            }
+        }
+        $state = if ($agent) { $agent.agent_status } else { $null }
+
+        if ($readOk -and $agent) {
+            if (-not $box -and $state -eq 'working') { return & $result 'taken' }
+
+            if ($box -and $state -ne 'working') {
+                if (-not $boxSince) { $boxSince = Get-Date }
+                if (-not $resent -and ((Get-Date) - $boxSince).TotalMilliseconds -ge $resendMs) {
+                    Send-HerdrKeys -Name $agentName -Keys @('enter') -AllowNonEmptyBox -DelayMs 0
+                    $resent = $true
+                }
+            } else {
+                $boxSince = $null
+            }
+        }
+
+        if ((Get-Date) -ge $deadline) { break }
+        Start-Sleep -Milliseconds $PollMs
+    }
+
+    if (-not $agent)  { return & $result 'gone' }
+    if (-not $readOk) { return & $result 'unreadable' }
+    if ($box)         { return & $result 'unsent' }
+    & $result 'not-started'
+}
+
 # Blocks until the agent reaches one of $Until, or the timeout expires.
 #
 # With no -Until, herdr matches idle, done or blocked - which is exactly "the worker stopped
@@ -888,9 +982,16 @@ function Test-HerdrAgentAwaitingInput {
 
     $read = Read-HerdrAgentScreen -Name $Name
     if (-not $read.ok) { return $false }
+    Test-HerdrScreenAwaitingInput -Text $read.text
+}
+
+# The same question asked of a screen already read, so a caller holding one read does not pay for a
+# second that may show a different moment.
+function Test-HerdrScreenAwaitingInput {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
 
     foreach ($sig in $script:AwaitingInputSignatures) {
-        if ($read.text.Contains($sig)) { return $true }
+        if ($Text.Contains($sig)) { return $true }
     }
     $false
 }
@@ -1291,6 +1392,13 @@ function Send-HerdrKeys {
 # keystroke is echoed as literal junk, `agent start` into that pane times out, and no herdr
 # command recovers it. The worktree is never harmed - it is only a directory - but the pane must
 # then be discarded. So this returns the pane id and whether it is safe to reuse.
+#
+# .refused is '' on every result but one: `prompt-box-not-empty`, with .promptBox quoting what is
+# there and .stopped false. `/exit` is TYPED into the box, behind whatever already sits there, and
+# its Enter submits the two together as one prompt - so a worker with text in its box would act on
+# that text rather than exit. Nothing is sent and nothing is cleared: herdr has no stop that does
+# not go through the box, and no key the harness documents empties the box without destroying the
+# text the refusal exists to show. `rally` owns what happens next.
 function Stop-HerdrAgent {
     [CmdletBinding()]
     param(
@@ -1300,7 +1408,11 @@ function Stop-HerdrAgent {
 
     $agentName = ConvertTo-HerdrAgentName -Name $Name
     $agent = Get-HerdrAgent -Name $agentName
-    if (-not $agent) { return [pscustomobject]@{ stopped = $true; paneId = $null; paneReusable = $false } }
+    if (-not $agent) {
+        return [pscustomobject]@{
+            stopped = $true; paneId = $null; paneReusable = $false; refused = ''; promptBox = ''
+        }
+    }
 
     $paneId = $agent.pane_id
 
@@ -1317,24 +1429,34 @@ function Stop-HerdrAgent {
         Start-Sleep -Milliseconds 800
     }
 
-    # -AllowNonEmptyBox, always. TEARDOWN MUST NEVER BE BLOCKED BY A SUGGESTION: `/exit` displaces
-    # whatever is rendered in the box harmlessly, and a worker that cannot be stopped because of a
-    # cosmetic render is a worse failure than the one the guard exists to prevent. It still goes
-    # through the guarded path rather than round the side of it, so the exemption is stated once
-    # here instead of being an accident of which function this happened to call.
-    #
-    # A herdr error on the way out is not the end of the teardown either - the agent may already
-    # have gone - so the confirm loop below is what decides, not this call's outcome.
+    # The box is read AFTER the Escape, because a menu row is not box text and the box under it is
+    # what `/exit` lands in. An unreadable screen reads as an empty box here, as it does on both
+    # send paths: a pane too narrow to render must not make a worker unstoppable.
+    $box = Get-HerdrAgentPromptBox -Name $agentName
+    if ($box) {
+        return [pscustomobject]@{
+            stopped = $false; paneId = $paneId; paneReusable = $false
+            refused = 'prompt-box-not-empty'; promptBox = $box
+        }
+    }
+
+    # -AllowNonEmptyBox only because the box was read just above; reading it twice would leave a
+    # gap for nothing. A herdr error on the way out is not the end of the teardown either - the
+    # agent may already have gone - so the confirm loop below is what decides, not this call.
     try { $null = Send-HerdrPrompt -Name $agentName -Text '/exit' -AllowNonEmptyBox } catch { }
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Milliseconds 500
         if (-not (Get-HerdrAgent -Name $agentName)) {
-            return [pscustomobject]@{ stopped = $true; paneId = $paneId; paneReusable = $true }
+            return [pscustomobject]@{
+                stopped = $true; paneId = $paneId; paneReusable = $true; refused = ''; promptBox = ''
+            }
         }
     }
-    [pscustomobject]@{ stopped = $false; paneId = $paneId; paneReusable = $false }
+    [pscustomobject]@{
+        stopped = $false; paneId = $paneId; paneReusable = $false; refused = ''; promptBox = ''
+    }
 }
 
 function Remove-HerdrPane {
@@ -1347,7 +1469,7 @@ Export-ModuleMember -Function Get-HerdrCommandPath, Get-HerdrCommandHint, Conver
                               Invoke-Herdr, Test-HerdrServer, Get-HerdrServerState, Get-HerdrVersion,
                               Start-HerdrServer, New-HerdrPane,
                               Start-HerdrAgent, Get-HerdrAgent, Get-HerdrAgents,
-                              Get-HerdrAgentInventory, Send-HerdrPrompt,
+                              Get-HerdrAgentInventory, Send-HerdrPrompt, Confirm-HerdrPromptTaken,
                               Wait-HerdrAgent, Read-HerdrAgent, Send-HerdrKeys, Stop-HerdrAgent,
                               Remove-HerdrPane, Test-HerdrAgentAwaitingInput, Get-HerdrAgentState,
                               Wait-HerdrAgentSettled, Test-HerdrAgentReadable,

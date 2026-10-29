@@ -811,22 +811,225 @@ Describe 'the send paths refuse to write into a box the caller did not fill' {
         ($script:reached -join ' ') | Should -BeLike '*do the thing*'
     }
 
-    # A worker that cannot be stopped because of a cosmetic render is a worse failure than the one
-    # the guard exists to prevent, so teardown carries the exemption. Remove it and `/exit` never
-    # reaches herdr at all.
-    It 'tears a worker down even when its box holds a suggestion' {
-        Set-HerdrScreen $script:SuggestionScreen
+}
+
+# ---------------------------------------------------------------------------------------------
+# Stopping a worker. `/exit` is TYPED into the box behind whatever already sits there, and its Enter
+# submits the two together as one prompt - so a worker with text in its box would act on that text
+# instead of exiting. A non-empty box is refused by name, with nothing sent and nothing cleared.
+# ---------------------------------------------------------------------------------------------
+Describe 'Stop-HerdrAgent never submits text already in the box' {
+    BeforeAll { $script:StopDir = Initialize-HerdrScreenStub }
+
+    BeforeEach {
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $env:KINGSHAND_TEST_HERDR_EXE }
+        $script:reached = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName Herdr Invoke-Herdr {
+            $script:reached.Add(($Arguments -join ' '))
+            New-HerdrAgentResult
+        }
+        # Live on the first read, gone on the next: a worker that took its `/exit`.
         $script:gets = 0
         Mock -ModuleName Herdr Get-HerdrAgent {
             $script:gets++
             if ($script:gets -eq 1) { return [pscustomobject]@{ name = 't-9001'; pane_id = 'p1' } }
             $null
         }
+    }
+
+    It 'stops a worker whose box is empty exactly as before' {
+        Set-HerdrScreen $script:EmptyBoxScreen
+
+        $stop = Stop-HerdrAgent -Name 'T-9001' -TimeoutSeconds 5
+        $stop.stopped      | Should -BeTrue
+        $stop.paneReusable | Should -BeTrue
+        $stop.paneId       | Should -Be 'p1'
+        $stop.refused      | Should -Be ''
+        ($script:reached -join ' ') | Should -BeLike '*agent prompt t-9001 /exit*'
+    }
+
+    It 'submits nothing when the box holds <case>' -ForEach @(
+        @{ case = 'typed text';       box = 'also delete the old branch' }
+        @{ case = 'a collapsed paste'; box = '[Pasted text #1 +12 lines]' }
+        @{ case = 'a suggestion';     box = 'show me the getting started section rendered' }
+    ) {
+        Set-HerdrScreen (New-BoxScreen -Box $box)
+
+        $stop = Stop-HerdrAgent -Name 'T-9001' -TimeoutSeconds 5
+        $stop.stopped      | Should -BeFalse
+        $stop.paneReusable | Should -BeFalse
+        $stop.paneId       | Should -Be 'p1'
+        $stop.refused      | Should -Be 'prompt-box-not-empty'
+        $stop.promptBox    | Should -Be $box
+        $script:reached.Count |
+            Should -Be 0 -Because '/exit behind that text would submit both as one prompt'
+    }
+
+    It 'still dismisses a menu with Escape, then refuses on the box under it' {
+        $script:reads = 0
+        Mock -ModuleName Herdr Read-HerdrAgentScreen {
+            $script:reads++
+            $t = if ($script:reads -eq 1) { $script:MenuScreen } else { New-BoxScreen -Box 'half a steer' }
+            [pscustomobject]@{ ok = $true; text = $t }
+        }
+
+        $stop = Stop-HerdrAgent -Name 'T-9001' -TimeoutSeconds 5
+        $stop.refused | Should -Be 'prompt-box-not-empty'
+        @($script:reached) | Should -Be @('agent send-keys t-9001 escape') -Because 'Escape cancels a menu and submits nothing'
+    }
+
+    # The send paths' own fail-open rule, kept: a pane too narrow to render must not make a worker
+    # unstoppable. The box could not be read, so nothing claims it holds anything.
+    It 'still stops a worker whose screen could not be read' {
+        Set-HerdrScreenFailure
 
         $stop = Stop-HerdrAgent -Name 'T-9001' -TimeoutSeconds 5
         $stop.stopped | Should -BeTrue
-        ($script:reached -join ' ') |
-            Should -BeLike '*/exit*' -Because 'teardown must never be blocked by a box the Hand did not fill'
+        $stop.refused | Should -Be ''
+        ($script:reached -join ' ') | Should -BeLike '*/exit*'
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# Confirming a start prompt was taken. `agent prompt` returns once its text and Enter are written,
+# and a paste can be left sitting in the box unsent. Every case drives the public function against a
+# mocked screen and a mocked herdr record, and counts what reached herdr: the resend is one bare
+# Enter at most, never the text again, so nothing here can submit the prompt twice.
+# ---------------------------------------------------------------------------------------------
+Describe 'Confirm-HerdrPromptTaken confirms a prompt was taken, and never submits it twice' {
+    BeforeAll {
+        $script:PasteBox = '[Pasted text #1 +3 lines]'
+
+        # Poll by poll: each entry is the box and herdr's state at that poll, the last repeating.
+        # $script:entered flips once an Enter reaches herdr, and a script after it takes over.
+        function Set-PromptPolls {
+            param([object[]]$Before, [object[]]$AfterEnter = @())
+            $script:polls      = $Before
+            $script:afterEnter = $AfterEnter
+            $script:poll       = 0
+            $script:entered    = $false
+        }
+        function Get-CurrentPoll {
+            # Assigned by name rather than through an if expression, which unrolls a one-entry list
+            # into the hashtable itself.
+            $list = $script:polls
+            if ($script:entered -and $script:afterEnter.Count) { $list = $script:afterEnter }
+            $list[[Math]::Min($script:poll, $list.Count - 1)]
+        }
+    }
+
+    BeforeEach {
+        $script:reached = [System.Collections.Generic.List[string]]::new()
+        Mock -ModuleName Herdr Invoke-Herdr {
+            $script:reached.Add(($Arguments -join ' '))
+            if ($Arguments[1] -eq 'send-keys' -and $Arguments[3] -eq 'enter') {
+                $script:entered = $true
+                $script:poll = 0
+            }
+            $null
+        }
+        Mock -ModuleName Herdr Get-HerdrAgent {
+            $p = Get-CurrentPoll
+            if ($p.state -eq 'gone') { return $null }
+            [pscustomobject]@{ name = 't-9001'; pane_id = 'p1'; agent_status = $p.state }
+        }
+        Mock -ModuleName Herdr Read-HerdrAgentScreen {
+            $p = Get-CurrentPoll
+            $script:poll++
+            if ($p.screen -eq 'unreadable') { return [pscustomobject]@{ ok = $false; text = '' } }
+            $t = if ($p.screen -eq 'menu') { $script:MenuScreen } else { New-BoxScreen -Box $p.box }
+            [pscustomobject]@{ ok = $true; text = $t }
+        }
+    }
+
+    It 'confirms a prompt taken at once, on its default wait' {
+        Set-PromptPolls -Before @(@{ box = ''; state = 'working' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001'
+        $r.taken   | Should -BeTrue
+        $r.outcome | Should -Be 'taken'
+        $r.resent  | Should -BeFalse
+        $script:reached.Count | Should -Be 0
+    }
+
+    It 'waits through a paste that is still going in, without resending' {
+        Set-PromptPolls -Before @(
+            @{ box = $script:PasteBox; state = 'idle' }
+            @{ box = '';               state = 'idle' }
+            @{ box = '';               state = 'working' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001' -TimeoutMs 3000 -PollMs 10
+        $r.outcome | Should -Be 'taken'
+        $r.resent  | Should -BeFalse
+        $script:reached.Count | Should -Be 0
+    }
+
+    It 'sends one bare Enter for a prompt left in the box, and confirms it then' {
+        Set-PromptPolls -Before @(@{ box = $script:PasteBox; state = 'idle' }) `
+                        -AfterEnter @(@{ box = ''; state = 'working' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001' -TimeoutMs 600 -PollMs 10
+        $r.outcome | Should -Be 'taken'
+        $r.resent  | Should -BeTrue
+        @($script:reached) | Should -Be @('agent send-keys t-9001 enter')
+    }
+
+    # THE DOUBLE-SUBMIT GUARD. The text is never sent again and the Enter is never repeated, however
+    # long the box keeps the text: a second copy of the prompt would be a second prompt.
+    It 'names a prompt still unsent after its one Enter, and sends nothing more' {
+        Set-PromptPolls -Before @(@{ box = $script:PasteBox; state = 'idle' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001' -TimeoutMs 600 -PollMs 10
+        $r.taken     | Should -BeFalse
+        $r.outcome   | Should -Be 'unsent'
+        $r.resent    | Should -BeTrue
+        $r.promptBox | Should -Be $script:PasteBox
+        @($script:reached) | Should -Be @('agent send-keys t-9001 enter')
+        @($script:reached | Where-Object { $_ -like 'agent prompt*' }).Count | Should -Be 0
+    }
+
+    It 'resends nothing when the box is empty and the worker never starts' {
+        Set-PromptPolls -Before @(@{ box = ''; state = 'idle' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001' -TimeoutMs 300 -PollMs 10
+        $r.outcome | Should -Be 'not-started'
+        $script:reached.Count |
+            Should -Be 0 -Because 'an empty box may mean the prompt was already submitted'
+    }
+
+    It 'never presses Enter at a worker that is working with text in its box' {
+        Set-PromptPolls -Before @(@{ box = 'queued behind the turn'; state = 'working' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001' -TimeoutMs 300 -PollMs 10
+        $r.outcome | Should -Be 'unsent'
+        $r.resent  | Should -BeFalse
+        $script:reached.Count | Should -Be 0
+    }
+
+    It 'names a worker blocked on a prompt, and answers nothing' {
+        Set-PromptPolls -Before @(@{ screen = 'menu'; state = 'idle' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001' -TimeoutMs 300 -PollMs 10
+        $r.outcome | Should -Be 'blocked'
+        $script:reached.Count | Should -Be 0
+    }
+
+    It 'says unreadable, rather than taken or unsent, when the screen cannot be read' {
+        Set-PromptPolls -Before @(@{ screen = 'unreadable'; state = 'working' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001' -TimeoutMs 300 -PollMs 10
+        $r.outcome   | Should -Be 'unreadable'
+        $r.taken     | Should -BeFalse
+        $r.promptBox | Should -Be ''
+        $script:reached.Count | Should -Be 0
+    }
+
+    It 'says gone when herdr no longer knows the worker' {
+        Set-PromptPolls -Before @(@{ box = ''; state = 'gone' })
+
+        $r = Confirm-HerdrPromptTaken -Name 'T-9001' -TimeoutMs 300 -PollMs 10
+        $r.outcome | Should -Be 'gone'
+        $script:reached.Count | Should -Be 0
     }
 }
 

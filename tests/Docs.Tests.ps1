@@ -1368,6 +1368,12 @@ Describe 'teardown exits the worker cleanly and never kills it' {
             -Phrase 'Never reach for the pid.'
     }
 
+    It 'routes a stop refused over box text to rally' {
+        Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
+            -Phrase ('A `$stop.refused` of `prompt-box-not-empty` means its input box holds text ' +
+                     'and nothing was sent - load `rally`.')
+    }
+
     It 'leaves the worktree alone when the stop did not take' {
         Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
             -Phrase ('`$stop.stopped` being false means the worker did not exit. Stop there, ' +
@@ -1856,6 +1862,19 @@ Describe 'rally states what steering can and cannot do, and protects unlanded wo
             -Phrase '**A force-killed worker leaves its pane permanently unusable.**'
         Assert-Phrase -Text $text -Where 'the kill hazard' `
             -Phrase 'No herdr command recovers it'
+    }
+
+    # `/exit` is typed in behind whatever sits in the box and submitted with it, so a stop over box
+    # text would have the worker act on that text. The code refuses it; this pins the reader's half.
+    It 'says a stop sends nothing over box text, and that the text is never cleared' {
+        $text = Get-DocText $script:StuckMd
+        Assert-Phrase -Text $text -Where 'the stop box rule' `
+            -Phrase "**A stop sends nothing while the worker's input box holds text.**"
+        Assert-Phrase -Text $text -Where 'the stop box rule' `
+            -Phrase '`refused` set to `prompt-box-not-empty`'
+        Assert-Phrase -Text $text -Where 'the stop box rule' `
+            -Phrase ('stop the worker only once the King has decided what that text is and the ' +
+                     'box is empty')
     }
 
     It 'discards an unusable pane and keeps the worktree' {
@@ -3786,6 +3805,19 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
                      'may make it start.**')
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase 'You write the brief and you make this call, so you already hold the list'
+    }
+
+    # Dispatch confirms its start prompt was taken and refuses by name when it was not - after the
+    # worker exists. The one thing the Hand must not do then is send the brief again, which would
+    # submit a second copy behind the first.
+    It 'muster says dispatch confirms the start prompt, and forbids sending the brief again' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase '**Dispatch returns only once the worker has taken its start prompt**'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'that refusal comes after the worker and its worktree exist'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase '**Never send the brief again**: a second copy would be submitted as a second prompt.'
     }
 
     # Nothing enforces the pairing any more, so the skill has to say who does. Left unsaid, the

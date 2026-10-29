@@ -32,10 +32,15 @@ event worth noticing, and the caller may be about to send something that must no
 whatever is already there. The escape hatch is `-AllowNonEmptyBox`, which is the escalation: `rally`
 quotes the text to the King and passes the switch only once they have seen it.
 
-Teardown is the one standing exemption. `/exit` displaces whatever is rendered harmlessly, and a
-worker that cannot be stopped because of a cosmetic render is a worse failure than the one the guard
-prevents - so `Stop-HerdrAgent` passes the switch deliberately, through the guarded path rather than
-around it.
+Teardown was a standing exemption until 2026-10-29, on the reasoning that `/exit` displaces a
+suggestion harmlessly. That holds for a suggestion and not for real text: typed text or a collapsed
+paste stays in the box, `/exit` is typed in behind it, and its Enter submits the two together as one
+prompt that the worker acts on instead of exiting. The box reader cannot tell a suggestion from real
+text, and the suggestion is switched off on worker panes, so `Stop-HerdrAgent` now refuses a
+non-empty box like the send paths do - returning `refused = 'prompt-box-not-empty'` with the text
+quoted rather than throwing, so every caller's existing `stopped` check still stops it. herdr has no
+stop that does not go through the box, and no key the harness documents empties the box without
+destroying the text the refusal exists to show, so nothing is cleared.
 
 ### The discriminator is the caret plus a no-break space
 
