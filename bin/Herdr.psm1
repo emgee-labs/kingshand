@@ -1450,7 +1450,8 @@ function Stop-HerdrAgent {
         Start-Sleep -Milliseconds 500
         if (-not (Get-HerdrAgent -Name $agentName)) {
             return [pscustomobject]@{
-                stopped = $true; paneId = $paneId; paneReusable = $true; refused = ''; promptBox = ''
+                stopped = $true; paneId = $paneId; paneReusable = $true
+                refused = ''; promptBox = ''
             }
         }
     }

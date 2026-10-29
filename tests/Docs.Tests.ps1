@@ -3817,7 +3817,8 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase 'that refusal comes after the worker and its worktree exist'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase '**Never send the brief again**: a second copy would be submitted as a second prompt.'
+            -Phrase ('**Never send the brief again**: a second copy would be submitted as a ' +
+                     'second prompt.')
     }
 
     # Nothing enforces the pairing any more, so the skill has to say who does. Left unsaid, the

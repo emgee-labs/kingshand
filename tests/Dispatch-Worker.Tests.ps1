@@ -1750,7 +1750,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             function Invoke-ShortConfirmDispatch {
                 param([Parameter(Mandatory)]$Fixture, [Parameter(Mandatory)][string]$Name)
                 & $script:DispatchScript -RepoPath $Fixture.Repo -Name $Name `
-                    -BriefPath $Fixture.BriefPath -DataPath $Fixture.DataPath -PromptConfirmSeconds 2
+                    -BriefPath $Fixture.BriefPath -DataPath $Fixture.DataPath `
+                    -PromptConfirmSeconds 2
             }
         }
 

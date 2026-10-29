@@ -869,13 +869,15 @@ Describe 'Stop-HerdrAgent never submits text already in the box' {
         $script:reads = 0
         Mock -ModuleName Herdr Read-HerdrAgentScreen {
             $script:reads++
-            $t = if ($script:reads -eq 1) { $script:MenuScreen } else { New-BoxScreen -Box 'half a steer' }
+            $t = $script:MenuScreen
+            if ($script:reads -gt 1) { $t = New-BoxScreen -Box 'half a steer' }
             [pscustomobject]@{ ok = $true; text = $t }
         }
 
         $stop = Stop-HerdrAgent -Name 'T-9001' -TimeoutSeconds 5
         $stop.refused | Should -Be 'prompt-box-not-empty'
-        @($script:reached) | Should -Be @('agent send-keys t-9001 escape') -Because 'Escape cancels a menu and submits nothing'
+        @($script:reached) | Should -Be @('agent send-keys t-9001 escape') `
+            -Because 'Escape cancels a menu and submits nothing'
     }
 
     # The send paths' own fail-open rule, kept: a pane too narrow to render must not make a worker
