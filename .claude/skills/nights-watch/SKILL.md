@@ -128,7 +128,10 @@ it again before its reset, so the step pauses on the hold even where `-Threshold
      ref named for the task and the moment, before anything is stopped.
   2. **Tell each working worker to finish its edit, commit and stop** - a prompt, not a stop.
   3. **Only then stop it cleanly**, with `Stop-HerdrAgent`. Never a kill. A worker parked on a
-     decision is idle and spends nothing, so it is left alone, as `rally` says.
+     decision is idle and spends nothing, so it is left alone, as `rally` says. **A `$stop.stopped`
+     of false means the worker was not paused**: record it in the away journal and never restart it
+     at the reset. A `$stop.refused` of `prompt-box-not-empty` means its input box holds text and
+     nothing was sent - quote `$stop.promptBox` in that record and load `rally`.
   4. **Arm one timer**: `Wait-WatchReset -WakeAt $step.wakeAt` as one harness-tracked background
      job, never `nohup` and never a detached child. `wakeAt` is pinned once from the last reading
      and never recomputed. Take **zero** quota readings across the gap. If the job dies, re-arm it
