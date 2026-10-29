@@ -10462,6 +10462,10 @@ Describe 'night''s watch is regency plus queue-working, and merges only under +w
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
             -Phrase '3. **Only then stop it cleanly**, with `Stop-HerdrAgent`. Never a kill.'
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**A `$stop.stopped` of false means the worker was not paused**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'quote `$stop.promptBox` in that record and load `rally`'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
             -Phrase 'never `nohup` and never a detached child'
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' -Phrase 'Take **zero** quota readings across the gap.'
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
