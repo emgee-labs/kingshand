@@ -341,8 +341,35 @@ Describe 'A worker watch never reports settled while the worker waits on its own
         $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 5
         Assert-OneLine $l
         $l | Should -BeLike 'SETTLED T-1 state=done*'
-        Should -Invoke -ModuleName Watch Start-Sleep -Times 1 -Exactly
+        Should -Invoke -ModuleName Watch Start-Sleep -Times 2 -Exactly
         Should -Invoke -ModuleName Herdr Wait-HerdrAgent -Times 2 -Exactly
+    }
+
+    It 'does not settle in the moment after its last shell exits, before the turn it brings starts' {
+        # The shell is gone by the first sample, and the turn its finish brings starts five seconds
+        # later. A wait that read the worker in between would see it done on no shells.
+        $script:clock = Get-Date
+        $script:resumeAt = $null
+        Mock -ModuleName Watch Get-Date { $script:clock }
+        Mock -ModuleName Watch Start-Sleep {
+            param($Seconds)
+            $script:clock = $script:clock.AddSeconds($Seconds)
+            if ($null -eq $script:resumeAt) { $script:resumeAt = $script:clock.AddSeconds(5) }
+        }
+        $script:waits = 0
+        Mock -ModuleName Watch Wait-HerdrAgentProgress {
+            $script:waits++
+            if ($script:waits -eq 1) { New-Wake -State 'done' -Shells 1 }
+            elseif ($script:clock -ge $script:resumeAt) { New-Wake -Reason 'stalled' -State 'working' }
+            else { New-Wake -State 'done' }
+        }
+        Mock -ModuleName Watch Get-HerdrAgentProgressSignal {
+            [pscustomobject]@{ readable = $true; backgroundShells = 0 }
+        }
+
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 5
+        $l | Should -Not -BeLike 'SETTLED*'
+        $l | Should -BeLike 'STALLED T-1 state=working*'
     }
 
     It 'reports a worker still on its shell when the clock runs out as waiting on it, never settled' {
@@ -626,7 +653,7 @@ Describe 'Watch-Delivery' {
 
         $l = Watch-Delivery -Name 'T-1' -RepoPath 'C:\wt' -Branch 'feature-x'
         $l | Should -BeLike 'SETTLED T-1*No gate run is recorded on feature-x.'
-        Should -Invoke -ModuleName Watch Start-Sleep -Times 1 -Exactly
+        Should -Invoke -ModuleName Watch Start-Sleep -Times 2 -Exactly
     }
 
     # Text in the box means the turn that ended is not the one for that text, so the worker has not

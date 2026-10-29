@@ -45,6 +45,10 @@ $script:DefaultTimeoutMinutes = 45
 $script:ShellSampleSeconds  = 60
 $script:ReportSampleSeconds = 15
 
+# How long a worker still idle when its last shell has gone is given to start the turn that shell's
+# finish brings, before the wait that follows may read it settled.
+$script:ShellDrainConfirmSeconds = 10
+
 # How many reads of a report in a row may fail before the watch says it cannot read it. One is not
 # enough: the worker's own write holds the file for a moment, and that is not a fault.
 $script:ReportUnreadableTolerance = 3
@@ -252,7 +256,9 @@ function Invoke-WorkerWait {
 }
 
 # Blocks while a worker that ended its turn still has background shells of its own running, until
-# they are done, its turn starts again, or the deadline. 'resumed' or 'deadline'.
+# they are done, its turn starts again, or the deadline. 'resumed' or 'deadline'. A count read at 0
+# on a worker still idle is held a moment longer, because the turn the finish brings starts just
+# after the shell exits, and a wait that read the worker before then would call it settled.
 #
 # It samples rather than waits on herdr, because herdr's wait returns at once on a worker that reads
 # `done`, which is exactly what this worker reads - so it sleeps between samples and never spins.
@@ -272,7 +278,11 @@ function Wait-WorkerShells {
         } catch { return 'resumed' }
         if ((Get-WatchField $sig 'readable') -ne $true) { return 'resumed' }
         $shells = Get-WatchField $sig 'backgroundShells'
-        if ($null -eq $shells -or [int]$shells -lt 1) { return 'resumed' }
+        if ($null -eq $shells) { return 'resumed' }
+        if ([int]$shells -lt 1) {
+            Start-Sleep -Seconds $script:ShellDrainConfirmSeconds
+            return 'resumed'
+        }
     }
     'deadline'
 }
