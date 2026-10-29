@@ -91,9 +91,11 @@ function Set-WorkerWorkspaceSettings {
 # its targets in free text, and approving one would mean parsing that.
 $script:FolderEditTools = @{ Edit = 'file_path'; MultiEdit = 'file_path'; Write = 'file_path'; NotebookEdit = 'notebook_path' }
 
-# The one file under .claude\ the grant never covers: the file that holds the grants. A worker that
-# could rewrite it could widen its own permissions, so that edit is left to the menu.
-$script:FolderEditExcludedLeaf = 'settings.local.json'
+# The two files at the root of .claude\ the grant never covers: both settings files grant
+# permissions - allow rules and hooks - so a worker that could rewrite either could widen its own
+# permissions, and an edit to either is left to the menu. Files in subfolders (skills, agents,
+# commands) stay granted.
+$script:FolderEditExcludedLeaves = @('settings.json', 'settings.local.json')
 
 # The matcher group for one .claude folder, as settings.json's hooks.PermissionRequest takes it.
 # Exec form - `args` present, so no shell parses the line - running this module from the
@@ -158,8 +160,8 @@ function Resolve-WorkerClaudeFolderEdit {
     $root = [IO.Path]::GetFullPath($ClaudeDir).TrimEnd('\', '/')
     $full = [IO.Path]::GetFullPath($target)
     if (-not $full.StartsWith($root + $sep, $cmp)) { & $none "$full is outside $root"; return }
-    if ($full.Equals((Join-Path $root $script:FolderEditExcludedLeaf), $cmp)) {
-        & $none "$full holds the grants themselves"; return
+    foreach ($leaf in $script:FolderEditExcludedLeaves) {
+        if ($full.Equals((Join-Path $root $leaf), $cmp)) { & $none "$full holds permissions"; return }
     }
 
     # A link anywhere from the folder down to the file would let a path that reads as inside land

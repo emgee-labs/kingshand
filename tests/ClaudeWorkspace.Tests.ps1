@@ -192,6 +192,8 @@ Describe 'the folder-edit grant lets a worker edit its own .claude folder and no
     It 'gives no decision for <name>' -ForEach @(
         @{ name = 'the folder''s own settings.local.json, which holds the grants'
            path = { Join-Path $script:Claude 'settings.local.json' } }
+        @{ name = 'the folder''s own settings.json, which also holds permissions'
+           path = { Join-Path $script:Claude 'settings.json' } }
         @{ name = 'a sibling whose name only starts the same'
            path = { Join-Path $script:Worktree '.claude-other\x.md' } }
         @{ name = 'a path that climbs out with ..'
@@ -203,6 +205,12 @@ Describe 'the folder-edit grant lets a worker edit its own .claude folder and no
     ) {
         Resolve-WorkerClaudeFolderEdit -ClaudeDir $script:Claude 2>$null `
             -InputJson (New-Request -Path (& $path)) | Should -BeNullOrEmpty
+    }
+
+    It 'allows a settings.json one level down, which grants nothing' {
+        Resolve-WorkerClaudeFolderEdit -ClaudeDir $script:Claude 2>$null `
+            -InputJson (New-Request -Path (Join-Path $script:Claude 'skills\x\settings.json')) |
+            Should -Not -BeNullOrEmpty
     }
 
     It 'gives no decision for a shell tool, even naming a path inside the folder' {
