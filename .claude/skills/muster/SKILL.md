@@ -1077,6 +1077,16 @@ not be taken warns and dispatches rather than blocking. The one exception is a c
 at or past the threshold, which refuses with no current reading behind it - `vigil` owns why, and
 relaying whichever of the two you get is the whole of what it asks of you.
 
+**Dispatch confirms the worker has taken its start prompt** - its input box empty and the worker
+working, within seconds - and `startPrompt` on its result names what it saw, `taken` on the
+ordinary path. It refuses only for `(UNSENT)`, `(BLOCKED)` and `(GONE)`, with the outcome in
+capitals, and that refusal comes after the worker and its worktree exist: read the worker's screen
+and load `rally`. For `not-started` or `unreadable` it returns with a warning and `startPrompt`
+naming the outcome, because the worker exists and may still start: record it and arm its watch as
+usual, and name the outcome to the King in one line.
+**Never send the brief again**: a second copy would be submitted as a second prompt.
+`bin\Herdr.psm1` owns the outcomes and the one Enter it may resend.
+
 **Dispatch attaches the project's own standing files itself and names them in a file of its own -
 it never edits your brief.** `data\done-<project>.md` and `data\rules-<project>.md` are staged
 whenever they exist, keyed off the project the registry resolves from the repo path, and a line
@@ -2517,7 +2527,8 @@ either route - it is only a directory - but a killed worker costs you the pane a
 handle open on the directory you are about to remove. Never reach for the pid.
 
 `$stop.stopped` being false means the worker did not exit. Stop there, report it, and leave the
-worktree alone: the process is still live and still holding the directory.
+worktree alone: the process is still live and still holding the directory. A `$stop.refused` of
+`prompt-box-not-empty` means its input box holds text and nothing was sent - load `rally`.
 
 Then remove the worktree, which is kingshand's own now - the dispatcher created it, so the
 dispatcher's caller cleans it up:

@@ -1368,6 +1368,12 @@ Describe 'teardown exits the worker cleanly and never kills it' {
             -Phrase 'Never reach for the pid.'
     }
 
+    It 'routes a stop refused over box text to rally' {
+        Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
+            -Phrase ('A `$stop.refused` of `prompt-box-not-empty` means its input box holds text ' +
+                     'and nothing was sent - load `rally`.')
+    }
+
     It 'leaves the worktree alone when the stop did not take' {
         Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
             -Phrase ('`$stop.stopped` being false means the worker did not exit. Stop there, ' +
@@ -1856,6 +1862,19 @@ Describe 'rally states what steering can and cannot do, and protects unlanded wo
             -Phrase '**A force-killed worker leaves its pane permanently unusable.**'
         Assert-Phrase -Text $text -Where 'the kill hazard' `
             -Phrase 'No herdr command recovers it'
+    }
+
+    # `/exit` is typed in behind whatever sits in the box and submitted with it, so a stop over box
+    # text would have the worker act on that text. The code refuses it; this pins the reader's half.
+    It 'says a stop sends nothing over box text, and that the text is never cleared' {
+        $text = Get-DocText $script:StuckMd
+        Assert-Phrase -Text $text -Where 'the stop box rule' `
+            -Phrase "**A stop sends nothing while the worker's input box holds text.**"
+        Assert-Phrase -Text $text -Where 'the stop box rule' `
+            -Phrase '`refused` set to `prompt-box-not-empty`'
+        Assert-Phrase -Text $text -Where 'the stop box rule' `
+            -Phrase ('stop the worker only once the King has decided what that text is and the ' +
+                     'box is empty')
     }
 
     It 'discards an unusable pane and keeps the worktree' {
@@ -3786,6 +3805,27 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
                      'may make it start.**')
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase 'You write the brief and you make this call, so you already hold the list'
+    }
+
+    # Dispatch confirms its start prompt was taken and refuses by name only where the worker cannot
+    # be taken to have started - after the worker exists. A worker that may still start is returned
+    # with a warning, so it is recorded and watched rather than left live and untracked. The one
+    # thing the Hand must not do either way is send the brief again.
+    It 'muster says dispatch confirms the start prompt, and forbids sending the brief again' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase '**Dispatch confirms the worker has taken its start prompt**'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'It refuses only for `(UNSENT)`, `(BLOCKED)` and `(GONE)`'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'that refusal comes after the worker and its worktree exist'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'For `not-started` or `unreadable` it returns with a warning and `startPrompt`'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase 'usual, and name the outcome to the King in one line.'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('**Never send the brief again**: a second copy would be submitted as a ' +
+                     'second prompt.')
     }
 
     # Nothing enforces the pairing any more, so the skill has to say who does. Left unsaid, the
@@ -10421,6 +10461,10 @@ Describe 'night''s watch is regency plus queue-working, and merges only under +w
             -Phrase '2. **Tell each working worker to finish its edit, commit and stop** - a prompt, not a stop.'
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
             -Phrase '3. **Only then stop it cleanly**, with `Stop-HerdrAgent`. Never a kill.'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase '**A `$stop.stopped` of false means the worker was not paused**'
+        Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
+            -Phrase 'quote `$stop.promptBox` in that record and load `rally`'
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
             -Phrase 'never `nohup` and never a detached child'
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' -Phrase 'Take **zero** quota readings across the gap.'

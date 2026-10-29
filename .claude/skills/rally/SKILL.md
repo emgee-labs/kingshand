@@ -41,7 +41,7 @@ Get-HerdrAgentPromptBox -Name "<worker id>"      # what is sitting in its input 
 Read-HerdrAgent -Name "<worker id>" -Lines 60    # what is on that worker's screen right now
 Send-HerdrPrompt -Name "<worker id>" -Text "..." # steer it: text in, Enter sent
 Send-HerdrKeys  -Name "<worker id>" -Keys down,enter   # answer a prompt, one key per call
-Stop-HerdrAgent -Name "<worker id>"              # /exit, then confirm it is gone
+Stop-HerdrAgent -Name "<worker id>"              # /exit, then confirm gone; refuses box text
 Remove-HerdrPane -PaneId "<pane id>"             # discard the pane the worker was in
 ```
 
@@ -156,6 +156,12 @@ produced has that protection.
 `Stop-HerdrAgent` sends `/exit` and waits for the worker to disappear. Never substitute
 `Stop-Process` or any other force-kill.
 
+**A stop sends nothing while the worker's input box holds text.** `/exit` is typed in behind that
+text and submitted with it as one prompt, so the worker would act on the text instead of exiting.
+The result comes back with `stopped` false, `refused` set to `prompt-box-not-empty` and the text
+quoted in `promptBox`. The text is the same unexplained box as below: quote it, never clear it,
+and stop the worker only once the King has decided what that text is and the box is empty.
+
 **A force-killed worker leaves its pane permanently unusable.** It never sends its terminal-mode
 reset, so the pane stays in Kitty keyboard protocol with bracketed paste on: every later keystroke
 is echoed as literal text instead of being interpreted, `ctrl+c` arrives as `[99;5u`, and starting
@@ -193,7 +199,8 @@ Hand had written it. Clearing it destroys the only evidence the event happened. 
 which worker it was on, and move on.
 
 Both send paths already refuse a non-empty box and the refusal names the worker and quotes the
-content, so **the exception is the escalation**: report what it said, and pass `-AllowNonEmptyBox`
+content - a stop does too, and `Always /exit, never a kill` above owns that one - so **the
+exception is the escalation**: report what it said, and pass `-AllowNonEmptyBox`
 only once the King has seen it. `Get-HerdrAgentProgressSignal` and every `Wait-HerdrAgentProgress`
 report carry `promptBox` too, so an unexplained box arrives on a wake you already handle.
 

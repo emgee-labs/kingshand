@@ -690,10 +690,25 @@ Describe 'Stop-CheckoutWorker cleans up a checkout worker and never touches the 
     }
 
     It 'leaves the pane and the settings in place when the worker does not stop' {
-        Mock -ModuleName ClaudeWorkspace Stop-HerdrAgent { [pscustomobject]@{ stopped = $false; paneId = 'p7' } }
+        Mock -ModuleName ClaudeWorkspace Stop-HerdrAgent {
+            [pscustomobject]@{ stopped = $false; paneId = 'p7'; refused = ''; promptBox = '' }
+        }
         Mock -ModuleName ClaudeWorkspace Remove-HerdrPane { }
         { Stop-CheckoutWorker -Name 'acme-api-session' -RecordPath $script:Record -DataPath $script:Data } |
             Should -Throw '*did not stop*'
+        Should -Invoke -ModuleName ClaudeWorkspace Remove-HerdrPane -Times 0
+        Test-Path -LiteralPath $script:Record | Should -BeTrue
+    }
+
+    It 'names the refusal and quotes the box when the worker was not stopped for text in its box' {
+        Mock -ModuleName ClaudeWorkspace Stop-HerdrAgent {
+            [pscustomobject]@{
+                stopped = $false; paneId = 'p7'; refused = 'prompt-box-not-empty'; promptBox = 'half a thought'
+            }
+        }
+        Mock -ModuleName ClaudeWorkspace Remove-HerdrPane { }
+        { Stop-CheckoutWorker -Name 'acme-api-session' -RecordPath $script:Record -DataPath $script:Data } |
+            Should -Throw "*prompt-box-not-empty*'half a thought'*rally*"
         Should -Invoke -ModuleName ClaudeWorkspace Remove-HerdrPane -Times 0
         Test-Path -LiteralPath $script:Record | Should -BeTrue
     }
