@@ -277,7 +277,10 @@ What still constrains it:
   comment, or a work item.
 - `deny` blocks reads of `~\.ssh`, AWS credentials and `config\credentials\`, and blocks edits to
   `instructions.md` - your standing instructions are protected by the permission layer, not just by
-  prose asking nicely.
+  prose asking nicely. It also denies six tools the Hand never calls - `Artifact`, `SendFeedback`,
+  `ScheduleWakeup`, `ReportFindings`, `ShareOnboardingGuide` and `ListAgents` - because a tool
+  denied by name is taken out of context entirely, and their schemas cost about 16k tokens on every
+  call. Remove a name from the list to get that tool back.
 
 If you would rather approve each call, remove `defaultMode` from `.claude\settings.json`. Expect a
 great many prompts.
