@@ -160,6 +160,7 @@ function Resolve-WorkerClaudeFolderEdit {
     $root = [IO.Path]::GetFullPath($ClaudeDir).TrimEnd('\', '/')
     $full = [IO.Path]::GetFullPath($target)
     if (-not $full.StartsWith($root + $sep, $cmp)) { & $none "$full is outside $root"; return }
+    if ($full.Substring($root.Length).Contains(':')) { & $none "$full names a file stream"; return }
     foreach ($leaf in $script:FolderEditExcludedLeaves) {
         if ($full.Equals((Join-Path $root $leaf), $cmp)) { & $none "$full holds permissions"; return }
     }

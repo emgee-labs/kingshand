@@ -194,6 +194,10 @@ Describe 'the folder-edit grant lets a worker edit its own .claude folder and no
            path = { Join-Path $script:Claude 'settings.local.json' } }
         @{ name = 'the folder''s own settings.json, which also holds permissions'
            path = { Join-Path $script:Claude 'settings.json' } }
+        @{ name = 'a settings file reached through its data stream'
+           path = { Join-Path $script:Claude 'settings.json::$DATA' } }
+        @{ name = 'a named stream on a file in the folder'
+           path = { Join-Path $script:Claude 'skills\x.md:foo' } }
         @{ name = 'a sibling whose name only starts the same'
            path = { Join-Path $script:Worktree '.claude-other\x.md' } }
         @{ name = 'a path that climbs out with ..'
