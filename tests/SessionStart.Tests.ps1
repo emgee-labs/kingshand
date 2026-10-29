@@ -509,6 +509,32 @@ Describe 'the registry names the projects with something live or waiting, with t
         (Get-Digest $f).Contains('+merge') | Should -BeFalse
     }
 
+    # The Hand writes ticket text itself and CLAUDE.md sends it to the family's shared rules before
+    # it does. Where the digest names a project at all, it says which family that project is in.
+    It 'says which family a project belongs to, and stays silent for one in none' {
+        $f = New-Fixture 'registry-family'
+        foreach ($n in @('alpha', 'beta')) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $f.Root "repos\$n") | Out-Null
+        }
+        Add-RegistryEntry $f '- alpha [direct-PR +yolo +family:acme] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        Add-RegistryEntry $f '- beta [direct-PR +yolo] - beta repo (added 2026-01-02)' (Join-Path $f.Root 'repos\beta')
+        Add-FixtureWorkers $f @('alpha', 'beta')
+        $text = Get-Digest $f
+        (Get-ProjectLine $text 'alpha').Trim() | Should -Be '- alpha [direct-PR] yolo on +family:acme'
+        (Get-ProjectLine $text 'beta').Trim() |
+            Should -Be '- beta [direct-PR] yolo on' -Because 'a project in no family prints exactly as it always has'
+    }
+
+    # An annotation the parser could not read in full yields no family, so the digest must not name
+    # one - and a family the Hand read here and acted on would be one nothing else agrees with.
+    It 'names no family on an entry whose annotation could not be read in full' {
+        $f = New-Fixture 'registry-family-unreadable'
+        New-Item -ItemType Directory -Force -Path (Join-Path $f.Root 'repos\alpha') | Out-Null
+        Add-RegistryEntry $f '- alpha [no-mistakes garbage +family:acme] - alpha repo (added 2026-01-01)' (Join-Path $f.Root 'repos\alpha')
+        Add-FixtureWorkers $f @('alpha')
+        (Get-Digest $f).Contains('+family') | Should -BeFalse
+    }
+
     It 'flags a registered project whose path is gone, naming the path, with nothing under way' {
         $f = New-Fixture 'registry-gone'
         $gone = Join-Path $f.Root 'repos\vanished'

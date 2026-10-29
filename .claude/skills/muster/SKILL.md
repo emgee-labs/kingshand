@@ -97,7 +97,7 @@ Resolve the project through the registry. It supplies both the path and the post
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Projects.psm1 -Force
 $proj = Get-ProjectEntry -Name "<project name>"
-[pscustomobject]$proj | Format-List name, path, rawMode, yolo, merge
+[pscustomobject]$proj | Format-List name, path, rawMode, yolo, merge, family
 ```
 
 **The `[pscustomobject]` cast is required.** `Get-ProjectEntry` returns a hashtable, and
@@ -258,14 +258,15 @@ failure this whole mechanism exists to stop - a settled spec that sat in `data\`
 site it described shipped without it. Reading the index is the first line of this step for exactly
 that reason; the refusal is what stops a busy session skipping it.
 
-**The project's own two standing files do not discharge this.** The criteria file goes to
-`-ReadPath` on every brief for a project that has one, and dispatch attaches both it and
-`data\rules-<project>.md` whether or not anyone passes them, so a gate that counted either would be
-one no dispatch could ever fail again - and dispatch knows it, discounting `done-<project>.md` and
-`rules-<project>.md` from the paths that satisfy this refusal. Where it is the only file this task
-touches, a line about the index still goes in the section beside it - but not the literal one
-above, which would tell the worker there is nothing beyond the brief in the same breath as handing
-it a file to read. Write what is true instead:
+**The standing files this project carries do not discharge this.** The criteria file goes to
+`-ReadPath` on every brief for a project that has one, and dispatch attaches it,
+`data\rules-<project>.md` and the family's `data\families\<name>.md` whether or not anyone passes
+them, so a gate that counted any of them would be one no dispatch could ever fail again - worst of
+all the family's file, which would switch the gate off for every project in the family at once. So
+dispatch knows it, discounting all three from the paths that satisfy this refusal. Where one is the
+only file this task touches, a line about the index still goes in the section beside it - but not
+the literal one above, which would tell the worker there is nothing beyond the brief in the same
+breath as handing it a file to read. Write what is true instead:
 
 ```markdown
 - The index was checked; nothing in it applies to this task beyond the standing criteria above.
@@ -325,7 +326,7 @@ is expected to meet. Where a criterion is one this task deliberately sets aside,
 `Requirements` or `Unchanged` and in the `Intent` section the gate is handed - the brief wins over
 the file, and a worker left to work out which source wins picks wrong half the time.
 
-**The project's standing rules are not pasted and not passed.** `data\rules-<project>.md` holds
+**The standing rules are not pasted and not passed.** `data\rules-<project>.md` holds
 context and vocabulary - tagging and casing, shorthand, folders never to touch, branch naming,
 where a login is kept - and `annex` owns its format. Dispatch attaches it by itself and names the
 copy in the dispatch file Step 4 describes, so pass no `-ReadPath` for it and write no line for it.
@@ -333,6 +334,14 @@ Do not paste it into the brief and never ask the worker to report against it: it
 an `n/a` answered to "our tickets are tagged NG-" dilutes the self-check on the lines that are
 really tested. **Read it yourself before you write the brief** - the copy goes to the worker, and
 the ticket text is yours.
+
+`data\families\<name>.md` goes the same way, for a project whose registry entry carries a
+`+family:` token: attached by dispatch, never passed, never pasted, never reported against - and
+read by you first for the same reason. **Never passed is enforced rather than asked for**: dispatch
+refuses a `-ReadPath` naming that file, because it stages the copy under a leaf of its own and a
+hand-passed second copy is the one nothing ever refreshes. The project's own file wins where the
+two disagree, and the line dispatch writes says so, so nothing about that belongs in the brief
+either.
 
 Dispatch attaches `done-<project>.md` on the same terms if you did not pass it, which is a backstop
 and not a reason to stop passing it: the paste above is what the worker is judged against, and it
@@ -1057,21 +1066,22 @@ brief already names, because that directory is the only place outside its worktr
 read. Drop the parameter only when the section states there is nothing to read.
 
 Every refusal comes before anything at all is created, so a mistake here costs nothing to fix.
-There are twelve, and each is refused by name: a usage window already past the threshold, a `-Base`
-naming a `worktree-*` branch, a `-Base` git cannot resolve in the repository, a brief with
-no `## Read first` section at all, a brief that passes no `-ReadPath` and does not say the index
-was checked when anything at all is indexed - and neither the project's own standing files nor the
-browser procedure counts towards that one, per Step 2, which owns the rule - a brief carrying a
-`## Browser checks` section that passes no `-ReadPath` for the browser procedure or for the module
-it imports, a path that does not exist, a directory where a file was meant, two different files
-whose names would land on top of each other in the staging directory, a standing file that exists
-and cannot be opened, a directory sitting where a standing file belongs, and a dispatch file beside
-the brief that dispatch did not write or cannot write to. A dispatch with `-InCheckout` adds the
-checkout's own refusals on top, all of them before anything is created too, and the dispatcher's
-header lists them.
+There are thirteen, and each is refused by name: a usage window already past the threshold, a
+`-Base` naming a `worktree-*` branch, a `-Base` git cannot resolve in the repository, a brief
+with no `## Read first` section at all, a brief that passes no `-ReadPath` and does not say the
+index was checked when anything at all is indexed - and neither the standing files this project
+carries nor the browser procedure counts towards that one, per Step 2, which owns the rule - a
+brief carrying a `## Browser checks` section that passes no `-ReadPath` for the browser procedure
+or for the module it imports, a path that does not exist, a directory where a file was meant, a
+`-ReadPath` naming the family's own shared file, which dispatch attaches itself, two different
+files whose names would land on top of each other in the staging directory, a standing file that
+exists and cannot be opened, a directory sitting where a standing file belongs, and a dispatch
+file beside the brief that dispatch did not write or cannot write to. A dispatch with
+`-InCheckout` adds the checkout's own refusals on top, all of them before anything is created
+too, and the dispatcher's header lists them.
 
 **The usage one is the only refusal here that can be absent rather than raised.** Every one of the
-other eleven is about something this dispatch knows exactly - a path it was handed, or the base ref
+other twelve is about something this dispatch knows exactly - a path it was handed, or the base ref
 it was told to use; that one is about a number a separate tool reports, and a reading that could
 not be taken warns and dispatches rather than blocking. The one exception is a cached floor already
 at or past the threshold, which refuses with no current reading behind it - `vigil` owns why, and
@@ -1087,16 +1097,19 @@ usual, and name the outcome to the King in one line.
 **Never send the brief again**: a second copy would be submitted as a second prompt.
 `bin\Herdr.psm1` owns the outcomes and the one Enter it may resend.
 
-**Dispatch attaches the project's own standing files itself and names them in a file of its own -
-it never edits your brief.** `data\done-<project>.md` and `data\rules-<project>.md` are staged
-whenever they exist, keyed off the project the registry resolves from the repo path, and a line
-naming each copy goes under `Read first` in `data\<id>\brief.dispatch.md`, the dispatch file beside
-the brief, which the worker's start prompt names beside the brief. An `-InCheckout` dispatch puts
-its checkout warnings there too. It writes no line for a file you passed yourself - that one you
+**Dispatch attaches the standing files itself and names them in a file of its own - it never
+edits your brief.** `data\done-<project>.md` and `data\rules-<project>.md` are staged whenever they
+exist, keyed off the project the registry resolves from the repo path, and `data\families\<name>.md`
+with them where that project's entry carries a `+family:` token. A line naming each copy goes under
+`Read first` in `data\<id>\brief.dispatch.md`, the dispatch file beside the brief, which the
+worker's start prompt names beside the brief - the family's last of the three, saying in so many
+words that the project's own file wins where the two disagree. An `-InCheckout` dispatch puts its
+checkout warnings there too. It writes no line for a file you passed yourself - that one you
 already named - and the file is composed afresh on every dispatch, so re-dispatching adds nothing.
 Retire one of those files and re-dispatch the same ticket, and its line goes and dispatch deletes
-the copy, so removing a standing file is enough to stop it reaching a worker. A project with neither
-file, dispatched without `-InCheckout`, gets no dispatch file at all. **Do not read the dispatch
+the copy, so removing a standing file is enough to stop it reaching a worker; taking the
+`+family:` token off the entry retires the family's file the same way. A project with none of
+them, dispatched without `-InCheckout`, gets no dispatch file at all. **Do not read the dispatch
 file and do not edit it**: the brief you wrote is exactly what you approved, and anything you open
 is context you pay for again on every call.
 
