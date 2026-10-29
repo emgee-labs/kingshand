@@ -1050,6 +1050,20 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             @($json.permissions.additionalDirectories) | Should -Contain $script:First.BriefDir
         }
 
+        # The mode grant above no longer takes effect from this file, so a write under the
+        # worktree's own .claude folder is answered by a hook instead - scoped to that folder.
+        It 'writes the grant to edit the worktree''s own .claude folder, and no other' {
+            $settings = Join-Path $script:FirstResult.worktree '.claude\settings.local.json'
+            $json  = Get-Content -LiteralPath $settings -Raw | ConvertFrom-Json
+            $group = @($json.hooks.PermissionRequest)
+            $group.Count | Should -Be 1
+            $group[0].matcher -split '\|' | Should -Contain 'Edit'
+            $line = @($group[0].hooks)[0].args -join ' '
+            $scope = [IO.Path]::GetFullPath((Join-Path $script:FirstResult.worktree '.claude'))
+            $line.Contains("-ClaudeDir '$scope'") |
+                Should -BeTrue -Because 'the grant names the worktree''s folder, never the main checkout''s'
+        }
+
         It 'records folder trust for the worktree, so the agent never meets the dialog' {
             $config = Get-Content -LiteralPath (Join-Path $script:First.Home '.claude.json') -Raw |
                       ConvertFrom-Json

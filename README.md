@@ -265,6 +265,10 @@ What still constrains it:
   That entry is exactly the worktree kingshand just created - never its parent repository, except
   the checkout a `fief` session's worker runs in, and never
   the machine. With no `~\.claude.json`, nothing is written and the worker stops at the dialog.
+- Each worker may edit files under its own worktree's `.claude` folder - a skill, an agent - with no
+  prompt, so a brief that allows a skill edit does not stop on a menu. That grant never reaches
+  `~\.claude` or another repository, and never covers the folder's own `settings.json` or
+  `settings.local.json`, which hold permissions.
 - Nothing is dispatched into a repository you have not registered.
 - Nothing pushes unless that project is registered with a push-capable posture, and nothing is
   merged on the forge unless that project's registry entry declares `+merge` - or `+watch-merge`,

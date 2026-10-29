@@ -120,6 +120,140 @@ Describe 'Set-WorkerWorkspaceSettings writes the two grants that used to be comm
     }
 }
 
+# Claude Code ignores defaultMode bypassPermissions in a settings.local.json and starts the worker in
+# Manual mode, where a write under .claude\ is a protected path that stops on a menu. The grant is a
+# PermissionRequest hook in the same file, scoped to the one .claude folder it was written for.
+Describe 'the folder-edit grant lets a worker edit its own .claude folder and nothing else' {
+    BeforeAll {
+        function New-Request {
+            param([string]$Tool = 'Edit', [string]$Path, [string]$Key = 'file_path')
+            [ordered]@{
+                hook_event_name = 'PermissionRequest'
+                tool_name       = $Tool
+                tool_input      = [ordered]@{ $Key = $Path }
+            } | ConvertTo-Json -Compress
+        }
+
+        # Runs the hook exactly as Claude Code does: the command from the written settings, spawned
+        # with its args and no shell, the request on stdin. Returns what it printed on each stream.
+        function Invoke-WrittenHook {
+            param([Parameter(Mandatory)][string]$SettingsPath, [Parameter(Mandatory)][string]$Request)
+            $json = Get-Content -LiteralPath $SettingsPath -Raw | ConvertFrom-Json
+            $h    = @(@($json.hooks.PermissionRequest)[0].hooks)[0]
+            $psi  = [System.Diagnostics.ProcessStartInfo]::new($h.command)
+            foreach ($a in @($h.args)) { $psi.ArgumentList.Add($a) }
+            $psi.RedirectStandardInput  = $true
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError  = $true
+            $p = [System.Diagnostics.Process]::Start($psi)
+            $p.StandardInput.Write($Request)
+            $p.StandardInput.Close()
+            $out = $p.StandardOutput.ReadToEnd()
+            $err = $p.StandardError.ReadToEnd()
+            $p.WaitForExit()
+            [pscustomobject]@{ exit = $p.ExitCode; out = $out.Trim(); err = $err }
+        }
+    }
+
+    BeforeEach {
+        $script:Worktree = New-CaseDir
+        $script:Claude   = Join-Path $script:Worktree '.claude'
+        $script:Settings = Set-WorkerWorkspaceSettings -WorktreePath $script:Worktree
+    }
+
+    It 'the written hook, run the way Claude Code runs it, allows an edit under that .claude folder' {
+        $r = Invoke-WrittenHook -SettingsPath $script:Settings `
+                 -Request (New-Request -Path (Join-Path $script:Claude 'skills\muster\SKILL.md'))
+        $r.exit | Should -Be 0
+        $d = $r.out | ConvertFrom-Json
+        $d.hookSpecificOutput.hookEventName     | Should -Be 'PermissionRequest'
+        $d.hookSpecificOutput.decision.behavior | Should -Be 'allow'
+    }
+
+    It 'the written hook gives no decision for a file outside that folder, and says why' {
+        $other = Join-Path (New-CaseDir) '.claude\skills\x\SKILL.md'
+        $r = Invoke-WrittenHook -SettingsPath $script:Settings -Request (New-Request -Path $other)
+        $r.exit | Should -Be 0
+        $r.out  | Should -BeNullOrEmpty
+        $r.err  | Should -BeLike '*is outside*'
+    }
+
+    It 'allows Write, MultiEdit and NotebookEdit under the folder too' {
+        foreach ($t in 'Write', 'MultiEdit') {
+            Resolve-WorkerClaudeFolderEdit -ClaudeDir $script:Claude 2>$null `
+                -InputJson (New-Request -Tool $t -Path (Join-Path $script:Claude 'agents\a.md')) |
+                Should -Not -BeNullOrEmpty -Because "$t is a file tool"
+        }
+        Resolve-WorkerClaudeFolderEdit -ClaudeDir $script:Claude 2>$null `
+            -InputJson (New-Request -Tool 'NotebookEdit' -Key 'notebook_path' -Path (Join-Path $script:Claude 'n.ipynb')) |
+            Should -Not -BeNullOrEmpty
+    }
+
+    It 'gives no decision for <name>' -ForEach @(
+        @{ name = 'the folder''s own settings.local.json, which holds the grants'
+           path = { Join-Path $script:Claude 'settings.local.json' } }
+        @{ name = 'the folder''s own settings.json, which also holds permissions'
+           path = { Join-Path $script:Claude 'settings.json' } }
+        @{ name = 'a settings file reached through its data stream'
+           path = { Join-Path $script:Claude 'settings.json::$DATA' } }
+        @{ name = 'a named stream on a file in the folder'
+           path = { Join-Path $script:Claude 'skills\x.md:foo' } }
+        @{ name = 'a sibling whose name only starts the same'
+           path = { Join-Path $script:Worktree '.claude-other\x.md' } }
+        @{ name = 'a path that climbs out with ..'
+           path = { Join-Path $script:Claude '..\outside.md' } }
+        @{ name = 'the worktree itself, outside .claude'
+           path = { Join-Path $script:Worktree 'README.md' } }
+        @{ name = 'a relative path'
+           path = { '.claude\skills\x.md' } }
+    ) {
+        Resolve-WorkerClaudeFolderEdit -ClaudeDir $script:Claude 2>$null `
+            -InputJson (New-Request -Path (& $path)) | Should -BeNullOrEmpty
+    }
+
+    It 'allows a settings.json one level down, which grants nothing' {
+        Resolve-WorkerClaudeFolderEdit -ClaudeDir $script:Claude 2>$null `
+            -InputJson (New-Request -Path (Join-Path $script:Claude 'skills\x\settings.json')) |
+            Should -Not -BeNullOrEmpty
+    }
+
+    It 'gives no decision for a shell tool, even naming a path inside the folder' {
+        $req = [ordered]@{ tool_name = 'Bash'; tool_input = @{ command = "echo x > $script:Claude\x.md" } } |
+               ConvertTo-Json -Compress
+        Resolve-WorkerClaudeFolderEdit -ClaudeDir $script:Claude -InputJson $req 2>$null | Should -BeNullOrEmpty
+    }
+
+    It 'gives no decision through a link that leads out of the folder' {
+        $outside = New-CaseDir
+        New-Item -ItemType Junction -Path (Join-Path $script:Claude 'linked') -Target $outside | Out-Null
+        Resolve-WorkerClaudeFolderEdit -ClaudeDir $script:Claude 2>$null `
+            -InputJson (New-Request -Path (Join-Path $script:Claude 'linked\x.md')) | Should -BeNullOrEmpty
+    }
+
+    # Unreadable input is no decision, never an allow: the request then meets Claude Code's own flow.
+    It 'gives no decision for a request it cannot read: <name>' -ForEach @(
+        @{ name = 'not JSON';            json = '{ nope' }
+        @{ name = 'empty';               json = '' }
+        @{ name = 'not an object';       json = '[1,2]' }
+        @{ name = 'no tool';             json = '{"tool_input":{"file_path":"C:\\x"}}' }
+        @{ name = 'no path in the input'; json = '{"tool_name":"Edit","tool_input":{}}' }
+    ) {
+        Resolve-WorkerClaudeFolderEdit -ClaudeDir $script:Claude -InputJson $json 2>$null | Should -BeNullOrEmpty
+    }
+
+    It 'the written hook names an unreadable request on stderr rather than deciding' {
+        $r = Invoke-WrittenHook -SettingsPath $script:Settings -Request '{ nope'
+        $r.out | Should -BeNullOrEmpty
+        $r.err | Should -BeLike '*could not be read as JSON*'
+    }
+
+    It 'keeps the two grants that were there before it' {
+        $json = Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json
+        $json.permissions.defaultMode | Should -Be 'bypassPermissions'
+        $json.PSObject.Properties.Name | Should -Contain 'hooks'
+    }
+}
+
 Describe 'Grant-ClaudeFolderTrust records one worktree as trusted' {
     # A fresh worktree is a directory Claude Code has never seen, so an unattended worker stops on
     # the folder-trust dialog and herdr reports agent_not_ready while the agent sits blocked. The
@@ -318,6 +452,43 @@ Describe 'the permission file in a checkout is backed up, edited and put back' {
         $null = Set-CheckoutWorkerSettings -Plan $plan
         $json = Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json
         @($json.permissions.additionalDirectories) | Should -Be @('D:\shared', 'D:\brief')
+    }
+
+    It 'adds the folder-edit grant for the checkout''s own .claude folder beside the King''s hooks' {
+        Set-Original '{ "hooks": { "PermissionRequest": [ { "matcher": "Bash", "hooks": [] } ], "Stop": [] } }'
+        $plan = New-CheckoutSettingsPlan -CheckoutPath $script:Checkout -RecordPath $script:Record
+        $null = Set-CheckoutWorkerSettings -Plan $plan
+        $json   = Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json
+        $groups = @($json.hooks.PermissionRequest)
+        $groups.Count       | Should -Be 2
+        $groups[0].matcher  | Should -Be 'Bash'
+        $json.hooks.PSObject.Properties.Name | Should -Contain 'Stop'
+        $scope = [IO.Path]::GetFullPath((Join-Path $script:Checkout '.claude'))
+        (@($groups[1].hooks)[0].args -join ' ').Contains("-ClaudeDir '$scope'") | Should -BeTrue
+    }
+
+    It 'takes the folder-edit grant back at cleanup, leaving the original byte for byte' {
+        $original = '{ "permissions": { "allow": ["Bash(ls)"] } }'
+        Set-Original $original
+        $plan = New-CheckoutSettingsPlan -CheckoutPath $script:Checkout -RecordPath $script:Record
+        $null = Set-CheckoutWorkerSettings -Plan $plan
+        (Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json).PSObject.Properties.Name |
+            Should -Contain 'hooks'
+
+        $null = Restore-CheckoutWorkerSettings -RecordPath $script:Record
+        [System.IO.File]::ReadAllText($script:Settings) | Should -Be $original
+        (Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json).PSObject.Properties.Name |
+            Should -Not -Contain 'hooks'
+    }
+
+    It 'refuses a hooks value it cannot add to: <name>' -ForEach @(
+        @{ name = 'hooks not an object';             json = '{ "hooks": [] }';                         msg = '*''hooks'' value that is not an object*' }
+        @{ name = 'PermissionRequest not a list';    json = '{ "hooks": { "PermissionRequest": {} } }'; msg = '*PermissionRequest'' value that is not a list*' }
+    ) {
+        Set-Original $json
+        { New-CheckoutSettingsPlan -CheckoutPath $script:Checkout -RecordPath $script:Record } | Should -Throw $msg
+        Test-Path -LiteralPath $script:Record | Should -BeFalse
+        [System.IO.File]::ReadAllText($script:Settings) | Should -Be $json
     }
 
     It 'never writes allow: [null] where there was no allow list' {
