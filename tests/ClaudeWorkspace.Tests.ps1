@@ -90,6 +90,13 @@ Describe 'Set-WorkerWorkspaceSettings writes the two grants that used to be comm
         @($json.permissions.additionalDirectories).Count | Should -Be 0
     }
 
+    It 'allows the Monitor tool, and nothing else, so a worker in Manual mode is not stopped on it' {
+        Set-WorkerWorkspaceSettings -WorktreePath $script:Worktree -AdditionalDirectories @('D:\briefs\t-9001') | Out-Null
+        $json = Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json
+        @($json.permissions.allow) | Should -Be @('Monitor')
+        Get-Content -LiteralPath $script:Settings -Raw | Should -Match '"allow"\s*:\s*\['
+    }
+
     It 'creates the .claude directory itself - a worktree is a fresh checkout that has none' {
         Test-Path -LiteralPath (Join-Path $script:Worktree '.claude') | Should -BeFalse
         Set-WorkerWorkspaceSettings -WorktreePath $script:Worktree | Out-Null
@@ -433,13 +440,13 @@ Describe 'the permission file in a checkout is backed up, edited and put back' {
         $script:Record   = Join-Path (New-CaseDir) 'checkout-settings.json'
     }
 
-    It 'keeps the existing allow list and every other key, and adds the two grants' {
+    It 'keeps the existing allow list and every other key, and adds the grants' {
         Set-Original '{ "permissions": { "allow": ["Bash(npm test)"] }, "env": { "A": "1" } }'
         $plan = New-CheckoutSettingsPlan -CheckoutPath $script:Checkout -RecordPath $script:Record `
                     -AdditionalDirectories @('D:\data\acme-api-session')
         $null = Set-CheckoutWorkerSettings -Plan $plan
         $json = Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json
-        @($json.permissions.allow)                 | Should -Be @('Bash(npm test)')
+        @($json.permissions.allow)                 | Should -Be @('Bash(npm test)', 'Monitor')
         $json.env.A                                | Should -Be '1'
         $json.permissions.defaultMode              | Should -Be 'bypassPermissions'
         @($json.permissions.additionalDirectories) | Should -Be @('D:\data\acme-api-session')
@@ -491,12 +498,53 @@ Describe 'the permission file in a checkout is backed up, edited and put back' {
         [System.IO.File]::ReadAllText($script:Settings) | Should -Be $json
     }
 
-    It 'never writes allow: [null] where there was no allow list' {
+    It 'never writes allow: [null] where there was no allow list - only the worker''s own rule' {
         $plan = New-CheckoutSettingsPlan -CheckoutPath $script:Checkout -RecordPath $script:Record `
                     -AdditionalDirectories @('D:\brief')
         $null = Set-CheckoutWorkerSettings -Plan $plan
         $json = Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json
-        $json.permissions.PSObject.Properties.Name | Should -Not -Contain 'allow'
+        @($json.permissions.allow) | Should -Be @('Monitor')
+    }
+
+    It 'does not add Monitor a second time where the King already allows it' {
+        Set-Original '{ "permissions": { "allow": ["Monitor", "Bash(ls)"] } }'
+        $plan = New-CheckoutSettingsPlan -CheckoutPath $script:Checkout -RecordPath $script:Record
+        $null = Set-CheckoutWorkerSettings -Plan $plan
+        $json = Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json
+        @($json.permissions.allow) | Should -Be @('Monitor', 'Bash(ls)')
+    }
+
+    It 'takes the Monitor rule back at cleanup, leaving the King''s allow list byte for byte' {
+        $original = '{ "permissions": { "allow": ["Bash(ls)"] } }'
+        Set-Original $original
+        $plan = New-CheckoutSettingsPlan -CheckoutPath $script:Checkout -RecordPath $script:Record
+        $null = Set-CheckoutWorkerSettings -Plan $plan
+        @((Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json).permissions.allow) |
+            Should -Contain 'Monitor'
+
+        $null = Restore-CheckoutWorkerSettings -RecordPath $script:Record
+        [System.IO.File]::ReadAllText($script:Settings) | Should -Be $original
+        @((Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json).permissions.allow) |
+            Should -Not -Contain 'Monitor'
+    }
+
+    It 'takes the Monitor rule back at cleanup by deleting a file that did not exist before' {
+        $plan = New-CheckoutSettingsPlan -CheckoutPath $script:Checkout -RecordPath $script:Record
+        $null = Set-CheckoutWorkerSettings -Plan $plan
+        @((Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json).permissions.allow) |
+            Should -Be @('Monitor')
+
+        $null = Restore-CheckoutWorkerSettings -RecordPath $script:Record
+        Test-Path -LiteralPath $script:Settings | Should -BeFalse
+    }
+
+    It 'refuses an allow value that is not a list, and writes nothing' {
+        $json = '{ "permissions": { "allow": "Bash(ls)" } }'
+        Set-Original $json
+        { New-CheckoutSettingsPlan -CheckoutPath $script:Checkout -RecordPath $script:Record } |
+            Should -Throw '*''allow'' value that is not a list*'
+        Test-Path -LiteralPath $script:Record | Should -BeFalse
+        [System.IO.File]::ReadAllText($script:Settings) | Should -Be $json
     }
 
     It 'refuses a settings file that is not JSON, and writes nothing' {
