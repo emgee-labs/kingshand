@@ -27,13 +27,22 @@
     4. Set-WorkerWorkspaceSettings - the two grants that used to be command-line flags. herdr
        cannot pass arguments to claude on Windows at all (it launches through Start-Process against
        a .ps1 and dies with "%1 is not a valid Win32 application"), so --permission-mode and
-       --add-dir have to be on disk in the worktree before the agent starts.
+       --add-dir have to be on disk in the worktree before the agent starts. It also writes the
+       grant to edit the worktree's own .claude folder, which ClaudeWorkspace.psm1 owns.
     5. Grant-ClaudeFolderTrust - a fresh worktree is a directory Claude Code has never seen, so it
        stops on the folder-trust dialog with nobody there to answer. `claude --bg --worktree` never
        met this: it inherited the trust of the session that spawned it.
     6. Start-HerdrServer, New-HerdrPane, Start-HerdrAgent - the spawn.
     7. Send-HerdrPrompt with NO -Wait. Arming the wait is the caller's job: a dispatch that blocked
        here would hold the Hand for the length of the worker's first turn.
+    8. Confirm-HerdrPromptTaken - a bounded wait, seconds rather than a turn, for the box to empty
+       and the worker to start. `agent prompt` returns once the text is written, and a paste left
+       sitting unsent in the box used to come back as a successful dispatch of a worker that had
+       not started. `unsent`, `blocked` and `gone` are refused by their outcome name.
+       `not-started` and `unreadable` are not: the worker exists and may still start, so they warn
+       and return, and the result's startPrompt key carries the outcome - `taken` on the ordinary
+       path - for the caller to record and watch it as usual. Herdr.psm1 owns the one resend it
+       allows and why that resend can never submit the brief twice.
 
   -Base NAMES THE REF FOR ONE TASK, and it exists for a repository whose work integrates on a
   feature branch. Resolve-BaseRef reads a declaration out of `.no-mistakes.yaml`, which is tracked -
@@ -295,6 +304,10 @@ param(
     # existed. The header owns why it is here, and what it refuses before anything is created.
     [string]$Base = '',
     [int]$TimeoutSeconds = 90,
+    # How long the start prompt is given to be taken. Left off - what every caller does - and
+    # Confirm-HerdrPromptTaken's own default applies, so the ordinary path is the one tested there;
+    # a test passes a short one so a prompt that is never taken does not cost the full wait.
+    [int]$PromptConfirmSeconds = 0,
     # How much of the usage window may be spent before a new dispatch is refused. Every caller
     # takes this default - muster passes it never - so the branch it guards is the ordinary path
     # rather than one only an override reaches.
@@ -1363,7 +1376,8 @@ if ($InCheckout) {
 
     # The two grants that used to be `--permission-mode bypassPermissions --add-dir <briefdir>` on the
     # command line. Written into the WORKTREE, which is a fresh checkout with no .claude of its own -
-    # nothing carries across from the main checkout, because settings.local.json is untracked.
+    # nothing carries across from the main checkout, because settings.local.json is untracked. The
+    # same file carries the grant to edit this worktree's own .claude folder.
     $null = Set-WorkerWorkspaceSettings -WorktreePath $worktree -AdditionalDirectories @($briefDir)
 
     # Pre-seeded rather than answered afterwards with a synthetic keystroke: this is a written,
@@ -1444,6 +1458,36 @@ if ($submitted -and $submitted.PSObject.Properties.Name -contains 'blocked') {
            "Read-HerdrAgent before answering anything.")
 }
 
+# The write above is not the worker taking it. Confirmed here, within seconds, so a start prompt
+# left in the box comes back as a refusal naming what was seen rather than as a dispatch. An empty
+# box on a worker not yet working, or a screen that could not be read, may still be a worker that
+# starts, so those return with a warning rather than leave a live worker nobody records. Herdr.psm1
+# owns the outcomes and the one resend; nothing here sends anything.
+$confirmArgs = @{ Name = $Name }
+if ($PromptConfirmSeconds -gt 0) { $confirmArgs.TimeoutMs = $PromptConfirmSeconds * 1000 }
+$taken = Confirm-HerdrPromptTaken @confirmArgs
+if ($taken.outcome -in @('not-started', 'unreadable')) {
+    $seen = if ($taken.outcome -eq 'not-started') {
+                'its input box is empty but it had not started working by the deadline'
+            } else { 'its screen could not be read, so nothing could confirm it' }
+    Write-Warning ("Worker $Name start prompt not confirmed ($($taken.outcome.ToUpperInvariant())) " +
+                   "- $seen. The worker exists and may still start; record it and arm its watch " +
+                   "as usual. Never send the brief again, which would submit it twice.")
+} elseif (-not $taken.taken) {
+    $seen = switch ($taken.outcome) {
+        'unsent'      { "its start prompt is still sitting unsent in its input box" +
+                        $(if ($taken.resent) { ' after one Enter' } else { '' }) }
+        'blocked'     { 'it is blocked on an interactive prompt' }
+        'gone'        { 'herdr no longer knows it' }
+        default       { "the confirmation answered '$($taken.outcome)'" }
+    }
+    $tail = if ($InCheckout) { $checkoutLeft }
+            else { "The worktree at $worktree and branch $branch exist and hold no work yet." }
+    throw ("Worker $Name did not take its brief ($($taken.outcome.ToUpperInvariant())) - $seen, " +
+           "in pane $paneId. Read the pane with Read-HerdrAgent before doing anything; never " +
+           "send the brief again, which would submit it twice. $tail")
+}
+
 # Whether the guard can actually read this worker, checked once and reported rather than assumed.
 #
 # Everything that decides a worker is stuck reads its SCREEN, because herdr's own state is known to
@@ -1468,11 +1512,12 @@ if (-not $readable) {
 }
 
 $result = [hashtable]@{
-    id       = $Name
-    worktree = $worktree
-    branch   = $branch
-    base     = $base
-    readable = $readable
+    id          = $Name
+    worktree    = $worktree
+    branch      = $branch
+    base        = $base
+    readable    = $readable
+    startPrompt = $taken.outcome
 }
 # Two more keys for a checkout worker and none for a worktree one, so an ordinary dispatch returns
 # exactly the shape it always has. The record path is what Stop-CheckoutWorker takes back.

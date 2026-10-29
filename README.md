@@ -265,6 +265,10 @@ What still constrains it:
   That entry is exactly the worktree kingshand just created - never its parent repository, except
   the checkout a `fief` session's worker runs in, and never
   the machine. With no `~\.claude.json`, nothing is written and the worker stops at the dialog.
+- Each worker may edit files under its own worktree's `.claude` folder - a skill, an agent - with no
+  prompt, so a brief that allows a skill edit does not stop on a menu. That grant never reaches
+  `~\.claude` or another repository, and never covers the folder's own `settings.json` or
+  `settings.local.json`, which hold permissions.
 - Nothing is dispatched into a repository you have not registered.
 - Nothing pushes unless that project is registered with a push-capable posture, and nothing is
   merged on the forge unless that project's registry entry declares `+merge` - or `+watch-merge`,
@@ -273,7 +277,10 @@ What still constrains it:
   comment, or a work item.
 - `deny` blocks reads of `~\.ssh`, AWS credentials and `config\credentials\`, and blocks edits to
   `instructions.md` - your standing instructions are protected by the permission layer, not just by
-  prose asking nicely.
+  prose asking nicely. It also denies six tools the Hand never calls - `Artifact`, `SendFeedback`,
+  `ScheduleWakeup`, `ReportFindings`, `ShareOnboardingGuide` and `ListAgents` - because a tool
+  denied by name is taken out of context entirely, and their schemas cost about 16k tokens on every
+  call. Remove a name from the list to get that tool back.
 
 If you would rather approve each call, remove `defaultMode` from `.claude\settings.json`. Expect a
 great many prompts.

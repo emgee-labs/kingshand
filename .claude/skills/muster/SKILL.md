@@ -1077,6 +1077,16 @@ not be taken warns and dispatches rather than blocking. The one exception is a c
 at or past the threshold, which refuses with no current reading behind it - `vigil` owns why, and
 relaying whichever of the two you get is the whole of what it asks of you.
 
+**Dispatch confirms the worker has taken its start prompt** - its input box empty and the worker
+working, within seconds - and `startPrompt` on its result names what it saw, `taken` on the
+ordinary path. It refuses only for `(UNSENT)`, `(BLOCKED)` and `(GONE)`, with the outcome in
+capitals, and that refusal comes after the worker and its worktree exist: read the worker's screen
+and load `rally`. For `not-started` or `unreadable` it returns with a warning and `startPrompt`
+naming the outcome, because the worker exists and may still start: record it and arm its watch as
+usual, and name the outcome to the King in one line.
+**Never send the brief again**: a second copy would be submitted as a second prompt.
+`bin\Herdr.psm1` owns the outcomes and the one Enter it may resend.
+
 **Dispatch attaches the project's own standing files itself and names them in a file of its own -
 it never edits your brief.** `data\done-<project>.md` and `data\rules-<project>.md` are staged
 whenever they exist, keyed off the project the registry resolves from the repo path, and a line
@@ -1188,8 +1198,9 @@ the worker settles, reads the gate run on its branch: a run still going is watch
 its end, because a worker that hands its run to a background shell and goes back to its prompt
 reads settled within seconds while nothing watches the gate. `gate <id>` watches that run alone,
 until it parks or ends. Each takes the worker's worktree and branch from `state\crew.json`, so the
-command is
-one id long.
+command is one id long. **`report <id>` waits for the worker to write `data\<id>\report.md`** - the
+file changing after the watch was armed, never what it says - so arm it instead of polling the file
+by hand.
 
 **The command prints nothing while it waits and exactly one line when it ends** - the outcome in
 capitals, the evidence, and `Next:` with what to do. That line is the whole report, and
@@ -1228,7 +1239,8 @@ This is an event, not a poll. Both wakes block inside herdr until the worker sto
 and return the moment it does. Nothing here sleeps in a loop and nothing re-reads state on a
 timer; if you find yourself writing a `while` loop around `Get-HerdrAgent`, you have rebuilt the
 thing this replaced. The progress wake samples the screen once per minute between those blocks,
-because "nothing happened" is not an event anything can push at you.
+because "nothing happened" is not an event anything can push at you, and so does a worker watch
+holding on a worker idle on its own background shells, because herdr's wait returns at once there.
 
 - Run it as **one harness-tracked background job**, never with `&` and never as a detached process.
   Its completion is what wakes you; an untracked process wakes nothing and you will not notice it
@@ -1258,6 +1270,14 @@ because "nothing happened" is not an event anything can push at you.
   It is text sitting in that worker's input box that nothing here sent, and a bare Enter would
   submit it as though the Hand had written it. **Never submit it and never clear it** - quote it,
   say which worker it was on, and load `rally`, which owns what happens next.
+- **`UNSENT` is a turn that ended over text the worker has not taken, and it is never a
+  completion.** Its input box holds text, or a paste went in seconds ago - often the prompt you just
+  sent, not yet started on. Re-arm the watch once; if the same text is still in the box after that,
+  the bullet above applies.
+- **`WAITING ON SHELL` is a turn that ended on background shells of the worker's own, and it is
+  never a completion.** The worker parks on its own long run - a test suite, say - and carries on
+  when it finishes, while herdr reads it `done`. The watch waits through that itself, so this line
+  means its clock ran out with the shells still going. Re-arm the watch, or arm `report <id>`.
 - **`GONE` means herdr has no such worker any more.** That is not a timeout and not a
   stall: the process is not there. It is confirmed by a second read and by the server still
   answering, so neither one transient error nor a server that is down produces it. Load `rally` and
@@ -1342,7 +1362,8 @@ claims with the same suspicion.
 on an interactive prompt it cannot get past, which its brief forbade it from opening. Do not run
 this step against it, and **never answer that prompt blindly** - the choice on it is the user's,
 so tell them what the worker is asking and what the options are, and get their answer first -
-surface it to the user now and load `rally`.
+surface it to the user now and load `rally`. The one exception is `regency`'s `A worker is blocked
+on a prompt`, which alone says when a personal project's prompt is answered while he is away.
 
 **`idle` alone is not a completion signal, and neither is `done`.** Claude Code returns to its
 prompt box when a turn ends, so a worker that has said everything it is going to say reads `idle`
@@ -2506,7 +2527,8 @@ either route - it is only a directory - but a killed worker costs you the pane a
 handle open on the directory you are about to remove. Never reach for the pid.
 
 `$stop.stopped` being false means the worker did not exit. Stop there, report it, and leave the
-worktree alone: the process is still live and still holding the directory.
+worktree alone: the process is still live and still holding the directory. A `$stop.refused` of
+`prompt-box-not-empty` means its input box holds text and nothing was sent - load `rally`.
 
 Then remove the worktree, which is kingshand's own now - the dispatcher created it, so the
 dispatcher's caller cleans it up:

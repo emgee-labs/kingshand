@@ -241,7 +241,7 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\NightsWatch.psm1` | night's watch's guards: which queued items are provably decided, whether a pull request may be merged now and the head it is bound to, what the usage window says to do next, the gate-commit rescue, the timer across a reset, and the restart prompt |
 | `bin\AwayJournal.psm1` | the away journal: the away flag's `since:` read in one place, one journal opened per away period, one record written as each outcome happens, and a return digest that reads that file or says plainly it could not |
 | `bin\GateRun.psm1` | what a no-mistakes gate run is doing, read from the fields that say so: the run, each step with its own status, whether it is parked and on what, and the findings to decide on - decoded rather than matched, and an output it cannot read comes back as unreadable rather than as a state word |
-| `bin\Watch.ps1`, `bin\Watch.psm1` | the Hand's three watches as short verbs - a worker, the gate run on its branch, or both - each one background job that prints nothing while it waits and one line naming the outcome and what to do next |
+| `bin\Watch.ps1`, `bin\Watch.psm1` | the Hand's four watches as short verbs - a worker, the gate run on its branch, both, or the worker's report being written - each one background job that prints nothing while it waits and one line naming the outcome and what to do next |
 | `bin\GateRunWait.psm1` | the one wait on a gate run, built on that reader: block until the run moves away from the baseline taken at the first readable read, and say why the wait ended - a read it could not take is counted rather than taken for a change or for quiet, and a timeout is the absence of an outcome rather than one |
 
 ## Skills
@@ -296,9 +296,10 @@ hour, or invokes `/regency` or `/afk` - and at session start whenever the digest
 because the flag is durable and outlives the session that set it. It holds the fleet while they are
 gone: workers stay supervised, everything that does not need them is batched, and it ends the moment
 they speak again. **Being away grants nothing.** It never authorises a land the posture did not
-already allow, never answers a prompt a worker is blocked on, and never touches anything
-destructive, irreversible or security-sensitive. A blocked worker's question is recorded verbatim
-and waits; a decision a worker wrote into its report is decided under `petition`, never here.
+already allow, and never touches anything destructive, irreversible or security-sensitive. A
+worker's on-screen prompt is answered only on a personal project and only inside that worker's
+brief, as `regency` says, and on an office project is recorded verbatim and waits; a decision a
+worker wrote into its report is decided under `petition`, never here.
 
 Invoke `counsel` when the King asks for a story, a feature or a pile of stories to be broken down,
 analysed or brainstormed before anything is built. It divides the work by the layers that project

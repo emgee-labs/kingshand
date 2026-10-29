@@ -1,6 +1,6 @@
 ---
 name: regency
-description: Hold the fleet while the King is away from the machine. Use when the user says they are going afk, stepping out, going to bed, back in an hour, "watch this while I'm gone", invokes /regency or /afk, or when state\.afk already exists at session start. Keeps workers supervised, batches everything that does not need them, never answers a prompt a blocked worker is sitting on, decides a parked worker's unsettled decision only on petition's reversibility test, and ends the moment they speak again.
+description: Hold the fleet while the King is away from the machine. Use when the user says they are going afk, stepping out, going to bed, back in an hour, "watch this while I'm gone", invokes /regency or /afk, or when state\.afk already exists at session start. Keeps workers supervised, batches everything that does not need them, answers a worker's on-screen prompt only on a personal project and only inside that worker's brief, decides a parked worker's unsettled decision only on petition's reversibility test, and ends the moment they speak again.
 ---
 
 # Regency
@@ -19,8 +19,9 @@ Being away is not consent. Every one of these still waits for the King, however 
 - **A landing that is not already authorised.** `+yolo` already permits landing green work inside
   the brief's accepted criteria; that stands and is unchanged. Regency adds nothing to it. A
   project without `+yolo` lands nothing while they are away.
-- **Anything a blocked worker is sitting on.** A prompt drawn on a worker's screen is the King's
-  to answer and nobody else's - see the blocked-worker rule below, which is unchanged. A decision
+- **A prompt on an office project's worker, or one whose answer leaves the brief.** A prompt drawn
+  on a worker's screen is answered in his stead only on a personal project and only inside that
+  worker's brief - `A worker is blocked on a prompt` below owns the rule. A decision
   a worker *wrote into its `report.md`* is a different case and no longer this one: `petition`
   owns whether you may answer that and by what test, and it is the only place the test is stated.
 - **Anything destructive or irreversible.** Force-push, history rewrite, deleting a branch or a
@@ -36,9 +37,19 @@ repaired.** Regency used to say a worker's question was recorded and never answe
 Answering nothing woke him for SEO details and copy fixes and parked workers overnight on calls
 that take a minute to undo, so he replaced the knowledge test with a reversibility test. A reader
 who finds `Record it, never answer it` in this file's history should read it as superseded rather
-than as a rule that went missing. Nothing else in the list above moved: this bought no authority
+than as a rule that went missing. Nothing else above moved with it: this bought no authority
 at all over a land, a delete, a cost, or anything destructive, irreversible or security-sensitive.
 `docs\2026-09-04-parked-decision-route.md` is the record of why.
+
+**The prompt rule changed deliberately too, on the King's instruction of 2026-10-29.** Regency used
+to say a prompt drawn on a worker's screen was his to answer and nobody else's, on every project.
+A worker on a personal project stopped on a menu asking to edit a file its brief allowed, and the
+whole queue sat for ten hours. His words: "Rule was for office work so that edit any server related
+stuff should happen after my cosent, not personal, and it defeats the purpose of making you the
+lead". So that wording now holds for office projects only, and a reader who finds it unscoped in
+this file's history should read it as superseded. It bought nothing past the brief and lowered no
+floor: a land, a delete, a merge, a cost, new work and anything security-sensitive are exactly
+where they were.
 
 If a choice is close enough that you find yourself building a case for it, that is the signal to
 batch it and stop.
@@ -149,10 +160,43 @@ test left standing with him - and record it in the journal as `-Kind decided` wi
 as `-Kind waiting` where the test left it standing. Do not message.
 
 **A worker is blocked on a prompt.** This is the case regency exists for and the one to get right.
+Read its screen first, every time - `Test-HerdrAgentAwaitingInput` to confirm the prompt is
+there and `Read-HerdrAgent` for its wording and every option, as `rally` describes. What happens
+next turns on whose project it is.
 
-- Do **not** send it keys. Not Enter, not an arrow, not "the obvious answer".
-- Read its screen and record the question verbatim as `-Kind blocked`, so they answer the real
-  thing on return and a restart cannot take the wording with it.
+**Office or personal is read, never guessed.** A project is office work when the King's own
+standing word names it as his employer's: the machine-wide instructions that say which account
+pushes which repositories, `instructions.md`, or the project's registry entry describing it as
+that employer's repository. Every other registered project is personal. **Where none of those
+settles it, treat it as office and let the prompt wait** - answering an office prompt is the harm
+the old rule existed to stop, while waiting on a personal one costs only time.
+
+**On a personal project, answer it when the answer stays inside that worker's brief** - its Scope
+and Requirements already allow what the prompt asks, such as a menu asking to edit a file the
+Scope names.
+
+- Pick the narrowest option that is inside the brief. An option that grants more than the brief
+  needs - allowing it for the rest of the session, a whole folder where the brief names one file -
+  is outside it; where no option is narrow enough, it waits.
+- Send the keys through `Send-HerdrKeys`, one key per call, reading the screen back between the
+  arrow and the Enter, exactly as `rally`'s `Never batch keys at a blocked prompt` says. Never
+  open with a bare Enter.
+- Read the screen once more to see the prompt gone and the worker moving again.
+- Record the prompt verbatim and the option chosen as `-Kind decided -Basis judgement`, naming in
+  the text the brief line that allowed it, so he can review the call on return. Do not message.
+
+**It still waits for him** when the answer would go outside the brief, or would be a delete, a
+cost, anything irreversible or anything security-sensitive - `petition`'s floors, unchanged, and a
+prompt is no way around them. It waits too where the options cannot be read or you cannot tell
+which one the brief allows.
+
+**On an office project nothing changed.** Do **not** send it keys. Not Enter, not an arrow, not
+"the obvious answer".
+
+Every prompt that waits, on either kind of project, is handled the same way:
+
+- Record the question verbatim as `-Kind blocked`, so they answer the real thing on return and a
+  restart cannot take the wording with it.
 - Then choose, and prefer the first: leave it blocked if it costs nothing, so the worker can be
   answered and resumed when they get back. Stop it with `Stop-HerdrAgent` only if leaving it holds
   something else up - and never force-kill, because that costs the pane permanently.
@@ -177,8 +221,8 @@ Only this: something is on fire and waiting costs more than interrupting them. A
 and everything is stalled. A worker is touching something it should not. A destructive action has
 already happened. Anything where the honest sentence is "this could not wait".
 
-Everything else, including every blocked worker, waits for the digest. A regency that interrupts is
-not a regency.
+Everything else, including every prompt left waiting, waits for the digest. A regency that
+interrupts is not a regency.
 
 ## When they come back
 
@@ -196,7 +240,8 @@ outranks a durable flag, and wrongly staying in regency is worse than wrongly le
 2. Remove `state\.afk`.
 3. Give the digest **before** answering whatever they just said, unless what they said is urgent.
    Short, and in this order: what landed, what is waiting on them, what broke, what is still
-   running. Every blocked worker's question, quoted. **Every finding you decided in his stead,
+   running. Every blocked worker's question, quoted, and every prompt you answered, quoted with
+   the option chosen. **Every finding you decided in his stead,
    with the reasoning and whether it rested on a recorded position or on your own judgement** -
    that flag is what makes the digest reviewable, and `petition` owns why.
 

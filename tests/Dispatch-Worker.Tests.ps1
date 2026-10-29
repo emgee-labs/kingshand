@@ -704,11 +704,21 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
         # One canned answer per `herdr <verb> <noun>`, so a single shim serves the whole dispatch
         # sequence: status, pane list, pane split, agent start, agent prompt.
+        #
+        # Once `agent prompt` has run, a `<verb>-<noun>-prompted.json` answer wins where one exists,
+        # so the worker can read one way before its start prompt and another after it - which is
+        # what confirming the prompt was taken reads. The marker sits beside the fixture's own call
+        # log, so every fixture starts unprompted.
         Set-Content -Path (Join-Path $script:ShimDir 'herdr.cmd') -Encoding ascii -Value @(
             '@echo off',
             '>>"%KINGSHAND_TEST_HERDR_CALLS%" echo %*',
             'if "%1"=="status" goto :status',
+            'if "%1 %2"=="agent prompt" type nul > "%KINGSHAND_TEST_HERDR_CALLS%.prompted"',
+            'if exist "%KINGSHAND_TEST_HERDR_CALLS%.prompted" if exist "%KINGSHAND_TEST_HERDR_DIR%\%1-%2-prompted.json" goto :prompted',
             'type "%KINGSHAND_TEST_HERDR_DIR%\%1-%2.json"',
+            'exit /b 0',
+            ':prompted',
+            'type "%KINGSHAND_TEST_HERDR_DIR%\%1-%2-prompted.json"',
             'exit /b 0',
             ':status',
             'type "%KINGSHAND_TEST_HERDR_DIR%\status.txt"',
@@ -814,11 +824,24 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         # because that is the prompt a fresh worktree really stops on, and its footer says "Enter
         # to confirm" where the menus say "Enter to select" - a guard that only knew the menu
         # wording would sail straight past the one dialog dispatch exists to catch.
+        #
+        # After the start prompt the worker reads -AfterPrompt, `working` by default - the prompt
+        # taken - and -AfterPromptScreen replaces its screen where a case needs the box to differ.
         function Set-AgentStartState {
-            param([string]$State = 'idle')
+            param([string]$State = 'idle', [string]$AfterPrompt = 'working',
+                  [string[]]$AfterPromptScreen = @())
             Set-HerdrReply -Verb 'agent-start'  -Result @{ agent = @{ name = 'x'; pane_id = 'p2'; agent_status = $State } }
             Set-HerdrReply -Verb 'agent-prompt' -Result @{ agent = @{ name = 'x'; pane_id = 'p2'; agent_status = 'idle' } }
             Set-HerdrReply -Verb 'agent-get'    -Result @{ agent = @{ name = 'x'; pane_id = 'p2'; agent_status = $State } }
+            Set-HerdrReply -Verb 'agent-get-prompted' `
+                -Result @{ agent = @{ name = 'x'; pane_id = 'p2'; agent_status = $AfterPrompt } }
+
+            $after = Join-Path $script:ShimDir 'agent-read-prompted.json'
+            if ($AfterPromptScreen.Count) {
+                Set-Content -Path $after -Encoding utf8 -Value $AfterPromptScreen
+            } elseif (Test-Path -LiteralPath $after) {
+                Remove-Item -LiteralPath $after -Force
+            }
 
             $screen = if ($State -eq 'blocked') {
                 @(' Quick safety check: Is this a project you created or one you trust?',
@@ -1026,13 +1049,14 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $script:FirstResult.id | Should -Be 'T-1001'
         }
 
-        # Four crew.json fields plus one dispatch-time observation, and nothing else. `readable`
+        # Four crew.json fields plus two dispatch-time observations, and nothing else. `readable`
         # is deliberately not crew state: it says whether the guard could see this worker's screen
         # at the moment it started, which the caller has to know because "no prompt found" and
         # "could not look" are different answers and only one means the worker is healthy.
-        It 'returns the four fields crew.json is built from, plus the readability answer' {
+        # `startPrompt` is what the start-prompt confirmation saw, `taken` on the ordinary path.
+        It 'returns the four fields crew.json is built from, plus the readability and start answers' {
             @($script:FirstResult.Keys | Sort-Object) |
-                Should -Be @('base', 'branch', 'id', 'readable', 'worktree')
+                Should -Be @('base', 'branch', 'id', 'readable', 'startPrompt', 'worktree')
         }
 
         It 'reports the worker as readable when its terminal is wide enough for the guard' {
@@ -1048,6 +1072,20 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $json = Get-Content -LiteralPath $settings -Raw | ConvertFrom-Json
             $json.permissions.defaultMode | Should -Be 'bypassPermissions'
             @($json.permissions.additionalDirectories) | Should -Contain $script:First.BriefDir
+        }
+
+        # The mode grant above no longer takes effect from this file, so a write under the
+        # worktree's own .claude folder is answered by a hook instead - scoped to that folder.
+        It 'writes the grant to edit the worktree''s own .claude folder, and no other' {
+            $settings = Join-Path $script:FirstResult.worktree '.claude\settings.local.json'
+            $json  = Get-Content -LiteralPath $settings -Raw | ConvertFrom-Json
+            $group = @($json.hooks.PermissionRequest)
+            $group.Count | Should -Be 1
+            $group[0].matcher -split '\|' | Should -Contain 'Edit'
+            $line = @($group[0].hooks)[0].args -join ' '
+            $scope = [IO.Path]::GetFullPath((Join-Path $script:FirstResult.worktree '.claude'))
+            $line.Contains("-ClaudeDir '$scope'") |
+                Should -BeTrue -Because 'the grant names the worktree''s folder, never the main checkout''s'
         }
 
         It 'records folder trust for the worktree, so the agent never meets the dialog' {
@@ -1691,6 +1729,70 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $err | Should -BeLike "*$expected*"
             $err | Should -BeLike '*worktree-T-3002*'
             Test-Path -LiteralPath (Join-Path $expected '.git') | Should -BeTrue
+        }
+
+        AfterAll { Set-AgentStartState }
+    }
+
+    # `agent prompt` returns once the text is written, not once the worker has taken it. A start
+    # prompt left sitting in the box used to come back as a successful dispatch of a worker that
+    # had not started, so dispatch now confirms it and names what it saw when it was not taken.
+    Context 'a start prompt that is not taken' {
+        BeforeAll {
+            # The box drawn the way Claude Code really draws it - the caret and a NO-BREAK space -
+            # holding a collapsed paste, which is how a long start prompt sits in it unsent.
+            $rule = ([string][char]0x2500) * 92
+            $script:UnsentScreen = @(
+                '* Claude Code v2.1.220 - Opus - E:\repo', '', $rule,
+                "$([char]0x276F)$([char]0x00A0)[Pasted text #1 +3 lines]", $rule,
+                '  bypass permissions on (shift+tab to cycle) - left arrow for agents')
+            Set-HerdrReply -Verb 'agent-send-keys' -Result @{ ok = $true }
+
+            function Invoke-ShortConfirmDispatch {
+                param([Parameter(Mandatory)]$Fixture, [Parameter(Mandatory)][string]$Name)
+                & $script:DispatchScript -RepoPath $Fixture.Repo -Name $Name `
+                    -BriefPath $Fixture.BriefPath -DataPath $Fixture.DataPath `
+                    -PromptConfirmSeconds 2
+            }
+        }
+
+        It 'refuses by name when the prompt is still in the box, and never sends it twice' {
+            Set-AgentStartState -AfterPrompt 'idle' -AfterPromptScreen $script:UnsentScreen
+            $f = New-DispatchFixture 'unsent'
+
+            { Invoke-ShortConfirmDispatch -Fixture $f -Name 'T-3101' } | Should -Throw '*(UNSENT)*'
+
+            $lines = Get-CallLines $f
+            @($lines | Where-Object { $_ -like 'agent prompt*' }).Count |
+                Should -Be 1 -Because 'a second copy of the brief would be submitted with the first'
+            @($lines | Where-Object { $_ -like 'agent send-keys * enter' }).Count |
+                Should -Be 1 -Because 'the one resend is a bare Enter on the text already there'
+        }
+
+        It 'returns with a warning when the box empties but the worker has not started, and resends nothing' {
+            Set-AgentStartState -AfterPrompt 'idle'
+            $f = New-DispatchFixture 'not-started'
+
+            $out = @(Invoke-ShortConfirmDispatch -Fixture $f -Name 'T-3102' 3>&1)
+            $warnings = @($out | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+            $r = $out | Where-Object { $_ -is [hashtable] }
+            $r.id          | Should -Be 'T-3102'
+            $r.startPrompt | Should -Be 'not-started'
+            @($warnings | Where-Object { "$_" -like '*(NOT-STARTED)*' }).Count | Should -Be 1
+
+            $lines = Get-CallLines $f
+            @($lines | Where-Object { $_ -like 'agent prompt*' }).Count | Should -Be 1
+            @($lines | Where-Object { $_ -like 'agent send-keys*' }).Count |
+                Should -Be 0 -Because 'with the box empty the brief may already be submitted'
+        }
+
+        It 'returns once the worker is working with its box empty, on the default wait' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'taken'
+            $r = Invoke-Dispatch -Fixture $f -Name 'T-3103'
+            $r.id          | Should -Be 'T-3103'
+            $r.startPrompt | Should -Be 'taken'
+            @(Get-CallLines $f | Where-Object { $_ -like 'agent send-keys*' }).Count | Should -Be 0
         }
 
         AfterAll { Set-AgentStartState }

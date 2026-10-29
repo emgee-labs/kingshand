@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 Set-StrictMode -Version Latest
 
-# bin\Watch.psm1 and bin\Watch.ps1 are the Hand's three watches as short commands. What is pinned
+# bin\Watch.psm1 and bin\Watch.ps1 are the Hand's four watches as short commands. What is pinned
 # here is the contract the Hand relies on: every outcome the waits underneath can report comes back
 # as its own ONE line naming the outcome and what to do next, nothing is folded into a quieter
 # outcome, and a failure to read or to run is named as that failure.
@@ -68,12 +68,13 @@ outcome: passed
     # forgot one has nothing to fall back on.
     function New-Wake {
         param([string]$Reason = 'settled', [string]$State = 'idle', [bool]$Awaiting = $false,
-              [bool]$Readable = $true, [string]$Box = '', [string]$Last = 'Wrote report.md')
+              [bool]$Readable = $true, [string]$Box = '', [string]$Last = 'Wrote report.md',
+              [bool]$Paste = $false, $Shells = 0)
         [pscustomobject]@{
             settled = ($Reason -eq 'settled'); state = $State; awaitingInput = $Awaiting
             stalled = ($Reason -eq 'stalled'); reason = $Reason; quietMinutes = 21.5
-            waitedMinutes = 45.0; lastActivity = $Last; promptBox = $Box
-            signalReadable = $Readable; samples = 3; stallMinutes = 20
+            waitedMinutes = 45.0; lastActivity = $Last; promptBox = $Box; pastePending = $Paste
+            backgroundShells = $Shells; signalReadable = $Readable; samples = 3; stallMinutes = 20
         }
     }
 
@@ -159,6 +160,38 @@ Describe 'A worker watch reports every outcome as its own line' {
         }
     }
 
+    It 'reports a settle over text in the box as unsent, never as settled' {
+        $l = Format-WorkerWake -Name 'T-1' -Wake (New-Wake -State 'done' -Box '[Pasted text #1 +12 lines]')
+        Assert-OneLine $l
+        $l | Should -BeLike "UNSENT T-1 state=done*'[[]Pasted text #1 +12 lines]'*not the worker's output*"
+        $l | Should -BeLike '*re-arm this watch once*never submit or clear it*'
+        $l | Should -Not -BeLike '*SETTLED*'
+    }
+
+    It 'reports a settle just after a paste went in as unsent, never as settled' {
+        $l = Format-WorkerWake -Name 'T-1' -Wake (New-Wake -State 'done' -Paste $true)
+        Assert-OneLine $l
+        $l | Should -BeLike "UNSENT T-1 state=done*a paste went into its input box seconds ago*re-arm*"
+        $l | Should -Not -BeLike '*SETTLED*'
+    }
+
+    It 'still reports a worker on a prompt as blocked when its box holds text' {
+        (Format-WorkerWake -Name 'T-1' -Wake (New-Wake -Awaiting $true -Box 'x' -Paste $true)) |
+            Should -BeLike 'BLOCKED T-1*'
+    }
+
+    It 'reports a settle with the worker''s own background shells running as waiting on them' {
+        $l = Format-WorkerWake -Name 'T-1' -Wake (New-Wake -State 'done' -Shells 2)
+        Assert-OneLine $l
+        $l | Should -BeLike 'WAITING ON SHELL T-1 state=done*2 background shell(s)*not a finish*'
+        $l | Should -Not -BeLike '*SETTLED*'
+    }
+
+    It 'reports a worker on a prompt as blocked even with a shell running' {
+        (Format-WorkerWake -Name 'T-1' -Wake (New-Wake -Awaiting $true -Shells 1)) |
+            Should -BeLike 'BLOCKED T-1*'
+    }
+
     It 'reads a wake it cannot read as unreadable, never as an outcome' {
         Assert-OneLine (Format-WorkerWake -Name 'T-1' -Wake $null)
         (Format-WorkerWake -Name 'T-1' -Wake $null) | Should -BeLike 'UNREADABLE T-1*'
@@ -204,6 +237,284 @@ Describe 'Watch-Worker' {
         $out = @(Watch-Worker -Name 'T-1' 3>&1)
         $out.Count | Should -Be 1
         "$($out[0])" | Should -BeLike '*Warned while waiting: server restarted*'
+    }
+}
+
+Describe 'A worker watch never reports settled over text the worker has not taken' {
+    # End to end below the watch: the real progress wait and the real box reader, with only herdr's
+    # answers replaced - the worker stopping, and the screen it stopped on. The screens are the
+    # shapes sampled off a live worker while a long prompt went in.
+    BeforeAll {
+        $script:Rule = ([string][char]0x2500) * 92
+        function New-Screen {
+            param([string]$Box = '', [string]$Footer = '? for shortcuts')
+            "  Done. Wrote report.md.`n`n$script:Rule`n`u{276F}`u{00A0}$Box`n$script:Rule`n    $Footer"
+        }
+    }
+
+    BeforeEach {
+        Mock -ModuleName Herdr Wait-HerdrAgent {
+            [pscustomobject]@{ name = 't-1'; agent_status = 'done'; pane_id = 'p1' }
+        }
+    }
+
+    It 'settles over an empty box' {
+        $s = New-Screen
+        Mock -ModuleName Herdr Read-HerdrAgentScreen { [pscustomobject]@{ ok = $true; text = $s } }.GetNewClosure()
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 1
+        Assert-OneLine $l
+        $l | Should -BeLike 'SETTLED T-1 state=done*'
+    }
+
+    It 'does not settle over typed text in the box' {
+        $s = New-Screen -Box 'half-typed reply'
+        Mock -ModuleName Herdr Read-HerdrAgentScreen { [pscustomobject]@{ ok = $true; text = $s } }.GetNewClosure()
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 1
+        Assert-OneLine $l
+        $l | Should -BeLike "UNSENT T-1*'half-typed reply'*"
+    }
+
+    It 'does not settle over a collapsed paste in the box' {
+        $s = New-Screen -Box '[Pasted text #1 +12 lines]' -Footer 'paste again to expand'
+        Mock -ModuleName Herdr Read-HerdrAgentScreen { [pscustomobject]@{ ok = $true; text = $s } }.GetNewClosure()
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 1
+        Assert-OneLine $l
+        $l | Should -BeLike "UNSENT T-1*'[[]Pasted text #1 +12 lines]'*"
+    }
+
+    # The screen the watch woke on and called settled on 2026-10-23: the paste had just gone in,
+    # the box had emptied, and the worker started on it seconds later.
+    It 'does not settle in the moment after a paste went in, before the turn started' {
+        $s = New-Screen -Footer 'paste again to expand'
+        Mock -ModuleName Herdr Read-HerdrAgentScreen { [pscustomobject]@{ ok = $true; text = $s } }.GetNewClosure()
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 1
+        Assert-OneLine $l
+        $l | Should -BeLike 'UNSENT T-1*a paste went into its input box seconds ago*'
+    }
+
+    It 'says it was blind rather than guessing at the box when the screen could not be read' {
+        Mock -ModuleName Herdr Read-HerdrAgentScreen { [pscustomobject]@{ ok = $false; text = '' } }
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 1
+        $l | Should -BeLike '*watch was blind*'
+        $l | Should -Not -BeLike 'UNSENT*'
+    }
+}
+
+Describe 'A worker watch never reports settled while the worker waits on its own background shell' {
+    # The real progress wait and the real footer reader again, with herdr's answers replaced. The
+    # footer is the one copied off a live worker that had ended its turn with two shells running:
+    # herdr read it `done` while its test run went on.
+    BeforeAll {
+        $script:Rule = ([string][char]0x2500) * 92
+        function New-Screen {
+            param([string]$Footer = '? for shortcuts')
+            "  Running the suite in the background.`n`n$script:Rule`n`u{276F}`u{00A0}`n$script:Rule`n    $Footer"
+        }
+        $script:ShellFooter = "`u{23F8} manual mode on `u{00B7} 2 shells `u{00B7} `u{2193} to manage"
+    }
+
+    BeforeEach {
+        Mock -ModuleName Herdr Wait-HerdrAgent {
+            [pscustomobject]@{ name = 't-1'; agent_status = 'done'; pane_id = 'p1' }
+        }
+        Mock -ModuleName Watch Get-HerdrAgent {
+            [pscustomobject]@{ name = 't-1'; agent_status = 'done'; pane_id = 'p1' }
+        }
+        Mock -ModuleName Watch Start-Sleep { }
+    }
+
+    It 'waits through the shell rather than settling, and settles once it has finished' {
+        # The first wait's three reads show the shells - its first look, the prompt check and the
+        # screen it stopped on - and the worker's own run is over by the next.
+        $reads = [ref]0
+        $busy = New-Screen -Footer $script:ShellFooter
+        $done = New-Screen
+        Mock -ModuleName Herdr Read-HerdrAgentScreen {
+            $reads.Value++
+            $t = if ($reads.Value -le 3) { $busy } else { $done }
+            [pscustomobject]@{ ok = $true; text = $t }
+        }.GetNewClosure()
+        Mock -ModuleName Watch Get-HerdrAgentProgressSignal {
+            [pscustomobject]@{ readable = $true; backgroundShells = 0 }
+        }
+
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 5
+        Assert-OneLine $l
+        $l | Should -BeLike 'SETTLED T-1 state=done*'
+        Should -Invoke -ModuleName Watch Start-Sleep -Times 2 -Exactly
+        Should -Invoke -ModuleName Herdr Wait-HerdrAgent -Times 2 -Exactly
+    }
+
+    It 'does not settle in the moment after its last shell exits, before the turn it brings starts' {
+        # The shell is gone by the first sample, and the turn its finish brings starts five seconds
+        # later. A wait that read the worker in between would see it done on no shells.
+        $script:clock = Get-Date
+        $script:resumeAt = $null
+        Mock -ModuleName Watch Get-Date { $script:clock }
+        Mock -ModuleName Watch Start-Sleep {
+            param($Seconds)
+            $script:clock = $script:clock.AddSeconds($Seconds)
+            if ($null -eq $script:resumeAt) { $script:resumeAt = $script:clock.AddSeconds(5) }
+        }
+        $script:waits = 0
+        Mock -ModuleName Watch Wait-HerdrAgentProgress {
+            $script:waits++
+            if ($script:waits -eq 1) { New-Wake -State 'done' -Shells 1 }
+            elseif ($script:clock -ge $script:resumeAt) { New-Wake -Reason 'stalled' -State 'working' }
+            else { New-Wake -State 'done' }
+        }
+        Mock -ModuleName Watch Get-HerdrAgentProgressSignal {
+            [pscustomobject]@{ readable = $true; backgroundShells = 0 }
+        }
+
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 5
+        $l | Should -Not -BeLike 'SETTLED*'
+        $l | Should -BeLike 'STALLED T-1 state=working*'
+    }
+
+    It 'reports a worker still on its shell when the clock runs out as waiting on it, never settled' {
+        $s = New-Screen -Footer $script:ShellFooter
+        Mock -ModuleName Herdr Read-HerdrAgentScreen { [pscustomobject]@{ ok = $true; text = $s } }.GetNewClosure()
+        $script:clock = Get-Date
+        Mock -ModuleName Watch Get-Date { $script:clock = $script:clock.AddMinutes(1); $script:clock }
+
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 5
+        Assert-OneLine $l
+        $l | Should -BeLike 'WAITING ON SHELL T-1 state=done*2 background shell(s)*Watch.ps1 report T-1*'
+        $l | Should -Not -BeLike '*SETTLED*'
+        Should -Invoke -ModuleName Watch Start-Sleep -Times 1
+    }
+
+    It 'settles as before, with no wait, when no shell of its own is running' {
+        $s = New-Screen
+        Mock -ModuleName Herdr Read-HerdrAgentScreen { [pscustomobject]@{ ok = $true; text = $s } }.GetNewClosure()
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 1
+        $l | Should -BeLike 'SETTLED T-1 state=done*'
+        Should -Invoke -ModuleName Watch Start-Sleep -Times 0 -Exactly
+    }
+
+    It 'stops waiting through the shell the moment the worker''s turn starts again' {
+        $script:waits = 0
+        Mock -ModuleName Watch Wait-HerdrAgentProgress {
+            $script:waits++
+            if ($script:waits -eq 1) { New-Wake -State 'done' -Shells 1 } else { New-Wake -Reason 'stalled' }
+        }
+        Mock -ModuleName Watch Get-HerdrAgent { [pscustomobject]@{ agent_status = 'working' } }
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 5
+        $l | Should -BeLike 'STALLED T-1*'
+        Should -Invoke -ModuleName Watch Start-Sleep -Times 1 -Exactly
+    }
+
+    It 'stops waiting through the shell when the screen cannot be read, rather than guessing' {
+        $script:waits = 0
+        Mock -ModuleName Watch Wait-HerdrAgentProgress {
+            $script:waits++
+            if ($script:waits -eq 1) { New-Wake -State 'done' -Shells 1 }
+            else { New-Wake -State 'done' -Readable $false -Shells $null }
+        }
+        Mock -ModuleName Watch Get-HerdrAgentProgressSignal { [pscustomobject]@{ readable = $false } }
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 5
+        $l | Should -BeLike '*watch was blind*'
+        Should -Invoke -ModuleName Watch Start-Sleep -Times 1 -Exactly
+    }
+}
+
+Describe 'A report watch' {
+    BeforeEach {
+        $script:data = Join-Path $TestDrive "data-$([guid]::NewGuid().ToString('N'))"
+        $script:report = Join-Path (Join-Path $script:data 'T-1') 'report.md'
+        $null = New-Item -ItemType Directory -Force -Path (Split-Path $script:report)
+        $script:clock = Get-Date
+        Mock -ModuleName Watch Get-Date { $script:clock = $script:clock.AddMinutes(1); $script:clock }
+    }
+
+    It 'fires when the worker writes over the placeholder that was there when it started' {
+        Set-Content -LiteralPath $script:report -Value 'placeholder' -Encoding utf8
+        $p = $script:report
+        Mock -ModuleName Watch Start-Sleep {
+            Set-Content -LiteralPath $p -Value '# Findings, written by the worker' -Encoding utf8
+        }.GetNewClosure()
+        $l = Watch-Report -Name 'T-1' -DataPath $script:data
+        Assert-OneLine $l
+        $l | Should -BeLike "REPORT WRITTEN T-1 - *report.md was written after this watch started*"
+    }
+
+    It 'fires when the file did not exist when it started and then does' {
+        $p = $script:report
+        Mock -ModuleName Watch Start-Sleep { Set-Content -LiteralPath $p -Value 'x' -Encoding utf8 }.GetNewClosure()
+        (Watch-Report -Name 'T-1' -DataPath $script:data) | Should -BeLike 'REPORT WRITTEN T-1*'
+    }
+
+    It 'times out with its own outcome when the placeholder is never written over' {
+        Set-Content -LiteralPath $script:report -Value 'placeholder' -Encoding utf8
+        Mock -ModuleName Watch Start-Sleep { }
+        $l = Watch-Report -Name 'T-1' -DataPath $script:data -TimeoutMinutes 5
+        Assert-OneLine $l
+        $l | Should -BeLike 'NO REPORT T-1 after 5 minutes*it is there, unchanged since the watch started*'
+    }
+
+    It 'says the file does not exist when it times out on a report never created' {
+        Mock -ModuleName Watch Start-Sleep { }
+        (Watch-Report -Name 'T-1' -DataPath $script:data -TimeoutMinutes 5) |
+            Should -BeLike 'NO REPORT T-1*it does not exist*'
+    }
+
+    It 'says it cannot read a path that is not a file, never that it is unwritten' {
+        $null = New-Item -ItemType Directory -Force -Path $script:report
+        Mock -ModuleName Watch Start-Sleep { }
+        $l = Watch-Report -Name 'T-1' -DataPath $script:data
+        Assert-OneLine $l
+        $l | Should -BeLike 'UNREADABLE report T-1*could not be read 3 times in a row: it is a directory*'
+    }
+
+    It 'says it cannot read a file it cannot open, once that has lasted past a write' {
+        Set-Content -LiteralPath $script:report -Value 'placeholder' -Encoding utf8
+        Mock -ModuleName Watch Start-Sleep { }
+        $lock = [System.IO.File]::Open($script:report, 'Open', 'ReadWrite', 'None')
+        try {
+            $l = Watch-Report -Name 'T-1' -DataPath $script:data
+        } finally { $lock.Dispose() }
+        $l | Should -BeLike 'UNREADABLE report T-1*3 times in a row*'
+    }
+
+    It 'rides out a read that fails once while the worker is writing' {
+        Set-Content -LiteralPath $script:report -Value 'placeholder' -Encoding utf8
+        $p = $script:report
+        $script:sleeps = 0
+        $script:lock = $null
+        Mock -ModuleName Watch Start-Sleep {
+            $script:sleeps++
+            if ($script:sleeps -eq 1) { $script:lock = [System.IO.File]::Open($p, 'Open', 'ReadWrite', 'None') }
+            else {
+                $script:lock.Dispose()
+                Set-Content -LiteralPath $p -Value 'the real report' -Encoding utf8
+            }
+        }.GetNewClosure()
+        try { $l = Watch-Report -Name 'T-1' -DataPath $script:data }
+        finally { if ($script:lock) { $script:lock.Dispose() } }
+        $l | Should -BeLike 'REPORT WRITTEN T-1*'
+    }
+
+    It 'reads data under this installation by default' {
+        $home2 = Join-Path $TestDrive "home-$([guid]::NewGuid().ToString('N'))"
+        $p = Join-Path $home2 'data\T-1\report.md'
+        $null = New-Item -ItemType Directory -Force -Path (Split-Path $p)
+        Mock -ModuleName Watch Start-Sleep { Set-Content -LiteralPath $p -Value 'x' -Encoding utf8 }.GetNewClosure()
+        $saved = $env:KINGSHAND_HOME
+        try {
+            $env:KINGSHAND_HOME = $home2
+            $l = Watch-Report -Name 'T-1'
+        } finally { $env:KINGSHAND_HOME = $saved }
+        $l | Should -BeLike "REPORT WRITTEN T-1 - $p *"
+    }
+
+    It 'refuses an id that is not one path segment, and reads nothing' {
+        Mock -ModuleName Watch Start-Sleep { throw 'should not wait' }
+        foreach ($id in '..', '..\T-1', 'a/b') {
+            $l = Watch-Report -Name $id -DataPath $script:data
+            Assert-OneLine $l
+            $l | Should -BeLike "NOT ARMED report*"
+        }
     }
 }
 
@@ -315,14 +626,59 @@ Describe 'Watch-Delivery' {
         }
     }
 
-    It 'keeps the worker''s own line, input box and all, when it went idle while its run kept going' {
-        Mock -ModuleName Watch Wait-HerdrAgentProgress { New-Wake -State 'done' -Box 'half-typed reply' }
+    # A worker idle on its own background shell that is the gate run is the case this watch is for,
+    # so it is handed to the gate watch rather than waited through.
+    It 'watches the gate, not the shell, when the worker is idle on a shell while its run goes on' {
+        Mock -ModuleName Watch Start-Sleep { throw 'should not wait through the shell' }
+        Mock -ModuleName Watch Wait-HerdrAgentProgress { New-Wake -State 'done' -Shells 1 }
         Mock -ModuleName Watch Get-GateRunState { $script:Running }
         Mock -ModuleName Watch Wait-GateRunChange { New-GateWait -Reason 'finished' -State $script:Passed }
 
         $l = Watch-Delivery -Name 'T-1' -RepoPath 'C:\wt' -Branch 'feature-x'
         Assert-OneLine $l
-        $l | Should -BeLike "IDLE WHILE GATE RUNS T-1*PASSED gate*SETTLED T-1*'half-typed reply'*load rally*Last seen: Wrote report.md*"
+        $l | Should -BeLike 'IDLE WHILE GATE RUNS T-1*PASSED gate on feature-x*The worker: WAITING ON SHELL T-1*'
+    }
+
+    It 'waits through a shell of the worker''s own when no gate run is going' {
+        $script:waits = 0
+        Mock -ModuleName Watch Wait-HerdrAgentProgress {
+            $script:waits++
+            if ($script:waits -eq 1) { New-Wake -State 'done' -Shells 1 } else { New-Wake -State 'done' }
+        }
+        Mock -ModuleName Watch Start-Sleep { }
+        Mock -ModuleName Watch Get-HerdrAgent { [pscustomobject]@{ agent_status = 'done' } }
+        Mock -ModuleName Watch Get-HerdrAgentProgressSignal { [pscustomobject]@{ readable = $true; backgroundShells = 0 } }
+        Mock -ModuleName Watch Get-GateRunState {
+            $s = ConvertFrom-GateRunOutput -Text ''; $s.status = 'no-run'; $s }
+
+        $l = Watch-Delivery -Name 'T-1' -RepoPath 'C:\wt' -Branch 'feature-x'
+        $l | Should -BeLike 'SETTLED T-1*No gate run is recorded on feature-x.'
+        Should -Invoke -ModuleName Watch Start-Sleep -Times 2 -Exactly
+    }
+
+    # Text in the box means the turn that ended is not the one for that text, so the worker has not
+    # settled - but a gate it started is still named, read once and never waited on.
+    It 'reports a worker that stopped over text in its box as unsent, naming its running gate' {
+        Mock -ModuleName Watch Get-GateRunState { $script:Running }
+        Mock -ModuleName Watch Wait-GateRunChange { throw 'should not wait' }
+        foreach ($w in @((New-Wake -State 'done' -Box 'half-typed reply'),
+                         (New-Wake -State 'done' -Paste $true))) {
+            Mock -ModuleName Watch Wait-HerdrAgentProgress { $w }.GetNewClosure()
+            $l = Watch-Delivery -Name 'T-1' -RepoPath 'C:\wt' -Branch 'feature-x'
+            Assert-OneLine $l
+            $l | Should -BeLike 'UNSENT T-1*gate run on feature-x is still running*Watch.ps1 gate T-1*'
+            $l | Should -Not -BeLike '*SETTLED*'
+        }
+        Should -Invoke -ModuleName Watch Wait-GateRunChange -Times 0
+    }
+
+    It 'reports a worker that stopped over text in its box as unsent when no gate run is recorded' {
+        Mock -ModuleName Watch Wait-HerdrAgentProgress { New-Wake -State 'done' -Box 'half-typed reply' }
+        Mock -ModuleName Watch Get-GateRunState {
+            $s = ConvertFrom-GateRunOutput -Text ''; $s.status = 'no-run'; $s }
+        $l = Watch-Delivery -Name 'T-1' -RepoPath 'C:\wt' -Branch 'feature-x'
+        Assert-OneLine $l
+        $l | Should -BeLike 'UNSENT T-1*No gate run is recorded on feature-x.'
     }
 
     It 'reports a gate that was already parked when the worker stopped, with its findings' {
@@ -400,6 +756,13 @@ Describe 'The verb command' {
         $out = @(& $script:WatchScript delivery)
         $out.Count | Should -Be 1
         $out[0] | Should -BeLike 'NOT ARMED delivery*'
+    }
+
+    It 'answers one line when the report verb is given no worker, or an id that is not one' {
+        @(& $script:WatchScript report) | Should -BeLike 'NOT ARMED report - no worker id*'
+        $out = @(& $script:WatchScript report 'a/b')
+        $out.Count | Should -Be 1
+        $out[0] | Should -BeLike 'NOT ARMED report a/b*Next:*'
     }
 
     It 'refuses a verb it does not have' {

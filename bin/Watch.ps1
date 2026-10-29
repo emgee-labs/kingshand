@@ -4,12 +4,13 @@
   The Hand's watches as one short command each, printing nothing while it waits and exactly one
   line when it ends: the outcome, and what to do next.
 .DESCRIPTION
-  Three verbs, each the whole of a watch the Hand used to write out by hand:
+  Four verbs, each the whole of a watch the Hand used to write out by hand:
 
     worker   <id>   a worker, until it needs the Hand - Watch-Worker
     gate     <id>   the gate run on that worker's branch, until it parks or ends - Watch-GateRun
     delivery <id>   both: the worker, then the gate it started if it went idle while that runs -
                     Watch-Delivery
+    report   <id>   data\<id>\report.md, until the worker writes it - Watch-Report
 
   bin\Watch.psm1 owns every outcome and the wording of every line; this script only resolves the
   id and prints what the module returns. The worker's worktree and branch come from the durable
@@ -27,10 +28,13 @@
   & $env:KINGSHAND_HOME\bin\Watch.ps1 delivery T-1001
 .EXAMPLE
   & $env:KINGSHAND_HOME\bin\Watch.ps1 gate -RepoPath C:\repos\acme-api -Branch feature-x
+.EXAMPLE
+  & $env:KINGSHAND_HOME\bin\Watch.ps1 report T-1001
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory, Position = 0)][ValidateSet('worker', 'gate', 'delivery')][string]$Verb,
+    [Parameter(Mandatory, Position = 0)][ValidateSet('worker', 'gate', 'delivery', 'report')]
+    [string]$Verb,
     [Parameter(Position = 1)][string]$Id = '',
     [string]$RepoPath = '',
     [string]$Branch = '',
@@ -54,6 +58,10 @@ try {
         'worker' {
             if (-not $Id) { 'NOT ARMED worker - no worker id was given. Next: name the worker.' ; break }
             Watch-Worker -Name $Id @timing @stall
+        }
+        'report' {
+            if (-not $Id) { 'NOT ARMED report - no worker id was given. Next: name the worker.' ; break }
+            Watch-Report -Name $Id @timing
         }
         default {
             $repo = $RepoPath; $br = $Branch
