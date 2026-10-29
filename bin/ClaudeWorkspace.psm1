@@ -27,12 +27,20 @@ Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
 #   defaultMode: bypassPermissions   was --permission-mode bypassPermissions
 #   additionalDirectories: [...]     was --add-dir <briefdir>
 #
+#   hooks.PermissionRequest          the folder-edit grant, never a flag - see below
+#
 # It must be written INTO THE WORKTREE, not the repo. A worktree is a fresh checkout with no
 # .claude directory of its own, and settings.local.json is untracked, so nothing carries across
 # from the main checkout.
 #
-# Verified end to end: a worker launched this way read a brief from a directory outside its repo
-# and ran a shell command with no prompt, and the session footer showed "bypass permissions on".
+# THE defaultMode GRANT NO LONGER TAKES EFFECT FROM THIS FILE. Claude Code's permission-modes
+# documentation: "If you set bypassPermissions in [.claude/settings.json or
+# .claude/settings.local.json], it doesn't take effect ... and the session starts in Manual mode."
+# It is honoured only from user, --settings or managed settings - the machine, or a command line
+# herdr cannot pass. It stays written because a Claude Code that still honours it gets the full
+# grant from it. A worker therefore runs in Manual mode, where the user's own allow rules carry
+# ordinary edits and a write under .claude\ - a protected path no allow rule pre-approves - stops on
+# a menu. The third grant below, the folder-edit hook, is what answers that menu.
 function Set-WorkerWorkspaceSettings {
     [CmdletBinding()]
     param(
@@ -54,11 +62,125 @@ function Set-WorkerWorkspaceSettings {
             defaultMode           = 'bypassPermissions'
             additionalDirectories = @($AdditionalDirectories)
         }
+        hooks       = [ordered]@{
+            PermissionRequest = @(New-ClaudeFolderEditHook -ClaudeDir $claudeDir)
+        }
     }
 
     $target = Join-Path $claudeDir 'settings.local.json'
-    $settings | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $target -Encoding utf8
+    $settings | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $target -Encoding utf8
     $target
+}
+
+# ---------------------------------------------------------------------------------------------
+# The folder-edit grant: edits to files under one directory's own .claude folder, with no menu.
+#
+# Claude Code protects .claude\ from writes in every mode but bypassPermissions, and settings
+# allow rules do not pre-approve it - the safety check runs before them. What it documents for a
+# session that cannot answer a prompt is a PermissionRequest hook: it runs when Claude Code is
+# about to ask, and a decision of "allow" grants the call. So the grant is a hook in the same
+# settings.local.json, and the hook's decision is Resolve-WorkerClaudeFolderEdit below.
+#
+# THE SCOPE IS ONE DIRECTORY. The hook is written with the absolute path of the .claude folder it
+# belongs to, and approves only a file tool whose target resolves under that folder - never the
+# machine-wide ~\.claude, never another repository. Anything else gets no decision from it, which
+# leaves Claude Code's own flow exactly as it was.
+# ---------------------------------------------------------------------------------------------
+
+# The file tools whose target is one path. Bash and PowerShell are not here: a shell command names
+# its targets in free text, and approving one would mean parsing that.
+$script:FolderEditTools = @{ Edit = 'file_path'; MultiEdit = 'file_path'; Write = 'file_path'; NotebookEdit = 'notebook_path' }
+
+# The one file under .claude\ the grant never covers: the file that holds the grants. A worker that
+# could rewrite it could widen its own permissions, so that edit is left to the menu.
+$script:FolderEditExcludedLeaf = 'settings.local.json'
+
+# The matcher group for one .claude folder, as settings.json's hooks.PermissionRequest takes it.
+# Exec form - `args` present, so no shell parses the line - running this module from the
+# installation it was loaded from, with the folder's absolute path written in.
+function New-ClaudeFolderEditHook {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$ClaudeDir)
+
+    $exe    = Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')
+    $module = Join-Path $PSScriptRoot 'ClaudeWorkspace.psm1'
+    $dir    = [IO.Path]::GetFullPath($ClaudeDir)
+    $quote  = { param($s) "'" + ($s -replace "'", "''") + "'" }
+    $script = "Import-Module $(& $quote $module); " +
+              "Resolve-WorkerClaudeFolderEdit -ClaudeDir $(& $quote $dir) " +
+              "-InputJson ([Console]::In.ReadToEnd())"
+
+    [ordered]@{
+        matcher = (@($script:FolderEditTools.Keys | Sort-Object) -join '|')
+        hooks   = @(
+            [ordered]@{
+                type    = 'command'
+                command = $exe
+                args    = @('-NoProfile', '-NonInteractive', '-Command', $script)
+                timeout = 30
+            }
+        )
+    }
+}
+
+# The hook's decision. Reads the PermissionRequest input Claude Code sends on stdin and returns the
+# allow decision as JSON, or nothing at all. NOTHING is never a denial - it is no decision, and the
+# request then goes on exactly as it would with no hook. Every way of returning nothing writes its
+# reason to stderr, so a menu that still appears says why.
+function Resolve-WorkerClaudeFolderEdit {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ClaudeDir,
+        [AllowEmptyString()][Parameter(Mandatory)][string]$InputJson
+    )
+
+    $none = { param($why) [Console]::Error.WriteLine("kingshand folder-edit grant: no decision - $why") }
+
+    try { $in = $InputJson | ConvertFrom-Json -ErrorAction Stop }
+    catch { & $none 'the request could not be read as JSON'; return }
+    if ($in -isnot [pscustomobject]) { & $none 'the request is not a JSON object'; return }
+    $fields = @($in.PSObject.Properties | ForEach-Object Name)
+    if ($fields -notcontains 'tool_name' -or $fields -notcontains 'tool_input') {
+        & $none 'the request names no tool'; return
+    }
+
+    $tool = "$($in.tool_name)"
+    if (-not $script:FolderEditTools.ContainsKey($tool)) { & $none "$tool is not a file tool"; return }
+    $key = $script:FolderEditTools[$tool]
+    if ($in.tool_input -isnot [pscustomobject] -or @($in.tool_input.PSObject.Properties | ForEach-Object Name) -notcontains $key) {
+        & $none "the $tool request has no $key"; return
+    }
+    $target = "$($in.tool_input.$key)"
+    if (-not [IO.Path]::IsPathRooted($target)) { & $none "$target is not an absolute path"; return }
+
+    $cmp  = $IsWindows ? [StringComparison]::OrdinalIgnoreCase : [StringComparison]::Ordinal
+    $sep  = [IO.Path]::DirectorySeparatorChar
+    $root = [IO.Path]::GetFullPath($ClaudeDir).TrimEnd('\', '/')
+    $full = [IO.Path]::GetFullPath($target)
+    if (-not $full.StartsWith($root + $sep, $cmp)) { & $none "$full is outside $root"; return }
+    if ($full.Equals((Join-Path $root $script:FolderEditExcludedLeaf), $cmp)) {
+        & $none "$full holds the grants themselves"; return
+    }
+
+    # A link anywhere from the folder down to the file would let a path that reads as inside land
+    # outside, so every existing step on the way is checked.
+    $step = $full
+    while ($true) {
+        if (Test-Path -LiteralPath $step) {
+            $item = Get-Item -LiteralPath $step -Force
+            if ($item.LinkType) { & $none "$step is a link"; return }
+        }
+        if ($step.Equals($root, $cmp)) { break }
+        $step = [IO.Path]::GetDirectoryName($step)
+        if (-not $step) { & $none "$full did not resolve under $root"; return }
+    }
+
+    [ordered]@{
+        hookSpecificOutput = [ordered]@{
+            hookEventName = 'PermissionRequest'
+            decision      = [ordered]@{ behavior = 'allow' }
+        }
+    } | ConvertTo-Json -Depth 5 -Compress
 }
 
 # Records that one worktree path is trusted, so an unattended worker does not stop on Claude
@@ -135,10 +257,10 @@ function Grant-ClaudeFolderTrust {
 # ---------------------------------------------------------------------------------------------
 # A worker in the project's OWN checkout, with no worktree: the `fief` skill's warm worker.
 #
-# The grants are the same two, and the difference is whose file they land in. A worktree is a fresh
-# checkout kingshand made, so its settings.local.json is kingshand's to write whole. A checkout is
-# the King's, and its settings.local.json may already hold his own `allow` list and anything else he
-# put there. So the file is EDITED rather than written - every key he had survives, the two grants
+# The grants are the same three, and the difference is whose file they land in. A worktree is a
+# fresh checkout kingshand made, so its settings.local.json is kingshand's to write whole. A checkout
+# is the King's, and its settings.local.json may already hold his own `allow` list and anything else
+# he put there. So the file is EDITED rather than written - every key he had survives, the grants
 # are set on top - and it is put back exactly as it was when the worker is cleaned up.
 #
 # FOUR THINGS WENT WRONG WHEN THIS WAS DONE BY HAND, and each is a mechanism here now:
@@ -147,8 +269,8 @@ function Grant-ClaudeFolderTrust {
 #     first write, so restoring is a byte copy rather than a reconstruction.
 #   - Afterwards nobody could tell whether there had been a file at all. The record says so, and a
 #     file that did not exist before is DELETED at cleanup rather than restored as an empty one.
-#   - The allow list was dropped. The file is parsed as JSON through JsonNode and only the two grant
-#     keys are touched, so `allow` and everything else are carried across untouched.
+#   - The allow list was dropped. The file is parsed as JSON through JsonNode and only the grant keys
+#     are touched, so `allow` and everything else are carried across untouched.
 #   - A failed read was built from. `$orig.permissions.allow` on a Get-Content that threw produced
 #     `allow: [null]`, which Claude Code meets with a settings-warning prompt the worker then sits
 #     blocked on. Here a file that is there and cannot be read, or is not a JSON object, REFUSES -
@@ -251,6 +373,26 @@ function New-CheckoutSettingsPlan {
     foreach ($d in @($AdditionalDirectories | Where-Object { $_ })) {
         if ($have.Add($d)) { $dirs.Add([System.Text.Json.Nodes.JsonNode][System.Text.Json.Nodes.JsonValue]::Create($d)) }
     }
+
+    # The folder-edit grant, scoped to this checkout's own .claude folder and appended beside any
+    # hook the King already has. The restore is a byte copy of the original, so it goes with the rest.
+    $hooks = $root['hooks']
+    if ($null -eq $hooks) {
+        $hooks = [System.Text.Json.Nodes.JsonObject]::new()
+        $root['hooks'] = $hooks
+    } elseif ($hooks -isnot [System.Text.Json.Nodes.JsonObject]) {
+        throw "$settingsPath has a 'hooks' value that is not an object. Nothing was changed."
+    }
+    $requests = $hooks['PermissionRequest']
+    if ($null -eq $requests) {
+        $requests = [System.Text.Json.Nodes.JsonArray]::new()
+        $hooks['PermissionRequest'] = $requests
+    } elseif ($requests -isnot [System.Text.Json.Nodes.JsonArray]) {
+        throw ("$settingsPath has a 'hooks.PermissionRequest' value that is not a list. " +
+               "Nothing was changed.")
+    }
+    $group = New-ClaudeFolderEditHook -ClaudeDir $claudeDir | ConvertTo-Json -Depth 10
+    $requests.Add([System.Text.Json.Nodes.JsonNode]::Parse($group))
 
     $opts = [System.Text.Json.JsonSerializerOptions]::new()
     $opts.WriteIndented = $true
@@ -533,6 +675,7 @@ function Stop-CheckoutWorker {
 }
 
 Export-ModuleMember -Function Set-WorkerWorkspaceSettings, Grant-ClaudeFolderTrust,
+                              Resolve-WorkerClaudeFolderEdit,
                               Get-CheckoutSettingsRecordPath, New-CheckoutSettingsPlan,
                               Set-CheckoutWorkerSettings, Read-CheckoutSettingsRecord,
                               Restore-CheckoutWorkerSettings, Stop-CheckoutWorker,

@@ -27,7 +27,8 @@
     4. Set-WorkerWorkspaceSettings - the two grants that used to be command-line flags. herdr
        cannot pass arguments to claude on Windows at all (it launches through Start-Process against
        a .ps1 and dies with "%1 is not a valid Win32 application"), so --permission-mode and
-       --add-dir have to be on disk in the worktree before the agent starts.
+       --add-dir have to be on disk in the worktree before the agent starts. It also writes the
+       grant to edit the worktree's own .claude folder, which ClaudeWorkspace.psm1 owns.
     5. Grant-ClaudeFolderTrust - a fresh worktree is a directory Claude Code has never seen, so it
        stops on the folder-trust dialog with nobody there to answer. `claude --bg --worktree` never
        met this: it inherited the trust of the session that spawned it.
@@ -1363,7 +1364,8 @@ if ($InCheckout) {
 
     # The two grants that used to be `--permission-mode bypassPermissions --add-dir <briefdir>` on the
     # command line. Written into the WORKTREE, which is a fresh checkout with no .claude of its own -
-    # nothing carries across from the main checkout, because settings.local.json is untracked.
+    # nothing carries across from the main checkout, because settings.local.json is untracked. The
+    # same file carries the grant to edit this worktree's own .claude folder.
     $null = Set-WorkerWorkspaceSettings -WorktreePath $worktree -AdditionalDirectories @($briefDir)
 
     # Pre-seeded rather than answered afterwards with a synthetic keystroke: this is a written,
