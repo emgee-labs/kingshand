@@ -68,11 +68,12 @@ outcome: passed
     # forgot one has nothing to fall back on.
     function New-Wake {
         param([string]$Reason = 'settled', [string]$State = 'idle', [bool]$Awaiting = $false,
-              [bool]$Readable = $true, [string]$Box = '', [string]$Last = 'Wrote report.md')
+              [bool]$Readable = $true, [string]$Box = '', [string]$Last = 'Wrote report.md',
+              [bool]$Paste = $false)
         [pscustomobject]@{
             settled = ($Reason -eq 'settled'); state = $State; awaitingInput = $Awaiting
             stalled = ($Reason -eq 'stalled'); reason = $Reason; quietMinutes = 21.5
-            waitedMinutes = 45.0; lastActivity = $Last; promptBox = $Box
+            waitedMinutes = 45.0; lastActivity = $Last; promptBox = $Box; pastePending = $Paste
             signalReadable = $Readable; samples = 3; stallMinutes = 20
         }
     }
@@ -159,6 +160,26 @@ Describe 'A worker watch reports every outcome as its own line' {
         }
     }
 
+    It 'reports a settle over text in the box as unsent, never as settled' {
+        $l = Format-WorkerWake -Name 'T-1' -Wake (New-Wake -State 'done' -Box '[Pasted text #1 +12 lines]')
+        Assert-OneLine $l
+        $l | Should -BeLike "UNSENT T-1 state=done*'[[]Pasted text #1 +12 lines]'*not the worker's output*"
+        $l | Should -BeLike '*re-arm this watch once*never submit or clear it*'
+        $l | Should -Not -BeLike '*SETTLED*'
+    }
+
+    It 'reports a settle just after a paste went in as unsent, never as settled' {
+        $l = Format-WorkerWake -Name 'T-1' -Wake (New-Wake -State 'done' -Paste $true)
+        Assert-OneLine $l
+        $l | Should -BeLike "UNSENT T-1 state=done*a paste went into its input box seconds ago*re-arm*"
+        $l | Should -Not -BeLike '*SETTLED*'
+    }
+
+    It 'still reports a worker on a prompt as blocked when its box holds text' {
+        (Format-WorkerWake -Name 'T-1' -Wake (New-Wake -Awaiting $true -Box 'x' -Paste $true)) |
+            Should -BeLike 'BLOCKED T-1*'
+    }
+
     It 'reads a wake it cannot read as unreadable, never as an outcome' {
         Assert-OneLine (Format-WorkerWake -Name 'T-1' -Wake $null)
         (Format-WorkerWake -Name 'T-1' -Wake $null) | Should -BeLike 'UNREADABLE T-1*'
@@ -204,6 +225,66 @@ Describe 'Watch-Worker' {
         $out = @(Watch-Worker -Name 'T-1' 3>&1)
         $out.Count | Should -Be 1
         "$($out[0])" | Should -BeLike '*Warned while waiting: server restarted*'
+    }
+}
+
+Describe 'A worker watch never reports settled over text the worker has not taken' {
+    # End to end below the watch: the real progress wait and the real box reader, with only herdr's
+    # answers replaced - the worker stopping, and the screen it stopped on. The screens are the
+    # shapes sampled off a live worker while a long prompt went in.
+    BeforeAll {
+        $script:Rule = ([string][char]0x2500) * 92
+        function New-Screen {
+            param([string]$Box = '', [string]$Footer = '? for shortcuts')
+            "  Done. Wrote report.md.`n`n$script:Rule`n`u{276F}`u{00A0}$Box`n$script:Rule`n    $Footer"
+        }
+    }
+
+    BeforeEach {
+        Mock -ModuleName Herdr Wait-HerdrAgent {
+            [pscustomobject]@{ name = 't-1'; agent_status = 'done'; pane_id = 'p1' }
+        }
+    }
+
+    It 'settles over an empty box' {
+        $s = New-Screen
+        Mock -ModuleName Herdr Read-HerdrAgentScreen { [pscustomobject]@{ ok = $true; text = $s } }.GetNewClosure()
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 1
+        Assert-OneLine $l
+        $l | Should -BeLike 'SETTLED T-1 state=done*'
+    }
+
+    It 'does not settle over typed text in the box' {
+        $s = New-Screen -Box 'half-typed reply'
+        Mock -ModuleName Herdr Read-HerdrAgentScreen { [pscustomobject]@{ ok = $true; text = $s } }.GetNewClosure()
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 1
+        Assert-OneLine $l
+        $l | Should -BeLike "UNSENT T-1*'half-typed reply'*"
+    }
+
+    It 'does not settle over a collapsed paste in the box' {
+        $s = New-Screen -Box '[Pasted text #1 +12 lines]' -Footer 'paste again to expand'
+        Mock -ModuleName Herdr Read-HerdrAgentScreen { [pscustomobject]@{ ok = $true; text = $s } }.GetNewClosure()
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 1
+        Assert-OneLine $l
+        $l | Should -BeLike "UNSENT T-1*'[[]Pasted text #1 +12 lines]'*"
+    }
+
+    # The screen the watch woke on and called settled on 2026-10-23: the paste had just gone in,
+    # the box had emptied, and the worker started on it seconds later.
+    It 'does not settle in the moment after a paste went in, before the turn started' {
+        $s = New-Screen -Footer 'paste again to expand'
+        Mock -ModuleName Herdr Read-HerdrAgentScreen { [pscustomobject]@{ ok = $true; text = $s } }.GetNewClosure()
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 1
+        Assert-OneLine $l
+        $l | Should -BeLike 'UNSENT T-1*a paste went into its input box seconds ago*'
+    }
+
+    It 'says it was blind rather than guessing at the box when the screen could not be read' {
+        Mock -ModuleName Herdr Read-HerdrAgentScreen { [pscustomobject]@{ ok = $false; text = '' } }
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 1
+        $l | Should -BeLike '*watch was blind*'
+        $l | Should -Not -BeLike 'UNSENT*'
     }
 }
 
@@ -315,14 +396,18 @@ Describe 'Watch-Delivery' {
         }
     }
 
-    It 'keeps the worker''s own line, input box and all, when it went idle while its run kept going' {
-        Mock -ModuleName Watch Wait-HerdrAgentProgress { New-Wake -State 'done' -Box 'half-typed reply' }
-        Mock -ModuleName Watch Get-GateRunState { $script:Running }
-        Mock -ModuleName Watch Wait-GateRunChange { New-GateWait -Reason 'finished' -State $script:Passed }
-
-        $l = Watch-Delivery -Name 'T-1' -RepoPath 'C:\wt' -Branch 'feature-x'
-        Assert-OneLine $l
-        $l | Should -BeLike "IDLE WHILE GATE RUNS T-1*PASSED gate*SETTLED T-1*'half-typed reply'*load rally*Last seen: Wrote report.md*"
+    # Text in the box means the turn that ended is not the one for that text, so the worker has not
+    # settled and its gate is not the question yet - the same as a blocked or stalled worker.
+    It 'reports a worker that stopped over text in its box as unsent and reads no gate' {
+        Mock -ModuleName Watch Get-GateRunState { throw 'should not read' }
+        foreach ($w in @((New-Wake -State 'done' -Box 'half-typed reply'),
+                         (New-Wake -State 'done' -Paste $true))) {
+            Mock -ModuleName Watch Wait-HerdrAgentProgress { $w }.GetNewClosure()
+            $l = Watch-Delivery -Name 'T-1' -RepoPath 'C:\wt' -Branch 'feature-x'
+            Assert-OneLine $l
+            $l | Should -BeLike 'UNSENT T-1*'
+        }
+        Should -Invoke -ModuleName Watch Get-GateRunState -Times 0
     }
 
     It 'reports a gate that was already parked when the worker stopped, with its findings' {

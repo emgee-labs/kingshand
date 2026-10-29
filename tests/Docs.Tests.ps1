@@ -1132,6 +1132,14 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
             -Phrase 'if you submit anything further yourself, wait for `working` first'
     }
 
+    It 'never reads a turn that ended over unsent text as a completion' {
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase ('**`UNSENT` is a turn that ended over text the worker has not taken, and ' +
+                     'it is never a')
+        Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
+            -Phrase 'Re-arm the watch once; if the same text is still in the box after that,'
+    }
+
     It 're-arms a timed-out watch rather than assuming the worker is fine' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase 'If the watch comes back `NO OUTCOME`, re-arm it.'

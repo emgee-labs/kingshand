@@ -1258,6 +1258,10 @@ because "nothing happened" is not an event anything can push at you.
   It is text sitting in that worker's input box that nothing here sent, and a bare Enter would
   submit it as though the Hand had written it. **Never submit it and never clear it** - quote it,
   say which worker it was on, and load `rally`, which owns what happens next.
+- **`UNSENT` is a turn that ended over text the worker has not taken, and it is never a
+  completion.** Its input box holds text, or a paste went in seconds ago - often the prompt you just
+  sent, not yet started on. Re-arm the watch once; if the same text is still in the box after that,
+  the bullet above applies.
 - **`GONE` means herdr has no such worker any more.** That is not a timeout and not a
   stall: the process is not there. It is confirmed by a second read and by the server still
   answering, so neither one transient error nor a server that is down produces it. Load `rally` and
