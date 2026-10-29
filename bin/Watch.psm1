@@ -155,7 +155,7 @@ function Format-WorkerWake {
             }
             return ("SETTLED $Name state=$state - its turn ended, which is not proof it finished. " +
                     'Next: muster Step 6 - read its record and report.md before calling it ' +
-                    "delivered.$boxNote$blind$tail")
+                    "delivered.$blind$tail")
         }
         'stalled' {
             $quiet = Get-WatchField $Wake 'quietMinutes'
