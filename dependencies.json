@@ -19,7 +19,7 @@
   "lavish-axi": {
     "source": "npm",
     "package": "lavish-axi",
-    "version": "0.1.90"
+    "version": "0.1.95"
   },
   "tasks-axi": {
     "source": "npm",
@@ -34,6 +34,6 @@
   "claude-code": {
     "source": "npm",
     "package": "@anthropic-ai/claude-code",
-    "minimum": "2.1.307"
+    "minimum": "2.1.312"
   }
 }
