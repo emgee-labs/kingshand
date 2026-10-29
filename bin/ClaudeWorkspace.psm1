@@ -672,6 +672,11 @@ function Stop-CheckoutWorker {
 
     $stop = Stop-HerdrAgent -Name $Name
     if (-not $stop.stopped) {
+        if ($stop.refused) {
+            throw ("Worker $Name was not stopped: its input box holds text, so nothing was sent " +
+                   "($($stop.refused)). Its pane and the checkout's settings file were left exactly " +
+                   "as they are. The box reads: '$($stop.promptBox)'. Load rally.")
+        }
         throw ("Worker $Name did not stop, so its pane and the checkout's settings file were left " +
                "exactly as they are - it is still running under those grants. Nothing else was changed.")
     }
