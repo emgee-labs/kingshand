@@ -620,7 +620,13 @@ try {
             $mergeNote = if ($_.merge -eq 'on') { ' +merge' } else { '' }
             # Night's watch's own merge permission, said only where it is held, like +merge.
             if ((Get-Field $_ 'watchMerge') -eq 'on') { $mergeNote += ' +watch-merge' }
-            "- $($_.name) [$($_.rawMode)] yolo $($_.yolo)$mergeNote$pathNote$nameNote"
+            # Which family's shared rules a worker dispatched here will carry - and which file the
+            # Hand has to read before writing this project's ticket text, since the intake rule
+            # sends it to the family file as well as the project's own. Printed only where a family
+            # is declared, so a project in none prints exactly as it always has.
+            $family = Get-Field $_ 'family'
+            $familyNote = if ($family) { " +family:$family" } else { '' }
+            "- $($_.name) [$($_.rawMode)] yolo $($_.yolo)$mergeNote$familyNote$pathNote$nameNote"
         })
         if ($shown.Count -lt $entries.Count) {
             Add-Line "    ... and $($entries.Count - $shown.Count) more with nothing live or waiting - the registry lists them."
