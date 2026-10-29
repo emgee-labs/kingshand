@@ -286,10 +286,11 @@ the rule above describes and its stage is left alone.
    confirm it landed. This is the cheap step and it comes first now: throwing a dispatch away for
    something one sentence fixes is waste, and it was the only option before herdr.
 
-3. **A blocked worker is the user's decision, not yours, outside `regency`.** `blocked` means it is sitting on an
-   interactive prompt, and herdr will refuse a prompt at that worker until the prompt is answered.
-   Confirm it with `Test-HerdrAgentAwaitingInput` rather than herdr's state word, and confirm the
-   same way before concluding a worker is *not* blocked - that direction is the dangerous one.
+3. **A blocked worker is the user's decision, not yours, outside `regency`.** `blocked` means it
+   is sitting on an interactive prompt, and herdr will refuse a prompt at that worker until the
+   prompt is answered. Confirm it with `Test-HerdrAgentAwaitingInput` rather than herdr's state
+   word, and confirm the same way before concluding a worker is *not* blocked - that direction is
+   the dangerous one.
    Read the options off the screen, tell the user plainly what the worker is asking and what the
    choices are, and get their answer before touching anything. Then answer it with
    `Send-HerdrKeys`, one key per call, reading the screen back between the arrow and the Enter.
