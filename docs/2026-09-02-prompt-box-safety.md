@@ -139,6 +139,8 @@ server kingshand did not start carries whatever environment it inherited.
 - The harness changes how it draws the input box, at which point the caret-plus-no-break-space pair
   stops matching. The symptom is silent in the safe direction: the guard simply stops firing.
   `Get-HerdrAgentPromptBox` against a worker with something visibly in its box is the check.
+  The screen read decodes herdr's output as UTF-8 regardless of the console's code page, so a
+  code page 437 console no longer hides the pair - if herdr ever stops writing UTF-8, look here.
 - The harness adds or reworks a placeholder string. The symptom is a worker that cannot be sent to,
   with the refusal quoting a string that is plainly the harness's own hint.
 - `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION` is renamed or its resolver reordered, at which point the

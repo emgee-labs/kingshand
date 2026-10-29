@@ -400,8 +400,17 @@ function Read-HerdrAgentScreen {
     $exe = Get-HerdrCommandPath
     if (-not $exe) { throw (Get-HerdrCommandHint) }
 
-    $raw  = & $exe agent read $agentName --source visible 2>&1
-    $code = $LASTEXITCODE
+    # herdr writes UTF-8 whatever the console is set to, and the box is found by U+276F plus
+    # U+00A0. A code page 437 console decodes those as other characters, so every box reader went
+    # blind and the stop guard failed open - so this one read decodes as UTF-8, then puts it back.
+    $previous = [Console]::OutputEncoding
+    try {
+        [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+        $raw  = & $exe agent read $agentName --source visible 2>&1
+        $code = $LASTEXITCODE
+    } finally {
+        [Console]::OutputEncoding = $previous
+    }
     $text = ($raw | Out-String)
 
     $failed = [pscustomobject]@{ ok = $false; text = '' }

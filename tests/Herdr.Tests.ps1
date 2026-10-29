@@ -890,6 +890,34 @@ Describe 'Stop-HerdrAgent never submits text already in the box' {
         $stop.refused | Should -Be ''
         ($script:reached -join ' ') | Should -BeLike '*/exit*'
     }
+
+    # Seen live: pwsh launched from Git Bash runs a code page 437 console, which decoded herdr's
+    # UTF-8 box caret as other characters, so the box read empty and `/exit` was submitted behind
+    # the waiting text. The ps1 stub above runs in-process and never crosses that decode, so this
+    # case uses a cmd stub: a separate process whose `type` writes the screen file's raw UTF-8.
+    It 'still refuses on a code page 437 console, and puts the console encoding back' {
+        $dir = New-TempFixtureDir -Prefix 'herdr-cp437-'
+        $screen = Join-Path $dir 'screen.txt'
+        $cmd = Join-Path $dir 'herdr-stub.cmd'
+        [System.IO.File]::WriteAllText($screen, (New-BoxScreen -Box 'reply with only LEAKED'),
+            [System.Text.UTF8Encoding]::new($false))
+        Set-Content -LiteralPath $cmd -Encoding ascii -Value "@type `"$screen`""
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $cmd }.GetNewClosure()
+
+        $before = [Console]::OutputEncoding
+        try {
+            [Console]::OutputEncoding = [System.Text.Encoding]::GetEncoding(437)
+            $stop = Stop-HerdrAgent -Name 'T-9001' -TimeoutSeconds 5
+            $after = [Console]::OutputEncoding.CodePage
+        } finally {
+            [Console]::OutputEncoding = $before
+        }
+
+        $after          | Should -Be 437
+        $stop.refused   | Should -Be 'prompt-box-not-empty'
+        $stop.promptBox | Should -Be 'reply with only LEAKED'
+        $script:reached.Count | Should -Be 0
+    }
 }
 
 # ---------------------------------------------------------------------------------------------
