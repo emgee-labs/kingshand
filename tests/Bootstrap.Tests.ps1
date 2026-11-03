@@ -202,6 +202,33 @@ Describe 'bootstrap.ps1 - an existing kingshand clone' {
         $r.Code | Should -Be 0 -Because $r.Text
         (git -C $target rev-parse HEAD) | Should -Be $before
         $r.Text.Contains('already a kingshand clone') | Should -BeTrue -Because $r.Text
+        $r.Text.Contains('not on a release') | Should -BeFalse -Because $r.Text
+        Get-InstallRecord -Target $target | Should -Be 'bound=;args='
+    }
+
+    It 'says a clone off a release tag is not on a release, points at /update, and still runs the installer' {
+        $target = Join-Path (New-TargetBase 'existing-offtag') 'kingshand'
+        git clone -q "$($script:Remote.Path)" $target 2>&1 | Out-Null
+        $before = git -C $target rev-parse HEAD
+
+        $r = Invoke-Bootstrap -ArgumentList @('-Path', $target, '-Repository', $script:Remote.Path)
+
+        $r.Code | Should -Be 0 -Because $r.Text
+        (git -C $target rev-parse HEAD) | Should -Be $before
+        $r.Text.Contains('It is not on a release; /update moves it to the latest release.') | Should -BeTrue -Because $r.Text
+        Get-InstallRecord -Target $target | Should -Be 'bound=;args='
+    }
+
+    It 'says the release could not be checked when the clone has no update module' {
+        $remote = New-Remote -Name 'existing-nomodule' -NoUpdateModule
+        $target = Join-Path (New-TargetBase 'existing-nomodule') 'kingshand'
+        git clone -q "$($remote.Path)" $target 2>&1 | Out-Null
+
+        $r = Invoke-Bootstrap -ArgumentList @('-Path', $target, '-Repository', $remote.Path)
+
+        $r.Code | Should -Be 0 -Because $r.Text
+        $r.Text.Contains('could not be checked: it has no bin\Update.psm1') | Should -BeTrue -Because $r.Text
+        $r.Text.Contains('not on a release') | Should -BeFalse -Because $r.Text
         Get-InstallRecord -Target $target | Should -Be 'bound=;args='
     }
 }

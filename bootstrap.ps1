@@ -127,9 +127,25 @@ $exitCode = & {
         }
     }
 
+    # The release rules belong to the clone's own update module. Imported into this scope only,
+    # so nothing is left loaded in the caller's session afterwards.
+    $updateModule = Join-Path (Join-Path $target 'bin') 'Update.psm1'
+
     if ($existing) {
-        Write-Host "$target is already a kingshand clone. Its checkout is left exactly as it is;"
-        Write-Host '/update is what moves an installation to the latest release.'
+        Write-Host "$target is already a kingshand clone. Its checkout is left exactly as it is."
+        if (-not (Test-Path -LiteralPath $updateModule -PathType Leaf)) {
+            Write-Host 'Whether it is on a release could not be checked: it has no bin\Update.psm1.'
+        } else {
+            Import-Module $updateModule -Scope Local
+            $headTags = @(& git -C $target tag --points-at HEAD 2>$null | ForEach-Object { "$_" })
+            $code = $LASTEXITCODE
+            $global:LASTEXITCODE = 0
+            if ($code -ne 0) {
+                Write-Host 'Whether it is on a release could not be checked: git could not read its tags.'
+            } elseif (-not (Select-LatestReleaseTag -Tags $headTags)) {
+                Write-Host 'It is not on a release; /update moves it to the latest release.'
+            }
+        }
     } else {
         Write-Host "Cloning $shown into $target"
         & git clone --quiet -- $Repository $target
@@ -140,9 +156,6 @@ $exitCode = & {
                             "git's message above.")
         }
 
-        # The release rules belong to the clone's own update module. Imported into this scope only,
-        # so nothing is left loaded in the caller's session afterwards.
-        $updateModule = Join-Path (Join-Path $target 'bin') 'Update.psm1'
         if (-not (Test-Path -LiteralPath $updateModule -PathType Leaf)) {
             Stop-Bootstrap ("the clone at $target has no bin\Update.psm1, so its latest release " +
                             'could not be worked out. The clone is left in place.')

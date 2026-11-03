@@ -144,7 +144,8 @@ That fetches `bootstrap.ps1`, which checks for PowerShell 7 and git, clones this
 `kingshand` folder in your home directory, checks out the latest release, and runs `install.ps1`
 there. It never overwrites anything: a folder that already exists must be empty or already a
 kingshand clone, and anything else is refused with the reason. An existing clone is left on
-whatever it has checked out - `/update` is what moves it to a newer release.
+whatever it has checked out, and when that is not a release it says so - `/update` is what moves
+it to the latest release.
 
 To choose the folder, or to have the installer install what is missing, download it and run it as
 a file:
