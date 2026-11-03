@@ -231,6 +231,19 @@ Describe 'bootstrap.ps1 - an existing kingshand clone' {
         $r.Text.Contains('not on a release') | Should -BeFalse -Because $r.Text
         Get-InstallRecord -Target $target | Should -Be 'bound=;args='
     }
+
+    It 'says the release could not be checked when the clone has an update module older than the release rule' {
+        $target = Join-Path (New-TargetBase 'existing-oldmodule') 'kingshand'
+        git clone -q "$($script:Remote.Path)" $target 2>&1 | Out-Null
+        Set-Content -LiteralPath (Join-Path (Join-Path $target 'bin') 'Update.psm1') -Encoding utf8 `
+                    -Value 'function Get-ReleaseBranchName { ''main'' }'
+
+        $r = Invoke-Bootstrap -ArgumentList @('-Path', $target, '-Repository', $script:Remote.Path)
+
+        $r.Code | Should -Be 0 -Because $r.Text
+        $r.Text.Contains('could not be checked: its bin\Update.psm1 is older than the release rule') | Should -BeTrue -Because $r.Text
+        Get-InstallRecord -Target $target | Should -Be 'bound=;args='
+    }
 }
 
 Describe 'bootstrap.ps1 - refusals that change nothing' {

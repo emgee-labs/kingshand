@@ -137,13 +137,18 @@ $exitCode = & {
             Write-Host 'Whether it is on a release could not be checked: it has no bin\Update.psm1.'
         } else {
             Import-Module $updateModule -Scope Local
-            $headTags = @(& git -C $target tag --points-at HEAD 2>$null | ForEach-Object { "$_" })
-            $code = $LASTEXITCODE
-            $global:LASTEXITCODE = 0
-            if ($code -ne 0) {
-                Write-Host 'Whether it is on a release could not be checked: git could not read its tags.'
-            } elseif (-not (Select-LatestReleaseTag -Tags $headTags)) {
-                Write-Host 'It is not on a release; /update moves it to the latest release.'
+            if (-not (Get-Command 'Select-LatestReleaseTag' -ErrorAction SilentlyContinue)) {
+                Write-Host ('Whether it is on a release could not be checked: its bin\Update.psm1 ' +
+                            'is older than the release rule.')
+            } else {
+                $headTags = @(& git -C $target tag --points-at HEAD 2>$null | ForEach-Object { "$_" })
+                $code = $LASTEXITCODE
+                $global:LASTEXITCODE = 0
+                if ($code -ne 0) {
+                    Write-Host 'Whether it is on a release could not be checked: git could not read its tags.'
+                } elseif (-not (Select-LatestReleaseTag -Tags $headTags)) {
+                    Write-Host 'It is not on a release; /update moves it to the latest release.'
+                }
             }
         }
     } else {
