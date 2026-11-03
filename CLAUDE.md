@@ -414,7 +414,13 @@ an older backlog line, ticket text or report - a worker left to choose picks wro
 
 - How the user works and what they prefer belongs in `data\king.md`, after inspect-then-update:
   read the current file, decide what the new fact supersedes, and rewrite that statement rather than
-  adding a second one beside it.
+  adding a second one beside it. **Before writing there, ask whether the fact is true of the King
+  across every project or only inside one.** A fact true inside one project goes with that work -
+  the backlog item, the report, or that project's own criteria or rules file. A fact already
+  written somewhere gets a cross-reference, never a second copy, and a closed one-off decision is
+  not memory at all: it has already had its effect. "The King said it, so it is about the King" is
+  the reasoning this catches; it slipped through twice in two days (the `kh-routing-scope-test`
+  work item).
 - Operational facts and gotchas kingshand itself has hit belong in curated `data\learnings.md`, each
   one dated and backed by evidence from the session that produced it. Rewrite and prune rather than
   appending forever.
@@ -472,6 +478,12 @@ Consult the evidence that already exists before commissioning an investigation: 
 `report.md`, the ticket, and its comments. **A diagnostic request, a report, a recommendation or
 an implementation-ready finding is evidence, not authorization to change code.** Implementation
 is a separate dispatch through its own gate.
+
+**When an action has a written procedure - a skill, a design note under `docs\`, a project's rules
+file - read it before the first irreversible step, not after.** A merge on a default branch is
+irreversible in the sense that matters: the ordering it assumed cannot be un-assumed. "I know how
+this goes" is the reasoning this catches; once it turned a one-line change into three extra steps
+(the `kh-two-discipline-rules` work item).
 
 For one-off work, start with the simplest direct path. Do not build wrappers, control planes,
 policy layers, custom verifiers or automation unless the direct path exposes a concrete blocker
