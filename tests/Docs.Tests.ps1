@@ -1674,6 +1674,36 @@ Describe 'the ported reference skills are loadable and keep their load-bearing r
                      'code blocks" still suppresses code blocks')
     }
 
+    # Both halves are pinned: the citation that replaces an inline breakdown, and the one number
+    # that keeps a rule's cost visible. Dropping either undoes the rule. The scope limit is pinned
+    # too, so the rule cannot quietly grow into a sweep over every rule already written. Read from
+    # the section it belongs to, because the reason it exists is the pinning that section owns.
+    It 'statute has a rule cite its evidence file and keep one checkable number' {
+        $parts   = (Get-Content -Path $script:GuidelinesMd -Raw) -split '(?m)^## '
+        $section = ConvertTo-NormalisedText (@($parts |
+            Where-Object { $_.StartsWith('Prose rules need tests') })[0])
+        Assert-Phrase -Text $section -Where 'statute, Prose rules need tests' `
+            -Phrase ('**A rule cites the file that holds its evidence and keeps one checkable ' +
+                     'number beside it, rather than reproducing the breakdown inline.**')
+        Assert-Phrase -Text $section -Where 'statute, Prose rules need tests' `
+            -Phrase 'keep one number a reader can check there'
+        Assert-Phrase -Text $section -Where 'statute, Prose rules need tests' `
+            -Phrase ('This shapes rules written from here on; it does not open a pass over the ' +
+                     'existing ones.')
+    }
+
+    It 'statute checks for an existing dimension before a new setting is added' {
+        $parts   = (Get-Content -Path $script:GuidelinesMd -Raw) -split '(?m)^## '
+        $section = ConvertTo-NormalisedText (@($parts |
+            Where-Object { $_.StartsWith('One-owner rule') })[0])
+        Assert-Phrase -Text $section -Where 'statute, One-owner rule' `
+            -Phrase ('**A setting is a contract too: before adding one, check whether an existing ' +
+                     'dimension already answers it.**')
+        Assert-Phrase -Text $section -Where 'statute, One-owner rule' `
+            -Phrase ('Make the new capability another answer to the existing question, and add a ' +
+                     'setting only when no existing one can carry it.')
+    }
+
     # statute's description enumerates what the file covers, and that enumeration went stale: it
     # named seven subjects while the file had eight sections, so `Match the form to the failure`
     # was a subject nothing would ever load the skill for. The table below is the closed form that
@@ -2076,6 +2106,16 @@ Describe 'intake resolves the project and refuses to read a diagnosis as authori
             -Phrase '**read it before writing a brief or creating a work item**'
         Assert-Phrase -Text $s -Where 'CLAUDE.md intake' `
             -Phrase 'copy tag casing rather than reconstructing it'
+    }
+
+    It 'reads a written procedure before the first irreversible step' {
+        $s = Get-HandSection 'Intake judgement'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md intake' `
+            -Phrase ('**When an action has a written procedure - a skill, a design note under ' +
+                     '`docs\`, a project''s rules file - read it before the first irreversible ' +
+                     'step, not after.**')
+        Assert-Phrase -Text $s -Where 'CLAUDE.md intake' `
+            -Phrase 'the ordering it assumed cannot be un-assumed'
     }
 }
 
@@ -3517,6 +3557,20 @@ Describe 'CLAUDE.md routes durable knowledge to its most specific owner' {
                      'inspect-then-update')
         Assert-Phrase -Text $script:Routing -Where 'CLAUDE.md knowledge routing' `
             -Phrase 'rewrite that statement rather than adding a second one beside it'
+    }
+
+    # The scope test has to fire at the moment of writing, which is why it sits in the bullet
+    # that sends a fact to king.md rather than anywhere a reader might not be looking then.
+    It 'asks whether a fact holds across every project before it goes to king.md' {
+        Assert-Phrase -Text $script:Routing -Where 'CLAUDE.md knowledge routing' `
+            -Phrase ('**Before writing there, ask whether the fact is true of the King across ' +
+                     'every project or only inside one.**')
+        Assert-Phrase -Text $script:Routing -Where 'CLAUDE.md knowledge routing' `
+            -Phrase ('A fact true inside one project goes with that work - the backlog item, the ' +
+                     'report, or that project''s own criteria or rules file.')
+        Assert-Phrase -Text $script:Routing -Where 'CLAUDE.md knowledge routing' `
+            -Phrase ('A fact already written somewhere gets a cross-reference, never a second ' +
+                     'copy, and a closed one-off decision is not memory at all')
     }
 
     It 'sends operational facts to learnings.md, dated and evidence-backed' {
