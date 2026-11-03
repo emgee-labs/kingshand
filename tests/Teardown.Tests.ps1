@@ -670,9 +670,10 @@ branch_sync:
         # One gate-run reading, in Get-GateRunState's shape.
         function New-GateReading {
             param([string]$Status = 'has-run', [string]$RunStatus = 'running', [switch]$Parked,
-                  [string]$ParkedOn = '', [object[]]$Steps = @(), [string]$Pr = '', [string]$Outcome = '')
+                  [string]$ParkedOn = '', [object[]]$Steps = @(), [string]$Pr = '', [string]$Outcome = '',
+                  [string]$Signal = 'x')
             [pscustomobject]@{
-                status = $Status; signal = 'x'; detail = "reading $Status $RunStatus"
+                status = $Status; signal = $Signal; detail = "reading $Status $RunStatus"
                 runId = '01RUN'; branch = ''; head = ''; pr = $Pr; runStatus = $RunStatus
                 outcome = $Outcome; isParked = [bool]$Parked; parkedOn = $ParkedOn
                 steps = @($Steps); findings = @(); notUnderstood = @()
@@ -817,6 +818,62 @@ branch_sync:
         $r.outcome | Should -Be 'paused'
         $script:Gate.calls.Count | Should -Be 0
         (Get-Content -LiteralPath $r.record -Raw).Contains('- Review gate: no review gate run on this branch') | Should -BeTrue
+    }
+
+    It 'ends nothing and stops the worker not at all when the newest gate run is on another branch' {
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus '' -Signal 'wrong-branch'))
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'gate'
+        ($r.steps | Where-Object step -eq 'gate').detail | Should -BeLike '*another branch*nothing was ended*'
+        $script:Gate.calls.Count | Should -Be 0
+        $script:Herdr.stops.Count | Should -Be 0
+        Test-Path -LiteralPath $script:Record | Should -BeFalse
+        (Import-CrewState -Path $script:F.state).workers['w-pause'].stage | Should -Be 'implementing'
+    }
+
+    It 'writes a resume line that moves the record back to dispatched only once the prompt was taken' {
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus ''))
+        $r = & $script:Suspend
+        $r.outcome | Should -Be 'paused'
+        $text = Get-Content -LiteralPath $r.record -Raw
+        $resume = ([regex]::Match($text, '(?s)```powershell\r?\n(.*?)\r?\n```')).Groups[1].Value
+        $resume | Should -Not -BeNullOrEmpty
+
+        Import-Module "$PSScriptRoot\..\bin\Herdr.psm1"
+        Mock Start-HerdrServer { $script:Herdr.stops.Add('server') }
+        Mock New-HerdrPane { 'p9' }
+        Mock Start-HerdrAgent { [pscustomobject]@{ name = $Name } }
+        Mock Get-HerdrAgentState { 'idle' }
+        Mock Send-HerdrPrompt { [pscustomobject]@{ blocked = $true } }
+
+        { Invoke-Expression $resume } | Should -Throw '*did not take its prompt*'
+        (Import-CrewState -Path $script:F.state).workers['w-pause'].stage | Should -Be 'paused'
+        $script:Herdr.stops | Should -Contain 'server'
+
+        Mock Send-HerdrPrompt { [pscustomobject]@{ status = 'idle' } }
+        Invoke-Expression $resume
+        (Import-CrewState -Path $script:F.state).workers['w-pause'].stage | Should -Be 'dispatched'
+    }
+
+    It 'reports pane-closed when one of several workers in the copy had its pane closed' {
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus ''))
+        Add-FakePane -PaneId 'p2' -Cwd $script:Copy -Workspace 'w1' -Agent 'w-helper'
+        $script:Herdr.dialog = $true
+        Mock -ModuleName Teardown Stop-HerdrAgent {
+            $script:Herdr.stops.Add($Name)
+            if ($Name -eq 'w-pause') { return [pscustomobject]@{ stopped = $false; paneId = 'p1'; refused = ''; promptBox = '' } }
+            $gone = @($script:Herdr.agents | Where-Object { $_.name -eq $Name })
+            foreach ($g in $gone) { $null = $script:Herdr.agents.Remove($g) }
+            [pscustomobject]@{ stopped = $true; paneId = 'p2'; refused = ''; promptBox = '' }
+        }
+
+        $r = & $script:Suspend
+
+        $r.outcome | Should -Be 'paused'
+        $script:Herdr.stops | Should -Be @('w-pause', 'w-helper')
+        $r.stoppedBy | Should -Be 'pane-closed'
     }
 
     It 'saves the gate''s head, recovers its commits and checks custody came back when the gate still holds them' {

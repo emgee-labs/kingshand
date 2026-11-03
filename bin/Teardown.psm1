@@ -849,9 +849,11 @@ function Format-PauseGateReached {
     $parts -join '; '
 }
 
-# The one PowerShell line that starts a paused worker again in its kept copy: a fresh pane at the
-# copy, the worker started in it, a prompt pointing it at its brief and its pause record, and the
-# crew record moved back to `dispatched` the way rally re-records a relaunch.
+# The one PowerShell line that starts a paused worker again in its kept copy: herdr's server, a fresh
+# pane at the copy, the worker started in it, a prompt pointing it at its brief and its pause record,
+# and the crew record moved back to `dispatched` the way rally re-records a relaunch. A worker that
+# did not start, sits on a prompt, or bounced the prompt throws before the record moves, as dispatch
+# does.
 function Format-PauseResumeCommand {
     param([string]$WorkerId, [string]$Copy, [string]$Branch, [string]$Base, [string]$Brief,
           [string]$RecordPath, [string]$StatePath)
@@ -864,8 +866,11 @@ function Format-PauseResumeCommand {
     $id = & $q $WorkerId
     $state = & $q $StatePath
     ("Import-Module $(& $q (Join-Path $PSScriptRoot 'Herdr.psm1')), $(& $q (Join-Path $PSScriptRoot 'Crew.psm1')); " +
-     "`$p = New-HerdrPane -Cwd $(& $q $Copy); `$null = Start-HerdrAgent -Name $id -PaneId `$p; " +
-     "`$null = Send-HerdrPrompt -Name $id -Text $(& $q $prompt); " +
+     "Start-HerdrServer; `$p = New-HerdrPane -Cwd $(& $q $Copy); " +
+     "if (-not (Start-HerdrAgent -Name $id -PaneId `$p)) { throw `"herdr started no worker in pane `$p`" }; " +
+     "if ((Get-HerdrAgentState -Name $id) -eq 'blocked') { throw `"the worker is blocked on a prompt in pane `$p - read it before answering`" }; " +
+     "`$r = Send-HerdrPrompt -Name $id -Text $(& $q $prompt); " +
+     "if (`$r -and `$r.PSObject.Properties.Name -contains 'blocked') { throw `"the worker did not take its prompt - it is blocked in pane `$p`" }; " +
      "`$s = Import-CrewState -Path $state; Set-CrewRelaunch -State `$s -WorkerId $id " +
      "-Worktree $(& $q $Copy) -Branch $(& $q $Branch) -Base $(& $q $Base); Save-CrewState -State `$s -Path $state")
 }
@@ -879,7 +884,8 @@ function Format-PauseResumeCommand {
 #            this command's own - all checked before anything is touched.
 #   gate     The gate run on the worker's branch, read through GateRun.psm1. A run that has not
 #            ended is aborted with `no-mistakes axi abort` and read again until it reads ended. An
-#            unreadable run ends nothing. No run on the branch skips the custody steps: the gate
+#            unreadable run ends nothing, and neither does a newest run on another branch, which
+#            says nothing about this one. No run on the branch skips the custody steps: the gate
 #            holds nothing of it.
 #   custody  `axi sync --check`. custody_returned with relation equal is already safe. Only
 #            blocked_pipeline_owned_recoverable is recovered; any other answer stops here, because
@@ -910,7 +916,8 @@ function Format-PauseResumeCommand {
 #   .failedStep  '' or the step that stopped it
 #   .steps       every step reached, each with .step, .ok and .detail
 #   .record      the pause record's path, or ''
-#   .stoppedBy   exit, pane-closed or not-running, or '' where the stop step was not reached
+#   .stoppedBy   exit, pane-closed or not-running - pane-closed where any one worker's pane was
+#                closed - or '' where the stop step did not finish
 #
 # Throws only for a worker crew.json does not know. Everything else is an answer.
 function Suspend-Worker {
@@ -963,6 +970,10 @@ function Suspend-Worker {
     $gate = Get-GateRunState -RepoPath $copy -Branch $branch
     if ($gate.status -eq 'unreadable') {
         return & $stopAt 'gate' "what its review gate is doing could not be read, so nothing was ended - $($gate.detail)"
+    }
+    if ($gate.signal -eq 'wrong-branch') {
+        return & $stopAt 'gate' ("the newest gate run is on another branch, so whether this branch has a live run " +
+                                 "could not be told and nothing was ended - $($gate.detail)")
     }
     $hasRun = $gate.status -eq 'has-run'
     $reached = 'no review gate run on this branch'
@@ -1047,7 +1058,7 @@ function Suspend-Worker {
         }
         $stop = Stop-HerdrAgent -Name $name
         if ($stop.stopped) {
-            $out.stoppedBy = 'exit'
+            if ($out.stoppedBy -ne 'pane-closed') { $out.stoppedBy = 'exit' }
             & $done 'stop' "worker $name exited"
             continue
         }
