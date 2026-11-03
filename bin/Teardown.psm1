@@ -538,8 +538,14 @@ function Format-WorkerLeftovers {
     $any = @(@($Leftovers.deadPanes) + @($Leftovers.emptyWorkspaces) + @($Leftovers.copies) | Where-Object { $_ }).Count
     $problems = @($Leftovers.problems)
     if ($any -eq 0 -and $problems.Count -eq 0) { return '' }
-    $line = "LEFTOVERS: $($counts -join ', ') - clear them with Invoke-WorkerSweep from bin\Teardown.psm1."
-    if ($problems.Count -gt 0) { $line += " Unreadable: $($problems[0])" }
+    # Short on purpose: the digest is built to fit a fixed limit, and the full reason for a failed
+    # read is the sweep's to report, not this line's.
+    $line = "LEFTOVERS: $($counts -join ', ') - Invoke-WorkerSweep (bin\Teardown.psm1) clears them."
+    if ($problems.Count -gt 0) {
+        $why = ($problems[0] -replace '\s+', ' ').Trim()
+        if ($why.Length -gt 60) { $why = $why.Substring(0, 60) + '...' }
+        $line += " Unreadable: $why"
+    }
     $line
 }
 

@@ -373,7 +373,7 @@ Describe 'Get-WorkerLeftovers, Format-WorkerLeftovers and Invoke-WorkerSweep' {
         @($l.deadPanes | ForEach-Object pane_id | Sort-Object) | Should -Be @('p1', 'p2')
         @($l.emptyWorkspaces | ForEach-Object workspace_id | Sort-Object) | Should -Be @('w1', 'w2')
         Format-WorkerLeftovers -Leftovers $l |
-            Should -Be 'LEFTOVERS: 2 dead panes, 2 empty workspaces, 2 leftover copies - clear them with Invoke-WorkerSweep from bin\Teardown.psm1.'
+            Should -Be 'LEFTOVERS: 2 dead panes, 2 empty workspaces, 2 leftover copies - Invoke-WorkerSweep (bin\Teardown.psm1) clears them.'
     }
 
     It 'never counts or touches a folder kingshand did not dispatch (R8)' {
@@ -398,6 +398,7 @@ Describe 'Get-WorkerLeftovers, Format-WorkerLeftovers and Invoke-WorkerSweep' {
         $null -eq $l.deadPanes | Should -BeTrue
         $line = Format-WorkerLeftovers -Leftovers $l
         $line | Should -BeLike '*dead panes unreadable*empty workspaces unreadable*0 leftover copies*server_down*'
+        $line.Length | Should -BeLessOrEqual 220 -Because 'the digest is built to a fixed limit, and the full reason is the sweep''s to give'
     }
 
     It 'reports an unreadable crew record as unreadable copies, never as zero' {
