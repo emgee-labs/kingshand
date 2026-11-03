@@ -2245,8 +2245,14 @@ Describe 'escalation talks in outcomes and leads with evidence' {
     It 'never deletes or spends unasked, and asks early about a creation step' {
         $s = Get-HandSection 'Escalation and etiquette'
         Assert-Phrase -Text $s -Where 'CLAUDE.md escalation' `
-            -Phrase ('**Never delete anything and never make a change that costs money on your own ' +
-                     'initiative** - those go to the King whatever credential is to hand.')
+            -Phrase ('**Never delete anything kingshand did not create for the work in hand - the ' +
+                     'King''s files, data, cloud resources, accounts, records - and never make a ' +
+                     'change that costs money on your own initiative** - those go to the King ' +
+                     'whatever credential is to hand.')
+        Assert-Phrase -Text $s -Where 'CLAUDE.md escalation' `
+            -Phrase ('Routine cleanup a procedure already owns stays allowed: a worker''s own ' +
+                     'worktree and branch, which `muster`''s cleanup owns, and stale index ' +
+                     'entries, which Session start owns.')
         Assert-Phrase -Text $s -Where 'CLAUDE.md escalation' `
             -Phrase ('**ask early whether he wants to do it himself or have it handled**, not when ' +
                      'you are blocked on it at the end.')
