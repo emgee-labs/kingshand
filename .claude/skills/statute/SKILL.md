@@ -64,6 +64,14 @@ When you touch a contract, patch, replace, or prune the owner's existing languag
 appending a new clause or paragraph wherever possible, then grep the repo for its other mentions
 and update the cross-references, not duplicate the change into a second full copy.
 
+**A setting is a contract too: before adding one, check whether an existing dimension already
+answers it.** A new flag beside a question kingshand already asks - how far work goes for a
+project, say - is a second way of saying one thing, and the two drift exactly as two copies of a
+contract do. Make the new capability another answer to the existing question, and add a setting
+only when no existing one can carry it. "A separate flag is smaller and touches nothing else" is
+the reasoning this catches: it moves the cost onto every reader, who now has two places to look.
+One proposed flag was withdrawn on exactly this (the `kh-two-discipline-rules` work item).
+
 ## Inline-stub pattern
 
 When content moves out of `CLAUDE.md` into a skill, decide what stays behind by asking one
@@ -125,6 +133,16 @@ common enough to survive the rule's removal is worthless. Follow the existing `A
 that containment is asserted with `.Contains` and not `Should -BeLike`, because the backtick is
 PowerShell's wildcard escape character and a `-BeLike` pattern quietly stops matching backtick-rich
 text it was copied from.
+
+**A rule cites the file that holds its evidence and keeps one checkable number beside it, rather
+than reproducing the breakdown inline.** The number keeps the rule's cost visible, which is the
+reason its wording is pinned at all: an editor who cannot see what a rule cost will delete it. The
+breakdown is what goes stale - every count beside a rule is a claim nobody re-measures, so an
+inline breakdown writes tomorrow's stale claim into the file whose job is to prevent one. Name the
+source - a design note under `docs\`, a task's `data\<id>\report.md` or its work item - and keep
+one number a reader can check there. Four of the six review findings against one change were
+about the numbers quoted beside its rules and none about a rule (`data\kh-dev-skills\report.md`).
+This shapes rules written from here on; it does not open a pass over the existing ones.
 
 For critical safety, routing, and gating behavior generally, prefer deterministic enforcement over
 relying on agent memory alone. Keep the prose as the authority and discovery layer, and make the
