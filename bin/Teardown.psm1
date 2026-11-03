@@ -888,8 +888,8 @@ function Format-PauseResumeCommand {
 #            read by that id through GateRun.psm1 - never the repository's newest run, which in a
 #            project with parallel workers is usually another worker's. A run that has not ended is
 #            aborted with `no-mistakes axi abort --run <id>` and read again until it reads ended. A
-#            sync answer that cannot be read ends nothing, unless `axi status` itself reports no
-#            run - a repository with no gate. No run of its own to end - no binding, never gated, or
+#            sync answer that cannot be read ends nothing, unless `axi status` itself answers that
+#            it reports no run, with nothing in its answer left unread - a repository with no gate. No run of its own to end - no binding, never gated, or
 #            a bound run that reads as no run - is recorded, and the pause carries on.
 #   custody  Whenever a run is bound to the branch, whatever it read as: `axi sync --check`, asked
 #            again only after an abort. custody_returned with relation equal is already safe. Only
@@ -980,7 +980,7 @@ function Suspend-Worker {
     $reached = 'no review gate run of its own on this branch'
     if (-not $bound.ok) {
         $probe = Get-GateRunState -RepoPath $copy -Branch $branch
-        if ($probe.status -ne 'no-run' -or $probe.signal -eq 'wrong-branch') {
+        if ($probe.status -ne 'no-run' -or $probe.signal -ne 'no-run-reported' -or @($probe.notUnderstood).Count -gt 0) {
             return & $stopAt 'gate' "which gate run belongs to its branch could not be read, so nothing was ended - $($bound.error)"
         }
         & $done 'gate' "the gate binds nothing to its branch and reports no run ($($probe.detail)), so there was nothing of its own to end"
@@ -993,6 +993,7 @@ function Suspend-Worker {
         }
         $hasRun = $gate.status -eq 'has-run'
         if (-not $hasRun) {
+            $reached = "run $($bound.run) is bound to this branch but read as no run - $($gate.detail)"
             & $done 'gate' "run $($bound.run) is not a run of its own on this branch, so there was nothing to end - $($gate.detail)"
         }
     }

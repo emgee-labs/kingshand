@@ -1024,12 +1024,16 @@ branch_sync:
     }
 
     It 'ends nothing when which run belongs to the branch cannot be read and the gate reports <what>' -ForEach @(
-        @{ what = 'a run'; status = 'has-run'; signal = 'x' }
-        @{ what = 'a run on another branch'; status = 'no-run'; signal = 'wrong-branch' }
-        @{ what = 'nothing readable'; status = 'unreadable'; signal = 'x' }
+        @{ what = 'a run'; status = 'has-run'; signal = 'x'; unread = '' }
+        @{ what = 'a run on another branch'; status = 'no-run'; signal = 'wrong-branch'; unread = '' }
+        @{ what = 'nothing readable'; status = 'unreadable'; signal = 'x'; unread = '' }
+        @{ what = 'a parked gate response'; status = 'no-run'; signal = 'gate-response'; unread = '' }
+        @{ what = 'a run field it could not read'; status = 'no-run'; signal = 'no-run-reported'; unread = 'run' }
     ) {
         $script:Gate.checks.Enqueue('')
-        $script:Gate.readings.Enqueue((New-GateReading -Status $status -RunStatus 'running' -Signal $signal))
+        $reading = New-GateReading -Status $status -RunStatus 'running' -Signal $signal
+        if ($unread) { $reading.notUnderstood = @($unread) }
+        $script:Gate.readings.Enqueue($reading)
 
         $r = & $script:Suspend
 
@@ -1041,7 +1045,7 @@ branch_sync:
 
     It 'pauses a worker in a repository with no gate, whose sync answer is an error' {
         $script:Gate.checks.Enqueue("error: repository not initialized`nhelp[1]: Run no-mistakes init")
-        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus '' -Signal 'not-initialized'))
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus '' -Signal 'no-run-reported'))
 
         $r = & $script:Suspend
 
@@ -1061,7 +1065,9 @@ branch_sync:
         $r.outcome | Should -Be 'paused'
         @($r.steps | ForEach-Object { $_.step }) | Should -Be @('read', 'gate', 'custody', 'recover', 'verify', 'stop', 'pane', 'record')
         $script:Gate.calls | Should -Be @('axi sync --check', 'axi sync --recover', 'axi sync --check')
-        (Get-Content -LiteralPath $r.record -Raw).Contains('- Gate commits: recovered to the branch') | Should -BeTrue
+        $text = Get-Content -LiteralPath $r.record -Raw
+        $text.Contains('- Gate commits: recovered to the branch') | Should -BeTrue
+        $text.Contains('- Review gate: run 01RUN is bound to this branch but read as no run') | Should -BeTrue
     }
 
     It 'stops at the gate when the run does not read ended after the abort' {
