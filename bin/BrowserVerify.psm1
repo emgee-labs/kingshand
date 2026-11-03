@@ -128,16 +128,17 @@ function Get-BrowserCredentialValue {
 
 # Where a login lives, without ever putting it in a file.
 #
-# Two places are read, in order, and the second one is why this function exists. Workers are
-# started by a long-running herdr server, and a process inherits its environment block from its
-# parent at the moment it is created - so a variable set today is invisible to every worker herdr
-# starts, however long afterwards, until herdr itself is restarted. Measured on 2026-09-03: a
+# Two places are read, in order, and the second one is why this function exists. A process
+# inherits its environment block from its parent at the moment it is created, so any process older
+# than a variable - and any child of one - reads it empty from `$env:`. Measured on 2026-09-03: a
 # variable set at User scope was absent from `$env:` in the process that set it AND in a child
-# spawned after the set, while a registry read returned it from both.
+# spawned after the set, while a registry read returned it from both. A worker is not normally one
+# of those: the server composes a fresh environment for each worker it starts
+# (docs\2026-09-04-worker-environment-propagation.md owns that measurement).
 #
-# So the process block is read first and the user environment second, and the second read is the
-# one that usually answers. `source` says which, because "found in the user environment" is also
-# the tell that this worker's environment is stale.
+# So the process block is read first and the user environment second, and in a worker the first
+# read usually answers. `source` says which, because "found in the user environment" is the tell
+# that this process was started from an older environment.
 #
 # The login itself is deliberately NOT in this result, and Get-BrowserCredentialValue below is the
 # only way to it. A hashtable evaluated on its own prints every key it holds, so a worker typing
