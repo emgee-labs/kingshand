@@ -4525,6 +4525,19 @@ Describe 'the setup skill ships inside the repo so a fresh clone can bootstrap i
             -Phrase 'No project work, no dispatch, no registration'
     }
 
+    # The one-line install comes first, and the URL it gives is the release branch's copy of the
+    # bootstrap that sits at the repository root - a renamed file would leave the README's first
+    # command fetching nothing.
+    It 'leads the README install with the one-line bootstrap, and keeps the clone route after it' {
+        $readme = Get-DocText (Join-Path $script:Root 'README.md')
+        $oneLiner = 'irm https://raw.githubusercontent.com/emgee-labs/kingshand/main/bootstrap.ps1 | iex'
+        Assert-Phrase -Text $readme -Where 'the README Install section' -Phrase $oneLiner
+        Assert-Phrase -Text $readme -Where 'the README Install section' -Phrase '**Or clone it yourself.**'
+        $readme.IndexOf($oneLiner) | Should -BeLessThan $readme.IndexOf('git clone https://github.com/emgee-labs/kingshand') `
+            -Because 'the one-line install is the first route the README offers'
+        Test-Path -LiteralPath (Join-Path $script:Root 'bootstrap.ps1') -PathType Leaf | Should -BeTrue
+    }
+
     It 'is named in the README as the first route in' {
         $readme = Get-DocText (Join-Path $script:Root 'README.md')
         Assert-Phrase -Text $readme -Where 'the README Install section' `

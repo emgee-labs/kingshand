@@ -133,13 +133,42 @@ when the config is unset, and it never writes either line twice.
 
 ### Install and launch
 
-Clone it wherever you keep things. Any drive, any folder, spaces in the path are fine - it works
-out its own location and nothing here assumes otherwise. Every command here runs in PowerShell 7 -
-start it with `pwsh` - and not in Windows PowerShell, which refuses the scripts.
+Every command here runs in PowerShell 7 - start it with `pwsh` - and not in Windows PowerShell,
+which refuses the scripts. One line installs it:
+
+```powershell
+irm https://raw.githubusercontent.com/emgee-labs/kingshand/main/bootstrap.ps1 | iex
+```
+
+That fetches `bootstrap.ps1`, which checks for PowerShell 7 and git, clones this repository into a
+`kingshand` folder in your home directory, checks out the latest release, and runs `install.ps1`
+there. It never overwrites anything: a folder that already exists must be empty or already a
+kingshand clone, and anything else is refused with the reason. An existing clone is left on
+whatever it has checked out - `/update` is what moves it to a newer release.
+
+To choose the folder, or to have the installer install what is missing, download it and run it as
+a file:
+
+```powershell
+irm https://raw.githubusercontent.com/emgee-labs/kingshand/main/bootstrap.ps1 -OutFile bootstrap.ps1
+.\bootstrap.ps1 -Path D:\tools\kingshand -InstallMissing
+```
+
+The same parameters work piped, through a script block:
+`& ([scriptblock]::Create((irm <that url>))) -InstallMissing`.
+
+**Or clone it yourself.** Any drive, any folder, spaces in the path are fine - it works out its own
+location and nothing here assumes otherwise:
 
 ```powershell
 git clone https://github.com/emgee-labs/kingshand
-cd kingshand
+```
+
+Either way, start Claude Code in that folder - `~\kingshand` after the one-line install unless you
+chose another, or wherever you cloned it:
+
+```powershell
+cd ~\kingshand
 claude
 ```
 
@@ -148,7 +177,8 @@ they are readable in a fresh clone with nothing installed yet. The installer nam
 what it installed, and what still needs you.
 
 **No Claude Code yet?** Then `claude` above has nothing to start, so run the installer by hand
-first, from the same folder. This is also the manual equivalent of `set it up`:
+first, from the same folder - the one-line install has already run it once. This is also the
+manual equivalent of `set it up`:
 
 ```powershell
 .\install.ps1 -InstallMissing
@@ -306,6 +336,8 @@ docs\                   the architecture decisions worth keeping
                         request targets and every worker branches from, deliberately not the
                         branch a fresh clone lands on
 instructions.example.md the template install.ps1 copies to instructions.md
+bootstrap.ps1           the one-line install: clones this repository, checks out the latest release
+                        and runs install.ps1 there
 install.ps1             prerequisites and config - writes at most four things outside this
                         repository: KINGSHAND_HOME, LAVISH_AXI_PORT, two lines in your global
                         gitignore, and claude.exe ahead of npm's wrapper on PATH when your
