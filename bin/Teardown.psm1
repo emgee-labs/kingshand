@@ -887,13 +887,14 @@ function Format-PauseResumeCommand {
 #   gate     The run bound to the worker's own branch, named by `axi sync --check` in the copy and
 #            read by that id through GateRun.psm1 - never the repository's newest run, which in a
 #            project with parallel workers is usually another worker's. A run that has not ended is
-#            aborted with `no-mistakes axi abort` and read again until it reads ended. An unreadable
-#            answer ends nothing. No run of its own - no binding, never gated, or a run on another
-#            branch - is recorded and skips the custody steps: the gate holds nothing of it.
-#   custody  `axi sync --check`, asked again only after an abort. custody_returned with relation
-#            equal is already safe. Only
+#            aborted with `no-mistakes axi abort --run <id>` and read again until it reads ended. A
+#            sync answer that cannot be read ends nothing, unless `axi status` itself reports no
+#            run - a repository with no gate. No run of its own to end - no binding, never gated, or
+#            a bound run that reads as no run - is recorded, and the pause carries on.
+#   custody  Whenever a run is bound to the branch, whatever it read as: `axi sync --check`, asked
+#            again only after an abort. custody_returned with relation equal is already safe. Only
 #            blocked_pipeline_owned_recoverable is recovered; any other answer stops here, because
-#            moving a branch nobody understood is how commits are lost.
+#            moving a branch nobody understood is how commits are lost. No bound run skips it.
 #   rescue   Before recovering, the gate's own head is saved to a refs/gate/ ref with
 #            Save-WatchGateRescue, so the commits are reachable from the repository even if the
 #            recover is refused.
@@ -974,13 +975,16 @@ function Suspend-Worker {
 
     # gate
     $bound = Get-PauseCustody -Copy $copy
-    if (-not $bound.ok) {
-        return & $stopAt 'gate' "which gate run belongs to its branch could not be read, so nothing was ended - $($bound.error)"
-    }
     $hasRun = $false
     $aborted = $false
     $reached = 'no review gate run of its own on this branch'
-    if (-not $bound.run) {
+    if (-not $bound.ok) {
+        $probe = Get-GateRunState -RepoPath $copy -Branch $branch
+        if ($probe.status -ne 'no-run' -or $probe.signal -eq 'wrong-branch') {
+            return & $stopAt 'gate' "which gate run belongs to its branch could not be read, so nothing was ended - $($bound.error)"
+        }
+        & $done 'gate' "the gate binds nothing to its branch and reports no run ($($probe.detail)), so there was nothing of its own to end"
+    } elseif (-not $bound.run) {
         & $done 'gate' "no gate run is bound to its branch ($(Format-PauseCustody $bound)), so there was nothing of its own to end"
     } else {
         $gate = Get-GateRunState -RepoPath $copy -Run $bound.run -Branch $branch
@@ -997,7 +1001,7 @@ function Suspend-Worker {
         if ($gate.runStatus -in $script:EndedRunStatuses -and -not $gate.isParked) {
             & $done 'gate' "its gate run had already ended ($($gate.runStatus)), so there was nothing to end"
         } else {
-            $abort = Invoke-PauseGate -Arguments @('axi', 'abort') -Directory $copy
+            $abort = Invoke-PauseGate -Arguments @('axi', 'abort', '--run', $bound.run) -Directory $copy
             if (-not $abort.ok) { return & $stopAt 'gate' "its gate run could not be ended - $($abort.error)" }
             $aborted = $true
             $after = Get-GateRunState -RepoPath $copy -Run $bound.run -Branch $branch
@@ -1013,7 +1017,7 @@ function Suspend-Worker {
     # custody, rescue, recover, verify
     $custodyNote = 'no gate run of its own on this branch, so the gate holds none of its commits'
     $rescueRef = ''
-    if ($hasRun) {
+    if ($bound.ok -and $bound.run) {
         $c = if ($aborted) { Get-PauseCustody -Copy $copy } else { $bound }
         if (-not $c.ok) { return & $stopAt 'custody' "who holds the branch could not be read, so nothing was moved - $($c.error)" }
         if (Test-PauseCustodyReturned $c) {

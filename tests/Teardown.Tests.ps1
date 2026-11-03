@@ -760,8 +760,8 @@ branch_sync:
         Mock -ModuleName Teardown Invoke-PauseGate {
             $said = $Arguments -join ' '
             $script:Gate.calls.Add($said)
-            switch ($said) {
-                'axi abort'          { return $script:Gate.abort }
+            switch -Wildcard ($said) {
+                'axi abort --run *' { return $script:Gate.abort }
                 'axi sync --recover' { return $script:Gate.recover }
                 'axi sync --check'   {
                     $answer = if ($script:Gate.checks.Count -gt 0) { $script:Gate.checks.Dequeue() } else { New-SyncAnswer 'custody_returned' 'equal' }
@@ -796,7 +796,7 @@ branch_sync:
         $r.failedStep | Should -Be ''
         $r.stoppedBy | Should -Be 'exit'
         @($r.steps | ForEach-Object { $_.step }) | Should -Be @('read', 'gate', 'custody', 'stop', 'pane', 'record')
-        $script:Gate.calls | Should -Be @('axi sync --check', 'axi abort', 'axi sync --check')
+        $script:Gate.calls | Should -Be @('axi sync --check', 'axi abort --run 01RUN', 'axi sync --check')
         $script:Herdr.stops | Should -Be @('w-pause')
         @($script:Herdr.panes).Count | Should -Be 0
         Test-Path -LiteralPath $script:Copy | Should -BeTrue -Because 'a pause keeps the copy'
@@ -871,7 +871,7 @@ branch_sync:
             $r = & $script:Suspend
 
             $r.outcome | Should -Be 'paused'
-            $script:Gate.calls | Should -Not -Contain 'axi abort'
+            @($script:Gate.calls | Where-Object { $_ -like 'axi abort*' }).Count | Should -Be 0
             @($r.steps | ForEach-Object { $_.step }) | Should -Be @('read', 'gate', 'stop', 'pane', 'record')
             (Import-CrewState -Path $script:F.state).workers['w-pause'].stage | Should -Be 'paused'
         }
@@ -885,7 +885,7 @@ branch_sync:
             $r = & $script:Suspend
 
             $r.outcome | Should -Be 'paused'
-            $script:Gate.calls | Should -Be @('axi sync --check', 'axi abort', 'axi sync --check')
+            $script:Gate.calls | Should -Be @('axi sync --check', 'axi abort --run 01MINE', 'axi sync --check')
             Should -Invoke -ModuleName Teardown Get-GateRunState -Times 2 -Exactly -ParameterFilter {
                 $Run -eq '01MINE' -and $Branch -eq 'worktree-w-pause'
             }
@@ -949,7 +949,7 @@ branch_sync:
         $r.outcome | Should -Be 'paused'
         @($r.steps | ForEach-Object { $_.step }) |
             Should -Be @('read', 'gate', 'custody', 'rescue', 'recover', 'verify', 'stop', 'pane', 'record')
-        $script:Gate.calls | Should -Be @('axi sync --check', 'axi abort', 'axi sync --check', 'axi sync --recover', 'axi sync --check')
+        $script:Gate.calls | Should -Be @('axi sync --check', 'axi abort --run 01RUN', 'axi sync --check', 'axi sync --recover', 'axi sync --check')
         $script:Gate.rescues | Should -Be @($gateHead)
         $text = Get-Content -LiteralPath $r.record -Raw
         $text.Contains('recovered to the branch - custody_returned, equal; also saved at refs/gate/w-pause-') | Should -BeTrue
@@ -1023,15 +1023,45 @@ branch_sync:
         $script:Herdr.stops.Count | Should -Be 0
     }
 
-    It 'ends nothing when which run belongs to the branch cannot be read' {
+    It 'ends nothing when which run belongs to the branch cannot be read and the gate reports <what>' -ForEach @(
+        @{ what = 'a run'; status = 'has-run'; signal = 'x' }
+        @{ what = 'a run on another branch'; status = 'no-run'; signal = 'wrong-branch' }
+        @{ what = 'nothing readable'; status = 'unreadable'; signal = 'x' }
+    ) {
         $script:Gate.checks.Enqueue('')
+        $script:Gate.readings.Enqueue((New-GateReading -Status $status -RunStatus 'running' -Signal $signal))
 
         $r = & $script:Suspend
 
         $r.failedStep | Should -Be 'gate'
         ($r.steps | Where-Object step -eq 'gate').detail | Should -BeLike '*which gate run belongs to its branch could not be read*'
-        Should -Invoke -ModuleName Teardown Get-GateRunState -Times 0 -Exactly
+        $script:Gate.calls | Should -Be @('axi sync --check')
         $script:Herdr.stops.Count | Should -Be 0
+    }
+
+    It 'pauses a worker in a repository with no gate, whose sync answer is an error' {
+        $script:Gate.checks.Enqueue("error: repository not initialized`nhelp[1]: Run no-mistakes init")
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus '' -Signal 'not-initialized'))
+
+        $r = & $script:Suspend
+
+        $r.outcome | Should -Be 'paused'
+        @($r.steps | ForEach-Object { $_.step }) | Should -Be @('read', 'gate', 'stop', 'pane', 'record')
+        $script:Gate.calls | Should -Be @('axi sync --check')
+        (Get-Content -LiteralPath $r.record -Raw).Contains('- Gate commits: no gate run of its own on this branch') | Should -BeTrue
+    }
+
+    It 'still recovers the gate''s commits when the run bound to the branch reads as no run' {
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'blocked_pipeline_owned_recoverable' 'behind'))
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'custody_returned' 'equal'))
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus ''))
+
+        $r = & $script:Suspend
+
+        $r.outcome | Should -Be 'paused'
+        @($r.steps | ForEach-Object { $_.step }) | Should -Be @('read', 'gate', 'custody', 'recover', 'verify', 'stop', 'pane', 'record')
+        $script:Gate.calls | Should -Be @('axi sync --check', 'axi sync --recover', 'axi sync --check')
+        (Get-Content -LiteralPath $r.record -Raw).Contains('- Gate commits: recovered to the branch') | Should -BeTrue
     }
 
     It 'stops at the gate when the run does not read ended after the abort' {
@@ -1042,7 +1072,7 @@ branch_sync:
 
         $r.failedStep | Should -Be 'gate'
         ($r.steps | Where-Object step -eq 'gate').detail | Should -BeLike '*exited 1*does not read ended*no active run*'
-        $script:Gate.calls | Should -Be @('axi sync --check', 'axi abort')
+        $script:Gate.calls | Should -Be @('axi sync --check', 'axi abort --run 01RUN')
     }
 
     It 'stops at the gate when the gate binary does not answer the abort' {
