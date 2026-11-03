@@ -24,20 +24,11 @@ BeforeAll {
         $p
     }
 
-    # A program this host can actually find on PATH and launch: a `.cmd` on Windows, an executable
-    # shell script with no extension on macOS and Linux.
+    # A program this host can actually find on PATH and launch, and that does nothing when it runs.
+    Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
     function New-LaunchableStub {
         param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][string]$Name)
-        if ($IsWindows) {
-            $p = Join-Path $Directory "$Name.cmd"
-            Set-Content -LiteralPath $p -Value '@echo off' -Encoding ascii
-        } else {
-            $p = Join-Path $Directory $Name
-            Set-Content -LiteralPath $p -Value '#!/bin/sh' -Encoding ascii
-            # Through .NET rather than chmod: a case may already have pointed PATH at a fixture.
-            [IO.File]::SetUnixFileMode($p, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
-        }
-        $p
+        New-TestExecutable -Path (Join-Path $Directory $Name) -Cmd @() -Sh @()
     }
 
     $script:HostExe = if ($IsWindows) { 'no-mistakes.exe' } else { 'no-mistakes' }
@@ -117,6 +108,18 @@ Describe 'Get-NoMistakesHint sends people to the right tool' {
         $h = Get-NoMistakesHint
         $h | Should -BeLike '*npm install -g no-mistakes*'
         $h | Should -BeLike '*unrelated*'
+    }
+
+    It 'names the build and the installer command for <platform>' -ForEach @(
+        @{ platform = 'Windows'; build = 'the Windows build'; run = '.\install.ps1 -WithReviewGate' }
+        @{ platform = 'MacOS';   build = 'the macOS build';   run = 'pwsh ./install.ps1 -WithReviewGate' }
+        @{ platform = 'Linux';   build = 'the Linux build';   run = 'pwsh ./install.ps1 -WithReviewGate' }
+    ) {
+        $p = $platform
+        Mock -ModuleName Paths Get-KingshandPlatform { $p }.GetNewClosure()
+        $h = Get-NoMistakesHint
+        $h.Contains($build) | Should -BeTrue
+        $h.Contains($run)   | Should -BeTrue
     }
 
     It 'says the gate is only needed by the postures that use it' {
@@ -468,5 +471,103 @@ Describe 'paths compare as paths, case-insensitively on Windows only' {
     It 'Test-PathWithin says outside for an empty or unusable path' {
         Test-PathWithin -Path '' -Root $script:R | Should -BeFalse
         Test-PathWithin -Path "bad`0path" -Root $script:R | Should -BeFalse
+    }
+}
+
+Describe 'Get-InstallerCommand says how this system runs the installer' {
+
+    It 'is .\install.ps1 on Windows' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Windows' }
+        Get-InstallerCommand | Should -Be '.\install.ps1'
+        Get-InstallerCommand '-InstallMissing' | Should -Be '.\install.ps1 -InstallMissing'
+    }
+
+    # The file has no execute bit and no shebang, so on macOS and Linux it is handed to pwsh.
+    It 'hands the file to pwsh on <_>' -ForEach @('MacOS', 'Linux') {
+        $p = $_
+        Mock -ModuleName Paths Get-KingshandPlatform { $p }.GetNewClosure()
+        Get-InstallerCommand '-SyncPins' | Should -Be 'pwsh ./install.ps1 -SyncPins'
+    }
+}
+
+Describe 'Get-SystemPackageManager names the manager the installer uses, and whether it runs it' {
+
+    BeforeAll {
+        function New-OsRelease {
+            param([string[]]$Lines)
+            $p = Join-Path $TestDrive ('os-release-' + [guid]::NewGuid().ToString('N'))
+            Set-Content -LiteralPath $p -Value $Lines -Encoding utf8
+            $p
+        }
+    }
+
+    It 'runs winget on Windows and Homebrew on macOS' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Windows' }
+        $w = Get-SystemPackageManager
+        $w.name | Should -Be 'winget'
+        $w.runs | Should -BeTrue
+        Mock -ModuleName Paths Get-KingshandPlatform { 'MacOS' }
+        $m = Get-SystemPackageManager
+        $m.name | Should -Be 'brew'
+        $m.runs | Should -BeTrue
+    }
+
+    # Every Linux manager needs sudo, and the installer never elevates, so none is ever run.
+    It 'reads <want> from os-release on Linux, and never runs it' -ForEach @(
+        @{ lines = @('NAME="Ubuntu"', 'ID=ubuntu', 'ID_LIKE=debian');      want = 'apt' }
+        @{ lines = @('ID="rocky"', 'ID_LIKE="rhel centos fedora"');        want = 'dnf' }
+        @{ lines = @('ID=arch');                                           want = 'pacman' }
+        @{ lines = @('ID="opensuse-tumbleweed"', 'ID_LIKE="opensuse suse"'); want = 'zypper' }
+    ) {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $r = Get-SystemPackageManager -OsReleasePath (New-OsRelease $lines)
+        $r.name | Should -Be $want
+        $r.runs | Should -BeFalse -Because 'a Linux package manager needs sudo'
+    }
+
+    It 'names no manager for a distribution outside the list, rather than guessing' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $r = Get-SystemPackageManager -OsReleasePath (New-OsRelease @('ID=nixos'))
+        $r.name | Should -BeNullOrEmpty
+        $r.runs | Should -BeFalse
+    }
+
+    It 'names no manager when os-release is not there' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $r = Get-SystemPackageManager -OsReleasePath (Join-Path $TestDrive 'no-such-os-release')
+        $r.name | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Get-SystemPackageCommand is the one table the installer and the check both print' {
+
+    # Windows' three commands are the ones install.ps1 always printed, kept exactly.
+    It 'keeps the winget commands' {
+        Get-SystemPackageCommand -Tool git  -Manager winget | Should -Be 'winget install --id Git.Git'
+        Get-SystemPackageCommand -Tool gh   -Manager winget | Should -Be 'winget install --id GitHub.cli'
+        Get-SystemPackageCommand -Tool node -Manager winget | Should -Be 'winget install --id OpenJS.NodeJS.LTS'
+    }
+
+    It 'names a command for every tool under <_>' -ForEach @('brew', 'apt', 'dnf', 'pacman', 'zypper') {
+        foreach ($tool in 'git', 'gh', 'node') {
+            Get-SystemPackageCommand -Tool $tool -Manager $_ | Should -Not -BeNullOrEmpty
+        }
+    }
+
+    It 'puts sudo on every Linux command, so it is plain that this script did not run it' -ForEach @(
+        'apt', 'dnf', 'pacman', 'zypper') {
+        Get-SystemPackageCommand -Tool git -Manager $_ | Should -BeLike 'sudo *'
+    }
+
+    It 'names nothing for a manager it does not know' {
+        Get-SystemPackageCommand -Tool git -Manager $null | Should -BeNullOrEmpty
+        Get-SystemPackageCommand -Tool git -Manager 'nix' | Should -BeNullOrEmpty
+    }
+
+    It 'gives a hint that points at the distribution''s own manager when none was recognised' {
+        Mock -ModuleName Paths Get-SystemPackageManager { [pscustomobject]@{ name = $null; runs = $false } }
+        Get-SystemPackageHint -Tool gh | Should -Be "your distribution's own package manager"
+        Mock -ModuleName Paths Get-SystemPackageManager { [pscustomobject]@{ name = 'brew'; runs = $true } }
+        Get-SystemPackageHint -Tool gh | Should -Be 'brew install gh'
     }
 }

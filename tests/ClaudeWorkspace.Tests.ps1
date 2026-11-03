@@ -62,6 +62,14 @@ Describe 'Set-WorkerWorkspaceSettings writes the two grants that used to be comm
         Test-Path -LiteralPath $script:Settings -PathType Leaf | Should -BeTrue
     }
 
+    # Every command a brief hands a worker is PowerShell, and on macOS and Linux the PowerShell tool
+    # is opt-in, so a worker without this key has only a Bash tool to run them through.
+    It 'turns on the PowerShell tool in the worker''s env block' {
+        Set-WorkerWorkspaceSettings -WorktreePath $script:Worktree | Out-Null
+        $json = Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json
+        $json.env.CLAUDE_CODE_USE_POWERSHELL_TOOL | Should -Be '1'
+    }
+
     It 'sets permissions.defaultMode to bypassPermissions' {
         Set-WorkerWorkspaceSettings -WorktreePath $script:Worktree -AdditionalDirectories @('D:\briefs\t-9001') | Out-Null
         $json = Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json
@@ -540,6 +548,34 @@ Describe 'the permission file in a checkout is backed up, edited and put back' {
             Should -Not -Contain 'hooks'
     }
 
+    # The PowerShell tool switch a worker needs on macOS and Linux, added where the King's file does
+    # not name it - and his own value kept where it does.
+    It 'adds the PowerShell tool switch to the env block beside the King''s own variables' {
+        Set-Original '{ "env": { "A": "1" } }'
+        $plan = New-CheckoutSettingsPlan -CheckoutPath $script:Checkout -RecordPath $script:Record
+        $null = Set-CheckoutWorkerSettings -Plan $plan
+        $json = Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json
+        $json.env.CLAUDE_CODE_USE_POWERSHELL_TOOL | Should -Be '1'
+        $json.env.A | Should -Be '1'
+    }
+
+    It 'keeps a PowerShell tool value the King set himself' {
+        Set-Original '{ "env": { "CLAUDE_CODE_USE_POWERSHELL_TOOL": "0" } }'
+        $plan = New-CheckoutSettingsPlan -CheckoutPath $script:Checkout -RecordPath $script:Record
+        $null = Set-CheckoutWorkerSettings -Plan $plan
+        (Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json).env.CLAUDE_CODE_USE_POWERSHELL_TOOL |
+            Should -Be '0' -Because 'a value he set himself is his'
+    }
+
+    It 'refuses an env value that is not an object, changing nothing' {
+        $json = '{ "env": [] }'
+        Set-Original $json
+        { New-CheckoutSettingsPlan -CheckoutPath $script:Checkout -RecordPath $script:Record } |
+            Should -Throw '*''env'' value that is not an object*'
+        Test-Path -LiteralPath $script:Record | Should -BeFalse
+        [System.IO.File]::ReadAllText($script:Settings) | Should -Be $json
+    }
+
     It 'refuses a hooks value it cannot add to: <name>' -ForEach @(
         @{ name = 'hooks not an object';             json = '{ "hooks": [] }';                         msg = '*''hooks'' value that is not an object*' }
         @{ name = 'PermissionRequest not a list';    json = '{ "hooks": { "PermissionRequest": {} } }'; msg = '*PermissionRequest'' value that is not a list*' }
@@ -857,5 +893,86 @@ Describe 'Stop-CheckoutWorker drops the record''s index line from the installati
         $r = Stop-CheckoutWorker -Name 'acme-api-session' -RecordPath $record
         $r.settings | Should -Be 'deleted'
         @(Get-IndexEntries -All -DataPath $data).Count | Should -Be 0
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# The Hand's own env block, where macOS and Linux keep KINGSHAND_HOME and LAVISH_AXI_PORT. The file
+# is shared with Claude Code, which writes its own keys there, so the one thing every case below
+# protects is everything in it that is not env.<name>.
+# ---------------------------------------------------------------------------------------------
+Describe 'the Hand''s settings env block is read and written one key at a time' {
+    BeforeEach {
+        $script:Root = New-CaseDir
+        $script:File = Join-Path $script:Root '.claude' 'settings.local.json'
+    }
+
+    It 'lives in this installation''s own .claude/settings.local.json' {
+        Get-HandSettingsPath -Root $script:Root | Should -Be $script:File
+    }
+
+    It 'follows KINGSHAND_HOME when no root is given' {
+        $saved = $env:KINGSHAND_HOME
+        try {
+            $env:KINGSHAND_HOME = $script:Root
+            Get-HandSettingsPath | Should -Be $script:File
+        } finally { $env:KINGSHAND_HOME = $saved }
+    }
+
+    It 'reads nothing, rather than failing, where there is no file or no key yet' {
+        Get-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Path $script:File | Should -BeNullOrEmpty
+        New-ConfigFixture -Path $script:File -Json '{ "env": { "OTHER": "x" } }' | Out-Null
+        Get-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Path $script:File | Should -BeNullOrEmpty
+    }
+
+    It 'creates the file and its folder when neither is there' {
+        Set-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Value '4388' -Path $script:File | Should -Be $script:File
+        Get-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Path $script:File | Should -Be '4388'
+    }
+
+    It 'leaves every other key in the file as it was' {
+        New-ConfigFixture -Path $script:File -Json (
+            '{ "permissions": { "allow": ["Bash(npm test)"] }, "env": { "KEEP": "me" }, "model": "x" }') | Out-Null
+        Set-HandSettingsEnvValue -Name 'KINGSHAND_HOME' -Value '/home/u/kingshand' -Path $script:File | Out-Null
+        $json = Get-Content -LiteralPath $script:File -Raw | ConvertFrom-Json
+        @($json.permissions.allow) | Should -Be @('Bash(npm test)')
+        $json.env.KEEP             | Should -Be 'me'
+        $json.model                | Should -Be 'x'
+        $json.env.KINGSHAND_HOME   | Should -Be '/home/u/kingshand'
+    }
+
+    It 'writes the same file again when run twice, with one key and not two' {
+        Set-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Value '4388' -Path $script:File | Out-Null
+        $first = [IO.File]::ReadAllText($script:File)
+        Set-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Value '4388' -Path $script:File | Out-Null
+        [IO.File]::ReadAllText($script:File) | Should -Be $first
+        @((Get-Content -LiteralPath $script:File -Raw | ConvertFrom-Json).env.PSObject.Properties).Count |
+            Should -Be 1
+    }
+
+    # Writing would mean rewriting a file whose other keys were never read, so each of these is a
+    # refusal that leaves the bytes exactly as they were.
+    It 'refuses <name>, naming it and changing nothing' -ForEach @(
+        @{ name = 'a file that is not JSON';        json = '{ not json';                  msg = '*is not valid JSON*' }
+        @{ name = 'a file holding a comment';       json = "{ // mine`n ""a"": 1 }";      msg = '*is not valid JSON*' }
+        @{ name = 'a file that is not an object';   json = '[]';                          msg = '*does not hold a JSON object*' }
+        @{ name = 'an env value that is not an object'; json = '{ "env": "x" }';          msg = '*''env'' value that is not an object*' }
+    ) {
+        New-ConfigFixture -Path $script:File -Json $json | Out-Null
+        { Set-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Value '4388' -Path $script:File } | Should -Throw $msg
+        { Get-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Path $script:File } | Should -Throw $msg
+        [IO.File]::ReadAllText($script:File) | Should -Be $json
+        Test-Path -LiteralPath "$($script:File).kingshand-tmp" | Should -BeFalse
+    }
+
+    It 'refuses a directory where the file should be' {
+        New-Item -ItemType Directory -Force -Path $script:File | Out-Null
+        { Set-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Value '4388' -Path $script:File } |
+            Should -Throw '*is a directory*'
+    }
+
+    It 'says a value that is not a string is not one, rather than reading it as unset' {
+        New-ConfigFixture -Path $script:File -Json '{ "env": { "LAVISH_AXI_PORT": 4388 } }' | Out-Null
+        { Get-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Path $script:File } | Should -Throw '*not a string*'
     }
 }

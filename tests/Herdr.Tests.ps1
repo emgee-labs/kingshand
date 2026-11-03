@@ -949,7 +949,8 @@ Describe 'Stop-HerdrAgent never submits text already in the box' {
     # UTF-8 box caret as other characters, so the box read empty and `/exit` was submitted behind
     # the waiting text. The ps1 stub above runs in-process and never crosses that decode, so this
     # case uses a cmd stub: a separate process whose `type` writes the screen file's raw UTF-8.
-    It 'still refuses on a code page 437 console, and puts the console encoding back' {
+    # Windows only: a code page 437 console is a Windows console, and nothing else has one.
+    It 'still refuses on a code page 437 console, and puts the console encoding back' -Skip:(-not $IsWindows) {
         $dir = New-TempFixtureDir -Prefix 'herdr-cp437-'
         $screen = Join-Path $dir 'screen.txt'
         $cmd = Join-Path $dir 'herdr-stub.cmd'

@@ -110,12 +110,12 @@ Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot 'Paths.psm1') -Force
 $script:Root = Get-KingshandHome
 if (-not $DataPath)         { $DataPath         = Join-Path $script:Root 'data' }
-if (-not $StatePath)        { $StatePath        = Join-Path $script:Root 'state\crew.json' }
-if (-not $RegistryPath)     { $RegistryPath     = Join-Path $script:Root 'data\projects.md' }
-if (-not $BudgetPath)       { $BudgetPath       = Join-Path $script:Root 'config\startup-memory-budget' }
+if (-not $StatePath)        { $StatePath        = Join-Path $script:Root 'state' 'crew.json' }
+if (-not $RegistryPath)     { $RegistryPath     = Join-Path $script:Root 'data' 'projects.md' }
+if (-not $BudgetPath)       { $BudgetPath       = Join-Path $script:Root 'config' 'startup-memory-budget' }
 if (-not $InstructionsPath) { $InstructionsPath = Join-Path $script:Root 'instructions.md' }
 if (-not $QueueRoot)        { $QueueRoot        = $script:Root }
-if (-not $MaintainerPath)   { $MaintainerPath   = Join-Path $script:Root 'config\maintainer' }
+if (-not $MaintainerPath)   { $MaintainerPath   = Join-Path $script:Root 'config' 'maintainer' }
 if (-not $ReleaseRepoPath)  { $ReleaseRepoPath  = $script:Root }
 
 # lavish-axi's own store, resolved exactly the way the tool resolves it: LAVISH_AXI_STATE_DIR when
@@ -740,8 +740,9 @@ Add-Line '  Pulse: arm it once, as a harness-tracked background job:'
 # this whole section exists against: the command errors at session open, the pulse is never armed,
 # and the silence that follows is indistinguishable from a changed-only pulse with nothing to say.
 # A quote inside the path is doubled for the same reason - it is the only other character that
-# could end the string early.
-Add-Line ("      Import-Module '" + (Join-Path $script:Root 'bin\Usage.psm1').Replace("'", "''") + "'")
+# could end the string early. One segment per Join-Path argument, so the path carries this system's
+# own separator: a backslash in it is a literal file name character on macOS and Linux.
+Add-Line ("      Import-Module '" + (Join-Path $script:Root 'bin' 'Usage.psm1').Replace("'", "''") + "'")
 Add-Line '      Watch-UsagePulse'
 Add-Line '    It runs until the session ends rather than for a set number of ticks, and it speaks'
 Add-Line '    only when something has changed - so say in one line that it is on, because a quiet'

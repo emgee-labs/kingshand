@@ -35,7 +35,7 @@ $script:MemoryFiles    = @('king.md', 'learnings.md')
 $script:Estimator      = 'ceil(UTF-8 bytes / 3) - a conservative portable approximation, not a tokenizer'
 
 function Get-DefaultBudgetPath {
-    Join-Path (Get-KingshandHome) "config\$script:BudgetFileName"
+    Join-Path (Get-KingshandHome) 'config' $script:BudgetFileName
 }
 
 function Get-DefaultMemoryDataPath {

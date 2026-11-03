@@ -210,8 +210,10 @@ function Get-NpmMissingHint {
     [CmdletBinding()]
     param()
 
+    # The command comes from the one package table in Paths.psm1, so on macOS and Linux this names
+    # the system's own manager rather than winget.
     'npm was not found. It comes with Node.js, and Claude Code, lavish-axi and tasks-axi are all ' +
-    'installed through it. Install Node.js LTS with: winget install --id OpenJS.NodeJS.LTS - or ' +
+    "installed through it. Install Node.js LTS with: $(Get-SystemPackageHint -Tool node) - or " +
     'from https://nodejs.org - then open a new shell so PATH is picked up.'
 }
 

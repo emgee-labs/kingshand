@@ -441,7 +441,7 @@ function ConvertFrom-UsageProbe {
 function Get-UsageStatePath {
     [CmdletBinding()]
     param()
-    Join-Path (Get-KingshandHome) "state\$script:GateFileName"
+    Join-Path (Get-KingshandHome) 'state' $script:GateFileName
 }
 
 # Reads and changes the gate file under an exclusive lock, so two processes can never both read the

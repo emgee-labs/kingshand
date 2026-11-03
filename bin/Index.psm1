@@ -140,7 +140,7 @@ function Get-IndexPath {
                "name data\index\$Project.md. Allowed: $script:ProjectNameRule. Register the project " +
                "under a name of that shape - the registry refuses any other.")
     }
-    Join-Path $DataPath "index\$Project.md"
+    Join-Path $DataPath 'index' "$Project.md"
 }
 
 # Every index that exists: the root one first, then one per project, in name order.

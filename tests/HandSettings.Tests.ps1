@@ -40,3 +40,17 @@ Describe 'the Hand''s settings deny list' {
         $script:Deny.Count | Should -Be 10
     }
 }
+
+Describe 'the Hand''s settings environment' {
+    # Every skill writes its commands as PowerShell, and on macOS and Linux Claude Code's PowerShell
+    # tool is off unless this is set - so without it the Hand has only a Bash tool to run them with.
+    It 'turns on the PowerShell tool' {
+        $script:Settings.env.CLAUDE_CODE_USE_POWERSHELL_TOOL | Should -Be '1'
+    }
+
+    # The tracked file is the same for everyone, so a per-machine value written here would be one
+    # machine's answer shipped to all of them. Those go in the gitignored settings.local.json.
+    It 'carries nothing that is one machine''s answer' {
+        @($script:Settings.env.PSObject.Properties.Name) | Should -Be @('CLAUDE_CODE_USE_POWERSHELL_TOOL')
+    }
+}

@@ -141,7 +141,7 @@ function Get-ToonDecoderPath {
     [CmdletBinding()]
     param()
 
-    $path = Join-Path $PSScriptRoot 'assets\toon\decode.mjs'
+    $path = Join-Path $PSScriptRoot 'assets' 'toon' 'decode.mjs'
     if (Test-Path -LiteralPath $path -PathType Leaf) { return $path }
     $null
 }
@@ -259,7 +259,7 @@ function ConvertFrom-ToonText {
         return [pscustomobject]@{
             ok = $false; value = ''
             error = ('The TOON decoder was not found at ' +
-                     (Join-Path $PSScriptRoot 'assets\toon\decode.mjs') +
+                     (Join-Path $PSScriptRoot 'assets' 'toon' 'decode.mjs') +
                      '. It ships with this module, so a missing one means this installation is ' +
                      'incomplete - re-run install.ps1 or restore the file from the repository.')
         }

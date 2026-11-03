@@ -613,7 +613,12 @@ foreach ($entry in $registered) {
     if (-not $entry.path -or -not $entry.indexable) { continue }
     # Guarded per entry, so one unusable path costs that entry and not the whole resolution.
     $entryPath = ''
-    try { $entryPath = ConvertTo-NormalPath $entry.path }
+    # A blank path is refused by name rather than left to GetFullPath: Windows throws on one, but on
+    # macOS and Linux it resolves quietly to a file called " " in the working directory.
+    try {
+        if ([string]::IsNullOrWhiteSpace($entry.path)) { throw 'the path is blank' }
+        $entryPath = ConvertTo-NormalPath $entry.path
+    }
     catch {
         Write-Warning ("Project $($entry.name) records a 'path:' line that is not a usable path " +
                        "($($_.Exception.Message)); skipping it while resolving this dispatch.")
@@ -649,7 +654,7 @@ foreach ($entry in $registered) {
 function New-FamilyEntry {
     param([Parameter(Mandatory)][string]$Family)
     @{
-        path = Join-Path $dataRoot "families\$Family.md"
+        path = Join-Path $dataRoot 'families' "$Family.md"
         what = ("the standing rules shared by every project in the $Family family - conventions, " +
                 "vocabulary, exclusions, branch naming, environment facts")
         how  = ('Read it in full before you start. It is reference to consult, not a list to ' +
@@ -874,7 +879,7 @@ if (-not $hasSection) {
 # installation rather than of anybody's data, and resolved so every comparison below sees the same
 # shape Resolve-Path gave the staged copies.
 $procedurePath = [System.IO.Path]::GetFullPath(
-    (Join-Path $PSScriptRoot '..\.claude\skills\witness\SKILL.md'))
+    (Join-Path $PSScriptRoot '..' '.claude' 'skills' 'witness' 'SKILL.md'))
 $modulePath    = [System.IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot 'BrowserVerify.psm1'))
 

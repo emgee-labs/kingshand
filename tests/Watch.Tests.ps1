@@ -510,7 +510,8 @@ Describe 'A report watch' {
 
     It 'refuses an id that is not one path segment, and reads nothing' {
         Mock -ModuleName Watch Start-Sleep { throw 'should not wait' }
-        foreach ($id in '..', '..\T-1', 'a/b') {
+        # The separator is this system's own: on macOS and Linux a backslash is a file name character.
+        foreach ($id in '..', "..$([IO.Path]::DirectorySeparatorChar)T-1", 'a/b') {
             $l = Watch-Report -Name $id -DataPath $script:data
             Assert-OneLine $l
             $l | Should -BeLike "NOT ARMED report*"

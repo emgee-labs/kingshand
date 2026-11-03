@@ -326,7 +326,8 @@ Describe 'Remove-WorkerCopy' {
         Test-Path -LiteralPath $copy | Should -BeFalse
     }
 
-    It 'reports a leftover folder something still holds as kept with the reason locked, once (R11)' {
+    # Windows only: an open file there blocks deleting its folder, and macOS and Linux have no such lock.
+    It 'reports a leftover folder something still holds as kept with the reason locked, once (R11)' -Skip:(-not $IsWindows) {
         $copy = New-WorkerCopy $script:F 'w-locked' -Push
         Invoke-Git $script:F.repo worktree remove $copy | Out-Null
         $null = New-Item -ItemType Directory -Force -Path (Join-Path $copy 'obj')
@@ -617,7 +618,8 @@ Describe 'Get-WorkerLeftovers, Format-WorkerLeftovers and Invoke-WorkerSweep' {
         } finally { $env:KINGSHAND_HOME = $saved }
     }
 
-    It 'keeps a locked leftover with the reason locked and counts it again next time (R11)' {
+    # Windows only, for the same reason: elsewhere an open file never stops its folder being deleted.
+    It 'keeps a locked leftover with the reason locked and counts it again next time (R11)' -Skip:(-not $IsWindows) {
         $left = New-WorkerCopy $script:F 'w-held' -Push -NoRecord
         Invoke-Git $script:F.repo worktree remove $left | Out-Null
         $null = New-Item -ItemType Directory -Force -Path (Join-Path $left 'obj')

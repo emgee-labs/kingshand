@@ -51,7 +51,7 @@ Import-Module "$PSScriptRoot\Herdr.psm1" -Force
 
 # Resolved in the body rather than as a parameter default: the root comes from Get-KingshandHome,
 # which is the one place that decision is made, and a param default cannot call it.
-if (-not $StatePath) { $StatePath = Join-Path (Get-KingshandHome) 'state\crew.json' }
+if (-not $StatePath) { $StatePath = Join-Path (Get-KingshandHome) 'state' 'crew.json' }
 
 $state = Import-CrewState -Path $StatePath
 

@@ -137,6 +137,20 @@ Describe 'a login is found where it lives, and never invented' {
         $c.reason | Should -Match 'Never put the value in a brief, a report or any file'
     }
 
+    # macOS and Linux have no user environment to fall back on, so the fix is the one that reaches
+    # the worker server's environment there, never "set it for the user".
+    It 'gives the fix that works on <_>, where there is no user environment' -ForEach @('MacOS', 'Linux') {
+        $p = $_
+        Mock -ModuleName BrowserVerify Get-KingshandPlatform { $p }.GetNewClosure()
+        $c = Get-BrowserCredentialStatus -Variable $script:AbsentVar
+        $c.found  | Should -BeFalse
+        $c.source | Should -Be 'none'
+        $c.reason | Should -Match 'Export it in the shell the worker server is started from'
+        $c.reason | Should -Match 'restart the worker server'
+        $c.reason | Should -Not -Match 'for the user'
+        $c.reason | Should -Match 'Never put the value in a brief, a report or any file'
+    }
+
     It 'treats an empty variable as absent rather than as a login' {
         [Environment]::SetEnvironmentVariable($script:ProcessVar, '')
         (Get-BrowserCredentialStatus -Variable $script:ProcessVar).found |

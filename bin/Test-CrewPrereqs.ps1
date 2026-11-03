@@ -25,6 +25,10 @@ $notes    = @()
 Import-Module (Join-Path $PSScriptRoot 'Paths.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Herdr.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Dependencies.psm1') -Force
+# Where macOS and Linux keep LAVISH_AXI_PORT: the env block of this installation's own local settings.
+Import-Module (Join-Path $PSScriptRoot 'ClaudeWorkspace.psm1') -Force
+
+$platform = Get-KingshandPlatform
 
 # The command each npm tool is installed with comes from its pin, the same command install.ps1
 # prints, so this check never tells someone to install a version past the one this release was
@@ -57,7 +61,10 @@ function Test-Tool {
 Write-Host "Checking crew prerequisites"
 
 $hasClaude = Test-Tool -Name 'claude' -Hint 'Install Claude Code: npm install -g @anthropic-ai/claude-code'
-[void](Test-Tool -Name 'git' -Hint 'Install Git for Windows: winget install --id Git.Git')
+# Every package hint comes from the table install.ps1 installs from, in bin\Paths.psm1, so the two
+# never name different commands.
+$gitWhat = if ($platform -eq 'Windows') { 'Git for Windows' } else { 'git' }
+[void](Test-Tool -Name 'git' -Hint ("Install ${gitWhat}: " +(Get-SystemPackageHint -Tool git)))
 $hasLavish = Test-Tool -Name 'lavish-axi' -Hint ('Run: ' + (Get-PinnedInstall 'lavish-axi' 'npm install -g lavish-axi'))
 $hasTasks  = Test-Tool -Name 'tasks-axi'  -Hint ('Run: ' + (Get-PinnedInstall 'tasks-axi' 'npm install -g tasks-axi'))
 
@@ -74,7 +81,7 @@ if (-not ($hasClaude -and $hasLavish -and $hasTasks) -and -not (Get-NpmCommand))
 # `no-mistakes` or `no-mistakes-prod-only` against a machine with no `gh`, naming this command.
 [void](Test-Tool -Name 'gh' -Optional `
     -Hint ('Needed only by a push-capable posture - `direct-PR`, `no-mistakes` or ' +
-           '`no-mistakes-prod-only`. Install with: winget install --id GitHub.cli - then run: ' +
+           '`no-mistakes-prod-only`. Install with: ' + (Get-SystemPackageHint -Tool gh) + ' - then run: ' +
            'gh auth login. Work that stops at a finished local branch never needs it.'))
 
 # The executable, resolved rather than assumed - its location differs per machine.
@@ -86,7 +93,7 @@ if (-not ($hasClaude -and $hasLavish -and $hasTasks) -and -not (Get-NpmCommand))
 # it is reported here rather than left to be rediscovered.
 $claudeExe = Get-ClaudeCommandPath
 if ($claudeExe) {
-    Write-Host ("  OK  {0,-14} {1}" -f 'claude.exe', $claudeExe)
+    Write-Host ("  OK  {0,-14} {1}" -f (Get-ExecutableName 'claude'), $claudeExe)
     if (Test-ClaudeCommandIsWrapper -Path $claudeExe) {
         $notes += (Get-ClaudeWrapperHint)
     }
@@ -137,9 +144,23 @@ else {
                '-MinimumVersion 6.0.0 -Force -SkipPublisherCheck -Scope CurrentUser')
 }
 
-$port = [Environment]::GetEnvironmentVariable('LAVISH_AXI_PORT', 'User')
-if ($port -eq '4388') { Write-Host "  OK   lavish port    4388" }
-else { $failures += "LAVISH_AXI_PORT is '$port', expected 4388. Run: [Environment]::SetEnvironmentVariable('LAVISH_AXI_PORT','4388','User') - WSL's lavish on 4387 will otherwise hijack Windows requests." }
+# Read from where install.ps1 writes it: the user environment on Windows, and on macOS and Linux -
+# which have no user scope - the env block of this installation's own .claude/settings.local.json.
+# A settings file that cannot be read is a failure naming it, never a port read as unset.
+if ($platform -eq 'Windows') {
+    $port = [Environment]::GetEnvironmentVariable('LAVISH_AXI_PORT', 'User')
+    if ($port -eq '4388') { Write-Host "  OK   lavish port    4388" }
+    else { $failures += "LAVISH_AXI_PORT is '$port', expected 4388. Run: [Environment]::SetEnvironmentVariable('LAVISH_AXI_PORT','4388','User') - WSL's lavish on 4387 will otherwise hijack Windows requests." }
+} else {
+    $settingsFile = Get-HandSettingsPath
+    try {
+        $port = Get-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Path $settingsFile
+        if ($port -eq '4388') { Write-Host "  OK   lavish port    4388" }
+        else { $failures += "LAVISH_AXI_PORT is '$port' in $settingsFile, expected 4388. Run: $(Get-InstallerCommand) - it writes the env block there." }
+    } catch {
+        $failures += "LAVISH_AXI_PORT could not be read - $($_.Exception.Message)"
+    }
+}
 
 # This stays a failure, and it is now one a user can actually clear: `install.ps1` sets it up, the
 # same way it sets LAVISH_AXI_PORT above. It used to fail on every fresh machine by definition,
@@ -160,7 +181,7 @@ if ($excludes -and (Test-Path $excludes)) {
 if ($missing.Count -eq 0) {
     Write-Host ("  OK   gitignore     {0}" -f $excludes)
 } else {
-    $failures += ("Global gitignore does not cover " + ($missing -join ' or ') + ". Run: .\install.ps1 - it appends the lines .claude/worktrees/ and .claude/settings.local.json to the file named by core.excludesFile, and creates that file and points the config at it when the config is unset. Otherwise workers appear as untracked changes in your repos, and every worker's own tree is dirty before it starts.")
+    $failures += ("Global gitignore does not cover " + ($missing -join ' or ') + ". Run: $(Get-InstallerCommand) - it appends the lines .claude/worktrees/ and .claude/settings.local.json to the file named by core.excludesFile, and creates that file and points the config at it when the config is unset. Otherwise workers appear as untracked changes in your repos, and every worker's own tree is dirty before it starts.")
 }
 
 if ($notes.Count -gt 0) {
