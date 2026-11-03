@@ -180,7 +180,7 @@ nothing else.
   below owns it.
 - `data\<id>\brief.md` - the brief given to each worker.
 - `data\<id>\report.md` - the worker's durable findings, written by the worker before it
-  finishes. It survives teardown - the worktree, session and transcript go, this stays - so a
+  finishes. It survives teardown - the worktree and session go, this stays - so a
   fresh session can pick the work up. Never delete it as part of cleanup.
 - `data\<id>\<stamp>-land.html` - rendered for lavish at a landing gate, one file per decision.
   `muster` owns the name and when a gate takes a new one.

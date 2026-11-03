@@ -1,5 +1,5 @@
 {
-  "$note": "Hand session settings. The Hand dispatches workers, reads diffs and merges locally - all of it high-frequency and low-risk, so permission prompts are pure friction here. Workers are separately spawned with --permission-mode bypassPermissions by bin/Dispatch-Worker.ps1, so this affects the Hand only.",
+  "$note": "Hand session settings. The Hand dispatches workers, reads diffs and merges locally - all of it high-frequency and low-risk, so permission prompts are pure friction here. This file is tracked, so it is not the Hand's alone: it is in every worker worktree cut from this repository and in the review gate's checkout, and every key here reaches all of them.",
   "$additionalDirectoriesNote": "Deliberately empty, and it can stay that way. defaultMode below is bypassPermissions, and that already lets the Hand read, write, glob and run git against a repository on any drive - verified by test, not assumed. So annex works on a path anywhere without declaring its root here first, which is the point of registering a repository in place rather than cloning it. Fill this in only if you narrow defaultMode. Absolute paths, JSON-escaped backslashes: \"D:\\\\code\", \"C:\\\\Users\\\\you\\\\projects\".",
   "hooks": {
     "SessionStart": [

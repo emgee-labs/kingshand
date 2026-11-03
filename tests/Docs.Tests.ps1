@@ -1276,7 +1276,7 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
     }
 }
 
-Describe 'completion is evidence, not a state, and there is no transcript to fall back to' {
+Describe 'completion is evidence, not a state, and the transcript is a last resort' {
     # herdr's classification was measured calling a worker on an unanswered menu `idle`, then
     # calling that same still-blocked worker `done` while a genuinely finished worker read `idle`.
     # So a state read as completion tells the Hand a worker waiting on a person has finished - the
@@ -1333,15 +1333,18 @@ Describe 'completion is evidence, not a state, and there is no transcript to fal
         $fences.Count | Should -BeGreaterOrEqual 1 -Because 'the screen read is stated as runnable text'
     }
 
-    It 'states plainly that the transcript is not a fallback any more' {
+    # Measured false: with the marker scrubbed, every recent worker had a transcript on disk, and
+    # those of cleaned-up workers were still there weeks later.
+    It 'states plainly that the transcript is a last resort and never a report' {
         Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
-            -Phrase '**There is no transcript to fall back to when it is not.**'
+            -Phrase '**When it is not, the transcript is the last resort, not a report.**'
         Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
-            -Phrase ('Workers inherit `CLAUDE_CODE_CHILD_SESSION` from the Hand''s own session, so ' +
-                     'they run with transcript saving off')
+            -Phrase ('the herdr server and each pane are started with `CLAUDE_CODE_CHILD_SESSION` ' +
+                     'cleared, so transcript saving stays on')
         Assert-Phrase -Text $script:Step6 -Where 'muster Step 6' `
-            -Phrase ('Do not go looking for a `.jsonl` that will not be there and do not report an ' +
-                     'empty search as an empty report.')
+            -Phrase 'never report an empty or missing one as an empty report'
+        $script:Step6.Contains('they run with transcript saving off') |
+            Should -BeFalse -Because 'workers do write a transcript; the claim was measured false'
     }
 }
 
@@ -4155,6 +4158,7 @@ Describe 'no long dash' {
         @{ file = '.claude\skills\parley\SKILL.md' }
         @{ file = 'docs\2026-09-25-parley-quick-mode.md' }
         @{ file = 'docs\2026-09-10-family-rules-file.md' }
+        @{ file = 'docs\2026-09-10-worker-browser-reach.md' }
     ) {
         $emDash = [char]0x2014
         $raw = Get-Content -Path (Join-Path $script:Root $file) -Raw
@@ -4209,7 +4213,7 @@ Describe 'one file owns herdr''s command line, and the record says why' {
         Assert-Phrase -Text $text -Where 'the herdr record' `
             -Phrase '**A force-killed worker costs its pane permanently.**'
         Assert-Phrase -Text $text -Where 'the herdr record' `
-            -Phrase '**Workers run with transcript saving off.**'
+            -Phrase '**Workers run with transcript saving off unless the marker is scrubbed.**'
         Assert-Phrase -Text $text -Where 'the herdr record' `
             -Phrase ('The wait is an event, not a poll. Reintroducing a sleep-and-check loop ' +
                      'rebuilds the thing this replaced')
@@ -8216,8 +8220,8 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
             -Phrase 'log it and read it back with `read_console_messages`'
     }
 
-    # A worker inherits its parent's environment at creation, so a login set today is invisible
-    # to it. A bare $env: read is the failure, and it looks exactly like a wrong password.
+    # Any process older than a variable reads it empty from $env:, while the registry has it. A bare
+    # $env: read is the failure there, and it looks exactly like a wrong password.
     It 'reads a login from the environment and never writes it down' {
         Assert-Phrase -Text $script:WitnessText -Where 'witness' `
             -Phrase ('**No credential is ever written into this skill, a brief, a report or any ' +
@@ -8226,6 +8230,11 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
             -Phrase '**Never fall back to a bare `$env:NAME` read**'
         Assert-Phrase -Text $script:WitnessText -Where 'witness' `
             -Phrase 'the silent failure looks exactly like a wrong password'
+        # Measured false twice: the server composes a fresh environment for each worker it starts.
+        $script:WitnessText.Contains('invisible to every worker that server starts') |
+            Should -BeFalse -Because 'a worker does see a variable set after its server started'
+        Assert-Phrase -Text $script:WitnessText -Where 'witness' `
+            -Phrase 'the server composes a fresh environment for each worker it starts'
 
         # The worked example must not do the thing the rule beside it forbids: an unassigned call
         # prints the login into a pane whose scrollback the Hand reads.
@@ -8303,6 +8312,29 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
             -Phrase '**Do not replace that second read with a bare `$env:` lookup.**'
         Assert-Phrase -Text $script:BrowserDoc -Where 'the browser verification record' `
             -Phrase ('**an item that could not be checked is reported, never skipped.**')
+    }
+
+    # The record once concluded every worker inherits its server's start-up environment, and a
+    # later note measured the opposite on the real dispatch path. The two must not disagree again.
+    It 'agrees with the environment note that a worker is not stale' {
+        Assert-Phrase -Text $script:BrowserDoc -Where 'the browser verification record' `
+            -Phrase '## A shell''s environment can be stale, and a worker''s is not'
+        $script:BrowserDoc.Contains('Every worker it starts inherits the environment as it was') |
+            Should -BeFalse -Because 'docs\2026-09-04-worker-environment-propagation.md measured the opposite'
+    }
+}
+
+Describe 'the tracked settings note says who the file reaches' {
+    # The file is tracked, so it is in every worker worktree and in the gate's checkout. A note
+    # claiming it reaches the Hand alone invites putting a key there meant for the Hand alone.
+    It 'names every worker worktree and the review gate''s checkout' {
+        $settings = Get-Content -LiteralPath (Join-Path $script:Root '.claude\settings.json') -Raw |
+            ConvertFrom-Json
+        $note = $settings.'$note'
+        Assert-Phrase -Text $note -Where 'the .claude\settings.json note' `
+            -Phrase ('it is in every worker worktree cut from this repository and in the review ' +
+                     'gate''s checkout, and every key here reaches all of them')
+        $note.Contains('affects the Hand only') | Should -BeFalse
     }
 }
 

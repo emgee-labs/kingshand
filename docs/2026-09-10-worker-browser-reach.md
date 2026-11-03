@@ -72,17 +72,17 @@ stands and the design is viable.
 
 Not being in the Hand's context is not the same as existing nowhere, and the second is what "the
 cost dies with the worker" would have to mean. Two paths carry it further. The first is the
-worker's screen, readable while the worker lives and wider than what the worker chose to print:
-`bin\Herdr.psm1` reads the rendered terminal with the `recent-unwrapped` source, which includes
+worker's screen, readable while the worker lives and wider than what the worker chose to print.
+The automatic watches read only the visible viewport, but the read the Hand makes on demand,
+`Read-HerdrAgent` in `bin\Herdr.psm1`, uses the `recent-unwrapped` source, which includes
 scrollback, so a rendered tool-result block is on that screen whether the worker printed anything
 or not. That read is bounded by the number of rendered lines the call site asks for - the widest
 written down anywhere is 60 lines - and by the truncation the terminal already applied, so the full
 result never reaches the pane. The second has no such bound: the worker's on-disk session
-transcript records tool output in full, and this repository names it in two places as somewhere
-tool output lands. That is a durable, untruncated copy of the whole payload rather than a render of
-it, and it is a path to anyone who goes looking, the Hand included. `CLAUDE.md` says the session
-and its transcript go at teardown while `report.md` survives, so the on-disk copy is bounded in
-time rather than permanent - this repository's stated behaviour, not something this run measured.
+transcript records tool output in full. That is a durable, untruncated copy of the whole payload
+rather than a render of it, and it is a path to anyone who goes looking, the Hand included. It is
+not bounded in time either: nothing in cleanup removes it, and transcripts of workers cleaned up
+weeks earlier were still on disk when measured on 2026-11-03.
 
 ## What could not be established, and why it was not tested
 
@@ -156,9 +156,8 @@ The worker also compared its own process environment against the live user-scope
 the 26 user-scope variables matched exactly, the only difference being the merged `Path`, which
 cannot match. The server had been up half an hour, so this supports the fresh-per-pane claim
 without settling it on its own. `docs\2026-09-04-worker-environment-propagation.md` owns the
-decisive measurement. `docs\2026-09-03-browser-verification.md` states the opposite, and correcting
-it is the first thing a follow-up should do; that correction is deliberately not part of this
-change, which is scoped to this note alone.
+decisive measurement. `docs\2026-09-03-browser-verification.md` stated the opposite when this was
+written and has since been corrected to agree.
 
 ## What this does not settle
 

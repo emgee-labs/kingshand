@@ -108,9 +108,9 @@ has nothing to fire on there - its work stops on a branch. That is why no separa
 exists for it: the King dropped that idea deliberately, having satisfied himself that a worker's
 branch is visible from his ordinary checkout. **That is scoped to delivery, not to the project.**
 The rule fires on the action reaching a server whatever the posture, so a comment or an Azure
-DevOps work item on a `local-only` project is gated exactly like any other - and every `cm-*`
-project in this registry is `local-only` with its tickets in Azure DevOps, so the posture-shaped
-reading would have carved out the common case rather than an edge one.
+DevOps work item on a `local-only` project is gated exactly like any other - and when this was
+written every office repository in the registry was `local-only` with its tickets in Azure DevOps,
+so the posture-shaped reading would have carved out the common case rather than an edge one.
 
 `counsel` is covered by the same rule and does not get an exemption for producing tickets rather
 than code. `tasks-axi` is local and needs nothing; an Azure DevOps work item reaches a server.
