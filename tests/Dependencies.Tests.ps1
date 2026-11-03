@@ -25,6 +25,48 @@ BeforeAll {
     $script:NpmEntry   = '"tasks-axi":{"source":"npm","package":"tasks-axi","version":"0.2.6"}'
     $script:GhEntry    = '"no-mistakes":{"source":"github","repository":"acme/no-mistakes","version":"1.84.0"}'
     $script:MinEntry   = '"claude-code":{"source":"npm","package":"@acme/cli","minimum":"2.1.307"}'
+
+    # Which digest a herdr pin is read for depends on the machine. The fixtures above carry the
+    # Windows one, so every case reads as a Windows machine unless it says otherwise - the
+    # per-platform choice has its own cases below, each overriding this.
+    Mock -ModuleName Dependencies Get-HerdrPlatformKey { 'windows-x86_64' }
+
+    # herdr's own file name on the host running the suite: herdr.exe on Windows, herdr elsewhere.
+    $script:HostHerdr = if ($IsWindows) { 'herdr.exe' } else { 'herdr' }
+}
+
+Describe 'a herdr pin is read for the machine it runs on' {
+    It 'reads the <key> digest from the tracked manifest' -ForEach @(
+        @{ key = 'windows-x86_64' }, @{ key = 'linux-x86_64' }, @{ key = 'linux-aarch64' },
+        @{ key = 'macos-x86_64' }, @{ key = 'macos-aarch64' }
+    ) {
+        $k = $key
+        Mock -ModuleName Dependencies Get-HerdrPlatformKey { $k }.GetNewClosure()
+        $pins = Read-DependencyPins -Path (Join-Path $script:RepoRoot 'dependencies.json')
+        $h = @($pins | Where-Object name -eq 'herdr')[0]
+        $published = (Get-Content -LiteralPath (Join-Path $script:RepoRoot 'dependencies.json') -Raw |
+                      ConvertFrom-Json).herdr.sha256.$k
+        Get-HerdrPinnedDigest -Pin $h | Should -Be $published.ToLowerInvariant()
+    }
+
+    It 'refuses a manifest with no digest for this machine, naming the machine' {
+        Mock -ModuleName Dependencies Get-HerdrPlatformKey { 'linux-aarch64' }
+        $root = New-PinRoot -Json "{$($script:HerdrEntry)}"
+        { Read-DependencyPins -Path (Join-Path $root 'dependencies.json') } |
+            Should -Throw '*no SHA-256 for linux-aarch64*'
+    }
+
+    It 'knows the bundled copy by this system''s file name' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $manifest = Join-Path (New-PinRoot -Json "{$($script:HerdrEntry)}") 'dependencies.json'
+        $pin  = @(Read-DependencyPins -Path $manifest)[0]
+        $root = Join-Path $TestDrive 'unix-install'
+        $exe  = Join-Path $root 'tools' 'herdr' 'herdr'
+        Mock -ModuleName Dependencies Get-HerdrVersion {
+            [pscustomobject]@{ version = '0.9.5'; protocol = 22; path = $exe; detail = '' }
+        }.GetNewClosure()
+        (Get-InstalledDependencyVersion -Pin $pin -Root $root).bundled | Should -BeTrue
+    }
 }
 
 Describe 'the tracked manifest' {
@@ -115,7 +157,7 @@ Describe 'Get-InstalledDependencyVersion reads each version from the tool that o
 
     Context 'herdr' {
         It 'reads the version herdr reports, and knows the copy under this root''s tools\ as its own' {
-            $exe = Join-Path $script:FakeRoot 'tools\herdr\herdr.exe'
+            $exe = Join-Path $script:FakeRoot 'tools' 'herdr' $script:HostHerdr
             Mock -ModuleName Dependencies Get-HerdrVersion { [pscustomobject]@{ version = '0.8.2'; protocol = 20; path = $exe; detail = '' } }
             $r = Get-InstalledDependencyVersion -Pin $script:PinHerdr -Root $script:FakeRoot
             $r.found   | Should -BeTrue
@@ -228,6 +270,7 @@ Describe 'Get-DependencyPinStatus sets every pin against what is installed' {
     }
 
     It 'gives each row the command that moves it' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Windows' }
         Mock -ModuleName Dependencies Get-InstalledDependencyVersion {
             [pscustomobject]@{ found = $true; version = '0.0.1'; path = 'C:\x'; bundled = $true; detail = '' }
         }
@@ -257,6 +300,14 @@ Describe 'Test-HerdrReplaceable lets herdr be replaced only under a stopped serv
         $r.ok     | Should -BeFalse
         $r.reason | Should -Match 'is running'
         $r.reason | Should -Match 'herdr server stop'
+    }
+
+    It 'names the installer the way this system runs it' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        Mock -ModuleName Dependencies Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = ''; compatible = $true } }
+        (Test-HerdrReplaceable).reason | Should -Match ([regex]::Escape('pwsh ./install.ps1 -SyncPins'))
+        $pin = [pscustomobject]@{ name = 'herdr'; source = 'herdr'; version = '0.9.6'; minimum = $null }
+        Get-DependencySyncCommand -Pin $pin | Should -Be 'pwsh ./install.ps1 -SyncPins'
     }
 
     It 'refuses when whether it is running could not be read' {

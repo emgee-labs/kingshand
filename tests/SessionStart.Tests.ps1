@@ -139,8 +139,10 @@ BeforeAll {
             $shim = Join-Path $Fixture.Root 'queue-shim'
             New-Item -ItemType Directory -Force -Path $shim | Out-Null
             Set-Content -LiteralPath (Join-Path $shim 'queue.txt') -Value $QueueToon -Encoding utf8
-            Set-Content -LiteralPath (Join-Path $shim 'tasks-axi.cmd') -Encoding ascii -Value @(
-                '@echo off', "type `"$(Join-Path $shim 'queue.txt')`"")
+            Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
+            $queue = Join-Path $shim 'queue.txt'
+            $null = New-TestExecutable -Path (Join-Path $shim 'tasks-axi') `
+                -Cmd @("type `"$queue`"") -Sh @("cat '$($queue.Replace("'", "'\''"))'")
             $env:PATH = $shim + [IO.Path]::PathSeparator + $env:PATH
         }
         try {
@@ -990,7 +992,9 @@ Describe 'the digest says how to re-arm the usage pulse' {
 
     It 'carries a runnable arming command rather than a reminder to remember one' {
         $script:Pulse.Contains('RE-ARM') | Should -BeTrue
-        $script:Pulse | Should -Match 'Import-Module .*bin\\Usage\.psm1'
+        $sep = [regex]::Escape([IO.Path]::DirectorySeparatorChar)
+        $script:Pulse | Should -Match "Import-Module .*bin$($sep)Usage\.psm1" -Because (
+            'the path is copied into a command, and a backslash is a file name character on macOS and Linux')
         $script:Pulse.Contains('Watch-UsagePulse') |
             Should -BeTrue -Because 'the Hand copies the block, so it has to be runnable'
     }
@@ -1409,10 +1413,14 @@ Describe 'the store path resolves the way lavish-axi resolves it' {
     BeforeAll {
         $script:SavedStateDir = $env:LAVISH_AXI_STATE_DIR
         $script:SavedProfile  = $env:USERPROFILE
+        $script:SavedUnixHome = $env:HOME
+        # The variable Paths.psm1's Get-UserHomePath reads on the system running the suite.
+        $script:HomeVar = if ($IsWindows) { 'USERPROFILE' } else { 'HOME' }
     }
     AfterAll {
         $env:LAVISH_AXI_STATE_DIR = $script:SavedStateDir
         $env:USERPROFILE          = $script:SavedProfile
+        $env:HOME                 = $script:SavedUnixHome
     }
 
     It 'takes LAVISH_AXI_STATE_DIR when it is set' {
@@ -1422,7 +1430,7 @@ Describe 'the store path resolves the way lavish-axi resolves it' {
         ) | Out-Null
 
         $env:LAVISH_AXI_STATE_DIR = Split-Path $f.LavishState -Parent
-        $env:USERPROFILE          = Join-Path $TestDrive 'no-such-profile'
+        [Environment]::SetEnvironmentVariable($script:HomeVar, (Join-Path $TestDrive 'no-such-profile'))
         (Get-Digest $f -ResolveLavishStatePath).Contains((Join-Path $f.Data 'kh-env\gate.html')) |
             Should -BeTrue -Because 'the tool honours that variable, so this has to honour it too'
     }
@@ -1433,10 +1441,10 @@ Describe 'the store path resolves the way lavish-axi resolves it' {
         New-Item -ItemType Directory -Force -Path (Join-Path $fakeHome '.lavish-axi') | Out-Null
         ([ordered]@{ sessions = [ordered]@{ k = (New-LavishSession `
             -File (Join-Path $f.Data 'kh-home\gate.html') -Pending 1) } } | ConvertTo-Json -Depth 6) |
-            Set-Content -LiteralPath (Join-Path $fakeHome '.lavish-axi\state.json') -Encoding utf8
+            Set-Content -LiteralPath (Join-Path $fakeHome '.lavish-axi' 'state.json') -Encoding utf8
 
         Remove-Item Env:\LAVISH_AXI_STATE_DIR -ErrorAction SilentlyContinue
-        $env:USERPROFILE = $fakeHome
+        [Environment]::SetEnvironmentVariable($script:HomeVar, $fakeHome)
         (Get-Digest $f -ResolveLavishStatePath).Contains((Join-Path $f.Data 'kh-home\gate.html')) |
             Should -BeTrue -Because 'that is where the tool keeps it when nothing overrides the location'
     }
@@ -1444,7 +1452,7 @@ Describe 'the store path resolves the way lavish-axi resolves it' {
     It 'says there is nowhere to look rather than inventing a path' {
         $f = New-Fixture 'resolve-nothing'
         Remove-Item Env:\LAVISH_AXI_STATE_DIR -ErrorAction SilentlyContinue
-        $env:USERPROFILE = ''
+        [Environment]::SetEnvironmentVariable($script:HomeVar, '')
         $text = Get-Digest $f -ResolveLavishStatePath
 
         $text | Should -Match 'no home directory to resolve lavish-axi''s session store against'

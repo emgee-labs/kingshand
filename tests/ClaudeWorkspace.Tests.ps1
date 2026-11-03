@@ -62,6 +62,14 @@ Describe 'Set-WorkerWorkspaceSettings writes the two grants that used to be comm
         Test-Path -LiteralPath $script:Settings -PathType Leaf | Should -BeTrue
     }
 
+    # Every command a brief hands a worker is PowerShell, and on macOS and Linux the PowerShell tool
+    # is opt-in, so a worker without this key has only a Bash tool to run them through.
+    It 'turns on the PowerShell tool in the worker''s env block' {
+        Set-WorkerWorkspaceSettings -WorktreePath $script:Worktree | Out-Null
+        $json = Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json
+        $json.env.CLAUDE_CODE_USE_POWERSHELL_TOOL | Should -Be '1'
+    }
+
     It 'sets permissions.defaultMode to bypassPermissions' {
         Set-WorkerWorkspaceSettings -WorktreePath $script:Worktree -AdditionalDirectories @('D:\briefs\t-9001') | Out-Null
         $json = Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json
@@ -232,9 +240,11 @@ Describe 'the folder-edit grant lets a worker edit its own .claude folder and no
 
     It 'gives no decision through a link that leads out of the folder' {
         $outside = New-CaseDir
-        New-Item -ItemType Junction -Path (Join-Path $script:Claude 'linked') -Target $outside | Out-Null
+        # A junction on Windows; macOS and Linux have none, and a symbolic link is the same escape.
+        $kind = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
+        New-Item -ItemType $kind -Path (Join-Path $script:Claude 'linked') -Target $outside | Out-Null
         Resolve-WorkerClaudeFolderEdit -ClaudeDir $script:Claude 2>$null `
-            -InputJson (New-Request -Path (Join-Path $script:Claude 'linked\x.md')) | Should -BeNullOrEmpty
+            -InputJson (New-Request -Path (Join-Path $script:Claude 'linked' 'x.md')) | Should -BeNullOrEmpty
     }
 
     # Unreadable input is no decision, never an allow: the request then meets Claude Code's own flow.
@@ -365,6 +375,56 @@ Describe 'Grant-ClaudeFolderTrust records one worktree as trusted' {
     }
 }
 
+# Where the trust is written when the caller names no file: the one Claude Code itself reads. That
+# is CLAUDE_CONFIG_DIR when it is set, on every system, and the home directory otherwise - HOME on
+# macOS and Linux, where USERPROFILE does not exist. Both variables point at fixtures in every case,
+# so the real file is never in reach.
+Describe 'Grant-ClaudeFolderTrust with no -ConfigPath writes where Claude Code reads' {
+    BeforeAll {
+        $script:SavedConfigDir = $env:CLAUDE_CONFIG_DIR
+        $script:SavedProfile   = $env:USERPROFILE
+        $script:SavedUnixHome  = $env:HOME
+    }
+    AfterAll {
+        $env:CLAUDE_CONFIG_DIR = $script:SavedConfigDir
+        $env:USERPROFILE       = $script:SavedProfile
+        $env:HOME              = $script:SavedUnixHome
+    }
+    BeforeEach {
+        $script:Case = New-CaseDir
+        $env:CLAUDE_CONFIG_DIR = ''
+        $env:USERPROFILE = Join-Path $script:Case 'profile'
+        $env:HOME        = Join-Path $script:Case 'home'
+    }
+
+    It 'follows CLAUDE_CONFIG_DIR' {
+        $env:CLAUDE_CONFIG_DIR = Join-Path $script:Case 'config'
+        $config = New-ConfigFixture -Path (Join-Path $env:CLAUDE_CONFIG_DIR '.claude.json') -Json '{"projects":{}}'
+        (Grant-ClaudeFolderTrust -Path 'D:\repo\wt').granted | Should -BeTrue
+        Get-ProjectKeys -Path $config | Should -Contain 'D:/repo/wt'
+    }
+
+    It 'uses HOME on Linux' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $config = New-ConfigFixture -Path (Join-Path $env:HOME '.claude.json') -Json '{"projects":{}}'
+        (Grant-ClaudeFolderTrust -Path '/home/x/repo/wt').granted | Should -BeTrue
+        Get-ProjectKeys -Path $config | Should -Contain '/home/x/repo/wt'
+    }
+
+    It 'uses USERPROFILE on Windows' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Windows' }
+        $config = New-ConfigFixture -Path (Join-Path $env:USERPROFILE '.claude.json') -Json '{"projects":{}}'
+        (Grant-ClaudeFolderTrust -Path 'D:\repo\wt').granted | Should -BeTrue
+        Get-ProjectKeys -Path $config | Should -Contain 'D:/repo/wt'
+    }
+
+    It 'throws naming the missing variable rather than writing anywhere' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $env:HOME = ''
+        { Grant-ClaudeFolderTrust -Path '/home/x/repo/wt' } | Should -Throw '*HOME*'
+    }
+}
+
 Describe 'Grant-ClaudeFolderTrust preserves two keys that differ only in case' {
     # THE CASE THIS MODULE'S JsonNode CODE EXISTS FOR. A real ~\.claude.json can hold the same
     # directory twice under keys differing only in drive-letter case - 'D:/code' and 'd:/code' -
@@ -486,6 +546,34 @@ Describe 'the permission file in a checkout is backed up, edited and put back' {
         [System.IO.File]::ReadAllText($script:Settings) | Should -Be $original
         (Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json).PSObject.Properties.Name |
             Should -Not -Contain 'hooks'
+    }
+
+    # The PowerShell tool switch a worker needs on macOS and Linux, added where the King's file does
+    # not name it - and his own value kept where it does.
+    It 'adds the PowerShell tool switch to the env block beside the King''s own variables' {
+        Set-Original '{ "env": { "A": "1" } }'
+        $plan = New-CheckoutSettingsPlan -CheckoutPath $script:Checkout -RecordPath $script:Record
+        $null = Set-CheckoutWorkerSettings -Plan $plan
+        $json = Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json
+        $json.env.CLAUDE_CODE_USE_POWERSHELL_TOOL | Should -Be '1'
+        $json.env.A | Should -Be '1'
+    }
+
+    It 'keeps a PowerShell tool value the King set himself' {
+        Set-Original '{ "env": { "CLAUDE_CODE_USE_POWERSHELL_TOOL": "0" } }'
+        $plan = New-CheckoutSettingsPlan -CheckoutPath $script:Checkout -RecordPath $script:Record
+        $null = Set-CheckoutWorkerSettings -Plan $plan
+        (Get-Content -LiteralPath $script:Settings -Raw | ConvertFrom-Json).env.CLAUDE_CODE_USE_POWERSHELL_TOOL |
+            Should -Be '0' -Because 'a value he set himself is his'
+    }
+
+    It 'refuses an env value that is not an object, changing nothing' {
+        $json = '{ "env": [] }'
+        Set-Original $json
+        { New-CheckoutSettingsPlan -CheckoutPath $script:Checkout -RecordPath $script:Record } |
+            Should -Throw '*''env'' value that is not an object*'
+        Test-Path -LiteralPath $script:Record | Should -BeFalse
+        [System.IO.File]::ReadAllText($script:Settings) | Should -Be $json
     }
 
     It 'refuses a hooks value it cannot add to: <name>' -ForEach @(
@@ -805,5 +893,86 @@ Describe 'Stop-CheckoutWorker drops the record''s index line from the installati
         $r = Stop-CheckoutWorker -Name 'acme-api-session' -RecordPath $record
         $r.settings | Should -Be 'deleted'
         @(Get-IndexEntries -All -DataPath $data).Count | Should -Be 0
+    }
+}
+
+# ---------------------------------------------------------------------------------------------
+# The Hand's own env block, where macOS and Linux keep KINGSHAND_HOME and LAVISH_AXI_PORT. The file
+# is shared with Claude Code, which writes its own keys there, so the one thing every case below
+# protects is everything in it that is not env.<name>.
+# ---------------------------------------------------------------------------------------------
+Describe 'the Hand''s settings env block is read and written one key at a time' {
+    BeforeEach {
+        $script:Root = New-CaseDir
+        $script:File = Join-Path $script:Root '.claude' 'settings.local.json'
+    }
+
+    It 'lives in this installation''s own .claude/settings.local.json' {
+        Get-HandSettingsPath -Root $script:Root | Should -Be $script:File
+    }
+
+    It 'follows KINGSHAND_HOME when no root is given' {
+        $saved = $env:KINGSHAND_HOME
+        try {
+            $env:KINGSHAND_HOME = $script:Root
+            Get-HandSettingsPath | Should -Be $script:File
+        } finally { $env:KINGSHAND_HOME = $saved }
+    }
+
+    It 'reads nothing, rather than failing, where there is no file or no key yet' {
+        Get-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Path $script:File | Should -BeNullOrEmpty
+        New-ConfigFixture -Path $script:File -Json '{ "env": { "OTHER": "x" } }' | Out-Null
+        Get-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Path $script:File | Should -BeNullOrEmpty
+    }
+
+    It 'creates the file and its folder when neither is there' {
+        Set-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Value '4388' -Path $script:File | Should -Be $script:File
+        Get-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Path $script:File | Should -Be '4388'
+    }
+
+    It 'leaves every other key in the file as it was' {
+        New-ConfigFixture -Path $script:File -Json (
+            '{ "permissions": { "allow": ["Bash(npm test)"] }, "env": { "KEEP": "me" }, "model": "x" }') | Out-Null
+        Set-HandSettingsEnvValue -Name 'KINGSHAND_HOME' -Value '/home/u/kingshand' -Path $script:File | Out-Null
+        $json = Get-Content -LiteralPath $script:File -Raw | ConvertFrom-Json
+        @($json.permissions.allow) | Should -Be @('Bash(npm test)')
+        $json.env.KEEP             | Should -Be 'me'
+        $json.model                | Should -Be 'x'
+        $json.env.KINGSHAND_HOME   | Should -Be '/home/u/kingshand'
+    }
+
+    It 'writes the same file again when run twice, with one key and not two' {
+        Set-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Value '4388' -Path $script:File | Out-Null
+        $first = [IO.File]::ReadAllText($script:File)
+        Set-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Value '4388' -Path $script:File | Out-Null
+        [IO.File]::ReadAllText($script:File) | Should -Be $first
+        @((Get-Content -LiteralPath $script:File -Raw | ConvertFrom-Json).env.PSObject.Properties).Count |
+            Should -Be 1
+    }
+
+    # Writing would mean rewriting a file whose other keys were never read, so each of these is a
+    # refusal that leaves the bytes exactly as they were.
+    It 'refuses <name>, naming it and changing nothing' -ForEach @(
+        @{ name = 'a file that is not JSON';        json = '{ not json';                  msg = '*is not valid JSON*' }
+        @{ name = 'a file holding a comment';       json = "{ // mine`n ""a"": 1 }";      msg = '*is not valid JSON*' }
+        @{ name = 'a file that is not an object';   json = '[]';                          msg = '*does not hold a JSON object*' }
+        @{ name = 'an env value that is not an object'; json = '{ "env": "x" }';          msg = '*''env'' value that is not an object*' }
+    ) {
+        New-ConfigFixture -Path $script:File -Json $json | Out-Null
+        { Set-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Value '4388' -Path $script:File } | Should -Throw $msg
+        { Get-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Path $script:File } | Should -Throw $msg
+        [IO.File]::ReadAllText($script:File) | Should -Be $json
+        Test-Path -LiteralPath "$($script:File).kingshand-tmp" | Should -BeFalse
+    }
+
+    It 'refuses a directory where the file should be' {
+        New-Item -ItemType Directory -Force -Path $script:File | Out-Null
+        { Set-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Value '4388' -Path $script:File } |
+            Should -Throw '*is a directory*'
+    }
+
+    It 'says a value that is not a string is not one, rather than reading it as unset' {
+        New-ConfigFixture -Path $script:File -Json '{ "env": { "LAVISH_AXI_PORT": 4388 } }' | Out-Null
+        { Get-HandSettingsEnvValue -Name 'LAVISH_AXI_PORT' -Path $script:File } | Should -Throw '*not a string*'
     }
 }

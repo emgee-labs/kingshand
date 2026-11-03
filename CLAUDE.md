@@ -223,7 +223,7 @@ rather than trusting a list; a list here goes stale and has twice.
 
 | Script | Job |
 |---|---|
-| `bin\Paths.psm1` | the one resolution point for `KINGSHAND_HOME` |
+| `bin\Paths.psm1` | the one resolution point for `KINGSHAND_HOME` and for everything that differs by operating system: the home directory, executable names, which command can be launched, and how two paths compare |
 | `bin\Herdr.psm1` | the only place that knows herdr's command line: start the server, make a pane, start a worker, read its state, prompt it, wait on it, notice it has stopped advancing, read its screen, answer a prompt, stop it, list and close its panes and workspaces |
 | `bin\Ci.psm1` | whether a repository has any CI that could report a check, before a task is promised a wait for one |
 | `bin\ClaudeWorkspace.psm1` | writes a worktree's `settings.local.json` and pre-seeds folder trust, because no arguments can be passed to a worker - and for a worker in the project's own checkout, records, edits and restores that checkout's file, with `Stop-CheckoutWorker` as its cleanup |

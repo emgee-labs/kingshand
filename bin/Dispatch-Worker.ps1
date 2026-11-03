@@ -366,6 +366,9 @@ Import-Module (Join-Path $PSScriptRoot 'Index.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Projects.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'ClaudeWorkspace.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Usage.psm1') -Force
+# LAST and without -Force: every module above already loaded Paths as a nested module, so this only
+# brings its path helpers into this script's scope. Forcing it would remove the copy they hold.
+Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
 
 # Dot-sourced up here rather than at the call site far below, because the two functions it defines
 # are wanted at different moments: Test-WorkerBranch by the -Base check a few lines down, which has
@@ -508,9 +511,7 @@ if ($InCheckout) {
     $global:LASTEXITCODE = 0
     $sameRoot = $false
     if ($topOk -and $topLevel) {
-        $sameRoot = [IO.Path]::GetFullPath(($topLevel -replace '/', '\')).TrimEnd('\').Equals(
-                        [IO.Path]::GetFullPath($RepoPath).TrimEnd('\'),
-                        [System.StringComparison]::OrdinalIgnoreCase)
+        $sameRoot = Test-SamePath $topLevel $RepoPath
     }
     if (-not $sameRoot) {
         throw ("-InCheckout needs the top of a git checkout and $RepoPath is not one, so the " +
@@ -606,19 +607,24 @@ if (Test-Path -LiteralPath $registryPath -PathType Leaf) {
     }
 }
 
-$target = [IO.Path]::GetFullPath($RepoPath).TrimEnd('\')
+$target = ConvertTo-NormalPath $RepoPath
 $family = ''
 foreach ($entry in $registered) {
     if (-not $entry.path -or -not $entry.indexable) { continue }
     # Guarded per entry, so one unusable path costs that entry and not the whole resolution.
     $entryPath = ''
-    try { $entryPath = [IO.Path]::GetFullPath($entry.path).TrimEnd('\') }
+    # A blank path is refused by name rather than left to GetFullPath: Windows throws on one, but on
+    # macOS and Linux it resolves quietly to a file called " " in the working directory.
+    try {
+        if ([string]::IsNullOrWhiteSpace($entry.path)) { throw 'the path is blank' }
+        $entryPath = ConvertTo-NormalPath $entry.path
+    }
     catch {
         Write-Warning ("Project $($entry.name) records a 'path:' line that is not a usable path " +
                        "($($_.Exception.Message)); skipping it while resolving this dispatch.")
         continue
     }
-    if ($entryPath.Equals($target, [System.StringComparison]::OrdinalIgnoreCase)) {
+    if (Test-SamePath $entryPath $target) {
         $project = $entry.name
         # Empty where this project declares no family, which is the ordinary state and is what
         # Projects.psm1 reports rather than a word - so nothing below can compose it into a file
@@ -648,7 +654,7 @@ foreach ($entry in $registered) {
 function New-FamilyEntry {
     param([Parameter(Mandatory)][string]$Family)
     @{
-        path = Join-Path $dataRoot "families\$Family.md"
+        path = Join-Path $dataRoot 'families' "$Family.md"
         what = ("the standing rules shared by every project in the $Family family - conventions, " +
                 "vocabulary, exclusions, branch naming, environment facts")
         how  = ('Read it in full before you start. It is reference to consult, not a list to ' +
@@ -707,6 +713,10 @@ if ($project) {
 # naming a file that is not there is a brief the worker cannot carry out, and finding that out
 # after a worker is running means one more dispatch spent discovering it. Every refusal below
 # names the offending path and leaves nothing created.
+#
+# Keyed by file name and deliberately case-insensitive on every system, unlike the path comparisons
+# below: this guards one directory against two files landing on one name, and a macOS volume is
+# usually case-insensitive, so refusing `A.md` beside `a.md` is the safe answer everywhere.
 $readFirstDir = Join-Path $briefDir 'read-first'
 $staged       = [System.Collections.Generic.Dictionary[string, string]]::new(
                     [System.StringComparer]::OrdinalIgnoreCase)
@@ -731,7 +741,7 @@ foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
     foreach ($standingLeaf in $standing.Keys) {
         if ($standing[$standingLeaf].kind -ne 'family') { continue }
         if (-not $resolved.Equals($standing[$standingLeaf].path,
-                                  [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+                                  (Get-PathComparison))) { continue }
         throw ("Read first names $resolved, the shared rules of the $family family. This dispatch " +
                "attaches that file itself for every project in the family and names the copy " +
                "$standingLeaf, so passing it by hand stages one file twice under two names. Leave " +
@@ -787,7 +797,7 @@ foreach ($leaf in $standing.Keys) {
     if ($staged.ContainsKey($leaf)) {
         # The same file, passed by hand as well. The Hand's own `Read first` line already names it,
         # so this adds nothing and writes no second line for it.
-        if ($staged[$leaf].Equals($p, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        if ($staged[$leaf].Equals($p, (Get-PathComparison))) { continue }
         throw ("Read first names $($staged[$leaf]), and $leaf at $p is attached to every brief for " +
                "project $project. Both would land on $leaf in the staging " +
                "directory and one would overwrite the other. Pass the file under a distinct name, " +
@@ -869,7 +879,7 @@ if (-not $hasSection) {
 # installation rather than of anybody's data, and resolved so every comparison below sees the same
 # shape Resolve-Path gave the staged copies.
 $procedurePath = [System.IO.Path]::GetFullPath(
-    (Join-Path $PSScriptRoot '..\.claude\skills\witness\SKILL.md'))
+    (Join-Path $PSScriptRoot '..' '.claude' 'skills' 'witness' 'SKILL.md'))
 $modulePath    = [System.IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot 'BrowserVerify.psm1'))
 
@@ -889,7 +899,7 @@ if ($hasBrowser) {
     $absent = @(foreach ($k in $needed.Keys) {
         $p = $needed[$k]
         $there = @($staged.Values | Where-Object {
-            $_.Equals($p, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+            $_.Equals($p, (Get-PathComparison)) }).Count -gt 0
         if (-not $there) { "the $k at $p" }
     })
     if ($absent.Count -gt 0) {
@@ -999,7 +1009,7 @@ if ($gates.Count -gt 0) {
     $module    = if ($hasBrowser) { $modulePath }    else { '' }
 
     $byRote = [System.Collections.Generic.HashSet[string]]::new(
-                  [System.StringComparer]::OrdinalIgnoreCase)
+                  (Get-PathComparer))
     foreach ($leaf in $standing.Keys) { $null = $byRote.Add($standing[$leaf].path) }
     foreach ($p in @($procedure, $module)) { if ($p) { $null = $byRote.Add($p) } }
 
@@ -1035,7 +1045,7 @@ if ($gates.Count -gt 0) {
         $wasPassed = {
             param($path)
             $path -and @($staged.Values | Where-Object {
-                $_.Equals($path, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+                $_.Equals($path, (Get-PathComparison)) }).Count -gt 0
         }
         # Walked in $standing's order, so the criteria file is named before the rules file wherever
         # both were passed by hand. The family's file never matches here: a -ReadPath naming it was
@@ -1439,14 +1449,13 @@ function Test-LocalBranch {
 }
 
 # git prints worktree paths with forward slashes and its own casing, so a string compare against a
-# Windows path built with Join-Path never matches. Compare fully-qualified paths instead.
+# Windows path built with Join-Path never matches. Compare as paths instead - Paths.psm1 owns the
+# rule, including which systems ignore case.
 function Test-WorktreeRegistered {
     param([Parameter(Mandatory)][string]$Path)
-    $target = [IO.Path]::GetFullPath($Path).TrimEnd('\')
     foreach ($line in @((Get-GitOutput @('worktree', 'list', '--porcelain')) -split "`r?`n")) {
         if ($line -notmatch '^worktree\s+(.+)$') { continue }
-        $listed = [IO.Path]::GetFullPath(($Matches[1].Trim() -replace '/', '\')).TrimEnd('\')
-        if ($listed -eq $target) { return $true }
+        if (Test-SamePath $Matches[1].Trim() $Path) { return $true }
     }
     $false
 }

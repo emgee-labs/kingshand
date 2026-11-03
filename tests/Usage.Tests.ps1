@@ -1102,17 +1102,25 @@ Describe 'the cadence is the King''s, and decided in one place' {
 Describe 'the probe boundary itself, against a stand-in for Claude Code' {
     BeforeAll {
         $script:StandInDir = New-TempFixtureDir -Prefix 'usage-probe-standin-'
-        $script:StandIn    = Join-Path $script:StandInDir 'claude-standin.cmd'
         $script:ArgsFile   = Join-Path $script:StandInDir 'args.txt'
         $script:CwdFile    = Join-Path $script:StandInDir 'cwd.txt'
         $script:Reply      = Join-Path $script:StandInDir 'reply.txt'
-        Set-Content -LiteralPath $script:StandIn -Encoding ascii -Value @(
-            '@echo off',
+        Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
+        $script:StandIn = New-TestExecutable -Path (Join-Path $script:StandInDir 'claude-standin') -Cmd @(
             'echo %*>"%KH_TEST_PROBE_ARGS%"',
             'cd>"%KH_TEST_PROBE_CWD%"',
             'if exist "%KH_TEST_PROBE_DIR%\slow" ping -n 30 127.0.0.1 >nul',
             'type "%KH_TEST_PROBE_DIR%\reply.txt"',
             'exit /b 0'
+        ) -Sh @(
+            # An empty argument is written as "", the way a Windows command line shows it, so the
+            # same assertion reads both - and here it proves the empty value arrived as its own.
+            'out=""',
+            'for a in "$@"; do if [ -z "$a" ]; then out="$out \"\""; else out="$out $a"; fi; done',
+            'echo "$out" > "$KH_TEST_PROBE_ARGS"',
+            'pwd > "$KH_TEST_PROBE_CWD"',
+            'if [ -f "$KH_TEST_PROBE_DIR/slow" ]; then sleep 30; fi',
+            'cat "$KH_TEST_PROBE_DIR/reply.txt"'
         )
         (New-ProbeOutput -FiveHour 0.07) | Set-Content -LiteralPath $script:Reply -Encoding utf8
         $script:Saved = @{ cmd = $env:KINGSHAND_USAGE_PROBE_COMMAND }
@@ -1270,11 +1278,12 @@ Describe 'Which account the reading belongs to' {
     # function declared there does not exist when the cases actually run.
     BeforeAll {
         $script:SavedProfile = $env:USERPROFILE
+        $script:SavedUnixHome = $env:HOME
 
         function New-AccountsHome {
             param([string]$Active, [switch]$NoActiveFile, [string]$ActiveText)
             $root = New-TempFixtureDir -Prefix 'usage-home-'
-            $dir  = Join-Path $root '.claude\accounts'
+            $dir  = Join-Path $root '.claude' 'accounts'
             New-Item -ItemType Directory -Force -Path $dir | Out-Null
             # A credential file, present exactly so the tests can show it is never read.
             '{ "accessToken": "SECRET-TOKEN-MARKER", "refreshToken": "SECRET-REFRESH-MARKER" }' |
@@ -1283,15 +1292,30 @@ Describe 'Which account the reading belongs to' {
                 $text = if ($PSBoundParameters.ContainsKey('ActiveText')) { $ActiveText } else { $Active }
                 Set-Content -LiteralPath (Join-Path $dir '.active') -Value $text -Encoding utf8
             }
-            $env:USERPROFILE = $root
+            # The variable this system reads its home directory from: Paths.psm1's Get-UserHomePath.
+            if ($IsWindows) { $env:USERPROFILE = $root } else { $env:HOME = $root }
             $root
         }
     }
-    AfterAll { $env:USERPROFILE = $script:SavedProfile }
+    AfterAll { $env:USERPROFILE = $script:SavedProfile; $env:HOME = $script:SavedUnixHome }
 
     It 'reads the active account name' {
         New-AccountsHome -Active 'personal' | Out-Null
         Get-ActiveAccountName | Should -Be 'personal'
+    }
+
+    It 'reads the name from under HOME on macOS and Linux' {
+        $root = New-AccountsHome -Active 'personal'
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $env:HOME = $root
+        $env:USERPROFILE = Join-Path $TestDrive 'not-the-profile'
+        Get-ActiveAccountName | Should -Be 'personal'
+    }
+
+    It 'reads no account rather than failing when there is no home directory at all' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $env:HOME = ''
+        Get-ActiveAccountName | Should -Be ''
     }
 
     It 'reads no account rather than failing when there is no such file' {
@@ -1322,7 +1346,8 @@ Describe 'The launchable quota-axi, and why a .ps1 is never it' {
 
     # npm installs a .ps1 alongside the .cmd, and a native launch of a .ps1 dies with
     # "%1 is not a valid Win32 application" - the same failure Paths.psm1 records for Claude Code.
-    It 'prefers a launchable wrapper over the PowerShell script npm installs beside it' {
+    # Windows only: elsewhere a `.cmd` is not a program at all, and npm installs no such pair.
+    It 'prefers a launchable wrapper over the PowerShell script npm installs beside it' -Skip:(-not $IsWindows) {
         $dir = New-TempFixtureDir -Prefix 'quota-shim-'
         Set-Content -Path (Join-Path $dir 'quota-axi.ps1') -Value 'exit 0' -Encoding ascii
         Set-Content -Path (Join-Path $dir 'quota-axi.cmd') -Value '@echo off' -Encoding ascii
@@ -1354,15 +1379,19 @@ Describe 'The launchable quota-axi, and why a .ps1 is never it' {
     # dispatch running under ErrorActionPreference Stop.
     It 'reports a temp directory it cannot use rather than throwing out of the boundary' {
         $shim = New-TempFixtureDir -Prefix 'quota-shim-'
-        Set-Content -Path (Join-Path $shim 'quota-axi.cmd') -Value '@echo off' -Encoding ascii
+        Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
+        $null = New-TestExecutable -Path (Join-Path $shim 'quota-axi') -Cmd @() -Sh @()
         $gone = Join-Path (New-TempFixtureDir -Prefix 'quota-notemp-') 'no-such-directory'
 
-        $savedTmp  = $env:TMP
-        $savedTemp = $env:TEMP
+        # TMP and TEMP are what Windows reads for the temp directory; macOS and Linux read TMPDIR.
+        $savedTmp    = $env:TMP
+        $savedTemp   = $env:TEMP
+        $savedTmpDir = $env:TMPDIR
         try {
-            $env:PATH = $shim + [IO.Path]::PathSeparator + $script:SavedPath
-            $env:TMP  = $gone
-            $env:TEMP = $gone
+            $env:PATH   = $shim + [IO.Path]::PathSeparator + $script:SavedPath
+            $env:TMP    = $gone
+            $env:TEMP   = $gone
+            $env:TMPDIR = $gone
 
             $r = $null
             { $script:NoTempResult = Invoke-QuotaAxi -Arguments @('--json') } | Should -Not -Throw
@@ -1370,8 +1399,9 @@ Describe 'The launchable quota-axi, and why a .ps1 is never it' {
             $r.ok    | Should -BeFalse
             $r.error | Should -BeLike '*quota-axi could not be run*'
         } finally {
-            $env:TMP  = $savedTmp
-            $env:TEMP = $savedTemp
+            $env:TMP    = $savedTmp
+            $env:TEMP   = $savedTemp
+            $env:TMPDIR = $savedTmpDir
         }
     }
 }
@@ -1707,10 +1737,9 @@ Describe 'The pulse takes the fleet from the reader that already joins intent to
         InModuleScope Usage { $script:LastSpoken = $null }
 
         $shim = New-TempFixtureDir -Prefix 'herdr-shim-'
-        Set-Content -Path (Join-Path $shim 'herdr.cmd') -Encoding ascii -Value @(
-            '@echo off',
-            'type "%KINGSHAND_TEST_USAGE_HERDR%"'
-        )
+        Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
+        $null = New-TestExecutable -Path (Join-Path $shim 'herdr') `
+            -Cmd @('type "%KINGSHAND_TEST_USAGE_HERDR%"') -Sh @('cat "$KINGSHAND_TEST_USAGE_HERDR"')
         $reply = Join-Path $shim 'agents.json'
         '{ "agents": [] }' | Set-Content -LiteralPath $reply -Encoding utf8
 

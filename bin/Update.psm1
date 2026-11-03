@@ -167,8 +167,10 @@ function Get-LatestReleaseTag {
     $PSNativeCommandUseErrorActionPreference = $false
 
     # -v:refname is git's own version ordering, so v0.10.0 sorts above v0.9.0 where a plain string
-    # sort puts it below.
-    $out = @(& git -C $RepoPath tag --list $script:ReleaseTagGlob --sort=-v:refname 2>&1)
+    # sort puts it below. The pattern is QUOTED on purpose: on macOS and Linux PowerShell expands a
+    # wildcard in an unquoted argument to a native program against the current directory, so a bare
+    # `v*` reached git as whatever files there start with v, and every tag was missed.
+    $out = @(& git -C $RepoPath tag --list "$($script:ReleaseTagGlob)" --sort=-v:refname 2>&1)
     $code = $LASTEXITCODE
     $global:LASTEXITCODE = 0
     if ($code -ne 0) { throw "git could not list the tags in $RepoPath - $(($out | Out-String).Trim())" }

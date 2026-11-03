@@ -70,7 +70,7 @@ $script:ValidModes = @('no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-pr
 Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
 
 function Get-DefaultRegistryPath {
-    Join-Path (Split-Path $PSScriptRoot -Parent) 'data\projects.md'
+    Join-Path (Split-Path $PSScriptRoot -Parent) 'data' 'projects.md'
 }
 
 # Parses the file into entries. Never touches the filesystem beyond reading the registry.

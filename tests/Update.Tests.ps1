@@ -248,6 +248,19 @@ Describe 'the latest release is the highest version tag, and only a release tag 
         Get-LatestReleaseTag -RepoPath $repo | Should -Be 'v0.10.0'
     }
 
+    # On macOS and Linux PowerShell expands a wildcard in an unquoted native argument against the
+    # working directory, so a `v*` pattern run from a folder holding a file named v-something reached
+    # git as that file name and every tag was missed. Run from exactly such a folder.
+    It 'finds the tags from a folder holding a file whose name matches the tag pattern' {
+        $repo = New-TagRepo -Name 'tagglob' -Tags @('v0.9.0', 'v0.10.0')
+        $cwd = Join-Path $TestDrive 'glob-cwd'
+        New-Item -ItemType Directory -Force -Path $cwd | Out-Null
+        Set-Content -LiteralPath (Join-Path $cwd 'vendor.txt') -Value 'x'
+        Push-Location -LiteralPath $cwd
+        try { Get-LatestReleaseTag -RepoPath $repo | Should -Be 'v0.10.0' }
+        finally { Pop-Location }
+    }
+
     It 'ignores a tag that is not a release' {
         $repo = New-TagRepo -Name 'tagnotarelease' -Tags @('v0.9.0', 'v0.10.0', 'v2-backup', 'vendor-drop')
         Get-LatestReleaseTag -RepoPath $repo | Should -Be 'v0.10.0'
@@ -813,10 +826,11 @@ Describe 'every installation hears of a newer release, at most once a day' {
         $f = New-Installation -Name 'notice-shim' -TagSeed
         $shims = Join-Path $TestDrive 'notice-shims'
         New-Item -ItemType Directory -Force -Path $shims | Out-Null
-        $garbled = Join-Path $shims 'garbled.cmd'
-        Set-Content -LiteralPath $garbled -Encoding ascii -Value @('@echo off', 'echo this is not a tag line')
-        $slow = Join-Path $shims 'slow.cmd'
-        Set-Content -LiteralPath $slow -Encoding ascii -Value @('@echo off', 'ping -n 30 127.0.0.1 >nul')
+        Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
+        $garbled = New-TestExecutable -Path (Join-Path $shims 'garbled') `
+            -Cmd @('echo this is not a tag line') -Sh @('echo this is not a tag line')
+        $slow = New-TestExecutable -Path (Join-Path $shims 'slow') `
+            -Cmd @('ping -n 30 127.0.0.1 >nul') -Sh @('sleep 30')
 
         Mock -ModuleName Update Get-Command { [pscustomobject]@{ Source = $garbled } } -ParameterFilter { $Name -eq 'git' }
         { Get-RemoteReleaseTag -RepoPath $f.Path } | Should -Throw -ExpectedMessage '*a line that is not a tag*'

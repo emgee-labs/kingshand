@@ -77,7 +77,7 @@ $RecordOwner = 'kingshand-dependency-check'
 $DueAfter    = [timespan]::FromDays(7)
 
 if (-not $Root)       { $Root = Get-KingshandHome }
-if (-not $RecordPath) { $RecordPath = Join-Path $Root "state\$RecordName" }
+if (-not $RecordPath) { $RecordPath = Join-Path $Root 'state' $RecordName }
 
 # The record's date as a UTC DateTime, or a sentence saying why there is none. ConvertFrom-Json turns
 # an ISO 8601 string into a DateTime on its own, so both shapes are accepted; anything else is not a

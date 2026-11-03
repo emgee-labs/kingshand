@@ -17,9 +17,13 @@ Set-StrictMode -Version Latest
 # Nothing here writes a file. The record goes into the worker's own `report.md`, which already
 # has an owner, so this module adds no write destination and can collide with nothing.
 #
-# Windows-scoped, like the rest of kingshand. Get-BrowserCredentialStatus reads the user
-# environment out of the Windows registry; on any other platform that read finds nothing and the
-# result is an honest not-found rather than a fabricated one.
+# The user environment is a Windows place. Get-BrowserCredentialStatus reads it out of the Windows
+# registry there; macOS and Linux have no user scope, so there it is not read at all and the
+# process environment is the only place a login can be - and a not-found says how to put it there.
+
+# Nested import, WITHOUT -Force - `statute`'s style rules own why. Paths.psm1 says which system
+# this is.
+Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
 
 # The minimum for a verification to produce evidence at all: reach a tab, go somewhere, read the
 # page, and read the console and network traces the record is built from. Stated once, here.
@@ -99,7 +103,8 @@ function Get-BrowserToolStatus {
 # in whether the caller gets the login or a line it can print.
 #
 # The second read is the registry rather than any inherited block, which is what makes a variable
-# set after herdr started reachable at all.
+# set after herdr started reachable at all. Windows only: elsewhere there is no registry and no user
+# scope, and .NET's read of one returns nothing.
 function Read-BrowserCredential {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Variable)
@@ -107,8 +112,10 @@ function Read-BrowserCredential {
     $fromProcess = [Environment]::GetEnvironmentVariable($Variable)
     if ($fromProcess) { return @{ value = $fromProcess; source = 'process' } }
 
-    $fromUser = [Environment]::GetEnvironmentVariable($Variable, 'User')
-    if ($fromUser) { return @{ value = $fromUser; source = 'user' } }
+    if ((Get-KingshandPlatform) -eq 'Windows') {
+        $fromUser = [Environment]::GetEnvironmentVariable($Variable, 'User')
+        if ($fromUser) { return @{ value = $fromUser; source = 'user' } }
+    }
 
     @{ value = $null; source = 'none' }
 }
@@ -137,8 +144,8 @@ function Get-BrowserCredentialValue {
 # (docs\2026-09-04-worker-environment-propagation.md owns that measurement).
 #
 # So the process block is read first and the user environment second, and in a worker the first
-# read usually answers. `source` says which, because "found in the user environment" is the tell
-# that this process was started from an older environment.
+# read usually answers. macOS and Linux have only the first. `source` says which, because "found in
+# the user environment" is the tell that this process was started from an older environment.
 #
 # The login itself is deliberately NOT in this result, and Get-BrowserCredentialValue below is the
 # only way to it. A hashtable evaluated on its own prints every key it holds, so a worker typing
@@ -177,11 +184,19 @@ function Get-BrowserCredentialStatus {
         return $result
     }
 
-    $result.reason  = ("$Variable is not set in this process's environment or for the user, so " +
-                       'no login is available and nothing was signed in to. Set it for the user ' +
-                       'and, if a later worker still cannot see it, restart the worker server so ' +
-                       'a fresh environment is inherited. Never put the value in a brief, a ' +
-                       'report or any file.')
+    $result.reason  = if ((Get-KingshandPlatform) -eq 'Windows') {
+        ("$Variable is not set in this process's environment or for the user, so " +
+         'no login is available and nothing was signed in to. Set it for the user ' +
+         'and, if a later worker still cannot see it, restart the worker server so ' +
+         'a fresh environment is inherited. Never put the value in a brief, a ' +
+         'report or any file.')
+    } else {
+        # No user scope to fall back on, so a worker sees only what the worker server inherited.
+        ("$Variable is not set in this process's environment, so no login is available " +
+         'and nothing was signed in to. Export it in the shell the worker server is ' +
+         'started from, then restart the worker server so a fresh environment is ' +
+         'inherited. Never put the value in a brief, a report or any file.')
+    }
     $result.summary = "$Variable - not set, so no login was available."
     $result
 }

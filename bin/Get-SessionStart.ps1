@@ -110,12 +110,12 @@ Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot 'Paths.psm1') -Force
 $script:Root = Get-KingshandHome
 if (-not $DataPath)         { $DataPath         = Join-Path $script:Root 'data' }
-if (-not $StatePath)        { $StatePath        = Join-Path $script:Root 'state\crew.json' }
-if (-not $RegistryPath)     { $RegistryPath     = Join-Path $script:Root 'data\projects.md' }
-if (-not $BudgetPath)       { $BudgetPath       = Join-Path $script:Root 'config\startup-memory-budget' }
+if (-not $StatePath)        { $StatePath        = Join-Path $script:Root 'state' 'crew.json' }
+if (-not $RegistryPath)     { $RegistryPath     = Join-Path $script:Root 'data' 'projects.md' }
+if (-not $BudgetPath)       { $BudgetPath       = Join-Path $script:Root 'config' 'startup-memory-budget' }
 if (-not $InstructionsPath) { $InstructionsPath = Join-Path $script:Root 'instructions.md' }
 if (-not $QueueRoot)        { $QueueRoot        = $script:Root }
-if (-not $MaintainerPath)   { $MaintainerPath   = Join-Path $script:Root 'config\maintainer' }
+if (-not $MaintainerPath)   { $MaintainerPath   = Join-Path $script:Root 'config' 'maintainer' }
 if (-not $ReleaseRepoPath)  { $ReleaseRepoPath  = $script:Root }
 
 # lavish-axi's own store, resolved exactly the way the tool resolves it: LAVISH_AXI_STATE_DIR when
@@ -132,8 +132,10 @@ if (-not $ReleaseRepoPath)  { $ReleaseRepoPath  = $script:Root }
 # answer this section must never give without having looked.
 if (-not $LavishStatePath) {
     $lavishStateDir = $env:LAVISH_AXI_STATE_DIR
-    if (-not $lavishStateDir -and $env:USERPROFILE) {
-        $lavishStateDir = Join-Path $env:USERPROFILE '.lavish-axi'
+    if (-not $lavishStateDir) {
+        $userHome = $null
+        try { $userHome = Get-UserHomePath } catch { $userHome = $null }
+        if ($userHome) { $lavishStateDir = Join-Path $userHome '.lavish-axi' }
     }
     if ($lavishStateDir) { $LavishStatePath = Join-Path $lavishStateDir 'state.json' }
 }
@@ -204,15 +206,7 @@ function Get-Field {
 # ways and still be the same directory. A path that will not normalise is not inside anything.
 function Test-PathUnder {
     param([string]$Path, [string]$Root)
-    try {
-        if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($Root)) { return $false }
-        $p = [System.IO.Path]::GetFullPath($Path)
-        $r = [System.IO.Path]::GetFullPath($Root).TrimEnd('\', '/') +
-             [System.IO.Path]::DirectorySeparatorChar
-        return $p.StartsWith($r, [System.StringComparison]::OrdinalIgnoreCase)
-    } catch {
-        return $false
-    }
+    Test-PathWithin -Path $Path -Root $Root -ExcludeRoot
 }
 
 # How many prompts are queued on one session - or -1 for a count that could not be read.
@@ -336,7 +330,7 @@ Add-Line ("=== KINGSHAND SESSION START - " + (Get-Date).ToUniversalTime().ToStri
 $configuredHome = $env:KINGSHAND_HOME
 $derivedHome    = Split-Path $PSScriptRoot -Parent
 if (-not [string]::IsNullOrWhiteSpace($configuredHome) -and
-    $configuredHome.TrimEnd('\', '/') -ne $derivedHome.TrimEnd('\', '/')) {
+    -not (Test-SamePath $configuredHome $derivedHome)) {
     Add-Line ''
     Add-Line 'HOME MISMATCH'
     Add-Line "  This copy lives at $derivedHome"
@@ -746,8 +740,9 @@ Add-Line '  Pulse: arm it once, as a harness-tracked background job:'
 # this whole section exists against: the command errors at session open, the pulse is never armed,
 # and the silence that follows is indistinguishable from a changed-only pulse with nothing to say.
 # A quote inside the path is doubled for the same reason - it is the only other character that
-# could end the string early.
-Add-Line ("      Import-Module '" + (Join-Path $script:Root 'bin\Usage.psm1').Replace("'", "''") + "'")
+# could end the string early. One segment per Join-Path argument, so the path carries this system's
+# own separator: a backslash in it is a literal file name character on macOS and Linux.
+Add-Line ("      Import-Module '" + (Join-Path $script:Root 'bin' 'Usage.psm1').Replace("'", "''") + "'")
 Add-Line '      Watch-UsagePulse'
 Add-Line '    It runs until the session ends rather than for a set number of ticks, and it speaks'
 Add-Line '    only when something has changed - so say in one line that it is on, because a quiet'

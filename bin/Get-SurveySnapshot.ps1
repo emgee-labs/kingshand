@@ -71,9 +71,9 @@ Set-StrictMode -Version Latest
 # which is the one place that decision is made, and a param default cannot call it.
 Import-Module (Join-Path $PSScriptRoot 'Paths.psm1') -Force
 $script:Root = Get-KingshandHome
-if (-not $RegistryPath) { $RegistryPath = Join-Path $script:Root 'data\projects.md' }
+if (-not $RegistryPath) { $RegistryPath = Join-Path $script:Root 'data' 'projects.md' }
 if (-not $DataPath)     { $DataPath     = Join-Path $script:Root 'data' }
-if (-not $StatePath)    { $StatePath    = Join-Path $script:Root 'state\crew.json' }
+if (-not $StatePath)    { $StatePath    = Join-Path $script:Root 'state' 'crew.json' }
 
 $script:Diagnostics = [System.Collections.Generic.List[string]]::new()
 

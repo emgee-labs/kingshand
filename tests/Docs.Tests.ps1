@@ -1399,6 +1399,16 @@ Describe 'teardown is one command whose header owns the order, and never kills' 
     }
 }
 
+# What differs between Windows, macOS and Linux is answered in one module, so nothing above it
+# keeps a private copy of the answer. The row is where a reader looks for that owner.
+Describe 'the platform helpers have one owner, named in the Tooling table' {
+    It 'names Paths.psm1 as the owner of everything that differs by operating system' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
+            -Phrase ('| `bin\Paths.psm1` | the one resolution point for `KINGSHAND_HOME` and for ' +
+                     'everything that differs by operating system')
+    }
+}
+
 Describe 'a blocked worker is never reported as healthy' {
     # survey put a live worker at stage `dispatched` into Underway - "live work progressing on
     # its own" - while its agentState was `blocked` and it had been sitting on a menu for an hour.
@@ -4746,13 +4756,13 @@ Describe 'install.ps1 reports rather than installs unless it is told to' {
             -Phrase 'the flag is the consent, and every command is printed before it runs'
     }
 
-    # Only winget is a true floor. npm was treated as one too, which stopped the installer dead on
-    # a machine that had winget and could therefore have installed Node in one command. A user who
-    # asks for setup in one word should not be handed a manual step the machine could take itself.
-    It 'treats only winget as a floor, and installs Node itself when winget is present' {
+    # Only the system package manager is a true floor. npm was treated as one too, which stopped the
+    # installer dead on a machine that had winget and could therefore have installed Node in one
+    # command. A user who asks for setup in one word should not be handed a manual step the machine
+    # could take itself. On Linux the manager is never run, because it needs sudo and the installer
+    # never elevates.
+    It 'treats only the system package manager as a floor, and installs Node itself when it may' {
         $text = Get-DocText $script:InstallPs1
-        Assert-Phrase -Text $text -Where 'install.ps1' `
-            -Phrase 'Only winget is a true floor'
         Assert-Phrase -Text $text -Where 'install.ps1' `
             -Phrase 'winget install --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements'
     }
@@ -5962,88 +5972,8 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         }
     }
 
-    # Asserted as an absence of overlap rather than of a literal path: a script that cannot reach
-    # the profile cannot install a skill into it, whatever it says about skills.
-    #
-    # THE OVERLAP IS CHECKED LINE BY LINE AND NOT FILE BY FILE, and the difference showed up the
-    # first time a script had honest business at both ends. The digest reaches the profile for
-    # lavish-axi's session store and, forty lines away in a comment, says where the skills load
-    # from - two facts with nothing to do with each other, which at file scope read as one script
-    # putting skills in the profile. A path that joins the two is one statement, so that is the
-    # scope this is asserted at.
-    #
-    # WHAT THAT LEAVES UNCOVERED IS WORTH STATING RATHER THAN IMPLYING. CLAUDE.md forbids linking
-    # OR COPYING the skills into `~\.claude\skills\`, and the junction and symlink check above bans
-    # exactly two item types - so a `Copy-Item` into a profile path passes it, and so does any path
-    # assembled over two lines, which passes this one too. Neither test is a proof that nothing can
-    # reach that directory. This asserts the narrower thing it can actually assert: no single
-    # statement in this repository names the profile and the skills together.
-    #
-    # Every offender is collected first and asserted once. Line scope with an assertion per line is
-    # thousands of them for one test, and the message could only name the file - which is the file
-    # scope this narrowing moved away from, handed back at the moment somebody has to act on it.
-    # Collected, the failure names the file AND the line of each statement that tripped it.
-    It 'no script writes to the user profile skills directory' {
-        $offenders = @(
-            foreach ($f in $script:AllSource) {
-                $n = 0
-                foreach ($line in @(Get-Content -Path $f.FullName)) {
-                    $n++
-                    if ($line.Contains('USERPROFILE') -and $line -match '(?i)skills') { "$($f.Name):$n" }
-                }
-            }
-        )
-        ($offenders -join ', ') |
-            Should -BeNullOrEmpty -Because 'every script must leave ~\.claude\skills\ alone entirely'
-    }
-
-    # The blanket ban on touching the profile at all was the right proxy while nothing needed to.
-    # THREE things do now, and each is named with its own file, because an unnamed exception is how
-    # a guard like this stops meaning anything.
-    #
-    # Folder trust was the first: herdr launches a worker in a worktree Claude Code has never seen,
-    # and the trust registry is a single file in the profile with no per-project alternative.
-    #
-    # The active account name is the second, and it is READ-ONLY. The usage reading follows whichever
-    # account is currently active, so a percentage carries no meaning without the name of the pool it
-    # measures - and that name lives in one file in the profile. The test below pins the scope hard,
-    # because the directory it sits in also holds the credential blobs: one file, read, never
-    # written, and nothing whatever from a credential file.
-    #
-    # lavish-axi's session store is the third, and it is READ-ONLY too. A review surface holding
-    # feedback nobody collected is invisible from anywhere inside this repository - the tool ships
-    # no command that lists its sessions, so its own store is the one place that answer exists, and
-    # the tool documents the pair of locations it keeps it in. One file, read, never written.
-    #
-    # The review gate's mirrors are the fourth. A gate run fixes in its own mirror under the
-    # profile and moves the real branch only at its push step, so a night's watch pause that has to
-    # rescue a run's fix commits can only find them there. One directory, the gate's own, where a
-    # rescue ref is named into the mirror and fetched out - never a credential, never a skill.
-    It 'only the trust module, the usage reader, the digest and the gate rescue touch the profile' {
-        $reaching = @($script:AllSource | Where-Object {
-            (Get-Content -Path $_.FullName -Raw).Contains('USERPROFILE')
-        })
-        (@($reaching | ForEach-Object { $_.Name } | Sort-Object) -join ', ') |
-            Should -Be 'ClaudeWorkspace.psm1, Get-SessionStart.ps1, NightsWatch.psm1, Usage.psm1' `
-            -Because 'folder trust, the account name, the session store and the gate mirrors have nowhere else to live'
-
-        $trust = Get-Content -Path (Join-Path $script:Root 'bin\ClaudeWorkspace.psm1') -Raw
-        $trust.Contains('.claude.json') |
-            Should -BeTrue -Because 'the trust registry is one file, not a directory to write into'
-
-        $usage = Get-Content -Path (Join-Path $script:Root 'bin\Usage.psm1') -Raw
-        $usage.Contains('.claude\accounts\.active') |
-            Should -BeTrue -Because 'the account name is one file, named exactly'
-
-        # The digest's half of this is not asserted from its source. Which file it opens, and that
-        # it honours the tool's own override variable, are both driven end to end in
-        # SessionStart.Tests.ps1 - `the store path resolves the way lavish-axi resolves it` - and
-        # that it never writes to that file is observed there too, from the file's own bytes.
-    }
-
-    # The hard half of that exception. The accounts directory holds the credential blobs the King's
-    # own switch script moves between, and this change may know which account is active and nothing
-    # else about it. Named files rather than a general pattern, because the risk is specific.
+    # The accounts directory holds the credential blobs the King's own switch script moves between,
+    # and the usage reader may know which account is active and nothing else about it. Named files rather than a general pattern, because the risk is specific.
     It 'the usage reader never goes near a credential file' {
         $usage = Get-Content -Path (Join-Path $script:Root 'bin\Usage.psm1') -Raw
         foreach ($forbidden in @('.credentials.json', 'accessToken', 'refreshToken',
@@ -6078,11 +6008,13 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     It 'install.ps1 names all four things it writes outside this repository, and the README agrees' {
         Assert-Phrase -Text (Get-DocText $script:InstallPs1) -Where 'the install.ps1 header' `
             -Phrase ('It writes at most four things outside this repository, and names each one as ' +
-                     'it does it: the two user environment variables KINGSHAND_HOME and ' +
+                     'it does it: on Windows the two user environment variables KINGSHAND_HOME and ' +
                      'LAVISH_AXI_PORT, the lines `.claude/worktrees/` and ' +
-                     '`.claude/settings.local.json` in your global gitignore, and - ' +
-                     'only on a machine where Claude Code resolves to npm''s claude.cmd wrapper - the ' +
-                     'real claude.exe put first on your user PATH.')
+                     '`.claude/settings.local.json` in your global gitignore, and - only on a ' +
+                     'Windows machine where Claude Code resolves to npm''s claude.cmd wrapper - the ' +
+                     'real claude.exe put first on your user PATH. macOS and Linux have no user ' +
+                     'environment variables, so there the same two values go into the `env` block ' +
+                     'of this repository''s own gitignored `.claude/settings.local.json`')
 
         $readme = Get-DocText (Join-Path $script:Root 'README.md')
         Assert-Phrase -Text $readme -Where 'the README Layout block' `

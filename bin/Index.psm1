@@ -66,9 +66,31 @@ function Get-DefaultIndexDataPath {
 function Resolve-IndexDataPath {
     param([Parameter(Mandatory)][string]$DataPath)
 
-    $p = $DataPath.Trim().Replace('/', '\')
+    $p = ConvertTo-IndexNativeSeparator $DataPath.Trim()
     if (-not [System.IO.Path]::IsPathRooted($p)) { $p = Join-Path $PWD.ProviderPath $p }
-    [System.IO.Path]::GetFullPath($p).TrimEnd('\')
+    ConvertTo-NormalPath $p
+}
+
+# The separator an entry is STORED with is always `\`, on every system, so an index file reads the
+# same wherever it was written and every index already on disk stays valid. That is the index's own
+# format, not a path for the operating system: on macOS and Linux `\` is a legal file-name
+# character rather than a separator, so a stored path is turned into this platform's separators
+# before anything treats it as a path. On Windows both separators already work and nothing changes.
+$script:StoredSeparator = '\'
+
+function ConvertTo-IndexNativeSeparator {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Path)
+
+    $Path.Replace($script:StoredSeparator, [System.IO.Path]::DirectorySeparatorChar)
+}
+
+# True when a relative path opens with the data directory's own leaf as its first segment.
+function Test-IndexLeafPrefix {
+    param([string]$Relative, [string]$Leaf)
+
+    $cmp = Get-PathComparison
+    $Relative.StartsWith($Leaf + [System.IO.Path]::DirectorySeparatorChar, $cmp) -or
+        $Relative.StartsWith($Leaf + [System.IO.Path]::AltDirectorySeparatorChar, $cmp)
 }
 
 # What a project name may be, stated ONCE. It becomes a file name - data\index\<project>.md - so
@@ -118,7 +140,7 @@ function Get-IndexPath {
                "name data\index\$Project.md. Allowed: $script:ProjectNameRule. Register the project " +
                "under a name of that shape - the registry refuses any other.")
     }
-    Join-Path $DataPath "index\$Project.md"
+    Join-Path $DataPath 'index' "$Project.md"
 }
 
 # Every index that exists: the root one first, then one per project, in name order.
@@ -159,23 +181,26 @@ function ConvertTo-IndexRelativePath {
 
     $leaf  = Split-Path $DataPath -Leaf
     $data  = Resolve-IndexDataPath -DataPath $DataPath
-    $clean = $Path.Trim().Replace('/', '\')
+    $clean = ConvertTo-IndexNativeSeparator $Path.Trim()
 
     $full = if ([System.IO.Path]::IsPathRooted($clean)) {
-        [System.IO.Path]::GetFullPath($clean)
+        ConvertTo-NormalPath $clean
     } else {
-        $rel = $clean.TrimStart('\')
-        if ($rel.StartsWith($leaf + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $rel = $clean.TrimStart([System.IO.Path]::DirectorySeparatorChar,
+                                [System.IO.Path]::AltDirectorySeparatorChar)
+        if (Test-IndexLeafPrefix -Relative $rel -Leaf $leaf) {
             $rel = $rel.Substring($leaf.Length + 1)
         }
         if (-not $rel.Trim()) { throw "An index entry needs a file path. '$Path' names no file under $DataPath." }
-        [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($data, $rel))
+        ConvertTo-NormalPath ([System.IO.Path]::Combine($data, $rel))
     }
 
-    if (-not $full.StartsWith($data + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+    if (-not (Test-PathWithin -Path $full -Root $data -ExcludeRoot)) {
         throw "Only files under $DataPath can be indexed. $Path is outside it."
     }
-    $leaf + '\' + $full.Substring($data.Length + 1)
+    $inside = [System.IO.Path]::GetRelativePath($data, $full)
+    $leaf + $script:StoredSeparator +
+        $inside.Replace([System.IO.Path]::DirectorySeparatorChar, $script:StoredSeparator[0])
 }
 
 function ConvertFrom-IndexRelativePath {
@@ -184,8 +209,8 @@ function ConvertFrom-IndexRelativePath {
         [Parameter(Mandatory)][string]$DataPath
     )
     $leaf  = Split-Path $DataPath -Leaf
-    $clean = $Relative.Trim().Replace('/', '\')
-    if ($clean.StartsWith($leaf + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+    $clean = ConvertTo-IndexNativeSeparator $Relative.Trim()
+    if (Test-IndexLeafPrefix -Relative $clean -Leaf $leaf) {
         $clean = $clean.Substring($leaf.Length + 1)
     }
     Join-Path $DataPath $clean
@@ -306,7 +331,7 @@ function Add-IndexEntry {
         $existing = $null
         try { $existing = ConvertTo-IndexRelativePath -Path $m.Groups['path'].Value -DataPath $DataPath }
         catch { $existing = $null }
-        if ($existing -ne $relative) { continue }
+        if (-not $existing -or -not $existing.Equals($relative, (Get-PathComparison))) { continue }
         $replace = $i
         $am = [regex]::Match($m.Groups['summary'].Value, '\(added\s+(?<d>\d{4}-\d{2}-\d{2})\)\s*$')
         if ($am.Success) { $added = $am.Groups['d'].Value }
@@ -406,7 +431,7 @@ function Remove-IndexEntry {
                 catch { $existing = $null }
             }
             if ($existing) {
-                $drop = if ($byPath) { $existing -eq $wanted } else {
+                $drop = if ($byPath) { $existing.Equals($wanted, (Get-PathComparison)) } else {
                     -not (Test-Path -PathType Leaf -LiteralPath `
                             (ConvertFrom-IndexRelativePath -Relative $existing -DataPath $DataPath))
                 }
@@ -472,14 +497,14 @@ function Get-IndexableFiles {
     # -DataPath left the two exclusions below unable to match anything and every index file came
     # back as drift.
     $DataPath = Resolve-IndexDataPath -DataPath $DataPath
-    $indexDir = (Join-Path $DataPath 'index').TrimEnd('\')
+    $indexDir = Join-Path $DataPath 'index'
     $rootIdx  = Join-Path $DataPath 'index.md'
 
     $files = foreach ($f in @(Get-ChildItem -LiteralPath $DataPath -File -Recurse -Force -ErrorAction SilentlyContinue)) {
         if ($f.Extension -eq '.html') { continue }
-        if ($f.FullName -eq $rootIdx) { continue }
-        if ($f.FullName.StartsWith($indexDir + '\', [System.StringComparison]::OrdinalIgnoreCase)) { continue }
-        if ((Split-Path $f.FullName -Parent) -match '(^|\\)read-first$') { continue }
+        if (Test-SamePath $f.FullName $rootIdx) { continue }
+        if (Test-PathWithin -Path $f.FullName -Root $indexDir -ExcludeRoot) { continue }
+        if ($f.Directory.Name -eq 'read-first') { continue }
         # Only beside the brief it was derived from: a `.dispatch.md` with no `<name>.md` next to
         # it is not dispatch's file and is drift like any other.
         if ($f.Name.EndsWith('.dispatch.md', [System.StringComparison]::OrdinalIgnoreCase) -and
@@ -502,7 +527,7 @@ function Get-IndexDrift {
     $indexes = @(Get-AllIndexPaths -DataPath $DataPath)
     $entries = @(Get-IndexEntries -All -DataPath $DataPath)
 
-    $listed = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $listed = [System.Collections.Generic.HashSet[string]]::new((Get-PathComparer))
     foreach ($e in $entries) { $null = $listed.Add($e.path) }
 
     $unindexed = [System.Collections.Generic.List[string]]::new()

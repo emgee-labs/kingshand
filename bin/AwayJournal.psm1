@@ -58,7 +58,7 @@ $script:StampPattern = '^[0-9]{8}T[0-9]{6}Z$'
 $script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 function Get-DefaultAwayFlagPath {
-    Join-Path (Get-KingshandHome) 'state\.afk'
+    Join-Path (Get-KingshandHome) 'state' '.afk'
 }
 
 function Get-DefaultAwayDataPath {
@@ -168,7 +168,7 @@ function Get-AwayFlag {
     try {
         $result.since       = Read-AwaySince -FlagPath $FlagPath
         $result.stamp       = ConvertTo-AwayStamp -Since $result.since
-        $result.journalPath = Join-Path $DataPath "$script:JournalDirName\$($result.stamp)$script:JournalExt"
+        $result.journalPath = Join-Path $DataPath $script:JournalDirName "$($result.stamp)$script:JournalExt"
     } catch {
         $result.problem = $_.Exception.Message
     }
@@ -431,7 +431,7 @@ function Get-AwayDigest {
             $since = Read-AwaySince -FlagPath $FlagPath
             $stamp = ConvertTo-AwayStamp -Since $since
             $result.since = $since
-            $result.path  = Join-Path $DataPath "$script:JournalDirName\$stamp$script:JournalExt"
+            $result.path  = Join-Path $DataPath $script:JournalDirName "$stamp$script:JournalExt"
         } catch {
             return (& $unreadable $_.Exception.Message)
         }

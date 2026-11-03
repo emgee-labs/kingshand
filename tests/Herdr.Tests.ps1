@@ -27,13 +27,17 @@ BeforeAll {
         $p
     }
 
-    # A file called herdr.exe and nothing more. Get-Command resolves an Application by name and
-    # extension, never by reading the file, so a stub is enough to prove which candidate the
-    # discovery rule picks - and no test here ever executes it.
+    # A file called herdr.exe and nothing more - or, on macOS and Linux, an executable file called
+    # herdr. Get-Command resolves an Application by name and extension, or there by the execute
+    # bit, never by reading the file, so a stub is enough to prove which candidate the discovery
+    # rule picks - and no test here ever executes it.
     function New-StubHerdr {
         param([Parameter(Mandatory)][string]$Directory)
-        $exe = Join-Path $Directory 'herdr.exe'
+        $exe = Join-Path $Directory ($IsWindows ? 'herdr.exe' : 'herdr')
         Set-Content -LiteralPath $exe -Value 'stub' -Encoding utf8
+        if (-not $IsWindows) {
+            [IO.File]::SetUnixFileMode($exe, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+        }
         $exe
     }
 
@@ -310,7 +314,7 @@ Describe 'Get-HerdrCommandPath prefers a herdr on PATH over the bundled copy' {
         $script:OnPathExe = New-StubHerdr -Directory $script:OnPathDir
 
         $script:FakeHome  = New-TempFixtureDir -Prefix 'herdr-home-'
-        $bundledDir       = Join-Path $script:FakeHome 'tools\herdr'
+        $bundledDir       = Join-Path $script:FakeHome 'tools' 'herdr'
         New-Item -ItemType Directory -Force -Path $bundledDir | Out-Null
         $script:BundledExe = New-StubHerdr -Directory $bundledDir
 
@@ -352,8 +356,13 @@ Describe 'Get-HerdrCommandHint tells the reader what to run' {
     It 'names the installer, the switch and the verification' {
         $hint = Get-HerdrCommandHint
         $hint | Should -Match 'install\.ps1 -InstallMissing'
-        $hint | Should -Match 'tools\\herdr'
+        $hint | Should -Match ([regex]::Escape((Join-Path 'tools' 'herdr')))
         $hint | Should -Match 'SHA-256'
+    }
+
+    It 'names the installer the way this system runs it' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        Get-HerdrCommandHint | Should -Match ([regex]::Escape('pwsh ./install.ps1 -InstallMissing'))
     }
 }
 
@@ -945,7 +954,8 @@ Describe 'Stop-HerdrAgent never submits text already in the box' {
     # UTF-8 box caret as other characters, so the box read empty and `/exit` was submitted behind
     # the waiting text. The ps1 stub above runs in-process and never crosses that decode, so this
     # case uses a cmd stub: a separate process whose `type` writes the screen file's raw UTF-8.
-    It 'still refuses on a code page 437 console, and puts the console encoding back' {
+    # Windows only: a code page 437 console is a Windows console, and nothing else has one.
+    It 'still refuses on a code page 437 console, and puts the console encoding back' -Skip:(-not $IsWindows) {
         $dir = New-TempFixtureDir -Prefix 'herdr-cp437-'
         $screen = Join-Path $dir 'screen.txt'
         $cmd = Join-Path $dir 'herdr-stub.cmd'

@@ -16,6 +16,8 @@
 
 BeforeAll {
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Index.psm1') -Force
+    # Without -Force, so Index keeps the copy it holds; loaded here so a case can fake the platform.
+    Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Paths.psm1')
 
     function New-DataFixture {
         param([Parameter(Mandatory)][string]$Name)
@@ -126,6 +128,19 @@ Describe 'an entry says where a file is and what it is, in one line' {
         $entries.Count   | Should -Be 1
         $entries[0].path | Should -Be 'data\good.md'
         { Get-IndexDrift -DataPath $data } | Should -Not -Throw
+    }
+
+    It 'indexes a new file into an index that already holds an unreadable line' {
+        $data = New-DataFixture 'bad-line-write'
+        New-DataFile -DataPath $data -Relative 'next.md' | Out-Null
+        Set-Content -LiteralPath (Join-Path $data 'index.md') -Encoding utf8 -Value @(
+            '# Index'
+            ''
+            '- `..\..\escape.md` - hand-edited'
+        )
+
+        { Add-IndexEntry -Path 'data\next.md' -Summary 'the next one' -DataPath $data } | Should -Not -Throw
+        @(Get-IndexEntries -DataPath $data).path | Should -Be 'data\next.md'
     }
 
     It 'refuses a project name that is not slug-shaped' {
@@ -472,6 +487,83 @@ Describe 'an entry whose file is gone can be dropped, so stale drift reaches zer
 
         @((Remove-IndexEntry -Path 'data\never-listed.md' -DataPath $data).removed).Count | Should -Be 0
         @(Get-IndexEntries -All -DataPath $data | ForEach-Object { $_.path }) | Should -Be @('data\a.md')
+    }
+}
+
+# An index file has to read the same wherever it was written, so the stored separator is `\` on
+# every system - while on macOS and Linux `\` is a legal file-name character, not a separator. These
+# pin both halves: what is written, and that what is read resolves to a real path on this system.
+# The resolution used to rewrite every `/` to `\` by hand, which on macOS and Linux turned an
+# absolute `/home/x/data` into a relative path and refused every file as outside data\.
+Describe 'an entry is stored with backslashes and resolves on any system' {
+    BeforeAll {
+        $script:Data = New-DataFixture 'portable'
+        $script:File = New-DataFile -DataPath $script:Data -Relative (Join-Path 'sub' 'deep' 'note.md')
+    }
+
+    It 'stores the path with backslashes whatever this system''s separator is' {
+        $e = Add-IndexEntry -Path $script:File -Summary 'portable note' -DataPath $script:Data
+        $e.path | Should -Be 'data\sub\deep\note.md'
+        (Get-Content -LiteralPath $e.indexPath -Raw).Contains('- `data\sub\deep\note.md` - portable note') |
+            Should -BeTrue
+    }
+
+    It 'resolves a stored backslash entry to the real file on this system' {
+        $entry = @(Get-IndexEntries -DataPath $script:Data) |
+                 Where-Object { $_.path -eq 'data\sub\deep\note.md' }
+        $entry.fullPath | Should -Be $script:File
+        $entry.exists   | Should -BeTrue -Because 'a stored path that resolves nowhere would read as stale'
+    }
+
+    It 'accepts a relative path written with <name>' -ForEach @(
+        @{ name = 'forward slashes'; rel = 'data/sub/deep/note.md' }
+        @{ name = 'backslashes';     rel = 'data\sub\deep\note.md' }
+        @{ name = 'no data prefix';  rel = 'sub/deep/note.md' }
+    ) {
+        (Add-IndexEntry -Path $rel -Summary 'portable note' -DataPath $script:Data).path |
+            Should -Be 'data\sub\deep\note.md'
+    }
+
+    It 'refuses a path that climbs out of data whichever separator it uses' {
+        { Add-IndexEntry -Path '../outside.md' -Summary 'x' -DataPath $script:Data } | Should -Throw '*outside*'
+        { Add-IndexEntry -Path '..\outside.md' -Summary 'x' -DataPath $script:Data } | Should -Throw '*outside*'
+    }
+
+    It 'refuses a sibling directory that only shares the data directory''s name as a prefix' {
+        $sibling = Join-Path (Split-Path $script:Data -Parent) 'data2'
+        New-Item -ItemType Directory -Force -Path $sibling | Out-Null
+        $f = Join-Path $sibling 'x.md'
+        Set-Content -LiteralPath $f -Value 'x' -Encoding utf8
+        { Add-IndexEntry -Path $f -Summary 'x' -DataPath $script:Data } | Should -Throw '*outside*'
+    }
+
+    It 'counts a file under read-first and under index as derived, not drift' {
+        $null = New-DataFile -DataPath $script:Data -Relative (Join-Path 'w1' 'read-first' 'copy.md')
+        $drift = Get-IndexDrift -DataPath $script:Data
+        @($drift.unindexed | Where-Object { $_ -like '*read-first*' -or $_ -like 'data\index*' }) |
+            Should -BeNullOrEmpty
+    }
+}
+
+# Paths differ by case only on a system that tells them apart. On Linux two entries whose paths
+# differ only in case are two files, and on Windows they are one - the comparison is Paths.psm1's.
+Describe 'two entries differing only in case are one file on Windows and two on Linux' {
+    BeforeEach {
+        $script:Data = New-DataFixture ('case-' + [guid]::NewGuid().ToString('N'))
+        $null = New-DataFile -DataPath $script:Data -Relative 'Note.md'
+        $null = Add-IndexEntry -Path 'data\Note.md' -Summary 'first' -DataPath $script:Data
+    }
+
+    It 'rewrites the one line on Windows' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Windows' }
+        $null = Add-IndexEntry -Path 'data\note.md' -Summary 'second' -DataPath $script:Data
+        @(Get-IndexEntries -DataPath $script:Data).Count | Should -Be 1
+    }
+
+    It 'keeps two lines on Linux' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $null = Add-IndexEntry -Path 'data\note.md' -Summary 'second' -DataPath $script:Data
+        @(Get-IndexEntries -DataPath $script:Data).Count | Should -Be 2
     }
 }
 

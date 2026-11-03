@@ -1,15 +1,20 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  Sets up kingshand on this machine: checks prerequisites and writes the configuration that is
-  one answer per machine.
-  It writes at most four things outside this repository, and names each one as it does it: the two
-  user environment variables KINGSHAND_HOME and LAVISH_AXI_PORT, the lines `.claude/worktrees/` and
-  `.claude/settings.local.json` in
-  your global gitignore, and - only on a machine where Claude Code resolves to npm's claude.cmd
-  wrapper - the real claude.exe put first on your user PATH. Nothing else on the machine is touched. The
-  skills live in this repository's own `.claude\skills\`, so nothing is linked into
-  `~\.claude\skills\` and a Claude Code session in any other directory is unaffected.
+  Sets up kingshand on this machine - Windows, macOS or Linux: checks prerequisites and writes the
+  configuration that is one answer per machine.
+  It writes at most four things outside this repository, and names each one as it does it: on
+  Windows the two user environment variables KINGSHAND_HOME and LAVISH_AXI_PORT, the lines
+  `.claude/worktrees/` and `.claude/settings.local.json` in your global gitignore, and - only on a
+  Windows machine where Claude Code resolves to npm's claude.cmd wrapper - the real claude.exe put
+  first on your user PATH. macOS and Linux have no user environment variables, so there the same
+  two values go into the `env` block of this repository's own gitignored
+  `.claude/settings.local.json`, which Claude Code puts into every session started here. Nothing
+  else on the machine is touched. The skills live in this repository's own `.claude\skills\`, so
+  nothing is linked into `~\.claude\skills\` and a Claude Code session in any other directory is
+  unaffected.
+
+  Run it as `.\install.ps1` on Windows and `pwsh ./install.ps1` on macOS and Linux.
 .DESCRIPTION
   Idempotent. Running it twice does nothing the second time except say so. It never overwrites an
   existing `instructions.md` or an existing config value without telling you which file it left
@@ -32,7 +37,10 @@
   Run the install command for every missing prerequisite instead of only naming it. Off by
   default. Each command is printed before it runs, every tool is re-checked afterwards rather
   than assumed installed, and nothing self-elevates: an install that needs administrator rights
-  is reported with the command to run in an elevated shell.
+  is reported with the command to run in an elevated shell. git, gh and Node.js come from the
+  system package manager: winget on Windows and Homebrew on macOS are run; on Linux every package
+  manager needs sudo, so the exact command for the distribution found is printed and nothing is
+  run.
 .PARAMETER AddressAs
   How the Hand should address you, written into instructions.md as it is created - "my Queen",
   "my King", "boss", your own name, anything. Only ever applied when instructions.md is being
@@ -57,6 +65,9 @@
   .\install.ps1 -InstallMissing -WithReviewGate
 .EXAMPLE
   .\install.ps1 -ProjectRoot C:\repos -ProjectRoot 'D:\work projects'
+.EXAMPLE
+  pwsh ./install.ps1 -InstallMissing
+  The same on macOS or Linux, where the file is handed to pwsh by name.
 #>
 [CmdletBinding()]
 param(
@@ -80,8 +91,19 @@ Import-Module (Join-Path $Root 'bin\Herdr.psm1') -Force
 # The pinned versions every dependency is installed at. bin\Dependencies.psm1 owns the manifest and
 # every version read; this script only acts on what it answers.
 Import-Module (Join-Path $Root 'bin\Dependencies.psm1') -Force
+# The env block macOS and Linux keep their per-machine values in. bin\ClaudeWorkspace.psm1 owns how
+# that file is read and edited.
+Import-Module (Join-Path $Root 'bin\ClaudeWorkspace.psm1') -Force
 $pins = @{}
 foreach ($p in (Read-DependencyPins -Path (Get-DependencyManifestPath -Root $Root))) { $pins[$p.name] = $p }
+
+# Everything below that differs by operating system asks bin\Paths.psm1 rather than testing the
+# platform itself: which system package manager installs git, gh and Node.js, and whether this
+# script may run it or only print its commands.
+$platform      = Get-KingshandPlatform
+$packages      = Get-SystemPackageManager
+$systemManager = if ($packages.name) { $packages.name } else { 'system' }
+$rerun         = Get-InstallerCommand
 
 # Set by Test-Prerequisite. Initialised here because StrictMode makes an unset variable an error,
 # and this one is only assigned on the machines that have the problem.
@@ -111,13 +133,13 @@ function Write-Did  { param([string]$Text) Write-Host "  DONE  $Text" }
 # --------------------------------------------------------------------------------
 $tools = @(
     @{ Name = 'claude';     Manager = 'npm';    Install = 'npm install -g @anthropic-ai/claude-code'; What = 'Claude Code' }
-    @{ Name = 'git';        Manager = 'winget'; Install = 'winget install --id Git.Git';              What = 'Git for Windows' }
+    @{ Name = 'git';        Manager = $systemManager; Install = (Get-SystemPackageHint -Tool git); What = $(if ($platform -eq 'Windows') { 'Git for Windows' } else { 'git' }) }
     @{ Name = 'lavish-axi'; Manager = 'npm';    Install = (Get-DependencySyncCommand -Pin $pins['lavish-axi']); What = 'the review surface' }
     @{ Name = 'tasks-axi';  Manager = 'npm';    Install = (Get-DependencySyncCommand -Pin $pins['tasks-axi']);  What = 'the durable backlog' }
     # Only a push-capable posture opens a pull request, and only a pull request needs gh.
     # Someone whose work stops at a finished local branch never calls it, so it never blocks here.
     # `annex` closes the gap that leaves, by refusing a push-capable posture on a machine with no gh.
-    @{ Name = 'gh';         Manager = 'winget'; Install = 'winget install --id GitHub.cli';           What = 'GitHub CLI - only push-capable postures need it, then: gh auth login'; Optional = $true }
+    @{ Name = 'gh';         Manager = $systemManager; Install = (Get-SystemPackageHint -Tool gh); What = 'GitHub CLI - only push-capable postures need it, then: gh auth login'; Optional = $true }
 )
 
 $pesterInstall = 'Install-Module Pester -MinimumVersion 6.0.0 -Force -SkipPublisherCheck -Scope CurrentUser'
@@ -156,7 +178,7 @@ function Test-Prerequisite {
         Write-Miss ("{0,-12} {1}" -f 'npm', (Get-NpmMissingHint))
         $still.Insert(0, @{
             Name = 'Node.js'; Manager = 'nodejs'
-            Install = 'winget install --id OpenJS.NodeJS.LTS'; What = 'npm, which the tools above install through'
+            Install = (Get-SystemPackageHint -Tool node); What = 'npm, which the tools above install through'
         })
     }
 
@@ -166,7 +188,7 @@ function Test-Prerequisite {
     # fails the whole pipeline instantly with an error about JSON and no clue that PATH is the cause.
     $claudeExe = Get-ClaudeCommandPath
     if ($claudeExe) {
-        Write-Ok ("{0,-12} {1}" -f 'claude.exe', $claudeExe)
+        Write-Ok ("{0,-12} {1}" -f (Get-ExecutableName 'claude'), $claudeExe)
         if (Test-ClaudeCommandIsWrapper -Path $claudeExe) { $script:ClaudeIsWrapper = $true }
     }
     elseif (@($still | Where-Object { $_.Name -eq 'claude' }).Count -eq 0) {
@@ -188,14 +210,14 @@ function Test-Prerequisite {
 
     if ($herdr) { Write-Ok ("{0,-12} {1}" -f 'herdr', $herdr) }
     else {
-        Write-Miss ("{0,-12} {1} - install with: .\install.ps1 -InstallMissing" -f 'herdr', 'the worker spawner')
+        Write-Miss ("{0,-12} {1} - install with: {2}" -f 'herdr', 'the worker spawner', (Get-InstallerCommand '-InstallMissing'))
         # Manager 'herdr' is its own thing on purpose. It has no package manager behind it - the
         # download and the SHA-256 check below are the install - and giving it a manager name that
         # the generic loop understood would have that loop run `.\install.ps1 -InstallMissing` from
         # inside `.\install.ps1 -InstallMissing`.
         $still.Add(@{
             Name = 'herdr'; Manager = 'herdr'
-            Install = '.\install.ps1 -InstallMissing'; What = 'the worker spawner'
+            Install = (Get-InstallerCommand '-InstallMissing'); What = 'the worker spawner'
         })
     }
 
@@ -223,7 +245,11 @@ function Test-Prerequisite {
 # A winget install writes the machine PATH, which this process was started with and will not see.
 # Add what the registry now has rather than replacing PATH, so nothing set for this session is
 # lost. Called after any install that may have put a new tool on disk.
+#
+# Windows only. macOS and Linux keep no machine or user PATH for .NET to read - the shell profile
+# builds PATH - and Homebrew installs into a directory its own setup already put on it.
 function Update-PathFromRegistry {
+    if ($platform -ne 'Windows') { return }
     $fromRegistry = @(
         [Environment]::GetEnvironmentVariable('PATH', 'Machine')
         [Environment]::GetEnvironmentVariable('PATH', 'User')
@@ -257,6 +283,42 @@ function Invoke-InstallCommand {
     } finally {
         $ErrorActionPreference = $previous
     }
+}
+
+# Why `npm install -g` would fail for this user on macOS or Linux, as the line that fixes it, or
+# $null where nothing stands in its way. A Node.js from a system package puts npm's global prefix
+# under a root-owned directory, so every global install fails with EACCES; pointing the prefix at a
+# directory in the user's home is the fix npm itself documents, and needs no sudo. A prefix npm will
+# not report is $null rather than a guess - the install then runs and says for itself what failed.
+function Get-NpmGlobalProblem {
+    $npm = Get-NpmCommand
+    if (-not $npm) { return $null }
+    $prefix = (& $npm prefix -g 2>$null | Select-Object -First 1)
+    $global:LASTEXITCODE = 0
+    if (-not $prefix) { return $null }
+    $prefix = "$prefix".Trim()
+    $target = Join-Path $prefix 'lib' 'node_modules'
+    if (-not (Test-Path -LiteralPath $target -PathType Container)) { $target = $prefix }
+    $probe = Join-Path $target ('.kingshand-write-' + [guid]::NewGuid().ToString('N'))
+    try {
+        [IO.File]::WriteAllText($probe, '')
+        Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+        return $null
+    } catch {
+        ("npm installs global packages under $prefix, which this user cannot write, so every " +
+         'npm install -g would fail with EACCES. Point npm at your home instead: ' +
+         'npm config set prefix ~/.npm-global - add ~/.npm-global/bin to PATH in your shell ' +
+         'profile, open a new shell, then run this again. No sudo needed.')
+    }
+}
+
+# Adds the execute bit for owner, group and others to a file on macOS or Linux, keeping the rest of
+# its mode. Through .NET rather than `chmod`, so it does not depend on what PATH holds.
+function Set-ExecutableBit {
+    param([Parameter(Mandatory)][string]$Path)
+    $exec = [IO.UnixFileMode]::UserExecute -bor [IO.UnixFileMode]::GroupExecute -bor
+            [IO.UnixFileMode]::OtherExecute
+    [IO.File]::SetUnixFileMode($Path, [IO.File]::GetUnixFileMode($Path) -bor $exec)
 }
 
 # Fetches the pinned herdr into tools\herdr\ and proves it is the file herdr.dev published before
@@ -297,9 +359,24 @@ function Install-Herdr {
     }
 
     $version = $Pin.version
-    $pinned  = Get-HerdrPinnedDigest -Pin $Pin
 
-    $exe = Join-Path $Destination 'herdr.exe'
+    # Which build, and what it is called once it is here, come from bin\Paths.psm1: windows-x86_64
+    # as herdr.exe, or macos-/linux-<arch> as a bare herdr. A machine herdr publishes nothing for
+    # is a refusal naming it, before anything is fetched.
+    try { $key = Get-HerdrPlatformKey }
+    catch {
+        Write-Miss "herdr $version was not installed: $($_.Exception.Message)"
+        return $false
+    }
+    $exeName = Get-ExecutableName 'herdr'
+    $pinned  = Get-HerdrPinnedDigest -Pin $Pin
+    if (-not $pinned) {
+        Write-Miss "herdr $version was not installed: dependencies.json pins no SHA-256 for $key."
+        Write-Host  '        Nothing was downloaded. An unverifiable binary is not installed at all.'
+        return $false
+    }
+
+    $exe = Join-Path $Destination $exeName
     if (Test-Path -LiteralPath $exe -PathType Leaf) {
         $replace = Test-HerdrReplaceable
         if (-not $replace.ok) {
@@ -321,7 +398,7 @@ function Install-Herdr {
         # fact is what gets printed and the exception is not rethrown.
         Write-Miss "herdr was not installed: $manifestUrl could not be reached."
         Write-Host  "        This machine looks offline, or herdr.dev is down. Nothing was downloaded and nothing was changed."
-        Write-Host  "        Reconnect and run: .\install.ps1 -InstallMissing"
+        Write-Host  "        Reconnect and run: $(Get-InstallerCommand '-InstallMissing')"
         return $false
     }
 
@@ -336,13 +413,13 @@ function Install-Herdr {
     }
 
     $protocol = Get-ManifestValue $release 'protocol'
-    $asset    = Get-ManifestValue (Get-ManifestValue $release 'assets') 'windows-x86_64'
-    $expected = Get-ManifestValue (Get-ManifestValue $release 'sha256') 'windows-x86_64'
+    $asset    = Get-ManifestValue (Get-ManifestValue $release 'assets') $key
+    $expected = Get-ManifestValue (Get-ManifestValue $release 'sha256') $key
 
     if (-not $asset -or -not $expected) {
         # No digest means no way to verify, and an unverifiable binary is not installed at all.
-        Write-Miss "herdr $version was not installed: latest.json named no windows-x86_64 build, or no SHA-256 for one."
-        Write-Host  "        Nothing was downloaded. Put herdr.exe in $Destination by hand if you have it, then re-run this."
+        Write-Miss "herdr $version was not installed: latest.json named no $key build, or no SHA-256 for one."
+        Write-Host  "        Nothing was downloaded. Put $exeName in $Destination by hand if you have it, then re-run this."
         return $false
     }
 
@@ -369,7 +446,7 @@ function Install-Herdr {
     } catch {
         Write-Miss "herdr $version was not installed: $asset could not be downloaded."
         Write-Host  '        This machine looks offline, or herdr.dev is down. Nothing was extracted.'
-        Write-Host  '        Reconnect and run: .\install.ps1 -InstallMissing'
+        Write-Host  "        Reconnect and run: $(Get-InstallerCommand '-InstallMissing')"
         Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
         return $false
     }
@@ -391,25 +468,29 @@ function Install-Herdr {
     $staging = Join-Path $parent ('herdr.new-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $staging | Out-Null
 
+    # Windows gets a zip; macOS and Linux get the binary itself, which is copied in under its bare
+    # name and given its execute bit - a download never carries one.
     try {
         if ([IO.Path]::GetExtension($temp) -eq '.zip') {
             Expand-Archive -LiteralPath $temp -DestinationPath $staging -Force
         } else {
-            Copy-Item -LiteralPath $temp -Destination (Join-Path $staging 'herdr.exe') -Force
+            Copy-Item -LiteralPath $temp -Destination (Join-Path $staging $exeName) -Force
         }
     } finally {
         Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
     }
 
-    # bin\Herdr.psm1 looks for tools\herdr\herdr.exe and nothing else, so an archive that nests the
-    # binary one directory down is flattened here rather than left for the discovery rule to guess.
-    # The directory it sits in moves with it: 0.9.x ships its console host beside the binary.
-    $found = @(Get-ChildItem -Path $staging -Filter 'herdr.exe' -Recurse -File) | Select-Object -First 1
+    # bin\Herdr.psm1 looks for tools\herdr\<herdr.exe or herdr> and nothing else, so an archive that
+    # nests the binary one directory down is flattened here rather than left for the discovery rule
+    # to guess. The directory it sits in moves with it: 0.9.x ships its console host beside the
+    # binary.
+    $found = @(Get-ChildItem -Path $staging -Filter $exeName -Recurse -File) | Select-Object -First 1
     if (-not $found) {
         Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Miss "herdr $version unpacked, but no herdr.exe was in it. Nothing in $Destination was changed."
+        Write-Miss "herdr $version unpacked, but no $exeName was in it. Nothing in $Destination was changed."
         return $false
     }
+    if ($platform -ne 'Windows') { Set-ExecutableBit -Path $found.FullName }
     $unpacked = Split-Path -Parent $found.FullName
 
     # The old copy is moved aside rather than deleted first, so a move that fails part way puts it
@@ -440,9 +521,11 @@ function Install-Herdr {
 # The review gate, fetched from its GitHub release rather than a package manager.
 #
 # Its own published installer is a POSIX `sh` script that branches on `uname`, so it does not run
-# here - but the release does carry a Windows build, which is what this uses. Verified against
-# v1.57.0, whose assets are no-mistakes-v<tag>-windows-<arch>.zip alongside a checksums.txt of
-# "<sha256>  <filename>" lines.
+# on Windows - and is not used anywhere, so every system takes one path. The release carries a build
+# per system: no-mistakes-v<tag>-windows-<arch>.zip, and -darwin-<arch>.tar.gz and
+# -linux-<arch>.tar.gz, alongside a checksums.txt of "<sha256>  <filename>" lines. Verified against
+# v1.84.0. A tar.gz is unpacked with the `tar` macOS and Linux both ship, which Expand-Archive cannot
+# read.
 #
 # Same contract as herdr: verify before extracting, and refuse rather than install something that
 # does not match. This one downloads roughly 14 MB.
@@ -455,10 +538,16 @@ function Install-NoMistakes {
         [Parameter(Mandatory)]$Pin
     )
 
-    $arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
+    $arch = switch (Get-KingshandArchitecture) {
         'Arm64' { 'arm64' }
         default { 'amd64' }
     }
+    $os, $archive = switch ($platform) {
+        'Windows' { 'windows', 'zip' }
+        'MacOS'   { 'darwin',  'tar.gz' }
+        default   { 'linux',   'tar.gz' }
+    }
+    $exeName = Get-ExecutableName 'no-mistakes'
 
     $releaseUrl = "https://api.github.com/repos/$($Pin.repository)/releases/tags/v$($Pin.version)"
     Write-Host "  RUN   fetch $releaseUrl"
@@ -469,19 +558,19 @@ function Install-NoMistakes {
     } catch {
         Write-Miss 'the review gate was not installed: its release feed could not be reached.'
         Write-Host  '        This machine looks offline, or GitHub is unreachable. Nothing was downloaded.'
-        Write-Host  '        Reconnect and run: .\install.ps1 -WithReviewGate'
+        Write-Host  "        Reconnect and run: $(Get-InstallerCommand '-WithReviewGate')"
         return $false
     }
 
-    $asset = @($release.assets | Where-Object { $_.name -like "*windows-$arch.zip" }) | Select-Object -First 1
+    $asset = @($release.assets | Where-Object { $_.name -like "*$os-$arch.$archive" }) | Select-Object -First 1
     $sums  = @($release.assets | Where-Object { $_.name -eq 'checksums.txt' })        | Select-Object -First 1
     if (-not $asset -or -not $sums) {
         # No digest means no way to verify, and an unverifiable binary is not installed at all.
-        Write-Miss "the review gate was not installed: $($release.tag_name) publishes no windows-$arch build, or no checksums.txt for one."
+        Write-Miss "the review gate was not installed: $($release.tag_name) publishes no $os-$arch build, or no checksums.txt for one."
         return $false
     }
 
-    $temp = Join-Path ([IO.Path]::GetTempPath()) ('nm-' + [guid]::NewGuid().ToString('N') + '.zip')
+    $temp = Join-Path ([IO.Path]::GetTempPath()) ('nm-' + [guid]::NewGuid().ToString('N') + ".$archive")
     Write-Host "  RUN   download $($asset.name)"
     try {
         $sumText = Invoke-RestMethod -Uri $sums.browser_download_url -Headers @{ 'User-Agent' = 'kingshand-installer' } -TimeoutSec 60 -ErrorAction Stop
@@ -521,26 +610,37 @@ function Install-NoMistakes {
     # Replacing a copy that is already there fails while a gate run holds its binary open, and that
     # is reported rather than allowed to end the whole install.
     try {
-        Expand-Archive -LiteralPath $temp -DestinationPath $Destination -Force -ErrorAction Stop
+        if ($archive -eq 'zip') {
+            Expand-Archive -LiteralPath $temp -DestinationPath $Destination -Force -ErrorAction Stop
+        } else {
+            $tar = Get-Command 'tar' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $tar) { throw 'tar is not on PATH' }
+            $out = & $tar.Source -xzf $temp -C $Destination 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "tar exited $LASTEXITCODE - $($out -join ' ')" }
+        }
     } catch {
         Write-Miss "the review gate $($release.tag_name) was verified but could not be unpacked into $Destination - $($_.Exception.Message)"
-        Write-Host  '        A gate run is probably still using it. Let it finish, then run: .\install.ps1 -SyncPins'
+        Write-Host  "        A gate run is probably still using it. Let it finish, then run: $(Get-InstallerCommand '-SyncPins')"
         return $false
     } finally {
         Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
     }
 
     # Flattened for the same reason herdr's is: Get-NoMistakesCommandPath looks for exactly
-    # tools\no-mistakes\no-mistakes.exe and should not have to guess at an archive's shape.
-    $exe = Join-Path $Destination 'no-mistakes.exe'
+    # tools\no-mistakes\<no-mistakes.exe or no-mistakes> and should not have to guess at an
+    # archive's shape.
+    $exe = Join-Path $Destination $exeName
     if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
-        $found = @(Get-ChildItem -Path $Destination -Filter 'no-mistakes.exe' -Recurse -File) | Select-Object -First 1
+        $found = @(Get-ChildItem -Path $Destination -Filter $exeName -Recurse -File) | Select-Object -First 1
         if ($found) { Move-Item -LiteralPath $found.FullName -Destination $exe -Force }
     }
     if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
-        Write-Miss "the review gate unpacked, but no no-mistakes.exe was found under $Destination."
+        Write-Miss "the review gate unpacked, but no $exeName was found under $Destination."
         return $false
     }
+    # tar keeps the mode the archive recorded, which should already be executable; set anyway, so a
+    # build packed without it still runs.
+    if ($platform -ne 'Windows') { Set-ExecutableBit -Path $exe }
 
     Write-Did "the review gate $($release.tag_name) installed to $Destination. It is deliberately not added to PATH."
     Write-Host '        Initialise it per repository before dispatching `no-mistakes` work there.'
@@ -560,13 +660,13 @@ if ($reviewGate) {
     Write-Ok ("{0,-12} {1}" -f 'no-mistakes', $reviewGate)
 } elseif ($WithReviewGate) {
     Write-Step 'Installing the review gate'
-    if (Install-NoMistakes -Destination (Join-Path $Root 'tools\no-mistakes') -Pin $pins['no-mistakes']) {
+    if (Install-NoMistakes -Destination (Join-Path $Root 'tools' 'no-mistakes') -Pin $pins['no-mistakes']) {
         $actions.Add('tools\no-mistakes\')
     }
 } else {
     Write-Host ("  NOTE  no-mistakes is not installed, and nothing needs it unless you register a " +
-                "project ``no-mistakes`` or ``no-mistakes-prod-only``. To add it: .\install.ps1 " +
-                "-WithReviewGate - it is a GitHub release, checked against its published SHA-256. " +
+                "project ``no-mistakes`` or ``no-mistakes-prod-only``. To add it: " +
+                "$(Get-InstallerCommand '-WithReviewGate') - it is a GitHub release, checked against its published SHA-256. " +
                 "Do NOT ``npm install -g no-mistakes``: that name belongs to a different, unrelated tool.")
 }
 
@@ -579,43 +679,81 @@ if ($InstallMissing -and ($missing.Count + $optional.Count) -gt 0) {
     # sets the exit code.
     $installable = @($missing) + @($optional)
 
-    # Only winget is a true floor: it ships with Windows as part of App Installer and cannot
-    # install itself. npm is not - it comes with Node.js, which winget installs - so when winget
-    # is present an absent npm is a step to take, not a wall to stop at.
+    # The system package manager is the floor: it cannot install itself. On Windows that is winget,
+    # which ships with Windows as part of App Installer; on macOS it is Homebrew, which does not ship
+    # with macOS. npm is not a floor - it comes with Node.js, which the package manager installs - so
+    # where the manager is present and may be run, an absent npm is a step to take, not a wall to
+    # stop at. On Linux the manager is never run, because every one of them needs sudo and this
+    # script never elevates: what it would have run is printed for the person to run instead.
+    #
+    # Each blocked entry is the line saying why, and the line saying what to do about it.
     $blocked = [ordered]@{}
-    $hasWinget = [bool](Get-Command 'winget' -ErrorAction SilentlyContinue)
+    $hasManager = [bool]($packages.name -and (Get-Command $packages.name -ErrorAction SilentlyContinue))
+    $runsManager = $packages.runs -and $hasManager
 
     if (-not (Get-Command 'npm' -ErrorAction SilentlyContinue)) {
-        if ($hasWinget) {
+        $nodeCommand = if ($platform -eq 'Windows') {
+            'winget install --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements'
+        } else { Get-SystemPackageCommand -Tool node -Manager $packages.name }
+        if ($runsManager) {
             Write-Host '  npm is missing. Installing Node.js, which provides it.'
-            $nodeCommand = 'winget install --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements'
             $nodeOk = Invoke-InstallCommand $nodeCommand
             if ($nodeOk) { Update-PathFromRegistry }
             if (-not $nodeOk) {
                 # Node.js installs for the whole machine, so on an account without administrator
                 # rights this is the step that fails - and saying it "installed" sent people to
                 # open a new shell for a Node that was never there.
-                $blocked['npm'] = ('Node.js did not install. If that was for want of administrator ' +
-                                   "rights, run this in an elevated PowerShell: $nodeCommand - or " +
-                                   'install it from https://nodejs.org - then open a new shell and run this again.')
+                $retry = if ($platform -eq 'Windows') { "run this in an elevated PowerShell: $nodeCommand" }
+                         else { "fix that and run: $nodeCommand" }
+                $blocked['npm'] = @('npm is not on PATH.',
+                                    ('Node.js did not install. If that was for want of administrator ' +
+                                     'rights, ' + $retry + ' - or install it from https://nodejs.org - ' +
+                                     'then open a new shell and run this again.'))
             } elseif (-not (Get-Command 'npm' -ErrorAction SilentlyContinue)) {
-                $blocked['npm'] = 'Node.js installed but npm is still not on PATH. Open a new shell and run this script again.'
+                $blocked['npm'] = @('npm is not on PATH.', 'Node.js installed but npm is still not on PATH. Open a new shell and run this script again.')
             } else {
                 Write-Did 'npm is available.'
             }
+        } elseif ($nodeCommand -and -not $packages.runs) {
+            $blocked['npm'] = @("npm is not on PATH, and Node.js needs sudo to install, which this script never uses.",
+                                ("Run: $nodeCommand - then open a new shell and run this again. A " +
+                                 "distribution's Node.js can be older than Claude Code needs; " +
+                                 'https://nodejs.org has current builds.'))
         } else {
-            $blocked['npm'] = 'Install Node.js from https://nodejs.org, open a new shell so PATH picks it up, then run this again.'
+            $blocked['npm'] = @('npm is not on PATH.', 'Install Node.js from https://nodejs.org, open a new shell so PATH picks it up, then run this again.')
         }
     }
 
-    if (-not $hasWinget) {
-        $blocked['winget'] = 'Install App Installer from the Microsoft Store, then run this again. It carries winget, which cannot install itself.'
+    # npm on macOS and Linux installs global packages under its own prefix, which for a Node.js from
+    # a system package is a root-owned directory - so every `npm install -g` fails with EACCES. Said
+    # before anything is run, with the fix that needs no sudo.
+    if (-not $blocked.Contains('npm') -and $platform -ne 'Windows') {
+        $npmProblem = Get-NpmGlobalProblem
+        if ($npmProblem) { $blocked['npm'] = @("npm cannot install global packages for this user.", $npmProblem) }
+    }
+
+    if (-not $runsManager) {
+        $blocked[$systemManager] = switch ($platform) {
+            'Windows' { @('winget is not on PATH.',
+                          'Install App Installer from the Microsoft Store, then run this again. It carries winget, which cannot install itself.') }
+            'MacOS'   { @('Homebrew is not on PATH.',
+                          'Install it from https://brew.sh, open a new shell, then run this again. It installs git, gh and Node.js here, and cannot install itself.') }
+            default   {
+                if ($packages.name) {
+                    @("$($packages.name) needs sudo, which this script never uses.",
+                      'Run the command named for each of them above yourself, then run this again.')
+                } else {
+                    @("this distribution's package manager was not recognised.",
+                      'Install them with it yourself, then run this again.')
+                }
+            }
+        }
     }
     foreach ($manager in @($blocked.Keys)) {
         $names = @($installable | Where-Object { $_.Manager -eq $manager } | ForEach-Object { $_.Name })
         if ($names.Count -eq 0) { continue }
-        Write-Miss ("{0} cannot be installed: {1} is not on PATH." -f ($names -join ', '), $manager)
-        Write-Host ("        " + $blocked[$manager])
+        Write-Miss ("{0} cannot be installed: {1}" -f ($names -join ', '), $blocked[$manager][0])
+        Write-Host ("        " + $blocked[$manager][1])
     }
 
     # One command per package, not one per tool: `claude` and `claude.cmd` are the same npm install
@@ -636,7 +774,11 @@ if ($InstallMissing -and ($missing.Count + $optional.Count) -gt 0) {
             Write-Miss "$for did not install."
             # Never self-elevate. Re-launching this script as administrator would install into a
             # different user's profile than the one being set up here.
-            Write-Host "        If that failed for want of administrator rights, run this in an elevated PowerShell: $command"
+            if ($platform -eq 'Windows') {
+                Write-Host "        If that failed for want of administrator rights, run this in an elevated PowerShell: $command"
+            } else {
+                Write-Host "        If that failed for want of rights, run it yourself: $command"
+            }
             Write-Host "        This script does not elevate itself."
         }
     }
@@ -649,7 +791,7 @@ if ($InstallMissing -and ($missing.Count + $optional.Count) -gt 0) {
         # Recorded in $actions, not discarded. A run that downloads and extracts a binary and then
         # signs off with "changed: nothing - this installation was already set up" is telling the
         # reader something false about their own machine, and the summary is the part people keep.
-        if (Install-Herdr -Destination (Join-Path $Root 'tools\herdr') -Pin $pins['herdr']) {
+        if (Install-Herdr -Destination (Join-Path $Root 'tools' 'herdr') -Pin $pins['herdr']) {
             $actions.Add('tools\herdr\')
         }
     }
@@ -746,8 +888,8 @@ foreach ($s in @(Get-DependencyPinStatus -Root $Root)) {
     Write-Host "  FOR   $($s.name) $($s.installed) -> $want"
     $moved = switch ($s.source) {
         'npm'    { Invoke-InstallCommand -Command $s.command }
-        'herdr'  { Install-Herdr -Destination (Join-Path $Root 'tools\herdr') -Pin $pins[$s.name] }
-        'github' { Install-NoMistakes -Destination (Join-Path $Root 'tools\no-mistakes') -Pin $pins[$s.name] }
+        'herdr'  { Install-Herdr -Destination (Join-Path $Root 'tools' 'herdr') -Pin $pins[$s.name] }
+        'github' { Install-NoMistakes -Destination (Join-Path $Root 'tools' 'no-mistakes') -Pin $pins[$s.name] }
     }
     if ($moved) {
         Write-Did "$($s.name) moved from $($s.installed) to $want."
@@ -758,40 +900,87 @@ foreach ($s in @(Get-DependencyPinStatus -Root $Root)) {
 }
 
 # --------------------------------------------------------------------------------
-# 2. KINGSHAND_HOME. Skills spell their commands with it; bin\ derives it when unset,
-#    so this is a convenience rather than a requirement.
+# 2. KINGSHAND_HOME and LAVISH_AXI_PORT - the two per-machine values.
+#
+#    On Windows they are user environment variables. macOS and Linux have no user
+#    scope - .NET ignores a set there and a read returns nothing, so the old code
+#    reported DONE while nothing changed - so there they go into the `env` block of
+#    this repository's own .claude/settings.local.json, which Claude Code puts into
+#    every session started here and every command that session runs. Gitignored, and
+#    only that one key of the file is touched: bin\ClaudeWorkspace.psm1 owns the edit.
 # --------------------------------------------------------------------------------
-Write-Step 'KINGSHAND_HOME'
+$settingsFile = Get-HandSettingsPath -Root $Root
 
-$currentHome = [Environment]::GetEnvironmentVariable('KINGSHAND_HOME', 'User')
-if ($currentHome -eq $Root) {
-    Write-Ok "KINGSHAND_HOME is already $Root"
-} elseif ($currentHome -and -not $Force) {
-    Write-Kept "KINGSHAND_HOME is set to $currentHome, not $Root. Left alone - re-run with -Force to change it."
-    # Naming the variable is not enough. It wins over a script's own location, so this copy runs
-    # its own code against the other installation's registry, workers and queue - which reads as
-    # data appearing from nowhere rather than as a misconfiguration.
-    Write-Host "        Until then this copy reads its projects, workers and queue from $currentHome, not from here."
-    $skipped.Add('KINGSHAND_HOME')
-} else {
-    [Environment]::SetEnvironmentVariable('KINGSHAND_HOME', $Root, 'User')
-    $env:KINGSHAND_HOME = $Root
-    Write-Did "KINGSHAND_HOME set to $Root for your user. Open a new shell for it to take effect."
-    $actions.Add('KINGSHAND_HOME')
+# The value already stored, through whichever of the two places this system keeps it in.
+function Get-MachineSetting {
+    param([Parameter(Mandatory)][string]$Name)
+    if ($platform -eq 'Windows') { return [Environment]::GetEnvironmentVariable($Name, 'User') }
+    Get-HandSettingsEnvValue -Name $Name -Path $settingsFile
 }
 
-# Windows lavish must own 4388; WSL's lavish on 4387 answers Windows requests silently and fails
-# with an opaque 500, which looks like a broken review surface rather than a wrong port.
-$port = [Environment]::GetEnvironmentVariable('LAVISH_AXI_PORT', 'User')
-if ($port -eq '4388') {
-    Write-Ok 'LAVISH_AXI_PORT is 4388'
-} elseif ($port -and -not $Force) {
-    Write-Kept "LAVISH_AXI_PORT is '$port', expected 4388. Left alone - re-run with -Force to change it."
-    $skipped.Add('LAVISH_AXI_PORT')
-} else {
-    [Environment]::SetEnvironmentVariable('LAVISH_AXI_PORT', '4388', 'User')
-    Write-Did 'LAVISH_AXI_PORT set to 4388 for your user.'
-    $actions.Add('LAVISH_AXI_PORT')
+function Set-MachineSetting {
+    param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][string]$Value)
+    if ($platform -eq 'Windows') { [Environment]::SetEnvironmentVariable($Name, $Value, 'User'); return }
+    $null = Set-HandSettingsEnvValue -Name $Name -Value $Value -Path $settingsFile
+}
+
+$where = if ($platform -eq 'Windows') { 'for your user' } else { "in $settingsFile" }
+
+# A settings file that is there and cannot be read is reported and left exactly as it is: writing
+# either value would mean rewriting a file whose other keys were never read.
+$settingsReadable = $true
+if ($platform -ne 'Windows') {
+    try { $null = Get-HandSettingsEnvValue -Name 'KINGSHAND_HOME' -Path $settingsFile }
+    catch {
+        $settingsReadable = $false
+        Write-Step 'KINGSHAND_HOME and LAVISH_AXI_PORT'
+        Write-Miss "neither was written: $($_.Exception.Message)"
+        # A blocker, not a choice left alone: -Force would not help, and nothing works until it is fixed.
+        $missing += [pscustomobject]@{
+            Name = 'KINGSHAND_HOME and LAVISH_AXI_PORT'
+            Install = "$settingsFile could not be read - fix or remove it"
+        }
+    }
+}
+
+if ($settingsReadable) {
+    Write-Step 'KINGSHAND_HOME'
+
+    $currentHome = Get-MachineSetting 'KINGSHAND_HOME'
+    if ($currentHome -eq $Root) {
+        Write-Ok "KINGSHAND_HOME is already $Root"
+    } elseif ($currentHome -and -not $Force) {
+        Write-Kept "KINGSHAND_HOME is set to $currentHome, not $Root. Left alone - re-run with -Force to change it."
+        # Naming the variable is not enough. It wins over a script's own location, so this copy runs
+        # its own code against the other installation's registry, workers and queue - which reads as
+        # data appearing from nowhere rather than as a misconfiguration.
+        Write-Host "        Until then this copy reads its projects, workers and queue from $currentHome, not from here."
+        $skipped.Add('KINGSHAND_HOME')
+    } else {
+        Set-MachineSetting 'KINGSHAND_HOME' $Root
+        $env:KINGSHAND_HOME = $Root
+        if ($platform -eq 'Windows') {
+            Write-Did "KINGSHAND_HOME set to $Root for your user. Open a new shell for it to take effect."
+        } else {
+            Write-Did "KINGSHAND_HOME set to $Root $where. Claude Code sessions started here pick it up."
+        }
+        $actions.Add('KINGSHAND_HOME')
+    }
+
+    # Windows lavish must own 4388; WSL's lavish on 4387 answers Windows requests silently and fails
+    # with an opaque 500, which looks like a broken review surface rather than a wrong port. Nothing
+    # competes for the port on macOS or Linux, and it is 4388 there too so there is one answer.
+    $port = Get-MachineSetting 'LAVISH_AXI_PORT'
+    if ($port -eq '4388') {
+        Write-Ok 'LAVISH_AXI_PORT is 4388'
+    } elseif ($port -and -not $Force) {
+        Write-Kept "LAVISH_AXI_PORT is '$port', expected 4388. Left alone - re-run with -Force to change it."
+        $skipped.Add('LAVISH_AXI_PORT')
+    } else {
+        Set-MachineSetting 'LAVISH_AXI_PORT' '4388'
+        Write-Did "LAVISH_AXI_PORT set to 4388 $where."
+        $actions.Add('LAVISH_AXI_PORT')
+    }
 }
 
 # Put the real claude.exe ahead of npm's claude.cmd wrapper.
@@ -804,8 +993,9 @@ if ($port -eq '4388') {
 #
 # PATHEXT prefers .EXE over .CMD, so a directory holding claude.exe placed first wins outright.
 # Only done when the resolved command really is the wrapper: a machine that already finds the
-# binary is left completely alone.
-if ($script:ClaudeIsWrapper) {
+# binary is left completely alone. Windows only - on macOS and Linux npm's `claude` is a symlink or
+# a shebang script that passes arguments through untouched, so there is no wrapper to get ahead of.
+if ($platform -eq 'Windows' -and $script:ClaudeIsWrapper) {
     $claudeBin = Join-Path $env:APPDATA 'npm\node_modules\@anthropic-ai\claude-code\bin'
     if (Test-Path -LiteralPath (Join-Path $claudeBin 'claude.exe')) {
         $userPath = [Environment]::GetEnvironmentVariable('PATH', 'User')
@@ -960,7 +1150,7 @@ foreach ($dir in @('data', 'state', 'config')) {
     else { New-Item -ItemType Directory -Force -Path $path | Out-Null; Write-Did "created $dir\"; $actions.Add("$dir\") }
 }
 
-$budget = Join-Path $Root 'config\startup-memory-budget'
+$budget = Join-Path $Root 'config' 'startup-memory-budget'
 if (Test-Path -LiteralPath $budget) {
     Write-Kept ("startup-memory-budget already reads {0}. Left alone." -f (Get-Content $budget -Raw).Trim())
     $skipped.Add('startup-memory-budget')
@@ -976,12 +1166,12 @@ if (Test-Path -LiteralPath $budget) {
 # Azure DevOps is optional in full: the MCP server muster reaches for is not a prerequisite, is
 # installed by nothing here, and needs an organization and a token nobody who does not use ADO has.
 # Without it muster treats every request as adhoc, which is the ordinary path.
-$ado = Join-Path $Root 'config\ado.json'
+$ado = Join-Path $Root 'config' 'ado.json'
 if (Test-Path -LiteralPath $ado) { Write-Ok 'config\ado.json exists' }
 else { Write-Host '  NOTE  Azure DevOps integration is optional and nothing here needs it. config\ado.json is deliberately absent; describe work in your own words and it is handled as adhoc. If you do work ADO tickets, the Hand asks for your organization and project the first time it needs them and offers to write them here - and fetching a ticket by id also needs the ado-local-mcp server configured in Claude Code, which this script does not install.' }
 
 if ($ProjectRoot.Count -gt 0) {
-    $settingsPath = Join-Path $Root '.claude\settings.json'
+    $settingsPath = Join-Path $Root '.claude' 'settings.json'
     $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
     $current = @($settings.permissions.additionalDirectories)
     $added = @($ProjectRoot | Where-Object { $_ -and $_ -notin $current })
@@ -1030,8 +1220,8 @@ if ($missing.Count -gt 0) {
     Write-Host "Install these before dispatching anything:"
     $missing | ForEach-Object { Write-Host ("  - {0}: {1}" -f $_.Name, $_.Install) }
     Write-Host ""
-    Write-Host "Then open a new shell, so PATH picks up what you installed, and re-run: .\install.ps1"
-    if (-not $InstallMissing) { Write-Host "Or let this script install them for you: .\install.ps1 -InstallMissing" }
+    Write-Host "Then open a new shell, so PATH picks up what you installed, and re-run: $rerun"
+    if (-not $InstallMissing) { Write-Host "Or let this script install them for you: $(Get-InstallerCommand '-InstallMissing')" }
     exit 1
 }
 

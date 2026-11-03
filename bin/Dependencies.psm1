@@ -36,10 +36,10 @@ Import-Module (Join-Path $PSScriptRoot 'Herdr.psm1')
 $script:ManifestName = 'dependencies.json'
 $script:KnownSources = @('herdr', 'github', 'npm')
 
-# herdr's platform name for this machine, which is the key its latest.json and the pin's sha256
-# both use. Only Windows x64 is installed by install.ps1 today; the others are pinned so the record
-# is whole for every platform herdr publishes.
-$script:HerdrPlatform = 'windows-x86_64'
+# herdr's platform name for this machine - the key its latest.json and the pin's sha256 both use -
+# is Get-HerdrPlatformKey's in Paths.psm1, asked at the point of use rather than at load, so a
+# machine herdr publishes nothing for fails the herdr pin with that reason instead of failing to
+# load this module at all. Every platform herdr publishes is pinned, so the record is whole.
 
 # A release version: three numbers and an optional leading `v`, nothing after them. Anything else
 # is not a version this compares, and reads as unreadable rather than being coerced into one.
@@ -112,9 +112,10 @@ function Read-DependencyPins {
             if (-not ($protocol -is [long] -or $protocol -is [int])) { throw "$where carries no protocol number." }
             $protocol = [int]$protocol
             $digests = Get-PinField $entry 'sha256'
-            $mine    = Get-PinField $digests $script:HerdrPlatform
+            $key     = Get-HerdrPlatformKey
+            $mine    = Get-PinField $digests $key
             if (-not $mine -or "$mine" -notmatch '^[0-9a-fA-F]{64}$') {
-                throw "$where carries no SHA-256 for $($script:HerdrPlatform)."
+                throw "$where carries no SHA-256 for $key."
             }
             $sha256 = $digests
         }
@@ -138,7 +139,7 @@ function Get-HerdrPinnedDigest {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Pin)
 
-    "$(Get-PinField $Pin.sha256 $script:HerdrPlatform)".ToLowerInvariant()
+    "$(Get-PinField $Pin.sha256 (Get-HerdrPlatformKey))".ToLowerInvariant()
 }
 
 function ConvertTo-DependencyVersion {
@@ -209,8 +210,10 @@ function Get-NpmMissingHint {
     [CmdletBinding()]
     param()
 
+    # The command comes from the one package table in Paths.psm1, so on macOS and Linux this names
+    # the system's own manager rather than winget.
     'npm was not found. It comes with Node.js, and Claude Code, lavish-axi and tasks-axi are all ' +
-    'installed through it. Install Node.js LTS with: winget install --id OpenJS.NodeJS.LTS - or ' +
+    "installed through it. Install Node.js LTS with: $(Get-SystemPackageHint -Tool node) - or " +
     'from https://nodejs.org - then open a new shell so PATH is picked up.'
 }
 
@@ -243,15 +246,6 @@ function Invoke-WebJson {
     Invoke-RestMethod -Uri $Uri -Headers @{ 'User-Agent' = 'kingshand-dependencies' } -TimeoutSec 30 -ErrorAction Stop
 }
 
-function Test-SamePath {
-    param([string]$A, [string]$B)
-    if (-not $A -or -not $B) { return $false }
-    try {
-        [IO.Path]::GetFullPath($A).TrimEnd('\').Equals([IO.Path]::GetFullPath($B).TrimEnd('\'),
-            [StringComparison]::OrdinalIgnoreCase)
-    } catch { $false }
-}
-
 # What this machine has for one pin:
 #
 #   .found    $true when the dependency is installed, $false when it is not, and $null when that
@@ -278,7 +272,8 @@ function Get-InstalledDependencyVersion {
             if (-not $v.path) { $out.detail = 'herdr is not installed'; break }
             $out.found   = $true
             $out.path    = $v.path
-            $out.bundled = Test-SamePath $v.path (Join-Path $home_ 'tools\herdr\herdr.exe')
+            $out.bundled = Test-SamePath $v.path (
+                Join-Path $home_ 'tools' 'herdr' (Get-ExecutableName 'herdr'))
             if ($v.version -and (ConvertTo-DependencyVersion -Text $v.version)) { $out.version = $v.version }
             else { $out.detail = "herdr's version could not be read - $($v.detail)" }
         }
@@ -287,7 +282,8 @@ function Get-InstalledDependencyVersion {
             if (-not $path) { $out.detail = "$($Pin.name) is not installed"; break }
             $out.found   = $true
             $out.path    = $path
-            $out.bundled = Test-SamePath $path (Join-Path $home_ 'tools\no-mistakes\no-mistakes.exe')
+            $out.bundled = Test-SamePath $path (
+                Join-Path $home_ 'tools' 'no-mistakes' (Get-ExecutableName 'no-mistakes'))
             # One line, anchored at both ends of the version: `no-mistakes version v1.84.0 (sha) date`.
             $line = Read-VersionLine -Path $path
             $m = [regex]::Match($line, '^no-mistakes version (v?\d+\.\d+\.\d+)(\s|$)')
@@ -356,7 +352,7 @@ function Test-HerdrReplaceable {
         ok     = $false
         reason = ("$why. Replacing herdr under a running server leaves the two on different " +
                   'versions, unable to read any worker. With no worker live, stop the server with ' +
-                  '`herdr server stop` - this ends every pane - then run .\install.ps1 -SyncPins.')
+                  "``herdr server stop`` - this ends every pane - then run $(Get-InstallerCommand '-SyncPins').")
     }
 }
 
@@ -372,7 +368,7 @@ function Get-DependencySyncCommand {
     }
     switch ($Pin.source) {
         'npm'    { return "npm install -g $($Pin.package)@$($Pin.version)" }
-        default  { return '.\install.ps1 -SyncPins' }
+        default  { return Get-InstallerCommand '-SyncPins' }
     }
 }
 
