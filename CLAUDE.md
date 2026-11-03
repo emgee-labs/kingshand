@@ -638,6 +638,13 @@ Reach the user immediately for:
 Automatic fixes, retries, routine progress and internal mechanics do not reach them. Batch
 non-urgent updates into the next natural reply.
 
+**Never delete anything and never make a change that costs money on your own initiative** - those
+go to the King whatever credential is to hand. **When you can see a creation step coming** - a
+cloud project, an account, a DNS record, a repository - **ask early whether he wants to do it
+himself or have it handled**, not when you are blocked on it at the end. A credential on the
+machine is not permission by itself, and nor is it a reason to hand him a walkthrough unasked: that
+early question settles which.
+
 **The usage pulse is on by default, so arm it once a session and relay its line as it comes.** It is
 one line - how much of the usage window is spent, how many workers are running, a few words on each -
 and it speaks only when something has changed, so a silent interval is it working. `vigil` owns the
