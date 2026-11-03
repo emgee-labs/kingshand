@@ -218,6 +218,27 @@ Describe 'Remove-WorkerCopy' {
         Test-Path -LiteralPath $copy | Should -BeTrue
     }
 
+    # A version mismatch throws out of every herdr read rather than answering, and it must come
+    # back as a kept copy naming why, not as an exception half way through a cleanup.
+    It 'keeps everything when herdr throws, and names the failure' {
+        $copy = New-WorkerCopy $script:F 'w-throw' -Push
+        Mock -ModuleName Teardown Get-HerdrAgentInventory { throw 'herdr protocol_mismatch: from the fake' }
+        $r = Remove-WorkerCopy -WorkerId 'w-throw' -StatePath $script:F.state
+        $r.outcome | Should -Be 'kept'
+        $r.kept[0].why | Should -BeLike '*protocol_mismatch*'
+        Test-Path -LiteralPath $copy | Should -BeTrue
+    }
+
+    It 'keeps the copy when a pane does not close, because it may still hold the folder' {
+        $copy = New-WorkerCopy $script:F 'w-stuckpane' -PaneId 'p11' -Push
+        Add-FakePane -PaneId 'p11' -Cwd $copy -Workspace 'w11'
+        Mock -ModuleName Teardown Remove-HerdrPane { }
+        $r = Remove-WorkerCopy -WorkerId 'w-stuckpane' -StatePath $script:F.state
+        $r.outcome | Should -Be 'kept'
+        $r.kept[0].why | Should -BeLike 'pane p11 did not close*'
+        Test-Path -LiteralPath $copy | Should -BeTrue
+    }
+
     It 'keeps a copy whose worker refuses to stop, without closing its pane' {
         $copy = New-WorkerCopy $script:F 'w-box' -Push
         Add-FakePane -PaneId 'p9' -Cwd $copy -Workspace 'w9' -Agent 'w-box'
@@ -377,6 +398,13 @@ Describe 'Get-WorkerLeftovers, Format-WorkerLeftovers and Invoke-WorkerSweep' {
         $null -eq $l.deadPanes | Should -BeTrue
         $line = Format-WorkerLeftovers -Leftovers $l
         $line | Should -BeLike '*dead panes unreadable*empty workspaces unreadable*0 leftover copies*server_down*'
+    }
+
+    It 'reports an unreadable crew record as unreadable copies, never as zero' {
+        Set-Content -LiteralPath $script:F.state -Value '{ not json'
+        $l = Get-WorkerLeftovers @script:Paths
+        $null -eq $l.copies | Should -BeTrue
+        $l.problems[0] | Should -BeLike 'crew.json could not be read*'
     }
 
     It 'reports an unreadable git as unreadable, never as zero' {
