@@ -18,10 +18,13 @@ Set-StrictMode -Version Latest
 #   3. Stop the agent if one is alive in the copy - found by its cwd, never by the dispatched id,
 #      because herdr cuts a long name to 25 characters plus a hash and a stop against the long name
 #      reports success having done nothing. Stop-HerdrAgent exits with `/exit` and never kills; a
-#      stop that refuses or does not finish keeps everything.
+#      stop that refuses or does not finish keeps everything, and so does an agent herdr lists with
+#      no name, because there is nothing to stop it by.
 #   4. Close the panes - the one recorded at dispatch, which is the only way to reach a pane whose
-#      worker has already exited, and every pane whose cwd is inside the copy. Then read the list
-#      again: a pane still open is still holding the folder, and the copy is kept.
+#      worker has already exited and that herdr lists with no cwd, and every pane whose cwd is
+#      inside the copy. A pane at the recorded id whose cwd is somewhere else is not this worker's:
+#      herdr reuses short pane ids, so it is left alone. Then read the list again: a pane still
+#      open is still holding the folder, and the copy is kept.
 #   5. Close the worker's workspace when its pane was the last one in it. A workspace holding a
 #      live agent is never closed.
 #   6. `git worktree remove`, never with --force, so git refuses a dirty tree a second time.
@@ -277,6 +280,10 @@ function Invoke-CopyTeardown {
     $stopped = [System.Collections.Generic.HashSet[string]]::new()
     foreach ($a in @($h.agents.agents | Where-Object { Test-TeardownPathWithin "$(Get-TeardownField $_ 'cwd')" $copy })) {
         $name = "$(Get-TeardownField $a 'name')"
+        if ($name -notmatch '[A-Za-z]') {
+            & $keep "an unnamed agent is live in it in pane $(Get-TeardownField $a 'pane_id') - load rally"
+            return & $result $false
+        }
         $stop = Stop-HerdrAgent -Name $name
         if (-not $stop.stopped) {
             $why = if ($stop.refused) { "its worker $name was not stopped ($($stop.refused)): its box reads '$($stop.promptBox)' - load rally" }
@@ -296,8 +303,9 @@ function Invoke-CopyTeardown {
     $live = Get-LivePaneIds -Agents $h2.agents
     $targets = @($panes.panes | Where-Object {
         $id = "$(Get-TeardownField $_ 'pane_id')"
-        ((Test-TeardownPathWithin "$(Get-TeardownField $_ 'cwd')" $copy) -or
-         ($RecordedPaneId -and $id -eq $RecordedPaneId))
+        $cwd = "$(Get-TeardownField $_ 'cwd')"
+        ((Test-TeardownPathWithin $cwd $copy) -or
+         ($RecordedPaneId -and $id -eq $RecordedPaneId -and -not $cwd))
     })
     foreach ($p in $targets) {
         $id = "$(Get-TeardownField $p 'pane_id')"

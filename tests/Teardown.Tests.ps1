@@ -127,8 +127,8 @@ Describe 'Remove-WorkerCopy' {
 
     It 'closes the recorded pane of a worker that has already exited, and removes the copy and branch' {
         $copy = New-WorkerCopy $script:F 'w-exited' -PaneId 'p7' -Push
-        # The shell in the pane has moved away, so only the recorded id finds it.
-        Add-FakePane -PaneId 'p7' -Cwd 'C:\elsewhere' -Workspace 'w7'
+        # herdr lists no cwd for the pane, so only the recorded id finds it.
+        Add-FakePane -PaneId 'p7' -Cwd '' -Workspace 'w7'
 
         $r = Remove-WorkerCopy -WorkerId 'w-exited' -StatePath $script:F.state
 
@@ -139,6 +139,41 @@ Describe 'Remove-WorkerCopy' {
         Test-Path -LiteralPath $copy | Should -BeFalse
         (Import-CrewState -Path $script:F.state).workers['w-exited'].torn_down_at | Should -Not -BeNullOrEmpty
         $script:Herdr.stops.Count | Should -Be 0 -Because 'no agent was alive, so nothing is stopped'
+    }
+
+    It 'leaves a pane that reuses the recorded id somewhere else alone, and still removes the copy' {
+        $copy = New-WorkerCopy $script:F 'w-reused' -PaneId 'p9' -Push
+        Add-FakePane -PaneId 'p9' -Cwd 'C:\elsewhere' -Workspace 'w9' -Agent 'someone-else'
+        $r = Remove-WorkerCopy -WorkerId 'w-reused' -StatePath $script:F.state
+        $r.outcome | Should -Be 'removed'
+        $r.removed | Should -Not -Contain 'pane p9'
+        @($script:Herdr.panes).Count | Should -Be 1
+        $script:Herdr.stops.Count | Should -Be 0
+        Test-Path -LiteralPath $copy | Should -BeFalse
+    }
+
+    It 'never closes a shell pane at the recorded id whose cwd is somewhere else, nor its workspace' {
+        $copy = New-WorkerCopy $script:F 'w-reused-shell' -PaneId 'p11' -Push
+        Add-FakePane -PaneId 'p11' -Cwd 'C:\elsewhere' -Workspace 'w11'
+        $r = Remove-WorkerCopy -WorkerId 'w-reused-shell' -StatePath $script:F.state
+        $r.outcome | Should -Be 'removed'
+        $r.removed | Should -Not -Contain 'pane p11'
+        $r.removed | Should -Not -Contain 'workspace w11'
+        @($script:Herdr.panes).Count | Should -Be 1
+        @($script:Herdr.workspaces).Count | Should -Be 1
+        Test-Path -LiteralPath $copy | Should -BeFalse
+    }
+
+    It 'keeps the copy rather than throwing when an agent in it has no name' {
+        $copy = New-WorkerCopy $script:F 'w-unnamed' -PaneId 'p10' -Push
+        Add-FakePane -PaneId 'p10' -Cwd $copy -Workspace 'w10'
+        $script:Herdr.agents.Add([pscustomobject]@{ name = ''; pane_id = 'p10'; cwd = $copy; workspace_id = 'w10' })
+        $r = Remove-WorkerCopy -WorkerId 'w-unnamed' -StatePath $script:F.state
+        $r.outcome | Should -Be 'kept'
+        $r.kept[0].why | Should -BeLike '*unnamed agent*'
+        $script:Herdr.stops.Count | Should -Be 0
+        @($script:Herdr.panes).Count | Should -Be 1
+        Test-Path -LiteralPath $copy | Should -BeTrue
     }
 
     It 'finds the pane by its cwd where no pane id was recorded' {
