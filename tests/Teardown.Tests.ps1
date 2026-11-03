@@ -127,8 +127,8 @@ Describe 'Remove-WorkerCopy' {
 
     It 'closes the recorded pane of a worker that has already exited, and removes the copy and branch' {
         $copy = New-WorkerCopy $script:F 'w-exited' -PaneId 'p7' -Push
-        # herdr lists no cwd for the pane, so only the recorded id finds it.
-        Add-FakePane -PaneId 'p7' -Cwd '' -Workspace 'w7'
+        # The shell in the pane has moved away, so only the recorded id finds it.
+        Add-FakePane -PaneId 'p7' -Cwd 'C:\elsewhere' -Workspace 'w7'
 
         $r = Remove-WorkerCopy -WorkerId 'w-exited' -StatePath $script:F.state
 
@@ -152,9 +152,9 @@ Describe 'Remove-WorkerCopy' {
         Test-Path -LiteralPath $copy | Should -BeFalse
     }
 
-    It 'never closes a shell pane at the recorded id whose cwd is somewhere else, nor its workspace' {
+    It 'never closes a pane at the recorded id in a workspace dispatch did not make, nor that workspace' {
         $copy = New-WorkerCopy $script:F 'w-reused-shell' -PaneId 'p11' -Push
-        Add-FakePane -PaneId 'p11' -Cwd 'C:\elsewhere' -Workspace 'w11'
+        Add-FakePane -PaneId 'p11' -Cwd 'C:\elsewhere' -Workspace 'w11' -Label 'someone-elses'
         $r = Remove-WorkerCopy -WorkerId 'w-reused-shell' -StatePath $script:F.state
         $r.outcome | Should -Be 'removed'
         $r.removed | Should -Not -Contain 'pane p11'
@@ -300,7 +300,7 @@ Describe 'Remove-WorkerCopy' {
     It 'deletes a leftover folder whose paths are longer than 260 characters' {
         $copy = New-WorkerCopy $script:F 'w-long' -Push
         Invoke-Git $script:F.repo worktree remove $copy | Out-Null
-        $deep = $copy
+        $deep = Join-Path $copy 'node_modules'
         while ($deep.Length -lt 300) { $deep = Join-Path $deep 'node_modules_nested_package_dir' }
         $null = New-Item -ItemType Directory -Force -Path $deep
         Set-Content -LiteralPath (Join-Path $deep 'f.js') -Value 'x'
@@ -313,8 +313,8 @@ Describe 'Remove-WorkerCopy' {
     It 'reports a leftover folder something still holds as kept with the reason locked, once (R11)' {
         $copy = New-WorkerCopy $script:F 'w-locked' -Push
         Invoke-Git $script:F.repo worktree remove $copy | Out-Null
-        $null = New-Item -ItemType Directory -Force -Path $copy
-        $held = Join-Path $copy 'held.txt'
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $copy 'obj')
+        $held = Join-Path $copy 'obj\held.txt'
         Set-Content -LiteralPath $held -Value 'x'
         $fs = [System.IO.File]::Open($held, 'Open', 'Read', 'None')
         try {
@@ -325,6 +325,46 @@ Describe 'Remove-WorkerCopy' {
         $r.kept[0].why | Should -BeLike 'locked*'
         $r.removed | Should -Not -Contain "copy $copy"
         (Import-CrewState -Path $script:F.state).workers['w-locked'].Contains('torn_down_at') | Should -BeFalse
+    }
+
+    It 'keeps a folder git dropped that still holds a source file, when its worker has not finished' {
+        $copy = New-WorkerCopy $script:F 'w-src' -Push
+        Invoke-Git $script:F.repo worktree remove $copy | Out-Null
+        $null = New-Item -ItemType Directory -Force -Path $copy
+        Set-Content -LiteralPath (Join-Path $copy 'app.ts') -Value 'unsaved work'
+
+        $r = Remove-WorkerCopy -WorkerId 'w-src' -StatePath $script:F.state
+
+        $r.outcome | Should -Be 'kept'
+        $r.kept[0].why | Should -Be 'unlisted folder still holds files - check it by hand'
+        Test-Path -LiteralPath (Join-Path $copy 'app.ts') | Should -BeTrue
+    }
+
+    It 'removes a landed worker''s folder git dropped when its branch is all on a remote, source files and all' {
+        $copy = New-WorkerCopy $script:F 'w-landed' -Stage 'landed' -Push
+        Invoke-Git $script:F.repo worktree remove $copy | Out-Null
+        $null = New-Item -ItemType Directory -Force -Path $copy
+        Set-Content -LiteralPath (Join-Path $copy 'app.ts') -Value 'x'
+        Set-Content -LiteralPath (Join-Path $copy '.git') -Value 'gitdir: C:\nowhere'
+
+        $r = Remove-WorkerCopy -WorkerId 'w-landed' -StatePath $script:F.state
+
+        $r.outcome | Should -Be 'removed'
+        Test-Path -LiteralPath $copy | Should -BeFalse
+    }
+
+    It 'keeps a landed worker''s folder git dropped when its branch has a commit on no remote' {
+        $copy = New-WorkerCopy $script:F 'w-landed-unpushed' -Stage 'landed'
+        Invoke-Git $script:F.repo worktree remove $copy | Out-Null
+        $null = New-Item -ItemType Directory -Force -Path $copy
+        Set-Content -LiteralPath (Join-Path $copy 'app.ts') -Value 'x'
+
+        $r = Remove-WorkerCopy -WorkerId 'w-landed-unpushed' -StatePath $script:F.state
+
+        $r.outcome | Should -Be 'kept'
+        $r.kept[0].why | Should -Be 'unlisted folder still holds files - check it by hand'
+        Test-Path -LiteralPath (Join-Path $copy 'app.ts') | Should -BeTrue
+        Invoke-Git $script:F.repo branch --list 'worktree-w-landed-unpushed' | Should -Not -BeNullOrEmpty
     }
 
     # The one destination this module deletes is a folder directly under a project's
@@ -473,6 +513,43 @@ Describe 'Get-WorkerLeftovers, Format-WorkerLeftovers and Invoke-WorkerSweep' {
         (Import-CrewState -Path $script:F.state).workers['w-done'].torn_down_at | Should -Not -BeNullOrEmpty
     }
 
+    It 'removes an unrecorded dropped folder that holds only build output' {
+        $left = New-WorkerCopy $script:F 'w-build' -Push -NoRecord
+        Invoke-Git $script:F.repo worktree remove $left | Out-Null
+        foreach ($d in 'node_modules\pkg', 'dist', '.angular') { $null = New-Item -ItemType Directory -Force -Path (Join-Path $left $d) }
+        Set-Content -LiteralPath (Join-Path $left 'node_modules\pkg\index.js') -Value 'x'
+
+        $r = Invoke-WorkerSweep @script:Paths
+
+        $r.summary | Should -BeLike '*1 leftover copies removed*0 kept*'
+        Test-Path -LiteralPath $left | Should -BeFalse
+    }
+
+    It 'keeps an unrecorded dropped folder that holds a source file, and says why' {
+        $left = New-WorkerCopy $script:F 'w-src' -Push -NoRecord
+        Invoke-Git $script:F.repo worktree remove $left | Out-Null
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $left 'obj')
+        Set-Content -LiteralPath (Join-Path $left 'app.ts') -Value 'unsaved work'
+
+        $r = Invoke-WorkerSweep @script:Paths
+
+        $r.kept[0].what | Should -Be $left
+        $r.kept[0].why | Should -Be 'unlisted folder still holds files - check it by hand'
+        Test-Path -LiteralPath (Join-Path $left 'app.ts') | Should -BeTrue
+    }
+
+    It 'keeps an unrecorded dropped folder that still holds a .git pointer file' {
+        $left = New-WorkerCopy $script:F 'w-pointer' -Push -NoRecord
+        Invoke-Git $script:F.repo worktree remove $left | Out-Null
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $left 'node_modules')
+        Set-Content -LiteralPath (Join-Path $left '.git') -Value 'gitdir: C:\moved\.git\worktrees\w-pointer'
+
+        $r = Invoke-WorkerSweep @script:Paths
+
+        $r.kept[0].why | Should -Be 'unlisted folder still holds files - check it by hand'
+        Test-Path -LiteralPath (Join-Path $left '.git') | Should -BeTrue
+    }
+
     # The Hand calls all three with no paths, so the defaults - the installation root's own
     # state\crew.json, data\projects.md and data\ - are the route every real call takes.
     It 'reads the installation''s own files when no path is passed' {
@@ -491,8 +568,8 @@ Describe 'Get-WorkerLeftovers, Format-WorkerLeftovers and Invoke-WorkerSweep' {
     It 'keeps a locked leftover with the reason locked and counts it again next time (R11)' {
         $left = New-WorkerCopy $script:F 'w-held' -Push -NoRecord
         Invoke-Git $script:F.repo worktree remove $left | Out-Null
-        $null = New-Item -ItemType Directory -Force -Path $left
-        $held = Join-Path $left 'held.txt'
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $left 'obj')
+        $held = Join-Path $left 'obj\held.txt'
         Set-Content -LiteralPath $held -Value 'x'
         $fs = [System.IO.File]::Open($held, 'Open', 'Read', 'None')
         try {

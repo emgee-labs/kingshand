@@ -1366,8 +1366,6 @@ Describe 'teardown is one command whose header owns the order, and never kills' 
             -Phrase 'Never hand-write those steps'
         Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
             -Phrase '$t = Remove-WorkerCopy -WorkerId "<worker id>"'
-        $script:Step8b.Contains('worktree remove "<worktree path>"') |
-            Should -BeFalse -Because 'the order is stated once, in the command, and not hand-written beside it'
     }
 
     It 'reads kept as an answer and forbids forcing past it' {

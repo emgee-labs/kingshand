@@ -20,18 +20,26 @@ Set-StrictMode -Version Latest
 #      reports success having done nothing. Stop-HerdrAgent exits with `/exit` and never kills; a
 #      stop that refuses or does not finish keeps everything, and so does an agent herdr lists with
 #      no name, because there is nothing to stop it by.
-#   4. Close the panes - the one recorded at dispatch, which is the only way to reach a pane whose
-#      worker has already exited and that herdr lists with no cwd, and every pane whose cwd is
-#      inside the copy. A pane at the recorded id whose cwd is somewhere else is not this worker's:
-#      herdr reuses short pane ids, so it is left alone. Then read the list again: a pane still
-#      open is still holding the folder, and the copy is kept.
+#   4. Close the panes - every pane whose cwd is inside the copy, and the one recorded at dispatch,
+#      which is the only way to reach a pane whose worker has already exited. herdr reuses short
+#      pane ids, so the recorded one is closed only while it has no live agent and its workspace
+#      carries the label dispatch gives it; a recorded id that now names another worker's live pane
+#      is skipped, not refused. Then read the list again: a pane still open is still holding the
+#      folder, and the copy is kept.
 #   5. Close the worker's workspace when its pane was the last one in it. A workspace holding a
 #      live agent is never closed.
 #   6. `git worktree remove`, never with --force, so git refuses a dirty tree a second time.
 #   7. Check the folder is actually gone. Where git dropped the worktree but the folder stayed - a
 #      handle still open on it - delete the folder once no pane holds it, long paths included. A
-#      folder that still cannot be deleted is kept with the reason `locked`, once, with no retry
-#      loop, and the next sweep counts it again.
+#      folder git no longer lists is deleted only when it has no `.git` entry of any kind and its
+#      top-level entries are all build output (node_modules, bin, obj, .angular, dist, build, out,
+#      target, .next, .nuxt, coverage, .turbo, .cache), or when its worker is recorded landed or
+#      failed and its branch has no commit missing from a remote, by the same test as step 2. git
+#      cannot vouch for such a folder - a moved project makes every copy read as unlisted - so any
+#      other is kept with the reason `unlisted folder still holds files - check it by hand`, and
+#      that is decided in step 2, before anything is touched. A folder that still cannot be deleted
+#      is kept with the reason `locked`, once, with no retry loop, and the next sweep counts it
+#      again.
 #   8. `git worktree prune`, then the branch: deleted only when every commit on it is already on a
 #      remote branch, by the same test as step 2.
 #   9. Record the cleanup on the worker's crew entry with Set-CrewTornDown.
@@ -60,6 +68,9 @@ Import-Module (Join-Path $PSScriptRoot 'ClaudeWorkspace.psm1')
 $script:WorkspaceLabel = 'kingshand'
 # The review gate's own remote, which is a repository on this machine rather than a server.
 $script:GateRemote = 'no-mistakes'
+# The top-level entries a folder git no longer lists may hold and still be deleted unread.
+$script:BuildOutput = @('node_modules', 'bin', 'obj', '.angular', 'dist', 'build', 'out', 'target',
+                        '.next', '.nuxt', 'coverage', '.turbo', '.cache')
 
 function Get-TeardownDefaultPath {
     param([string]$Leaf)
@@ -159,6 +170,16 @@ function Get-CopyRefusal {
     ''
 }
 
+# Whether a folder git no longer lists may be deleted, by the rule this module's header owns.
+function Test-UnlistedCopyRemovable {
+    param([string]$CopyPath, [string]$RepoPath, [string]$Branch, [string]$Stage)
+
+    try { $entries = @(Get-ChildItem -LiteralPath $CopyPath -Force -ErrorAction Stop) } catch { return $false }
+    if (@($entries | Where-Object { $script:BuildOutput -notcontains $_.Name }).Count -eq 0) { return $true }
+    if ($Stage -notin @('landed', 'failed') -or -not $Branch) { return $false }
+    0 -eq (Get-UnpushedCount -Directory $RepoPath -Rev "refs/heads/$Branch")
+}
+
 function Test-KingshandDispatched {
     param([string]$Name, [hashtable]$State, [string]$DataPath)
     if (-not $Name) { return $false }
@@ -238,7 +259,8 @@ function Invoke-CopyTeardown {
     param(
         [Parameter(Mandatory)][string]$CopyPath,
         [string]$Branch = '',
-        [string]$RecordedPaneId = ''
+        [string]$RecordedPaneId = '',
+        [string]$Stage = ''
     )
 
     $removed = [System.Collections.Generic.List[string]]::new()
@@ -271,9 +293,15 @@ function Invoke-CopyTeardown {
     if ($exists -and $isRegistered) {
         $why = Get-CopyRefusal -CopyPath $copy
         if ($why) { & $keep $why; return & $result $false }
-    } elseif ($exists -and (Test-Path -LiteralPath (Join-Path $copy '.git') -PathType Container)) {
-        & $keep 'it holds a repository of its own rather than a worktree, so git cannot vouch for it'
-        return & $result $false
+    } elseif ($exists) {
+        if (Test-Path -LiteralPath (Join-Path $copy '.git') -PathType Container) {
+            & $keep 'it holds a repository of its own rather than a worktree, so git cannot vouch for it'
+            return & $result $false
+        }
+        if (-not (Test-UnlistedCopyRemovable -CopyPath $copy -RepoPath $repo -Branch $Branch -Stage $Stage)) {
+            & $keep 'unlisted folder still holds files - check it by hand'
+            return & $result $false
+        }
     }
 
     # 3. Stop any agent alive in the copy, found by cwd.
@@ -301,11 +329,13 @@ function Invoke-CopyTeardown {
     if (-not $h2.ok) { & $keep "herdr could not be read after the stop - $($h2.error)"; return & $result $false }
     $panes = $h2.panes
     $live = Get-LivePaneIds -Agents $h2.agents
+    $ours = @($h2.workspaces.workspaces | Where-Object { "$(Get-TeardownField $_ 'label')" -eq $script:WorkspaceLabel } |
+              ForEach-Object { "$(Get-TeardownField $_ 'workspace_id')" })
     $targets = @($panes.panes | Where-Object {
         $id = "$(Get-TeardownField $_ 'pane_id')"
-        $cwd = "$(Get-TeardownField $_ 'cwd')"
-        ((Test-TeardownPathWithin $cwd $copy) -or
-         ($RecordedPaneId -and $id -eq $RecordedPaneId -and -not $cwd))
+        ((Test-TeardownPathWithin "$(Get-TeardownField $_ 'cwd')" $copy) -or
+         ($RecordedPaneId -and $id -eq $RecordedPaneId -and -not $live.Contains($id) -and
+          $ours -contains "$(Get-TeardownField $_ 'workspace_id')"))
     })
     foreach ($p in $targets) {
         $id = "$(Get-TeardownField $p 'pane_id')"
@@ -410,7 +440,7 @@ function Remove-WorkerCopy {
     }
 
     $r = Invoke-CopyTeardown -CopyPath "$($rec.worktree)" -Branch "$($rec.branch)" `
-                             -RecordedPaneId "$(Get-TeardownField $rec 'pane_id')"
+                             -RecordedPaneId "$(Get-TeardownField $rec 'pane_id')" -Stage "$($rec.stage)"
     if ($r.copyGone) {
         Set-CrewTornDown -State $state -WorkerId $WorkerId
         Save-CrewState -State $state -Path $StatePath
@@ -597,7 +627,8 @@ function Invoke-WorkerSweep {
         $rec = if ($c.workerId) { Get-CrewWorker -State $state -WorkerId $c.workerId } else { $null }
         $branch = if ($rec) { "$($rec.branch)" } else { "worktree-$($c.name)" }
         $pane   = if ($rec) { "$(Get-TeardownField $rec 'pane_id')" } else { '' }
-        $r = Invoke-CopyTeardown -CopyPath $c.path -Branch $branch -RecordedPaneId $pane
+        $stage  = if ($rec) { "$($rec.stage)" } else { '' }
+        $r = Invoke-CopyTeardown -CopyPath $c.path -Branch $branch -RecordedPaneId $pane -Stage $stage
         foreach ($x in $r.removed) { $removed.Add($x) }
         foreach ($x in $r.kept) { $kept.Add($x) }
         if ($r.copyGone) {
