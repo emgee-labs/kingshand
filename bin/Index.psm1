@@ -484,6 +484,16 @@ function Write-DataFile {
     Add-IndexEntry -Path $full -Summary $one -Project $Project -DataPath $DataPath
 }
 
+# Whether a file is a dispatch's staged copy: a file whose own directory is named `read-first`. The
+# rule is stated here once because two readers depend on it agreeing - the drift count below leaves
+# these files out, and bin\DataTidy.psm1 is the one thing allowed to delete any of them.
+function Test-IndexStagedCopy {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+
+    (Split-Path (Split-Path -Parent $Path) -Leaf) -eq 'read-first'
+}
+
 # Every durable file under data\, minus the mechanical exclusions at the top of this file. None is
 # a judgement about a file's worth: each names a file derived from one the index already covers.
 function Get-IndexableFiles {
@@ -504,7 +514,7 @@ function Get-IndexableFiles {
         if ($f.Extension -eq '.html') { continue }
         if (Test-SamePath $f.FullName $rootIdx) { continue }
         if (Test-PathWithin -Path $f.FullName -Root $indexDir -ExcludeRoot) { continue }
-        if ($f.Directory.Name -eq 'read-first') { continue }
+        if (Test-IndexStagedCopy -Path $f.FullName) { continue }
         # Only beside the brief it was derived from: a `.dispatch.md` with no `<name>.md` next to
         # it is not dispatch's file and is drift like any other.
         if ($f.Name.EndsWith('.dispatch.md', [System.StringComparison]::OrdinalIgnoreCase) -and
@@ -549,5 +559,6 @@ function Get-IndexDrift {
 
 Export-ModuleMember -Function Get-IndexPath, Get-AllIndexPaths, Get-IndexEntries, Add-IndexEntry,
                               Remove-IndexEntry, Write-DataFile, Get-IndexableFiles, Get-IndexDrift,
+                              Test-IndexStagedCopy,
                               Get-DefaultIndexDataPath, Resolve-IndexDataPath, Test-IndexProjectName,
                               Get-IndexProjectNameRule, ConvertTo-IndexProjectName

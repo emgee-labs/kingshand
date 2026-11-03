@@ -47,6 +47,9 @@ This skill writes only inside the Hand's own write boundary - `$env:KINGSHAND_HO
 `$env:KINGSHAND_HOME\state\`. It never touches a project, and hard rule 1 is not suspended for a
 curation pass.
 
+**This pass never deletes a file under `data\`.** Deleting files is `bin\DataTidy.psm1`'s, run only
+when the Hand runs it, so a pass nobody is watching cannot destroy work.
+
 ## Memory tiers and entry markers
 
 Markers are compact trailing HTML comments. They are deliberately cheap because **marker bytes are
