@@ -2533,7 +2533,7 @@ $t.outcome; $t.kept          # removed, or kept with the reason for each thing i
 ```
 
 **`kept` is an answer to read, never one to force past.** Uncommitted changes or a commit on no
-remote branch is unlanded work: stop and read it. `prompt-box-not-empty` means the worker's input
+remote branch and not merged into the worker's base branch is unlanded work: stop and read it. `prompt-box-not-empty` means the worker's input
 box holds text and nothing was sent - load `rally`. `locked` means something still holds the folder;
 it is counted at the next session start and the sweep clears it once the lock is gone. Never reach
 for the pid, for `--force`, or for a delete underneath git.

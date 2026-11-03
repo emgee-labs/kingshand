@@ -369,6 +369,42 @@ Describe 'Remove-WorkerCopy' {
         Test-Path -LiteralPath $copy | Should -BeFalse
     }
 
+    It 'removes a local-only landed worker merged into its base branch and never pushed, branch and all' {
+        $copy = New-WorkerCopy $script:F 'w-merged' -Stage 'landed'
+        Invoke-Git $script:F.repo merge -q --ff-only 'worktree-w-merged' | Out-Null
+
+        $r = Remove-WorkerCopy -WorkerId 'w-merged' -StatePath $script:F.state
+
+        $r.outcome | Should -Be 'removed'
+        $r.removed | Should -Contain 'branch worktree-w-merged'
+        Test-Path -LiteralPath $copy | Should -BeFalse
+        Invoke-Git $script:F.repo branch --list 'worktree-w-merged' | Should -BeNullOrEmpty
+    }
+
+    It 'keeps a copy whose commit is neither pushed nor merged into its base branch' {
+        $copy = New-WorkerCopy $script:F 'w-neither' -Stage 'landed'
+
+        $r = Remove-WorkerCopy -WorkerId 'w-neither' -StatePath $script:F.state
+
+        $r.outcome | Should -Be 'kept'
+        $r.kept[0].why | Should -Be '1 commits on it are on no remote branch nor merged into its base'
+        Test-Path -LiteralPath $copy | Should -BeTrue
+        Invoke-Git $script:F.repo branch --list 'worktree-w-neither' | Should -Not -BeNullOrEmpty
+    }
+
+    It 'removes a folder git dropped when its landed worker''s branch is merged into the local base' {
+        $copy = New-WorkerCopy $script:F 'w-dropped-merged' -Stage 'landed'
+        Invoke-Git $script:F.repo worktree remove $copy | Out-Null
+        Invoke-Git $script:F.repo merge -q --ff-only 'worktree-w-dropped-merged' | Out-Null
+        $null = New-Item -ItemType Directory -Force -Path $copy
+        Set-Content -LiteralPath (Join-Path $copy 'app.ts') -Value 'x'
+
+        $r = Remove-WorkerCopy -WorkerId 'w-dropped-merged' -StatePath $script:F.state
+
+        $r.outcome | Should -Be 'removed'
+        Test-Path -LiteralPath $copy | Should -BeFalse
+    }
+
     It 'keeps a landed worker''s folder git dropped when its branch has a commit on no remote' {
         $copy = New-WorkerCopy $script:F 'w-landed-unpushed' -Stage 'landed'
         Invoke-Git $script:F.repo worktree remove $copy | Out-Null

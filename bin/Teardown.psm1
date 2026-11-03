@@ -12,9 +12,14 @@ Set-StrictMode -Version Latest
 #      fails keeps the copy and names the failure. Nothing open is exactly the answer that lets a
 #      folder be deleted, so "could not ask" is never read as "nothing there".
 #   2. Refuse before touching anything. A copy with uncommitted changes, or whose HEAD carries a
-#      commit that is on no remote branch, is kept with that reason and nothing is stopped, closed
-#      or removed. The kingshand gate's own `no-mistakes` remote is not counted as a remote here: it
-#      is a local repository on this machine, and a commit only there has not reached a server.
+#      commit that is not yet safe, is kept with that reason and nothing is stopped, closed or
+#      removed. A commit is safe when it is on a remote branch, or already merged into the local
+#      branch the worker was cut from - the crew record's base with a leading `origin/` stripped,
+#      so `origin/dev` is checked as `dev` - because merged work is landed work, and a local-only
+#      project lands by merging and never pushes. Where the base is empty or that local branch does
+#      not exist, only the remote test counts; a base that cannot be read is never taken as safe.
+#      The kingshand gate's own `no-mistakes` remote is not counted as a remote here: it is a local
+#      repository on this machine, and a commit only there has not reached a server.
 #   3. Stop the agent if one is alive in the copy - found by its cwd, never by the dispatched id,
 #      because herdr cuts a long name to 25 characters plus a hash and a stop against the long name
 #      reports success having done nothing. Stop-HerdrAgent exits with `/exit` and never kills; a
@@ -35,14 +40,14 @@ Set-StrictMode -Version Latest
 #      folder git no longer lists is deleted only when it has no `.git` entry of any kind and its
 #      top-level entries are all build output (node_modules, bin, obj, .angular, dist, build, out,
 #      target, .next, .nuxt, coverage, .turbo, .cache), or when its worker is recorded landed or
-#      failed and its branch has no commit missing from a remote, by the same test as step 2. git
+#      failed and every commit on its branch is safe, by the same test as step 2. git
 #      cannot vouch for such a folder - a moved project makes every copy read as unlisted - so any
 #      other is kept with the reason `unlisted folder still holds files - check it by hand`, and
 #      that is decided in step 2, before anything is touched. A folder that still cannot be deleted
 #      is kept with the reason `locked`, once, with no retry loop, and the next sweep counts it
 #      again.
-#   8. `git worktree prune`, then the branch: deleted only when every commit on it is already on a
-#      remote branch, by the same test as step 2.
+#   8. `git worktree prune`, then the branch: deleted only when every commit on it is safe, by the
+#      same test as step 2.
 #   9. Record the cleanup on the worker's crew entry with Set-CrewTornDown.
 #
 # A worker recorded with `checkout` has no copy: it goes to Stop-CheckoutWorker in
@@ -141,14 +146,20 @@ function Test-TeardownRegistered {
     $false
 }
 
-# How many commits reachable from $Rev are on no remote branch, or $null where git could not say.
+# How many commits reachable from $Rev are not yet safe by step 2's test, or $null where git could
+# not say.
 function Get-UnpushedCount {
-    param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][string]$Rev)
+    param([Parameter(Mandatory)][string]$Directory, [Parameter(Mandatory)][string]$Rev, [string]$Base = '')
 
-    $r = Invoke-TeardownGit -Directory $Directory -Arguments @(
-        # The pattern carries no refs/remotes/ prefix: git matches an --exclude given to --remotes
-        # against the name below it.
-        'rev-list', '--count', $Rev, '--not', "--exclude=$($script:GateRemote)/*", '--remotes')
+    # The pattern carries no refs/remotes/ prefix: git matches an --exclude given to --remotes
+    # against the name below it.
+    $not = @("--exclude=$($script:GateRemote)/*", '--remotes')
+    $local = $Base -replace '^origin/', ''
+    if ($local) {
+        $ref = "refs/heads/$local"
+        if ((Invoke-TeardownGit -Directory $Directory -Arguments @('rev-parse', '--verify', '--quiet', $ref)).ok) { $not += $ref }
+    }
+    $r = Invoke-TeardownGit -Directory $Directory -Arguments (@('rev-list', '--count', $Rev, '--not') + $not)
     if (-not $r.ok) { return $null }
     $n = 0
     if (-not [int]::TryParse($r.text, [ref]$n)) { return $null }
@@ -157,7 +168,7 @@ function Get-UnpushedCount {
 
 # Whether a copy git still lists may be removed: '' when it may, otherwise the reason it is kept.
 function Get-CopyRefusal {
-    param([Parameter(Mandatory)][string]$CopyPath)
+    param([Parameter(Mandatory)][string]$CopyPath, [string]$Base = '')
 
     $status = Invoke-TeardownGit -Directory $CopyPath -Arguments @('status', '--porcelain')
     if (-not $status.ok) { return "git could not read its status, so it is kept unread: $($status.text)" }
@@ -165,20 +176,20 @@ function Get-CopyRefusal {
         $n = @($status.text -split "`n" | Where-Object { $_.Trim() }).Count
         return "it has uncommitted changes ($n paths)"
     }
-    $unpushed = Get-UnpushedCount -Directory $CopyPath -Rev 'HEAD'
+    $unpushed = Get-UnpushedCount -Directory $CopyPath -Rev 'HEAD' -Base $Base
     if ($null -eq $unpushed) { return 'git could not say whether its commits are on a remote, so it is kept' }
-    if ($unpushed -gt 0) { return "$unpushed commits on it are on no remote branch" }
+    if ($unpushed -gt 0) { return "$unpushed commits on it are on no remote branch nor merged into its base" }
     ''
 }
 
 # Whether a folder git no longer lists may be deleted, by the rule this module's header owns.
 function Test-UnlistedCopyRemovable {
-    param([string]$CopyPath, [string]$RepoPath, [string]$Branch, [string]$Stage)
+    param([string]$CopyPath, [string]$RepoPath, [string]$Branch, [string]$Stage, [string]$Base)
 
     try { $entries = @(Get-ChildItem -LiteralPath $CopyPath -Force -ErrorAction Stop) } catch { return $false }
     if (@($entries | Where-Object { $script:BuildOutput -notcontains $_.Name }).Count -eq 0) { return $true }
     if ($Stage -notin @('landed', 'failed') -or -not $Branch) { return $false }
-    0 -eq (Get-UnpushedCount -Directory $RepoPath -Rev "refs/heads/$Branch")
+    0 -eq (Get-UnpushedCount -Directory $RepoPath -Rev "refs/heads/$Branch" -Base $Base)
 }
 
 function Test-KingshandDispatched {
@@ -261,7 +272,8 @@ function Invoke-CopyTeardown {
         [Parameter(Mandatory)][string]$CopyPath,
         [string]$Branch = '',
         [string]$RecordedPaneId = '',
-        [string]$Stage = ''
+        [string]$Stage = '',
+        [string]$Base = ''
     )
 
     $removed = [System.Collections.Generic.List[string]]::new()
@@ -292,14 +304,14 @@ function Invoke-CopyTeardown {
 
     # 2. Refuse before touching anything.
     if ($exists -and $isRegistered) {
-        $why = Get-CopyRefusal -CopyPath $copy
+        $why = Get-CopyRefusal -CopyPath $copy -Base $Base
         if ($why) { & $keep $why; return & $result $false }
     } elseif ($exists) {
         if (Test-Path -LiteralPath (Join-Path $copy '.git') -PathType Container) {
             & $keep 'it holds a repository of its own rather than a worktree, so git cannot vouch for it'
             return & $result $false
         }
-        if (-not (Test-UnlistedCopyRemovable -CopyPath $copy -RepoPath $repo -Branch $Branch -Stage $Stage)) {
+        if (-not (Test-UnlistedCopyRemovable -CopyPath $copy -RepoPath $repo -Branch $Branch -Stage $Stage -Base $Base)) {
             & $keep 'unlisted folder still holds files - check it by hand'
             return & $result $false
         }
@@ -388,16 +400,16 @@ function Invoke-CopyTeardown {
     $gone = -not (Test-Path -LiteralPath $copy)
     if ($gone -and $exists) { $removed.Add("copy $copy") }
 
-    # 8. Prune, then the branch only when all of it is on a remote.
+    # 8. Prune, then the branch only when all of it is safe.
     $null = Invoke-TeardownGit -Directory $repo -Arguments @('worktree', 'prune')
     if ($Branch) {
         $has = Invoke-TeardownGit -Directory $repo -Arguments @('rev-parse', '--verify', '--quiet', "refs/heads/$Branch")
         if ($has.ok) {
-            $unpushed = Get-UnpushedCount -Directory $repo -Rev "refs/heads/$Branch"
+            $unpushed = Get-UnpushedCount -Directory $repo -Rev "refs/heads/$Branch" -Base $Base
             if ($null -eq $unpushed) {
                 $kept.Add([pscustomobject]@{ what = "branch $Branch"; why = 'git could not say whether its commits are on a remote' })
             } elseif ($unpushed -gt 0) {
-                $kept.Add([pscustomobject]@{ what = "branch $Branch"; why = "$unpushed commits on it are on no remote branch" })
+                $kept.Add([pscustomobject]@{ what = "branch $Branch"; why = "$unpushed commits on it are on no remote branch nor merged into its base" })
             } else {
                 $del = Invoke-TeardownGit -Directory $repo -Arguments @('branch', '-D', $Branch)
                 if ($del.ok) { $removed.Add("branch $Branch") }
@@ -446,7 +458,8 @@ function Remove-WorkerCopy {
     }
 
     $r = Invoke-CopyTeardown -CopyPath "$($rec.worktree)" -Branch "$($rec.branch)" `
-                             -RecordedPaneId "$(Get-TeardownField $rec 'pane_id')" -Stage "$($rec.stage)"
+                             -RecordedPaneId "$(Get-TeardownField $rec 'pane_id')" -Stage "$($rec.stage)" `
+                             -Base "$(Get-TeardownField $rec 'base')"
     if ($r.copyGone) {
         Set-CrewTornDown -State $state -WorkerId $WorkerId
         Save-CrewState -State $state -Path $StatePath
@@ -634,7 +647,8 @@ function Invoke-WorkerSweep {
         $branch = if ($rec) { "$($rec.branch)" } else { "worktree-$($c.name)" }
         $pane   = if ($rec) { "$(Get-TeardownField $rec 'pane_id')" } else { '' }
         $stage  = if ($rec) { "$($rec.stage)" } else { '' }
-        $r = Invoke-CopyTeardown -CopyPath $c.path -Branch $branch -RecordedPaneId $pane -Stage $stage
+        $base   = if ($rec) { "$(Get-TeardownField $rec 'base')" } else { '' }
+        $r = Invoke-CopyTeardown -CopyPath $c.path -Branch $branch -RecordedPaneId $pane -Stage $stage -Base $base
         foreach ($x in $r.removed) { $removed.Add($x) }
         foreach ($x in $r.kept) { $kept.Add($x) }
         if ($r.copyGone) {
