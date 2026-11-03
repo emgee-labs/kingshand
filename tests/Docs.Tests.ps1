@@ -10450,7 +10450,8 @@ Describe 'fief holds one project per session and changes routing and delivery, n
         Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
             -Phrase 'stop it on his word - with `-EndSession`'
         Assert-Phrase -Text (Get-DocText $script:MusterMd) -Where 'muster Step 8b' `
-            -Phrase 'A close-out passes `-EndSession` as well, which removes the session''s baseline'
+            -Phrase ('A worker recorded with `checkout` goes through the same command, which hands it to ' +
+                     '`Stop-CheckoutWorker` with `-EndSession`')
         Assert-Phrase -Text (Get-DocText $script:StuckMd) -Where 'rally Step 4' `
             -Phrase ('**A worker recorded with `checkout` is relaunched as `fief`''s `A wedged ' +
                      'warm worker` paragraph says**')
@@ -10470,9 +10471,8 @@ Describe 'fief holds one project per session and changes routing and delivery, n
         Assert-Phrase -Text $script:Fief -Where 'the fief skill' `
             -Phrase 'it never deletes the branch and never removes the checkout'
         Assert-Phrase -Text (Get-DocText $script:MusterMd) -Where 'muster Step 8b' `
-            -Phrase ('**A worker recorded with `checkout` has no worktree: tear it down with ' +
-                     '`Stop-CheckoutWorker` from `bin\ClaudeWorkspace.psm1`, passing its ' +
-                     '`settings_record`, and never with the steps below.**')
+            -Phrase ('only `fief`''s relaunch of a wedged warm worker calls `Stop-CheckoutWorker` ' +
+                     'itself, without it.')
         Assert-Phrase -Text (Get-DocText $script:MusterMd) -Where 'muster Step 4' `
             -Phrase ('**A `fief` session''s warm worker is dispatched with `-InCheckout -Branch` and ' +
                      'recorded with `-Session`**')
