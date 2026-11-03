@@ -352,7 +352,7 @@ function Test-HerdrReplaceable {
         ok     = $false
         reason = ("$why. Replacing herdr under a running server leaves the two on different " +
                   'versions, unable to read any worker. With no worker live, stop the server with ' +
-                  '`herdr server stop` - this ends every pane - then run .\install.ps1 -SyncPins.')
+                  "``herdr server stop`` - this ends every pane - then run $(Get-InstallerCommand '-SyncPins').")
     }
 }
 
@@ -368,7 +368,7 @@ function Get-DependencySyncCommand {
     }
     switch ($Pin.source) {
         'npm'    { return "npm install -g $($Pin.package)@$($Pin.version)" }
-        default  { return '.\install.ps1 -SyncPins' }
+        default  { return Get-InstallerCommand '-SyncPins' }
     }
 }
 

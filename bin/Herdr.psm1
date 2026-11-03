@@ -44,8 +44,9 @@ function Get-HerdrCommandHint {
     [CmdletBinding()]
     param()
 
-    'herdr was not found. Run install.ps1 -InstallMissing, which downloads the herdr version ' +
-    'pinned in dependencies.json into tools\herdr and verifies its SHA-256 before extracting. ' +
+    "herdr was not found. Run $(Get-InstallerCommand '-InstallMissing'), which downloads the herdr " +
+    "version pinned in dependencies.json into $(Join-Path 'tools' 'herdr') and verifies its SHA-256 " +
+    'before extracting. ' +
     'Dispatch cannot spawn or steer a worker without it.'
 }
 

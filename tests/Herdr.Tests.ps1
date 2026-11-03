@@ -356,8 +356,13 @@ Describe 'Get-HerdrCommandHint tells the reader what to run' {
     It 'names the installer, the switch and the verification' {
         $hint = Get-HerdrCommandHint
         $hint | Should -Match 'install\.ps1 -InstallMissing'
-        $hint | Should -Match 'tools\\herdr'
+        $hint | Should -Match ([regex]::Escape((Join-Path 'tools' 'herdr')))
         $hint | Should -Match 'SHA-256'
+    }
+
+    It 'names the installer the way this system runs it' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        Get-HerdrCommandHint | Should -Match ([regex]::Escape('pwsh ./install.ps1 -InstallMissing'))
     }
 }
 

@@ -935,7 +935,11 @@ if ($platform -ne 'Windows') {
         $settingsReadable = $false
         Write-Step 'KINGSHAND_HOME and LAVISH_AXI_PORT'
         Write-Miss "neither was written: $($_.Exception.Message)"
-        $skipped.Add('KINGSHAND_HOME'); $skipped.Add('LAVISH_AXI_PORT')
+        # A blocker, not a choice left alone: -Force would not help, and nothing works until it is fixed.
+        $missing += [pscustomobject]@{
+            Name = 'KINGSHAND_HOME and LAVISH_AXI_PORT'
+            Install = "$settingsFile could not be read - fix or remove it"
+        }
     }
 }
 
