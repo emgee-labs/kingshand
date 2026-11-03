@@ -1396,6 +1396,16 @@ Describe 'teardown is one command whose header owns the order, and never kills' 
     }
 }
 
+# What differs between Windows, macOS and Linux is answered in one module, so nothing above it
+# keeps a private copy of the answer. The row is where a reader looks for that owner.
+Describe 'the platform helpers have one owner, named in the Tooling table' {
+    It 'names Paths.psm1 as the owner of everything that differs by operating system' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
+            -Phrase ('| `bin\Paths.psm1` | the one resolution point for `KINGSHAND_HOME` and for ' +
+                     'everything that differs by operating system')
+    }
+}
+
 Describe 'a blocked worker is never reported as healthy' {
     # survey put a live worker at stage `dispatched` into Underway - "live work progressing on
     # its own" - while its agentState was `blocked` and it had been sitting on a menu for an hour.
@@ -5931,7 +5941,9 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                 $n = 0
                 foreach ($line in @(Get-Content -Path $f.FullName)) {
                     $n++
-                    if ($line.Contains('USERPROFILE') -and $line -match '(?i)skills') { "$($f.Name):$n" }
+                    $profile_ = $line.Contains('USERPROFILE') -or $line.Contains('Get-UserHomePath') -or
+                                $line.Contains('$env:HOME') -or $line.Contains('$HOME')
+                    if ($profile_ -and $line -match '(?i)skills') { "$($f.Name):$n" }
                 }
             }
         )
@@ -5940,8 +5952,10 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     }
 
     # The blanket ban on touching the profile at all was the right proxy while nothing needed to.
-    # THREE things do now, and each is named with its own file, because an unnamed exception is how
-    # a guard like this stops meaning anything.
+    # FOUR things do now, and each is named with its own file, because an unnamed exception is how
+    # a guard like this stops meaning anything. Every one of them reaches the profile through
+    # Paths.psm1's Get-UserHomePath or Get-ClaudeGlobalConfigPath, which differ by system, and
+    # Paths.psm1 is the one file that names the profile variable itself.
     #
     # Folder trust was the first: herdr launches a worker in a worktree Claude Code has never seen,
     # and the trust registry is a single file in the profile with no per-project alternative.
@@ -5962,8 +5976,15 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     # rescue a run's fix commits can only find them there. One directory, the gate's own, where a
     # rescue ref is named into the mirror and fetched out - never a credential, never a skill.
     It 'only the trust module, the usage reader, the digest and the gate rescue touch the profile' {
-        $reaching = @($script:AllSource | Where-Object {
+        $naming = @($script:AllSource | Where-Object {
             (Get-Content -Path $_.FullName -Raw).Contains('USERPROFILE')
+        })
+        (@($naming | ForEach-Object { $_.Name } | Sort-Object) -join ', ') |
+            Should -Be 'Paths.psm1' -Because 'the home directory differs by system, so it is resolved in one place'
+
+        $reaching = @($script:AllSource | Where-Object {
+            $_.Name -ne 'Paths.psm1' -and
+            ((Get-Content -Path $_.FullName -Raw) -match 'Get-UserHomePath|Get-ClaudeGlobalConfigPath')
         })
         (@($reaching | ForEach-Object { $_.Name } | Sort-Object) -join ', ') |
             Should -Be 'ClaudeWorkspace.psm1, Get-SessionStart.ps1, NightsWatch.psm1, Usage.psm1' `
@@ -5974,7 +5995,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             Should -BeTrue -Because 'the trust registry is one file, not a directory to write into'
 
         $usage = Get-Content -Path (Join-Path $script:Root 'bin\Usage.psm1') -Raw
-        $usage.Contains('.claude\accounts\.active') |
+        $usage.Contains("'.claude' 'accounts' '.active'") |
             Should -BeTrue -Because 'the account name is one file, named exactly'
 
         # The digest's half of this is not asserted from its source. Which file it opens, and that

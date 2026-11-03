@@ -132,8 +132,10 @@ if (-not $ReleaseRepoPath)  { $ReleaseRepoPath  = $script:Root }
 # answer this section must never give without having looked.
 if (-not $LavishStatePath) {
     $lavishStateDir = $env:LAVISH_AXI_STATE_DIR
-    if (-not $lavishStateDir -and $env:USERPROFILE) {
-        $lavishStateDir = Join-Path $env:USERPROFILE '.lavish-axi'
+    if (-not $lavishStateDir) {
+        $userHome = $null
+        try { $userHome = Get-UserHomePath } catch { $userHome = $null }
+        if ($userHome) { $lavishStateDir = Join-Path $userHome '.lavish-axi' }
     }
     if ($lavishStateDir) { $LavishStatePath = Join-Path $lavishStateDir 'state.json' }
 }
@@ -204,15 +206,7 @@ function Get-Field {
 # ways and still be the same directory. A path that will not normalise is not inside anything.
 function Test-PathUnder {
     param([string]$Path, [string]$Root)
-    try {
-        if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($Root)) { return $false }
-        $p = [System.IO.Path]::GetFullPath($Path)
-        $r = [System.IO.Path]::GetFullPath($Root).TrimEnd('\', '/') +
-             [System.IO.Path]::DirectorySeparatorChar
-        return $p.StartsWith($r, [System.StringComparison]::OrdinalIgnoreCase)
-    } catch {
-        return $false
-    }
+    Test-PathWithin -Path $Path -Root $Root -ExcludeRoot
 }
 
 # How many prompts are queued on one session - or -1 for a count that could not be read.
@@ -336,7 +330,7 @@ Add-Line ("=== KINGSHAND SESSION START - " + (Get-Date).ToUniversalTime().ToStri
 $configuredHome = $env:KINGSHAND_HOME
 $derivedHome    = Split-Path $PSScriptRoot -Parent
 if (-not [string]::IsNullOrWhiteSpace($configuredHome) -and
-    $configuredHome.TrimEnd('\', '/') -ne $derivedHome.TrimEnd('\', '/')) {
+    -not (Test-SamePath $configuredHome $derivedHome)) {
     Add-Line ''
     Add-Line 'HOME MISMATCH'
     Add-Line "  This copy lives at $derivedHome"

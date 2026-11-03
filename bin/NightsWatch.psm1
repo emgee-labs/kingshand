@@ -573,7 +573,7 @@ function Save-WatchGateRescue {
         [Parameter(Mandatory)][string]$Head,
         [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]*$')][string]$Task,
         # Where no-mistakes keeps its mirrors. Every mirror is asked whether it holds the commit.
-        [string]$MirrorRoot = (Join-Path $env:USERPROFILE '.no-mistakes\repos'),
+        [string]$MirrorRoot = (Join-Path (Get-UserHomePath) '.no-mistakes' 'repos'),
         [datetime]$At = [datetime]::UtcNow
     )
     if ($Head -notmatch '^[0-9a-f]{40}$') { throw "'$Head' is not a full commit id, so there is nothing exact to rescue." }

@@ -110,23 +110,13 @@ $script:StreamDrainMilliseconds = 10000
 
 # The launchable `node`, or $null.
 #
-# `.ps1` is never returned and neither is an extensionless shim, for the reason Paths.psm1's own
-# Get-ClaudeCommandPath header owns in full: a native launch of either dies with "%1 is not a valid
-# Win32 application". Only `.exe` and `.cmd` can be started here, and `.exe` wins where both exist.
+# Which copy can be launched on which system is Resolve-LaunchableCommand's rule in Paths.psm1:
+# on Windows only `.exe` or `.cmd`, `.exe` first, never a `.ps1` or an extensionless shim.
 function Get-NodeCommandPath {
     [CmdletBinding()]
     param()
 
-    $found = @(Get-Command 'node' -CommandType Application -ErrorAction SilentlyContinue |
-               Where-Object { $_.Source })
-    foreach ($ext in @('.exe', '.cmd')) {
-        foreach ($c in $found) {
-            if ($c.Source.EndsWith($ext, [System.StringComparison]::OrdinalIgnoreCase)) {
-                return $c.Source
-            }
-        }
-    }
-    $null
+    Resolve-LaunchableCommand -Name 'node'
 }
 
 # One message, so every caller tells the user the same actionable thing.

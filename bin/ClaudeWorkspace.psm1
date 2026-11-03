@@ -16,9 +16,11 @@ Set-StrictMode -Version Latest
 # the project's own checkout, and the section near the end of this file owns how that grant is
 # made and taken back.
 
-# Nested imports, WITHOUT -Force - `statute`'s style rules own why. Stop-CheckoutWorker is the only
-# caller of either: it stops the worker through Herdr.psm1 and drops the record's index line
-# through Index.psm1.
+# Nested imports, WITHOUT -Force - `statute`'s style rules own why. Paths.psm1 answers every path
+# comparison and where Claude Code keeps its config. Stop-CheckoutWorker is the only caller of the
+# other two: it stops the worker through Herdr.psm1 and drops the record's index line through
+# Index.psm1.
+Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Herdr.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
 
@@ -166,9 +168,9 @@ function Resolve-WorkerClaudeFolderEdit {
     $target = "$($in.tool_input.$key)"
     if (-not [IO.Path]::IsPathRooted($target)) { & $none "$target is not an absolute path"; return }
 
-    $cmp  = $IsWindows ? [StringComparison]::OrdinalIgnoreCase : [StringComparison]::Ordinal
+    $cmp  = Get-PathComparison
     $sep  = [IO.Path]::DirectorySeparatorChar
-    $root = [IO.Path]::GetFullPath($ClaudeDir).TrimEnd('\', '/')
+    $root = ConvertTo-NormalPath $ClaudeDir
     $full = [IO.Path]::GetFullPath($target)
     if (-not $full.StartsWith($root + $sep, $cmp)) { & $none "$full is outside $root"; return }
     if ($full.Substring($root.Length).Contains(':')) { & $none "$full names a file stream"; return }
@@ -224,7 +226,7 @@ function Grant-ClaudeFolderTrust {
         [string]$ConfigPath
     )
 
-    if (-not $ConfigPath) { $ConfigPath = Join-Path $env:USERPROFILE '.claude.json' }
+    if (-not $ConfigPath) { $ConfigPath = Get-ClaudeGlobalConfigPath }
     if (-not (Test-Path -LiteralPath $ConfigPath)) {
         # No config yet means Claude Code has never run here. Writing a trust file on its behalf
         # would be guessing at a schema we have not seen, so leave it: the worker will stop at
@@ -379,7 +381,7 @@ function New-CheckoutSettingsPlan {
         throw ("$settingsPath has an 'additionalDirectories' value that is not a list. " +
                "Nothing was changed.")
     }
-    $have = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $have = [System.Collections.Generic.HashSet[string]]::new((Get-PathComparer))
     foreach ($n in $dirs) {
         if ($null -ne $n -and $n.GetValueKind() -eq [System.Text.Json.JsonValueKind]::String) {
             $null = $have.Add($n.GetValue[string]())
@@ -589,7 +591,7 @@ function New-CheckoutBaselinePlan {
 
     $path    = Get-CheckoutBaselinePath -BriefDirectory $BriefDirectory
     $dirty   = @($Dirty | Where-Object { $_ })
-    $outside = [IO.Path]::GetFullPath($CheckoutPath).TrimEnd('\')
+    $outside = ConvertTo-NormalPath $CheckoutPath
     if (-not (Test-Path -LiteralPath $path)) {
         return [pscustomobject]@{
             path = $path; exists = $false; name = $Name; checkout = $outside; branch = $Branch
@@ -607,7 +609,7 @@ function New-CheckoutBaselinePlan {
         if ($names -notcontains $k) { throw "The checkout baseline at $path has no '$k'. Nothing was changed." }
     }
     $same = "$($b.worker)" -ceq $Name -and "$($b.branch)" -ceq $Branch -and
-            "$($b.checkout)".TrimEnd('\').Equals($outside, [System.StringComparison]::OrdinalIgnoreCase)
+            (Test-SamePath "$($b.checkout)" $outside)
     if (-not $same) {
         throw ("The checkout baseline at $path belongs to worker $($b.worker) on $($b.branch) in " +
                "$($b.checkout), a different first dispatch, so it says nothing about this one. If " +

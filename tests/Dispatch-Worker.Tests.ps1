@@ -698,6 +698,11 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         $script:BrowserFiles   = @($script:ProcedureFile, $script:ModuleFile)
         $script:SavedPath      = $env:PATH
         $script:SavedProfile   = $env:USERPROFILE
+        $script:SavedUnixHome  = $env:HOME
+        # Cleared, so the trust grant falls back to the redirected home below - left set, it would
+        # point Grant-ClaudeFolderTrust at the real Claude Code config, which honours it first.
+        $script:SavedConfigDir = $env:CLAUDE_CONFIG_DIR
+        $env:CLAUDE_CONFIG_DIR = $null
 
         $script:ShimDir = New-TempFixturePath -Prefix 'herdr-shim-'
         New-Item -ItemType Directory -Force -Path $script:ShimDir | Out-Null
@@ -898,7 +903,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             '{ "projects": { "C:/somewhere-else": { "hasTrustDialogAccepted": true } } }' |
                 Set-Content -Path (Join-Path $home_ '.claude.json') -Encoding utf8
 
-            $env:USERPROFILE = $home_
+            if ($IsWindows) { $env:USERPROFILE = $home_ } else { $env:HOME = $home_ }
             $env:KINGSHAND_TEST_HERDR_CALLS = Join-Path $root 'calls.txt'
 
             [pscustomobject]@{
@@ -1024,6 +1029,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
     AfterAll {
         $env:PATH        = $script:SavedPath
         $env:USERPROFILE = $script:SavedProfile
+        $env:HOME        = $script:SavedUnixHome
+        $env:CLAUDE_CONFIG_DIR = $script:SavedConfigDir
         $env:KINGSHAND_HOME = $script:SavedHome
         $env:KINGSHAND_USAGE_PROBE_COMMAND = $script:SavedProbe
         Remove-Item Env:\KINGSHAND_TEST_HERDR_DIR   -ErrorAction SilentlyContinue

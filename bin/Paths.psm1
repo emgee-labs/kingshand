@@ -1,11 +1,13 @@
 #Requires -Version 7.0
 Set-StrictMode -Version Latest
 
-# The two things every installation resolves differently, resolved in exactly one place.
+# What every installation and every operating system resolves differently, resolved in exactly one
+# place: this installation's root, where Claude Code and the review gate live, and the platform
+# helpers below - home directory, executable names, launchable commands and how paths compare.
 #
-# Everything else in this repo is portable already; these two were not, and each of them was a
-# hardcoded absolute path belonging to one machine. A second copy of either rule is how they drift
-# back apart, so `bin\` and the skills both come through here rather than deriving their own.
+# Each of these was once a hardcoded answer belonging to one machine or one OS. A second copy of
+# any rule is how they drift back apart, so `bin\` and the skills both come through here rather
+# than deriving their own.
 
 # This installation's root. `KINGSHAND_HOME` wins when it is set, because a user may keep the repo
 # anywhere and the skills spell their commands with `$env:KINGSHAND_HOME`. Unset, the root is
@@ -18,9 +20,192 @@ function Get-KingshandHome {
 
     $configured = $env:KINGSHAND_HOME
     if (-not [string]::IsNullOrWhiteSpace($configured)) {
-        return $configured.TrimEnd('\', '/')
+        return [IO.Path]::TrimEndingDirectorySeparator($configured)
     }
     Split-Path $PSScriptRoot -Parent
+}
+
+# ---------------------------------------------------------------------------------------------
+# Platform helpers. Everything that differs between Windows, macOS and Linux is decided here and
+# nowhere else, so a module above this one asks a question - "is this the same path", "where is the
+# home directory", "what is herdr called here" - instead of testing $IsWindows itself and keeping a
+# private copy of the answer. Tests fake the platform by mocking Get-KingshandPlatform and
+# Get-KingshandArchitecture inside this module.
+# ---------------------------------------------------------------------------------------------
+
+# 'Windows', 'MacOS' or 'Linux'. Anything else throws, naming what it saw, rather than being
+# treated as whichever of the three it looks closest to.
+function Get-KingshandPlatform {
+    [CmdletBinding()]
+    param()
+
+    if ($IsWindows) { return 'Windows' }
+    if ($IsMacOS)   { return 'MacOS' }
+    if ($IsLinux)   { return 'Linux' }
+    throw ("This operating system ($([Runtime.InteropServices.RuntimeInformation]::OSDescription)) " +
+           'is none of Windows, macOS or Linux, which are the only three kingshand runs on.')
+}
+
+# The process architecture as .NET names it: X64, Arm64, X86, Arm and so on. Its own function so a
+# test can stand in for the machine it runs on.
+function Get-KingshandArchitecture {
+    [CmdletBinding()]
+    param()
+
+    "$([Runtime.InteropServices.RuntimeInformation]::OSArchitecture)"
+}
+
+# The user's home directory: USERPROFILE on Windows, HOME on macOS and Linux - the variable each
+# system's own shells set. Unset or blank throws, naming the variable, because a home directory
+# invented here is a path that reliably holds nothing, and every reader would take that for "there
+# is nothing there". A caller that can carry on without a home catches the throw and says so.
+function Get-UserHomePath {
+    [CmdletBinding()]
+    param()
+
+    $name  = if ((Get-KingshandPlatform) -eq 'Windows') { 'USERPROFILE' } else { 'HOME' }
+    $value = [Environment]::GetEnvironmentVariable($name)
+    if ([string]::IsNullOrWhiteSpace($value)) {
+        throw "No home directory: the $name environment variable is not set."
+    }
+    $value
+}
+
+# Claude Code's own global config file, where it keeps per-project state such as folder trust.
+# CLAUDE_CONFIG_DIR moves it on every system, as Claude Code's own documentation says; otherwise it
+# is .claude.json in the home directory. Throws where Get-UserHomePath does.
+function Get-ClaudeGlobalConfigPath {
+    [CmdletBinding()]
+    param()
+
+    $dir = $env:CLAUDE_CONFIG_DIR
+    if ([string]::IsNullOrWhiteSpace($dir)) { $dir = Get-UserHomePath }
+    Join-Path $dir '.claude.json'
+}
+
+# The file name a program has on this platform: `herdr.exe` on Windows, `herdr` elsewhere.
+function Get-ExecutableName {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Name)
+
+    if ((Get-KingshandPlatform) -eq 'Windows') { return "$Name.exe" }
+    $Name
+}
+
+# herdr's name for this machine - the key its latest.json and a pin's sha256 both use.
+#
+# Windows is always windows-x86_64: herdr publishes no Arm build for Windows, and an Arm64 Windows
+# machine runs the x64 one under emulation, which is what it has always been given. macOS and Linux
+# have both architectures. Anything else throws, naming the platform and architecture, rather than
+# being handed a binary that cannot run.
+function Get-HerdrPlatformKey {
+    [CmdletBinding()]
+    param()
+
+    $platform = Get-KingshandPlatform
+    if ($platform -eq 'Windows') { return 'windows-x86_64' }
+
+    $arch = switch (Get-KingshandArchitecture) {
+        'X64'   { 'x86_64' }
+        'Arm64' { 'aarch64' }
+        default { $null }
+    }
+    if (-not $arch) {
+        throw ("herdr publishes no build for $platform on $(Get-KingshandArchitecture) - only x64 " +
+               'and Arm64.')
+    }
+    "$($platform.ToLowerInvariant())-$arch"
+}
+
+# The one launchable copy of a program on PATH, or $null.
+#
+# On Windows only `.exe` and `.cmd` can be started by a native caller - a `.ps1` or an
+# extensionless npm shim dies with "%1 is not a valid Win32 application" - so those two are the
+# only answers, and `.exe` wins where both exist. On macOS and Linux an extensionless file with a
+# shebang launches fine, so the first executable PATH holds is the answer.
+function Resolve-LaunchableCommand {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Name)
+
+    $found = @(Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue |
+               Where-Object { $_.Source })
+    if ((Get-KingshandPlatform) -ne 'Windows') {
+        if ($found.Count -gt 0) { return $found[0].Source }
+        return $null
+    }
+    foreach ($ext in @('.exe', '.cmd')) {
+        foreach ($c in $found) {
+            if ($c.Source.EndsWith($ext, [System.StringComparison]::OrdinalIgnoreCase)) {
+                return $c.Source
+            }
+        }
+    }
+    $null
+}
+
+# How two paths compare as text: case-insensitively on Windows, exactly on macOS and Linux. macOS
+# volumes are usually case-insensitive too, but not always, and a false "different" costs less than
+# a false "same" - the second is how one path's state gets read as another's.
+function Get-PathComparison {
+    [CmdletBinding()]
+    param()
+
+    if ((Get-KingshandPlatform) -eq 'Windows') { return [StringComparison]::OrdinalIgnoreCase }
+    [StringComparison]::Ordinal
+}
+
+# The same rule as a comparer, for a HashSet or Dictionary keyed by path. Returned with the leading
+# comma so PowerShell hands back the comparer itself.
+function Get-PathComparer {
+    [CmdletBinding()]
+    param()
+
+    if ((Get-KingshandPlatform) -eq 'Windows') { return , [StringComparer]::OrdinalIgnoreCase }
+    , [StringComparer]::Ordinal
+}
+
+# A path made absolute and stripped of a trailing separator, in this platform's own separators.
+# Relative paths resolve against the process working directory, as GetFullPath does. Throws on a
+# path that cannot be normalised; the two tests below turn that into "not the same".
+function ConvertTo-NormalPath {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+
+    [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Path))
+}
+
+# True when two paths name the same place. Empty, or a path that will not normalise, is never the
+# same as anything.
+function Test-SamePath {
+    [CmdletBinding()]
+    param([AllowEmptyString()][AllowNull()][string]$A, [AllowEmptyString()][AllowNull()][string]$B)
+
+    if ([string]::IsNullOrWhiteSpace($A) -or [string]::IsNullOrWhiteSpace($B)) { return $false }
+    try { (ConvertTo-NormalPath $A).Equals((ConvertTo-NormalPath $B), (Get-PathComparison)) }
+    catch { $false }
+}
+
+# True when $Path is $Root or inside it; with -ExcludeRoot, only strictly inside it. Compared as
+# whole path segments, so C:\data2 is not inside C:\data. Empty or unnormalisable reads as outside.
+function Test-PathWithin {
+    [CmdletBinding()]
+    param(
+        [AllowEmptyString()][AllowNull()][string]$Path,
+        [AllowEmptyString()][AllowNull()][string]$Root,
+        [switch]$ExcludeRoot
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($Root)) { return $false }
+    try {
+        $p   = ConvertTo-NormalPath $Path
+        $r   = ConvertTo-NormalPath $Root
+        $cmp = Get-PathComparison
+        if ($p.Equals($r, $cmp)) { return -not $ExcludeRoot }
+        # A root such as C:\ or / already ends in its separator, so it is not added twice.
+        $prefix = if ([IO.Path]::EndsInDirectorySeparator($r)) { $r }
+                  else { $r + [IO.Path]::DirectorySeparatorChar }
+        $p.StartsWith($prefix, $cmp)
+    } catch { $false }
 }
 
 # The absolute path of the real `claude.exe`, or the npm `.cmd` wrapper as a last resort, or $null.
@@ -46,6 +231,10 @@ function Get-KingshandHome {
 function Get-ClaudeCommandPath {
     [CmdletBinding()]
     param()
+
+    # Everything below is about Windows' wrapper. On macOS and Linux npm's `claude` is a symlink or
+    # a shebang script that passes arguments through untouched, so whatever PATH holds is right.
+    if ((Get-KingshandPlatform) -ne 'Windows') { return Resolve-LaunchableCommand -Name 'claude' }
 
     $exe = @(Get-Command 'claude.exe' -CommandType Application -ErrorAction SilentlyContinue)
     if ($exe.Count -gt 0 -and $exe[0].Source) { return $exe[0].Source }
@@ -126,7 +315,7 @@ function Get-NoMistakesCommandPath {
     $onPath = Get-Command 'no-mistakes' -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($onPath -and $onPath.Source) { return $onPath.Source }
 
-    $bundled = Join-Path (Get-KingshandHome) 'tools\no-mistakes\no-mistakes.exe'
+    $bundled = Join-Path (Get-KingshandHome) 'tools' 'no-mistakes' (Get-ExecutableName 'no-mistakes')
     if (Test-Path -LiteralPath $bundled -PathType Leaf) { return $bundled }
 
     $null
@@ -150,4 +339,8 @@ function Get-NoMistakesHint {
 
 Export-ModuleMember -Function Get-KingshandHome, Get-ClaudeCommandPath, Get-ClaudeCommandHint,
                               Test-ClaudeCommandIsWrapper, Get-ClaudeWrapperHint,
-                              Get-NoMistakesCommandPath, Get-NoMistakesHint
+                              Get-NoMistakesCommandPath, Get-NoMistakesHint,
+                              Get-KingshandPlatform, Get-KingshandArchitecture, Get-UserHomePath,
+                              Get-ClaudeGlobalConfigPath, Get-ExecutableName, Get-HerdrPlatformKey,
+                              Resolve-LaunchableCommand, Get-PathComparison, Get-PathComparer,
+                              ConvertTo-NormalPath, Test-SamePath, Test-PathWithin

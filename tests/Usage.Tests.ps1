@@ -1270,11 +1270,12 @@ Describe 'Which account the reading belongs to' {
     # function declared there does not exist when the cases actually run.
     BeforeAll {
         $script:SavedProfile = $env:USERPROFILE
+        $script:SavedUnixHome = $env:HOME
 
         function New-AccountsHome {
             param([string]$Active, [switch]$NoActiveFile, [string]$ActiveText)
             $root = New-TempFixtureDir -Prefix 'usage-home-'
-            $dir  = Join-Path $root '.claude\accounts'
+            $dir  = Join-Path $root '.claude' 'accounts'
             New-Item -ItemType Directory -Force -Path $dir | Out-Null
             # A credential file, present exactly so the tests can show it is never read.
             '{ "accessToken": "SECRET-TOKEN-MARKER", "refreshToken": "SECRET-REFRESH-MARKER" }' |
@@ -1283,15 +1284,30 @@ Describe 'Which account the reading belongs to' {
                 $text = if ($PSBoundParameters.ContainsKey('ActiveText')) { $ActiveText } else { $Active }
                 Set-Content -LiteralPath (Join-Path $dir '.active') -Value $text -Encoding utf8
             }
-            $env:USERPROFILE = $root
+            # The variable this system reads its home directory from: Paths.psm1's Get-UserHomePath.
+            if ($IsWindows) { $env:USERPROFILE = $root } else { $env:HOME = $root }
             $root
         }
     }
-    AfterAll { $env:USERPROFILE = $script:SavedProfile }
+    AfterAll { $env:USERPROFILE = $script:SavedProfile; $env:HOME = $script:SavedUnixHome }
 
     It 'reads the active account name' {
         New-AccountsHome -Active 'personal' | Out-Null
         Get-ActiveAccountName | Should -Be 'personal'
+    }
+
+    It 'reads the name from under HOME on macOS and Linux' {
+        $root = New-AccountsHome -Active 'personal'
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $env:HOME = $root
+        $env:USERPROFILE = Join-Path $TestDrive 'not-the-profile'
+        Get-ActiveAccountName | Should -Be 'personal'
+    }
+
+    It 'reads no account rather than failing when there is no home directory at all' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $env:HOME = ''
+        Get-ActiveAccountName | Should -Be ''
     }
 
     It 'reads no account rather than failing when there is no such file' {
