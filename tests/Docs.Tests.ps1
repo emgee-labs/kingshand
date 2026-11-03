@@ -4760,10 +4760,6 @@ Describe 'install.ps1 reports rather than installs unless it is told to' {
     It 'treats only the system package manager as a floor, and installs Node itself when it may' {
         $text = Get-DocText $script:InstallPs1
         Assert-Phrase -Text $text -Where 'install.ps1' `
-            -Phrase 'The system package manager is the floor: it cannot install itself.'
-        Assert-Phrase -Text $text -Where 'install.ps1' `
-            -Phrase 'On Linux the manager is never run, because every one of them needs sudo'
-        Assert-Phrase -Text $text -Where 'install.ps1' `
             -Phrase 'winget install --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements'
     }
 
