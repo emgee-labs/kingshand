@@ -3,7 +3,8 @@ Set-StrictMode -Version Latest
 
 # What every installation and every operating system resolves differently, resolved in exactly one
 # place: this installation's root, where Claude Code and the review gate live, and the platform
-# helpers below - home directory, executable names, launchable commands and how paths compare.
+# helpers below - home directory, executable names, launchable commands, how paths compare, how the
+# installer is run and which system package manager installs git, gh and Node.js.
 #
 # Each of these was once a hardcoded answer belonging to one machine or one OS. A second copy of
 # any rule is how they drift back apart, so `bin\` and the skills both come through here rather
@@ -115,6 +116,104 @@ function Get-HerdrPlatformKey {
                'and Arm64.')
     }
     "$($platform.ToLowerInvariant())-$arch"
+}
+
+# How a person on this platform runs the installer, with whatever arguments follow it. On Windows
+# `.\install.ps1`; on macOS and Linux the file has no execute bit and no shebang, so it is handed to
+# pwsh by name. Every hint that tells someone to run the installer is built from this.
+function Get-InstallerCommand {
+    [CmdletBinding()]
+    param([string]$Arguments)
+
+    $command = if ((Get-KingshandPlatform) -eq 'Windows') { '.\install.ps1' } else { 'pwsh ./install.ps1' }
+    if ($Arguments) { $command += " $Arguments" }
+    $command
+}
+
+# The system package manager the installer uses for git, gh and Node.js on this machine, and
+# whether it may run it rather than only print its commands.
+#
+#   name  'winget', 'brew', 'apt', 'dnf', 'pacman', 'zypper', or $null where none is recognised
+#   runs  $true where the installer runs it under -InstallMissing; $false where it only prints
+#
+# Windows has winget and macOS has Homebrew, and the installer runs either - neither needs
+# elevation. Every Linux manager needs sudo and the installer never elevates, so on Linux the
+# command is printed for the person to run and nothing is run.
+#
+# The Linux manager is read from os-release's ID and ID_LIKE lines only, matched against a closed
+# list of distribution families. Nothing else in that file is read, and a family outside the list
+# is $null rather than a guess.
+function Get-SystemPackageManager {
+    [CmdletBinding()]
+    param([string]$OsReleasePath = '/etc/os-release')
+
+    switch (Get-KingshandPlatform) {
+        'Windows' { return [pscustomobject]@{ name = 'winget'; runs = $true } }
+        'MacOS'   { return [pscustomobject]@{ name = 'brew';   runs = $true } }
+    }
+
+    $ids = @()
+    if (Test-Path -LiteralPath $OsReleasePath -PathType Leaf) {
+        foreach ($line in [IO.File]::ReadAllLines($OsReleasePath)) {
+            if ($line -match '^(ID|ID_LIKE)=(.*)$') {
+                $ids += @($Matches[2].Trim().Trim('"', "'").ToLowerInvariant() -split '\s+' |
+                          Where-Object { $_ })
+            }
+        }
+    }
+    $families = [ordered]@{
+        apt    = @('debian', 'ubuntu')
+        dnf    = @('fedora', 'rhel', 'centos')
+        pacman = @('arch')
+        zypper = @('suse', 'opensuse', 'opensuse-leap', 'opensuse-tumbleweed')
+    }
+    foreach ($id in $ids) {
+        foreach ($manager in $families.Keys) {
+            if ($families[$manager] -contains $id) {
+                return [pscustomobject]@{ name = $manager; runs = $false }
+            }
+        }
+    }
+    [pscustomobject]@{ name = $null; runs = $false }
+}
+
+# The command that installs git, gh or Node.js with a given system package manager, as a person
+# would type it, or $null where no manager was recognised. The one table both the installer and
+# the toolchain check print from, so the two cannot name different commands.
+function Get-SystemPackageCommand {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidateSet('git', 'gh', 'node')][string]$Tool,
+        [AllowNull()][AllowEmptyString()][string]$Manager
+    )
+
+    $table = @{
+        winget = @{ git = 'winget install --id Git.Git'; gh = 'winget install --id GitHub.cli'
+                    node = 'winget install --id OpenJS.NodeJS.LTS' }
+        brew   = @{ git = 'brew install git'; gh = 'brew install gh'; node = 'brew install node' }
+        apt    = @{ git = 'sudo apt-get install -y git'; gh = 'sudo apt-get install -y gh'
+                    node = 'sudo apt-get install -y nodejs npm' }
+        dnf    = @{ git = 'sudo dnf install -y git'; gh = 'sudo dnf install -y gh'
+                    node = 'sudo dnf install -y nodejs npm' }
+        pacman = @{ git = 'sudo pacman -S --needed git'; gh = 'sudo pacman -S --needed github-cli'
+                    node = 'sudo pacman -S --needed nodejs npm' }
+        zypper = @{ git = 'sudo zypper install -y git'; gh = 'sudo zypper install -y gh'
+                    node = 'sudo zypper install -y nodejs npm' }
+    }
+    if (-not $Manager -or -not $table.ContainsKey($Manager)) { return $null }
+    $table[$Manager][$Tool]
+}
+
+# How to install git, gh or Node.js on this machine, as the phrase after "Install with:" in a hint:
+# the command where a package manager was recognised, and otherwise the plain direction to use the
+# distribution's own - never a guessed command.
+function Get-SystemPackageHint {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][ValidateSet('git', 'gh', 'node')][string]$Tool)
+
+    $command = Get-SystemPackageCommand -Tool $Tool -Manager (Get-SystemPackageManager).name
+    if ($command) { return $command }
+    "your distribution's own package manager"
 }
 
 # The one launchable copy of a program on PATH, or $null.
@@ -331,7 +430,8 @@ function Get-NoMistakesHint {
     [CmdletBinding()]
     param()
 
-    'no-mistakes was not found. Run: .\install.ps1 -WithReviewGate - which fetches the Windows ' +
+    $system = @{ Windows = 'Windows'; MacOS = 'macOS'; Linux = 'Linux' }[(Get-KingshandPlatform)]
+    "no-mistakes was not found. Run: $(Get-InstallerCommand '-WithReviewGate') - which fetches the $system " +
     'build from github.com/kunchenguid/no-mistakes and checks it against the published SHA-256. ' +
     'Do NOT run `npm install -g no-mistakes`: that name on npm belongs to a different, unrelated ' +
     'tool. It is needed only by projects registered `no-mistakes` or `no-mistakes-prod-only`.'
@@ -342,5 +442,7 @@ Export-ModuleMember -Function Get-KingshandHome, Get-ClaudeCommandPath, Get-Clau
                               Get-NoMistakesCommandPath, Get-NoMistakesHint,
                               Get-KingshandPlatform, Get-KingshandArchitecture, Get-UserHomePath,
                               Get-ClaudeGlobalConfigPath, Get-ExecutableName, Get-HerdrPlatformKey,
+                              Get-InstallerCommand, Get-SystemPackageManager,
+                              Get-SystemPackageCommand, Get-SystemPackageHint,
                               Resolve-LaunchableCommand, Get-PathComparison, Get-PathComparer,
                               ConvertTo-NormalPath, Test-SamePath, Test-PathWithin

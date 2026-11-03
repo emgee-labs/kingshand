@@ -26,7 +26,7 @@ BeforeAll {
     }
 
     # A real directory every fixture can point at, so the on-disk path check passes.
-    $script:RealPath = ([System.IO.Path]::GetTempPath()).TrimEnd('\')
+    $script:RealPath = [System.IO.Path]::TrimEndingDirectorySeparator([System.IO.Path]::GetTempPath())
 }
 
 Describe 'Get-ProjectPosture - mode parsing' {
@@ -659,7 +659,7 @@ Describe 'Add-ProjectEntry' {
     It 'refuses the same path written with a trailing separator' {
         Add-ProjectEntry -Name one -Path $script:RealPath -Mode 'local-only' `
                          -Description 'd' -RegistryPath $script:reg
-        { Add-ProjectEntry -Name two -Path ($script:RealPath + '\') -Mode 'local-only' `
+        { Add-ProjectEntry -Name two -Path ($script:RealPath + [IO.Path]::DirectorySeparatorChar) -Mode 'local-only' `
                            -Description 'd' -RegistryPath $script:reg } | Should -Throw '*same path*'
     }
 

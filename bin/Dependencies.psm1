@@ -210,8 +210,10 @@ function Get-NpmMissingHint {
     [CmdletBinding()]
     param()
 
+    # The command comes from the one package table in Paths.psm1, so on macOS and Linux this names
+    # the system's own manager rather than winget.
     'npm was not found. It comes with Node.js, and Claude Code, lavish-axi and tasks-axi are all ' +
-    'installed through it. Install Node.js LTS with: winget install --id OpenJS.NodeJS.LTS - or ' +
+    "installed through it. Install Node.js LTS with: $(Get-SystemPackageHint -Tool node) - or " +
     'from https://nodejs.org - then open a new shell so PATH is picked up.'
 }
 
@@ -350,7 +352,7 @@ function Test-HerdrReplaceable {
         ok     = $false
         reason = ("$why. Replacing herdr under a running server leaves the two on different " +
                   'versions, unable to read any worker. With no worker live, stop the server with ' +
-                  '`herdr server stop` - this ends every pane - then run .\install.ps1 -SyncPins.')
+                  "``herdr server stop`` - this ends every pane - then run $(Get-InstallerCommand '-SyncPins').")
     }
 }
 
@@ -366,7 +368,7 @@ function Get-DependencySyncCommand {
     }
     switch ($Pin.source) {
         'npm'    { return "npm install -g $($Pin.package)@$($Pin.version)" }
-        default  { return '.\install.ps1 -SyncPins' }
+        default  { return Get-InstallerCommand '-SyncPins' }
     }
 }
 

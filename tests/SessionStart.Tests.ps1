@@ -139,8 +139,10 @@ BeforeAll {
             $shim = Join-Path $Fixture.Root 'queue-shim'
             New-Item -ItemType Directory -Force -Path $shim | Out-Null
             Set-Content -LiteralPath (Join-Path $shim 'queue.txt') -Value $QueueToon -Encoding utf8
-            Set-Content -LiteralPath (Join-Path $shim 'tasks-axi.cmd') -Encoding ascii -Value @(
-                '@echo off', "type `"$(Join-Path $shim 'queue.txt')`"")
+            Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
+            $queue = Join-Path $shim 'queue.txt'
+            $null = New-TestExecutable -Path (Join-Path $shim 'tasks-axi') `
+                -Cmd @("type `"$queue`"") -Sh @("cat '$($queue.Replace("'", "'\''"))'")
             $env:PATH = $shim + [IO.Path]::PathSeparator + $env:PATH
         }
         try {
@@ -990,7 +992,9 @@ Describe 'the digest says how to re-arm the usage pulse' {
 
     It 'carries a runnable arming command rather than a reminder to remember one' {
         $script:Pulse.Contains('RE-ARM') | Should -BeTrue
-        $script:Pulse | Should -Match 'Import-Module .*bin\\Usage\.psm1'
+        $sep = [regex]::Escape([IO.Path]::DirectorySeparatorChar)
+        $script:Pulse | Should -Match "Import-Module .*bin$($sep)Usage\.psm1" -Because (
+            'the path is copied into a command, and a backslash is a file name character on macOS and Linux')
         $script:Pulse.Contains('Watch-UsagePulse') |
             Should -BeTrue -Because 'the Hand copies the block, so it has to be runnable'
     }

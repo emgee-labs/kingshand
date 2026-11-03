@@ -4752,13 +4752,13 @@ Describe 'install.ps1 reports rather than installs unless it is told to' {
             -Phrase 'the flag is the consent, and every command is printed before it runs'
     }
 
-    # Only winget is a true floor. npm was treated as one too, which stopped the installer dead on
-    # a machine that had winget and could therefore have installed Node in one command. A user who
-    # asks for setup in one word should not be handed a manual step the machine could take itself.
-    It 'treats only winget as a floor, and installs Node itself when winget is present' {
+    # Only the system package manager is a true floor. npm was treated as one too, which stopped the
+    # installer dead on a machine that had winget and could therefore have installed Node in one
+    # command. A user who asks for setup in one word should not be handed a manual step the machine
+    # could take itself. On Linux the manager is never run, because it needs sudo and the installer
+    # never elevates.
+    It 'treats only the system package manager as a floor, and installs Node itself when it may' {
         $text = Get-DocText $script:InstallPs1
-        Assert-Phrase -Text $text -Where 'install.ps1' `
-            -Phrase 'Only winget is a true floor'
         Assert-Phrase -Text $text -Where 'install.ps1' `
             -Phrase 'winget install --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements'
     }
@@ -6004,11 +6004,13 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     It 'install.ps1 names all four things it writes outside this repository, and the README agrees' {
         Assert-Phrase -Text (Get-DocText $script:InstallPs1) -Where 'the install.ps1 header' `
             -Phrase ('It writes at most four things outside this repository, and names each one as ' +
-                     'it does it: the two user environment variables KINGSHAND_HOME and ' +
+                     'it does it: on Windows the two user environment variables KINGSHAND_HOME and ' +
                      'LAVISH_AXI_PORT, the lines `.claude/worktrees/` and ' +
-                     '`.claude/settings.local.json` in your global gitignore, and - ' +
-                     'only on a machine where Claude Code resolves to npm''s claude.cmd wrapper - the ' +
-                     'real claude.exe put first on your user PATH.')
+                     '`.claude/settings.local.json` in your global gitignore, and - only on a ' +
+                     'Windows machine where Claude Code resolves to npm''s claude.cmd wrapper - the ' +
+                     'real claude.exe put first on your user PATH. macOS and Linux have no user ' +
+                     'environment variables, so there the same two values go into the `env` block ' +
+                     'of this repository''s own gitignored `.claude/settings.local.json`')
 
         $readme = Get-DocText (Join-Path $script:Root 'README.md')
         Assert-Phrase -Text $readme -Where 'the README Layout block' `

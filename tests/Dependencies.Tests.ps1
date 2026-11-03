@@ -270,6 +270,7 @@ Describe 'Get-DependencyPinStatus sets every pin against what is installed' {
     }
 
     It 'gives each row the command that moves it' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Windows' }
         Mock -ModuleName Dependencies Get-InstalledDependencyVersion {
             [pscustomobject]@{ found = $true; version = '0.0.1'; path = 'C:\x'; bundled = $true; detail = '' }
         }
@@ -299,6 +300,14 @@ Describe 'Test-HerdrReplaceable lets herdr be replaced only under a stopped serv
         $r.ok     | Should -BeFalse
         $r.reason | Should -Match 'is running'
         $r.reason | Should -Match 'herdr server stop'
+    }
+
+    It 'names the installer the way this system runs it' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        Mock -ModuleName Dependencies Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = ''; compatible = $true } }
+        (Test-HerdrReplaceable).reason | Should -Match ([regex]::Escape('pwsh ./install.ps1 -SyncPins'))
+        $pin = [pscustomobject]@{ name = 'herdr'; source = 'herdr'; version = '0.9.6'; minimum = $null }
+        Get-DependencySyncCommand -Pin $pin | Should -Be 'pwsh ./install.ps1 -SyncPins'
     }
 
     It 'refuses when whether it is running could not be read' {

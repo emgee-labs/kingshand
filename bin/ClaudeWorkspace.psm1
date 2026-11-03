@@ -31,6 +31,7 @@ Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
 #
 #   hooks.PermissionRequest          the folder-edit grant, never a flag - see below
 #   permissions.allow: ['Monitor']   the Monitor tool, never a flag - see $script:WorkerAllowRules
+#   env                              the PowerShell tool switch, never a flag - see $script:WorkerEnv
 #
 # It must be written INTO THE WORKTREE, not the repo. A worktree is a fresh checkout with no
 # .claude directory of its own, and settings.local.json is untracked, so nothing carries across
@@ -52,6 +53,12 @@ Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
 # settings.local.json applies its allow rules without the folder-trust step. Widening this list is
 # a decision of its own, not a convenience.
 $script:WorkerAllowRules = @('Monitor')
+
+# The environment every worker gets. On macOS and Linux Claude Code's PowerShell tool is opt-in, and
+# every command a brief or a skill hands a worker is written as PowerShell, so a worker without it
+# has only a Bash tool to run them through. On Windows the variable changes nothing for an ordinary
+# account. The Hand's own copy is in the tracked .claude\settings.json.
+$script:WorkerEnv = [ordered]@{ CLAUDE_CODE_USE_POWERSHELL_TOOL = '1' }
 
 function Set-WorkerWorkspaceSettings {
     [CmdletBinding()]
@@ -78,6 +85,7 @@ function Set-WorkerWorkspaceSettings {
         hooks       = [ordered]@{
             PermissionRequest = @(New-ClaudeFolderEditHook -ClaudeDir $claudeDir)
         }
+        env         = $script:WorkerEnv
     }
 
     $target = Join-Path $claudeDir 'settings.local.json'
@@ -271,9 +279,110 @@ function Grant-ClaudeFolderTrust {
 }
 
 # ---------------------------------------------------------------------------------------------
+# The Hand's own per-machine settings on macOS and Linux: an `env` block in this installation's
+# gitignored .claude\settings.local.json.
+#
+# Windows keeps KINGSHAND_HOME and LAVISH_AXI_PORT as user environment variables. macOS and Linux
+# have no user scope - .NET ignores a set there and a read returns nothing - so the values live
+# where Claude Code itself puts them into the Hand's session and every command it runs: the `env`
+# key of the project's local settings, which is the same on every system and needs no shell
+# profile. install.ps1 writes them and the toolchain check reads them back.
+#
+# THE FILE IS SHARED. Claude Code writes its own keys there - permission rules accepted at a prompt,
+# for one - so only `env.<name>` is ever touched, through JsonNode so every other key survives. A
+# file that cannot be read, is not strict JSON, or does not hold an object is REFUSED rather than
+# rewritten: a comment or a key that a lax parse dropped would be gone for good.
+# ---------------------------------------------------------------------------------------------
+
+function Get-HandSettingsPath {
+    [CmdletBinding()]
+    param([string]$Root)
+
+    if (-not $Root) { $Root = Get-KingshandHome }
+    Join-Path $Root '.claude' 'settings.local.json'
+}
+
+# The parsed file, a fresh empty object where there is no file, or a throw naming the file and why.
+# Every object is returned behind the leading comma: a JsonObject is enumerable, and returned bare
+# PowerShell unrolls it into loose key/value pairs - or, for an empty one, into nothing at all.
+function Read-HandSettingsDocument {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) { return , [System.Text.Json.Nodes.JsonObject]::new() }
+    if (Test-Path -LiteralPath $Path -PathType Container) {
+        throw "$Path is a directory, not a settings file. Nothing was changed."
+    }
+    try { $text = [IO.File]::ReadAllText($Path) }
+    catch { throw "$Path could not be read ($($_.Exception.Message)). Nothing was changed." }
+    if ([string]::IsNullOrWhiteSpace($text)) { return , [System.Text.Json.Nodes.JsonObject]::new() }
+    try { $root = [System.Text.Json.Nodes.JsonNode]::Parse($text.TrimStart([char]0xFEFF)) }
+    catch {
+        throw ("$Path is not valid JSON ($($_.Exception.Message)), so nothing can be added to it " +
+               "without losing what it holds. Fix the file or move it aside. Nothing was changed.")
+    }
+    if ($root -isnot [System.Text.Json.Nodes.JsonObject]) {
+        throw "$Path does not hold a JSON object. Nothing was changed."
+    }
+    $envBlock = $root['env']
+    if ($null -ne $envBlock -and $envBlock -isnot [System.Text.Json.Nodes.JsonObject]) {
+        throw "$Path has an 'env' value that is not an object. Nothing was changed."
+    }
+    , $root
+}
+
+# One variable's value from the env block, or $null where the file or the key is absent. Throws
+# where the file is there and cannot be read as settings, because "not set" would be a guess.
+function Get-HandSettingsEnvValue {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [string]$Path
+    )
+
+    if (-not $Path) { $Path = Get-HandSettingsPath }
+    $envBlock = (Read-HandSettingsDocument -Path $Path)['env']
+    if ($null -eq $envBlock -or -not $envBlock.ContainsKey($Name)) { return $null }
+    $value = $envBlock[$Name]
+    if ($null -eq $value -or $value.GetValueKind() -ne [System.Text.Json.JsonValueKind]::String) {
+        throw "$Path names $Name in its 'env' block with a value that is not a string."
+    }
+    $value.GetValue[string]()
+}
+
+# Sets one variable in the env block and leaves every other key in the file as it was. Written
+# through a temp file beside it and moved into place, so an interrupted write never leaves half a
+# settings file.
+function Set-HandSettingsEnvValue {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Value,
+        [string]$Path
+    )
+
+    if (-not $Path) { $Path = Get-HandSettingsPath }
+    $root = Read-HandSettingsDocument -Path $Path
+    $envBlock = $root['env']
+    if ($null -eq $envBlock) {
+        $envBlock = [System.Text.Json.Nodes.JsonObject]::new()
+        $root['env'] = $envBlock
+    }
+    $envBlock[$Name] = [System.Text.Json.Nodes.JsonValue]::Create($Value)
+
+    $dir = Split-Path -Parent $Path
+    if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    $opts = [System.Text.Json.JsonSerializerOptions]::new()
+    $opts.WriteIndented = $true
+    $tmp = "$Path.kingshand-tmp"
+    [IO.File]::WriteAllText($tmp, $root.ToJsonString($opts))
+    Move-Item -LiteralPath $tmp -Destination $Path -Force
+    $Path
+}
+
+# ---------------------------------------------------------------------------------------------
 # A worker in the project's OWN checkout, with no worktree: the `fief` skill's warm worker.
 #
-# The grants are the same four, and the difference is whose file they land in. A worktree is a
+# The grants are the same five, and the difference is whose file they land in. A worktree is a
 # fresh checkout kingshand made, so its settings.local.json is kingshand's to write whole. A checkout
 # is the King's, and its settings.local.json may already hold his own `allow` list and anything else
 # he put there. So the file is EDITED rather than written - every key he had survives, the grants
@@ -429,6 +538,21 @@ function New-CheckoutSettingsPlan {
     }
     $group = New-ClaudeFolderEditHook -ClaudeDir $claudeDir | ConvertTo-Json -Depth 10
     $requests.Add([System.Text.Json.Nodes.JsonNode]::Parse($group))
+
+    # The worker's environment, added only where the King's file does not already name the
+    # variable - a value he set himself is his, and the restore puts the whole file back anyway.
+    $envBlock = $root['env']
+    if ($null -eq $envBlock) {
+        $envBlock = [System.Text.Json.Nodes.JsonObject]::new()
+        $root['env'] = $envBlock
+    } elseif ($envBlock -isnot [System.Text.Json.Nodes.JsonObject]) {
+        throw "$settingsPath has an 'env' value that is not an object. Nothing was changed."
+    }
+    foreach ($name in $script:WorkerEnv.Keys) {
+        if (-not $envBlock.ContainsKey($name)) {
+            $envBlock[$name] = [System.Text.Json.Nodes.JsonValue]::Create([string]$script:WorkerEnv[$name])
+        }
+    }
 
     $opts = [System.Text.Json.JsonSerializerOptions]::new()
     $opts.WriteIndented = $true
@@ -720,4 +844,5 @@ Export-ModuleMember -Function Set-WorkerWorkspaceSettings, Grant-ClaudeFolderTru
                               Get-CheckoutSettingsRecordPath, New-CheckoutSettingsPlan,
                               Set-CheckoutWorkerSettings, Read-CheckoutSettingsRecord,
                               Restore-CheckoutWorkerSettings, Stop-CheckoutWorker,
-                              Get-CheckoutBaselinePath, New-CheckoutBaselinePlan, Set-CheckoutBaseline
+                              Get-CheckoutBaselinePath, New-CheckoutBaselinePlan, Set-CheckoutBaseline,
+                              Get-HandSettingsPath, Get-HandSettingsEnvValue, Set-HandSettingsEnvValue

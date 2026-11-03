@@ -45,8 +45,8 @@ BeforeAll {
 
 Describe 'the VERSION file lives at the root and is named in one place' {
     It 'hangs VERSION off the root it is given' {
-        Get-VersionFilePath -Root 'C:\somewhere\kingshand' |
-            Should -Be 'C:\somewhere\kingshand\VERSION'
+        $r = Join-Path $TestDrive 'somewhere' 'kingshand'
+        Get-VersionFilePath -Root $r | Should -Be (Join-Path $r 'VERSION')
     }
 
     It 'this repository ships a VERSION file that parses' {

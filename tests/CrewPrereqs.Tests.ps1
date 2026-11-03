@@ -23,9 +23,23 @@ BeforeAll {
 
     # One run, reused by every case below. Spawning a pwsh per assertion would cost seconds each
     # for output that cannot differ between them.
+    # The one directory the child's PATH holds. On Windows that is git's own directory, which holds
+    # git and nothing this check looks for. On macOS and Linux git lives in /usr/bin beside every
+    # other tool - claude, gh and node included - so there it is a directory of its own holding a
+    # link to git and nothing else.
+    function Get-GitOnlyDir {
+        $real = Split-Path $script:Git.Source -Parent
+        if ($IsWindows) { return $real }
+        $dir = Join-Path ([IO.Path]::GetTempPath()) ('prereq-git-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $dir | Out-Null
+        New-Item -ItemType SymbolicLink -Path (Join-Path $dir 'git') -Target $script:Git.Source | Out-Null
+        $dir
+    }
+
     $script:Run = $null
     if ($script:Git) {
-        $gitDir = Split-Path $script:Git.Source -Parent
+        $script:GitDir = Get-GitOnlyDir
+        $gitDir = $script:GitDir
         $driver = Join-Path ([IO.Path]::GetTempPath()) ("prereq-" + [guid]::NewGuid().ToString('N') + '.ps1')
         Set-Content -LiteralPath $driver -Encoding utf8 -Value @"
 `$env:PATH         = '$gitDir'
@@ -45,12 +59,39 @@ Write-Host "PREREQ_EXIT=`$LASTEXITCODE"
         }
     }
 
+    # One run against an installation root of its own, whose .claude/settings.local.json holds
+    # $Content. dependencies.json is copied in so nothing else in the run changes.
+    function Invoke-PrereqWithSettings {
+        param([Parameter(Mandatory)][string]$Content)
+        $home_ = Join-Path ([IO.Path]::GetTempPath()) ('prereq-settings-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $home_ '.claude') -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $script:Root 'dependencies.json') -Destination $home_
+        Set-Content -LiteralPath (Join-Path $home_ '.claude' 'settings.local.json') -Value $Content -Encoding utf8
+        $driver = Join-Path $home_ 'driver.ps1'
+        Set-Content -LiteralPath $driver -Encoding utf8 -Value @"
+`$env:PATH           = '$($script:GitDir)'
+`$env:PSModulePath   = Join-Path `$PSHOME 'Modules'
+`$env:KINGSHAND_HOME = '$home_'
+& '$($script:Prereqs)'
+Write-Host "PREREQ_EXIT=`$LASTEXITCODE"
+"@
+        try { & (Get-Process -Id $PID).Path -NoProfile -File $driver 2>&1 | Out-String }
+        finally { Remove-Item -LiteralPath $home_ -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
     # Everything after the "FAILED:" banner, which is the only part that sets the exit code.
     function Get-FailureBlock {
         param([Parameter(Mandatory)][string]$Text)
         $i = $Text.IndexOf('FAILED:')
         if ($i -lt 0) { return '' }
         $Text.Substring($i)
+    }
+}
+
+AfterAll {
+    # Only the directory made for the link: on Windows GitDir is git's own, and is never removed.
+    if (-not $IsWindows -and $script:GitDir) {
+        Remove-Item -LiteralPath $script:GitDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -86,7 +127,22 @@ Describe 'the prereq check fails only on what dispatch cannot work without' {
     It 'names Node.js as a failure when npm is missing and an npm tool needs it' {
         (Get-FailureBlock $script:Run.Text).Contains('npm was not found. It comes with Node.js') |
             Should -BeTrue -Because 'an npm command is not a fix on a machine with no npm'
-        $script:Run.Text.Contains('winget install --id OpenJS.NodeJS.LTS') | Should -BeTrue
+        # The command this system's package manager installs Node.js with - winget on Windows.
+        Import-Module (Join-Path $script:Root 'bin\Paths.psm1') -Force
+        $script:Run.Text.Contains((Get-SystemPackageHint -Tool node)) | Should -BeTrue
+    }
+
+    # macOS and Linux keep the port in the env block install.ps1 writes, since they have no user
+    # environment. The child decides its platform for itself, so these run where that branch does.
+    It 'reads the lavish port from the settings env block on macOS and Linux' -Skip:($IsWindows) {
+        $out = Invoke-PrereqWithSettings -Content '{ "env": { "LAVISH_AXI_PORT": "4388" }, "permissions": {} }'
+        $out | Should -Match 'OK\s+lavish port\s+4388'
+    }
+
+    It 'names a settings file it cannot read as a failure rather than reading the port as unset' -Skip:($IsWindows) {
+        $out = Invoke-PrereqWithSettings -Content '{ not json'
+        (Get-FailureBlock $out).Contains('LAVISH_AXI_PORT could not be read') |
+            Should -BeTrue -Because 'a file that would not parse says nothing about the port'
     }
 
     It 'reports a missing Claude Code once, not twice' {
@@ -111,7 +167,7 @@ Describe 'the prereq check fails only on what dispatch cannot work without' {
         $home_ = Join-Path ([IO.Path]::GetTempPath()) ('prereq-home-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $home_ | Out-Null
         Set-Content -LiteralPath (Join-Path $home_ 'dependencies.json') -Value '{ not json' -Encoding utf8
-        $gitDir = Split-Path $script:Git.Source -Parent
+        $gitDir = $script:GitDir
         $driver = Join-Path $home_ 'driver.ps1'
         Set-Content -LiteralPath $driver -Encoding utf8 -Value @"
 `$env:PATH           = '$gitDir'

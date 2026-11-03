@@ -119,7 +119,7 @@ function Get-RepoCiConfigFiles {
 
     $hits = [System.Collections.Generic.List[string]]::new()
 
-    $workflows = Join-Path $RepoPath '.github\workflows'
+    $workflows = Join-Path $RepoPath '.github' 'workflows'
     if (Test-Path -LiteralPath $workflows -PathType Container) {
         # An empty workflows directory is not CI. A repository that deleted its last workflow keeps
         # the directory, and calling that `has-ci` restores the endless wait.

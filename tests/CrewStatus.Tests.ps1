@@ -33,10 +33,10 @@ BeforeAll {
 
     # The shim records every argument list so a test can assert how many calls were made, then
     # answers per command: `agent get <name>` and `agent read <name>` are per-worker and get their
-    # own files, everything else gets response.json. A .cmd specifically: it has to resolve as an
-    # Application, which is the only command type Get-HerdrCommandPath accepts.
-    Set-Content -Path (Join-Path $script:ShimDir 'herdr.cmd') -Encoding ascii -Value @(
-        '@echo off',
+    # own files, everything else gets response.json. A launchable program specifically: it has to
+    # resolve as an Application, which is the only command type Get-HerdrCommandPath accepts.
+    Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
+    $script:Shim = New-TestExecutable -Path (Join-Path $script:ShimDir 'herdr') -Cmd @(
         '>>"%KINGSHAND_TEST_HERDR_CALLS%" echo %*',
         'if /I "%~2"=="get" goto agentget',
         'if /I "%~2"=="read" goto agentread',
@@ -48,6 +48,14 @@ BeforeAll {
         'goto :eof',
         ':agentread',
         'if exist "%KINGSHAND_TEST_HERDR_DIR%\screen-%~3.txt" type "%KINGSHAND_TEST_HERDR_DIR%\screen-%~3.txt"'
+    ) -Sh @(
+        'echo "$*" >> "$KINGSHAND_TEST_HERDR_CALLS"',
+        'd="$KINGSHAND_TEST_HERDR_DIR"',
+        'case "$2" in',
+        '  get) if [ -f "$d/get-$3.json" ]; then cat "$d/get-$3.json"; else cat "$d/notfound.json"; fi ;;',
+        '  read) if [ -f "$d/screen-$3.txt" ]; then cat "$d/screen-$3.txt"; fi ;;',
+        '  *) cat "$KINGSHAND_TEST_HERDR_RESPONSE" ;;',
+        'esac'
     )
 
     $env:KINGSHAND_TEST_HERDR_CALLS    = $script:CallLog
@@ -120,7 +128,7 @@ AfterAll {
 
 Describe 'the shim really is what herdr resolves to' {
     It 'puts the test double ahead of the bundled binary' {
-        (Get-HerdrCommandPath) | Should -Be (Join-Path $script:ShimDir 'herdr.cmd') `
+        (Get-HerdrCommandPath) | Should -Be $script:Shim `
             -Because 'every case below is meaningless if the real herdr answered instead'
     }
 }

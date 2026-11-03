@@ -521,7 +521,7 @@ function Resolve-WatchTarget {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Name,
-        [string]$StatePath = (Join-Path (Get-KingshandHome) 'state\crew.json')
+        [string]$StatePath = (Join-Path (Get-KingshandHome) 'state' 'crew.json')
     )
 
     $fail = { param($why) [pscustomobject]@{ ok = $false; repo = ''; branch = ''; error = $why } }

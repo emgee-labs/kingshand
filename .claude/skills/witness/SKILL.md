@@ -151,8 +151,8 @@ process that set it and in a child spawned after the set, while a registry read 
 both. So `$env:NAME` alone reads empty for a login that is perfectly well set, and the silent
 failure looks exactly like a wrong password.
 
-`Get-BrowserCredentialStatus` reads the process block first and the user environment second, so it
-finds one the shell cannot see and says which source answered. **Never fall back to a bare
+`Get-BrowserCredentialStatus` reads the process block first and, on Windows, the user environment
+second, so it finds one the shell cannot see and says which source answered. **Never fall back to a bare
 `$env:NAME` read** - that is the failure, not the fix. Where it finds nothing, the reason names the
 variable and says to restart the worker server if a later worker still cannot see it; put that
 reason in the report and record every check that needed the login `not checked`.
