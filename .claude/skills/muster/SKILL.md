@@ -778,9 +778,8 @@ Keep it short and tell the worker so. A report that runs to an essay is as much 
 report - the point is that a fresh session can pick the work up, not that the worker narrates.
 
 The reason the file exists is that a final chat message is a session artefact. A worker's screen
-dies with its pane, and workers inherit `CLAUDE_CODE_CHILD_SESSION` from the Hand's own session,
-so transcript saving is off and there is usually no transcript on disk to fall back to at all. A
-finding that lives only in the worker's output cannot be recovered by a later session.
+dies with its pane, and its on-disk transcript is an unindexed log a later session has no reason to
+search, so a finding that lives only in the worker's output is not recovered in practice.
 `report.md` is kingshand state and survives teardown.
 
 `--skip` has exactly two sanctioned uses on this path and nothing else may add one. The first is
@@ -1829,13 +1828,15 @@ Read-HerdrAgent -Name "<worker id>" -Lines 60
 
 That returns the worker's recent rendered output and is enough almost every time.
 
-**There is no transcript to fall back to when it is not.** Workers inherit
-`CLAUDE_CODE_CHILD_SESSION` from the Hand's own session, so they run with transcript saving off
-and usually write nothing under `~\.claude\projects\` at all. Do not go looking for a `.jsonl`
-that will not be there and do not report an empty search as an empty report. If the final message
-has scrolled out of reach, ask for more lines while the pane is still alive - once the worker is
-torn down at Step 8b, that output is gone for good and `report.md` is all that is left. That is
-the whole reason the brief demands it.
+**When it is not, the transcript is the last resort, not a report.** Workers do write one: the
+herdr server and each pane are started with `CLAUDE_CODE_CHILD_SESSION` cleared, so transcript
+saving stays on, and the session lands under `~\.claude\projects\` in a folder named for the
+worker's worktree path. It survives cleanup. It is raw session history, not findings, so read it
+only to recover a final message that has scrolled away, and never report an empty or missing one
+as an empty report - a herdr server kingshand did not start may still carry the marker and save
+nothing. If the final message has scrolled out of reach, ask for more lines while the pane is still
+alive first. That `report.md` is the one record a later session reliably reads is the whole reason
+the brief demands it.
 
 Workers report real problems in that message that no git command will show you. Treat it as
 evidence and verify its claims yourself - it is a report, not a finding.

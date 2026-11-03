@@ -43,10 +43,10 @@ a browser step as a side effect.
 copied into brief after brief. That is the point at which a per-project home earns itself. One
 project's worth of rules does not.
 
-## The environment a worker inherits is a snapshot, and it is usually stale
+## A shell's environment can be stale, and a worker's is not
 
 A login has to reach a worker without being written down anywhere, so it comes from a user-scope
-environment variable. The trap is that it does not arrive.
+environment variable. The trap was thought to be that it does not arrive.
 
 Measured on this machine, 2026-09-03:
 
@@ -56,16 +56,24 @@ Measured on this machine, 2026-09-03:
 - a registry read - `[Environment]::GetEnvironmentVariable($name, 'User')` - returned it from both.
 
 That is ordinary Windows behaviour rather than a defect in anything: a process inherits its
-parent's environment block at creation, and a long-running console server never learns that the
-user environment changed. Every worker it starts inherits the environment as it was when the
-server started. The failure mode is the bad one - `$env:NAME` reads empty for a variable that is
-correctly set, and an empty password looks exactly like a wrong password.
+parent's environment block at creation, so a child of a stale process is stale too. **What these
+measurements do not show is how the worker server starts a worker, and the conclusion first drawn
+from them - that every worker inherits the environment as it was when the server started - was
+wrong.** `docs\2026-09-04-worker-environment-propagation.md` measured the real path, a pane created
+by a server older than the variable, and the pane saw it. A live worker repeated the check on
+2026-11-03: its server had been up eleven hours, the user environment had been written after that
+server started, and every user-scope variable but the merged `Path` matched the worker's own block.
+
+The failure mode is still the bad one wherever it does happen - `$env:NAME` reads empty for a
+variable that is correctly set, and an empty password looks exactly like a wrong password - and
+it happens in any process older than the variable, such as a shell left open since before it was
+set.
 
 `Get-BrowserCredentialStatus` therefore reads the process block first and the user environment
-second, and reports which source answered. The second read is the one that usually succeeds, so
-the answer is a variable that simply works rather than an instruction to restart a server, which
-is advice a background worker cannot act on anyway. The restart is still named in the not-found
-message, because a variable set in neither place needs it.
+second, and reports which source answered. In a worker the first read usually answers; the second
+is there for any process that is older than the variable, and it means the answer is a variable
+that simply works rather than an instruction to restart something. The restart is still named in
+the not-found message, because a variable set in neither place needs a person.
 
 The login itself is not in what that function returns. A hashtable evaluated on its own prints
 every key it holds, so a worker typing `$cred` to see whether a login was found would put the
@@ -73,9 +81,9 @@ login into its pane and its transcript - a foot-gun no prose warning removes. Th
 therefore safe to print by construction, and `Get-BrowserCredentialValue` is the only way to the
 login, called where it is typed into the page and nowhere else.
 
-**Do not replace that second read with a bare `$env:` lookup.** It will appear to work on any
-machine where the server was started after the variable was set, which is exactly the machine
-nobody tests on.
+**Do not replace that second read with a bare `$env:` lookup.** It will appear to work in every
+process started after the variable was set, which is every process anyone tests from, and fail in
+the one that was already running.
 
 ## The implementing worker drives the browser
 

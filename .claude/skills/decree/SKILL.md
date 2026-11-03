@@ -228,6 +228,6 @@ no check that looks for an open hold before cleanup, and
 decision was ever filed.
 
 So this is a discipline the Hand follows, not a check a script performs. Nothing downstream
-catches a decision you did not inventory: the worker is gone, its session and transcript are gone,
-and the only trace left is a `report.md` nobody has a reason to re-open. Treat the inventory at
+catches a decision you did not inventory: the worker and its session are gone, and the only trace
+anyone reads is a `report.md` nobody has a reason to re-open. Treat the inventory at
 step 4 as the moment the decision either becomes durable or is lost.
