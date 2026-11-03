@@ -1064,9 +1064,14 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         # at the moment it started, which the caller has to know because "no prompt found" and
         # "could not look" are different answers and only one means the worker is healthy.
         # `startPrompt` is what the start-prompt confirmation saw, `taken` on the ordinary path.
-        It 'returns the four fields crew.json is built from, plus the readability and start answers' {
+        # `paneId` is the fifth crew.json field: cleanup closes that pane after the worker exits.
+        It 'returns the five fields crew.json is built from, plus the readability and start answers' {
             @($script:FirstResult.Keys | Sort-Object) |
-                Should -Be @('base', 'branch', 'id', 'readable', 'startPrompt', 'worktree')
+                Should -Be @('base', 'branch', 'id', 'paneId', 'readable', 'startPrompt', 'worktree')
+        }
+
+        It 'returns the pane it created, so the record can close it after the worker has exited' {
+            $script:FirstResult.paneId | Should -Not -BeNullOrEmpty
         }
 
         It 'reports the worker as readable when its terminal is wide enough for the guard' {

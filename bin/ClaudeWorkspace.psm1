@@ -644,8 +644,8 @@ function Set-CheckoutBaseline {
     $true
 }
 
-# Cleanup for a worker in the project's own checkout. `muster` Step 8b points here rather than
-# carrying a second copy of the procedure.
+# Cleanup for a worker in the project's own checkout. Remove-WorkerCopy in bin\Teardown.psm1, which
+# `muster` Step 8b runs, hands a checkout worker here rather than carrying a second copy of this.
 #
 # THREE THINGS IN THIS ORDER, and two it never does. Stop the worker, discard its pane, put the
 # settings file back. It NEVER deletes the branch and NEVER removes the checkout: there is no

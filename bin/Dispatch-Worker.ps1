@@ -1650,6 +1650,9 @@ $result = [hashtable]@{
     base        = $base
     readable    = $readable
     startPrompt = $taken.outcome
+    # Recorded with Add-CrewWorker -PaneId, so cleanup can close this pane after the worker has
+    # exited - by then herdr has no agent left to find it through.
+    paneId      = $paneId
 }
 # Two more keys for a checkout worker and none for a worktree one, so an ordinary dispatch returns
 # exactly the shape it always has. The record path is what Stop-CheckoutWorker takes back.

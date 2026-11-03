@@ -145,8 +145,8 @@ The safe order is not negotiable:
 2. Confirm exactly what is committed, and whether the branch exists on the remote.
 3. Use `Stop-HerdrAgent -Name <worker id>` while anything is unlanded. It ends the run and keeps
    the work.
-4. Remove the worktree only once the work is committed and either landed or pushed, or the user
-   has explicitly authorised discarding it.
+4. Remove the copy only with `Remove-WorkerCopy`, whose header in `bin\Teardown.psm1` owns the
+   order and the refusals. Discarding unlanded work instead is the user's explicit call alone.
 
 `report.md` is outside the worktree and no cleanup here can reach it. Nothing else the worker
 produced has that protection.
