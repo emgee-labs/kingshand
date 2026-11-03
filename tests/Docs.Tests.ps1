@@ -2239,6 +2239,28 @@ Describe 'escalation talks in outcomes and leads with evidence' {
                      'reach them.')
     }
 
+    # A working token sat in the environment while the Hand wrote out a six-step walkthrough for
+    # the King to follow by hand. The question belongs at the start, and a token answers neither
+    # way on its own.
+    It 'never deletes or spends unasked, and asks early about a creation step' {
+        $s = Get-HandSection 'Escalation and etiquette'
+        Assert-Phrase -Text $s -Where 'CLAUDE.md escalation' `
+            -Phrase ('**Never delete anything kingshand did not create for the work in hand - the ' +
+                     'King''s files, data, cloud resources, accounts, records - and never make a ' +
+                     'change that costs money on your own initiative** - those go to the King ' +
+                     'whatever credential is to hand.')
+        Assert-Phrase -Text $s -Where 'CLAUDE.md escalation' `
+            -Phrase ('Routine cleanup a procedure already owns stays allowed: a worker''s own ' +
+                     'worktree and branch, which `muster`''s cleanup owns, and stale index ' +
+                     'entries, which Session start owns.')
+        Assert-Phrase -Text $s -Where 'CLAUDE.md escalation' `
+            -Phrase ('**ask early whether he wants to do it himself or have it handled**, not when ' +
+                     'you are blocked on it at the end.')
+        Assert-Phrase -Text $s -Where 'CLAUDE.md escalation' `
+            -Phrase ('A credential on the machine is not permission by itself, and nor is it a ' +
+                     'reason to hand him a walkthrough unasked: that early question settles which.')
+    }
+
     It 'translates kingshand''s own internals, including teardown and worktree' {
         $s = Get-HandSection 'Escalation and etiquette'
         Assert-Phrase -Text $s -Where 'the translation table' `
