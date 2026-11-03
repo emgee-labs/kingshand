@@ -27,13 +27,17 @@ BeforeAll {
         $p
     }
 
-    # A file called herdr.exe and nothing more. Get-Command resolves an Application by name and
-    # extension, never by reading the file, so a stub is enough to prove which candidate the
-    # discovery rule picks - and no test here ever executes it.
+    # A file called herdr.exe and nothing more - or, on macOS and Linux, an executable file called
+    # herdr. Get-Command resolves an Application by name and extension, or there by the execute
+    # bit, never by reading the file, so a stub is enough to prove which candidate the discovery
+    # rule picks - and no test here ever executes it.
     function New-StubHerdr {
         param([Parameter(Mandatory)][string]$Directory)
-        $exe = Join-Path $Directory 'herdr.exe'
+        $exe = Join-Path $Directory ($IsWindows ? 'herdr.exe' : 'herdr')
         Set-Content -LiteralPath $exe -Value 'stub' -Encoding utf8
+        if (-not $IsWindows) {
+            [IO.File]::SetUnixFileMode($exe, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+        }
         $exe
     }
 
@@ -310,7 +314,7 @@ Describe 'Get-HerdrCommandPath prefers a herdr on PATH over the bundled copy' {
         $script:OnPathExe = New-StubHerdr -Directory $script:OnPathDir
 
         $script:FakeHome  = New-TempFixtureDir -Prefix 'herdr-home-'
-        $bundledDir       = Join-Path $script:FakeHome 'tools\herdr'
+        $bundledDir       = Join-Path $script:FakeHome 'tools' 'herdr'
         New-Item -ItemType Directory -Force -Path $bundledDir | Out-Null
         $script:BundledExe = New-StubHerdr -Directory $bundledDir
 

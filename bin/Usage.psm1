@@ -195,24 +195,14 @@ function ConvertTo-JsonList {
 
 # The launchable `quota-axi`, or $null.
 #
-# `.ps1` is never returned, and npm installs one alongside the others. Paths.psm1's own
-# Get-ClaudeCommandPath header owns the reasoning in full: a native launch of a `.ps1` dies with
-# "%1 is not a valid Win32 application", and the extensionless npm shim is a shell script with the
-# same problem. Only `.exe` and `.cmd` can be started here, and `.exe` wins where both exist.
+# npm installs a `.ps1` and an extensionless shim beside the `.cmd`. Which of them can be launched
+# on which system is Resolve-LaunchableCommand's rule in Paths.psm1: on Windows only `.exe` or
+# `.cmd`, `.exe` first; on macOS and Linux the shim itself.
 function Get-QuotaAxiCommandPath {
     [CmdletBinding()]
     param()
 
-    $found = @(Get-Command 'quota-axi' -CommandType Application -ErrorAction SilentlyContinue |
-               Where-Object { $_.Source })
-    foreach ($ext in @('.exe', '.cmd')) {
-        foreach ($c in $found) {
-            if ($c.Source.EndsWith($ext, [System.StringComparison]::OrdinalIgnoreCase)) {
-                return $c.Source
-            }
-        }
-    }
-    $null
+    Resolve-LaunchableCommand -Name 'quota-axi'
 }
 
 # One message, so every caller tells the user the same actionable thing.
@@ -741,9 +731,9 @@ function Get-ActiveAccountName {
     [CmdletBinding()]
     param()
 
-    $profileRoot = $env:USERPROFILE
-    if (-not $profileRoot) { return '' }
-    $path = Join-Path $profileRoot '.claude\accounts\.active'
+    $profileRoot = $null
+    try { $profileRoot = Get-UserHomePath } catch { return '' }
+    $path = Join-Path $profileRoot '.claude' 'accounts' '.active'
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return '' }
     try {
         $name = (Get-Content -LiteralPath $path -Raw -ErrorAction Stop).Trim()

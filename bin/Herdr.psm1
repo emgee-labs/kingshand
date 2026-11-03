@@ -34,7 +34,7 @@ function Get-HerdrCommandPath {
               Select-Object -First 1
     if ($onPath -and $onPath.Source) { return $onPath.Source }
 
-    $bundled = Join-Path (Get-KingshandHome) 'tools\herdr\herdr.exe'
+    $bundled = Join-Path (Get-KingshandHome) 'tools' 'herdr' (Get-ExecutableName 'herdr')
     if (Test-Path -LiteralPath $bundled -PathType Leaf) { return $bundled }
 
     $null

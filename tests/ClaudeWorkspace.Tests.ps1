@@ -232,9 +232,11 @@ Describe 'the folder-edit grant lets a worker edit its own .claude folder and no
 
     It 'gives no decision through a link that leads out of the folder' {
         $outside = New-CaseDir
-        New-Item -ItemType Junction -Path (Join-Path $script:Claude 'linked') -Target $outside | Out-Null
+        # A junction on Windows; macOS and Linux have none, and a symbolic link is the same escape.
+        $kind = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
+        New-Item -ItemType $kind -Path (Join-Path $script:Claude 'linked') -Target $outside | Out-Null
         Resolve-WorkerClaudeFolderEdit -ClaudeDir $script:Claude 2>$null `
-            -InputJson (New-Request -Path (Join-Path $script:Claude 'linked\x.md')) | Should -BeNullOrEmpty
+            -InputJson (New-Request -Path (Join-Path $script:Claude 'linked' 'x.md')) | Should -BeNullOrEmpty
     }
 
     # Unreadable input is no decision, never an allow: the request then meets Claude Code's own flow.
@@ -362,6 +364,56 @@ Describe 'Grant-ClaudeFolderTrust records one worktree as trusted' {
         New-ConfigFixture -Path $script:Config -Json '{"projects":{"D:/repo":{}}}' | Out-Null
         Grant-ClaudeFolderTrust -Path 'D:\repo\wt' -ConfigPath $script:Config | Out-Null
         Test-Path -LiteralPath "$($script:Config).kingshand-tmp" | Should -BeFalse
+    }
+}
+
+# Where the trust is written when the caller names no file: the one Claude Code itself reads. That
+# is CLAUDE_CONFIG_DIR when it is set, on every system, and the home directory otherwise - HOME on
+# macOS and Linux, where USERPROFILE does not exist. Both variables point at fixtures in every case,
+# so the real file is never in reach.
+Describe 'Grant-ClaudeFolderTrust with no -ConfigPath writes where Claude Code reads' {
+    BeforeAll {
+        $script:SavedConfigDir = $env:CLAUDE_CONFIG_DIR
+        $script:SavedProfile   = $env:USERPROFILE
+        $script:SavedUnixHome  = $env:HOME
+    }
+    AfterAll {
+        $env:CLAUDE_CONFIG_DIR = $script:SavedConfigDir
+        $env:USERPROFILE       = $script:SavedProfile
+        $env:HOME              = $script:SavedUnixHome
+    }
+    BeforeEach {
+        $script:Case = New-CaseDir
+        $env:CLAUDE_CONFIG_DIR = ''
+        $env:USERPROFILE = Join-Path $script:Case 'profile'
+        $env:HOME        = Join-Path $script:Case 'home'
+    }
+
+    It 'follows CLAUDE_CONFIG_DIR' {
+        $env:CLAUDE_CONFIG_DIR = Join-Path $script:Case 'config'
+        $config = New-ConfigFixture -Path (Join-Path $env:CLAUDE_CONFIG_DIR '.claude.json') -Json '{"projects":{}}'
+        (Grant-ClaudeFolderTrust -Path 'D:\repo\wt').granted | Should -BeTrue
+        Get-ProjectKeys -Path $config | Should -Contain 'D:/repo/wt'
+    }
+
+    It 'uses HOME on Linux' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $config = New-ConfigFixture -Path (Join-Path $env:HOME '.claude.json') -Json '{"projects":{}}'
+        (Grant-ClaudeFolderTrust -Path '/home/x/repo/wt').granted | Should -BeTrue
+        Get-ProjectKeys -Path $config | Should -Contain '/home/x/repo/wt'
+    }
+
+    It 'uses USERPROFILE on Windows' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Windows' }
+        $config = New-ConfigFixture -Path (Join-Path $env:USERPROFILE '.claude.json') -Json '{"projects":{}}'
+        (Grant-ClaudeFolderTrust -Path 'D:\repo\wt').granted | Should -BeTrue
+        Get-ProjectKeys -Path $config | Should -Contain 'D:/repo/wt'
+    }
+
+    It 'throws naming the missing variable rather than writing anywhere' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $env:HOME = ''
+        { Grant-ClaudeFolderTrust -Path '/home/x/repo/wt' } | Should -Throw '*HOME*'
     }
 }
 

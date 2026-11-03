@@ -97,17 +97,13 @@ function Invoke-TeardownGit {
 function ConvertTo-TeardownPath {
     param([string]$Path)
     if (-not $Path) { return '' }
-    [System.IO.Path]::TrimEndingDirectorySeparator([System.IO.Path]::GetFullPath($Path))
+    ConvertTo-NormalPath $Path
 }
 
 # True when $Path is $Root or somewhere inside it.
 function Test-TeardownPathWithin {
     param([string]$Path, [string]$Root)
-    if (-not $Path -or -not $Root) { return $false }
-    $p = ConvertTo-TeardownPath $Path
-    $r = ConvertTo-TeardownPath $Root
-    $p.Equals($r, [StringComparison]::OrdinalIgnoreCase) -or
-        $p.StartsWith($r + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
+    Test-PathWithin -Path $Path -Root $Root
 }
 
 function Get-TeardownField {
@@ -141,7 +137,7 @@ function Test-TeardownRegistered {
     param($Registered, [string]$Path)
     $p = ConvertTo-TeardownPath $Path
     foreach ($x in @($Registered.paths)) {
-        if ($x.Equals($p, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+        if ($x.Equals($p, (Get-PathComparison))) { return $true }
     }
     $false
 }
