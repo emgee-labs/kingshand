@@ -10941,3 +10941,24 @@ Describe 'the Hand pays for less of its own context' {
             -Phrase 'it writes the checkout warnings into the dispatch file beside the brief'
     }
 }
+
+# File deletion under data\ has one owner, kept apart from the memory pass: chronicle runs
+# semi-unattended before a context reset, and data\ is gitignored, so a deleted file has no
+# recovery. The behaviour is tested through the module in tests\DataTidy.Tests.ps1; these pin
+# the two sentences that say who owns it.
+Describe 'deleting files under data has one owner, and it is not chronicle' {
+    It 'lists the tidy module in the Tooling table, dry run by default' {
+        Assert-Phrase -Text (Get-HandSection 'Tooling') -Where 'the CLAUDE.md tooling table' `
+            -Phrase ('| `bin\DataTidy.psm1` | the data tidy, run only when the Hand runs it: a dry ' +
+                     'run by default, and with `-Apply` it deletes only a staged copy of closed work ' +
+                     'whose original is still on disk unchanged')
+        Assert-Phrase -Text (Get-HandSection 'Tooling') -Where 'the CLAUDE.md tooling table' `
+            -Phrase 'every other file it suspects is reported for the King to decide, never deleted'
+    }
+
+    It 'chronicle says it never deletes a file and names the owner' {
+        Assert-Phrase -Text (Get-DocText $script:ChronicleMd) -Where 'the chronicle skill' `
+            -Phrase ('**This pass never deletes a file under `data\`.** Deleting files is ' +
+                     '`bin\DataTidy.psm1`''s, run only when the Hand runs it')
+    }
+}
