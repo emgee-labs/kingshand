@@ -130,6 +130,19 @@ Describe 'an entry says where a file is and what it is, in one line' {
         { Get-IndexDrift -DataPath $data } | Should -Not -Throw
     }
 
+    It 'indexes a new file into an index that already holds an unreadable line' {
+        $data = New-DataFixture 'bad-line-write'
+        New-DataFile -DataPath $data -Relative 'next.md' | Out-Null
+        Set-Content -LiteralPath (Join-Path $data 'index.md') -Encoding utf8 -Value @(
+            '# Index'
+            ''
+            '- `..\..\escape.md` - hand-edited'
+        )
+
+        { Add-IndexEntry -Path 'data\next.md' -Summary 'the next one' -DataPath $data } | Should -Not -Throw
+        @(Get-IndexEntries -DataPath $data).path | Should -Be 'data\next.md'
+    }
+
     It 'refuses a project name that is not slug-shaped' {
         $data = New-DataFixture 'bad-project'
         { Get-IndexPath -Project '..\..\escape' -DataPath $data } |

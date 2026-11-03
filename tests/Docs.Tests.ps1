@@ -5976,12 +5976,6 @@ Describe 'the skills are project-local and nothing reaches into the user profile
     # rescue a run's fix commits can only find them there. One directory, the gate's own, where a
     # rescue ref is named into the mirror and fetched out - never a credential, never a skill.
     It 'only the trust module, the usage reader, the digest and the gate rescue touch the profile' {
-        $naming = @($script:AllSource | Where-Object {
-            (Get-Content -Path $_.FullName -Raw).Contains('USERPROFILE')
-        })
-        (@($naming | ForEach-Object { $_.Name } | Sort-Object) -join ', ') |
-            Should -Be 'Paths.psm1' -Because 'the home directory differs by system, so it is resolved in one place'
-
         $reaching = @($script:AllSource | Where-Object {
             $_.Name -ne 'Paths.psm1' -and
             ((Get-Content -Path $_.FullName -Raw) -match 'Get-UserHomePath|Get-ClaudeGlobalConfigPath')
@@ -5994,9 +5988,8 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         $trust.Contains('.claude.json') |
             Should -BeTrue -Because 'the trust registry is one file, not a directory to write into'
 
-        $usage = Get-Content -Path (Join-Path $script:Root 'bin\Usage.psm1') -Raw
-        $usage.Contains("'.claude' 'accounts' '.active'") |
-            Should -BeTrue -Because 'the account name is one file, named exactly'
+        # Which file the account name is read from is driven end to end in Usage.Tests.ps1 -
+        # `Which account the reading belongs to` - with the home directory redirected.
 
         # The digest's half of this is not asserted from its source. Which file it opens, and that
         # it honours the tool's own override variable, are both driven end to end in

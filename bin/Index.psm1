@@ -331,7 +331,7 @@ function Add-IndexEntry {
         $existing = $null
         try { $existing = ConvertTo-IndexRelativePath -Path $m.Groups['path'].Value -DataPath $DataPath }
         catch { $existing = $null }
-        if (-not $existing.Equals($relative, (Get-PathComparison))) { continue }
+        if (-not $existing -or -not $existing.Equals($relative, (Get-PathComparison))) { continue }
         $replace = $i
         $am = [regex]::Match($m.Groups['summary'].Value, '\(added\s+(?<d>\d{4}-\d{2}-\d{2})\)\s*$')
         if ($am.Success) { $added = $am.Groups['d'].Value }
