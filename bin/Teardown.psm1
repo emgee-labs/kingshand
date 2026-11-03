@@ -24,7 +24,8 @@ Set-StrictMode -Version Latest
 #      which is the only way to reach a pane whose worker has already exited. herdr reuses short
 #      pane ids, so the recorded one is closed only while it has no live agent and its workspace
 #      carries the label dispatch gives it; a recorded id that now names another worker's live pane
-#      is skipped, not refused. Then read the list again: a pane still open is still holding the
+#      is skipped, not refused. Where that label cannot be read and the recorded pane is still
+#      open, the copy is kept. Then read the list again: a pane still open is still holding the
 #      folder, and the copy is kept.
 #   5. Close the worker's workspace when its pane was the last one in it. A workspace holding a
 #      live agent is never closed.
@@ -329,7 +330,12 @@ function Invoke-CopyTeardown {
     if (-not $h2.ok) { & $keep "herdr could not be read after the stop - $($h2.error)"; return & $result $false }
     $panes = $h2.panes
     $live = Get-LivePaneIds -Agents $h2.agents
-    $ours = @($h2.workspaces.workspaces | Where-Object { "$(Get-TeardownField $_ 'label')" -eq $script:WorkspaceLabel } |
+    if ($RecordedPaneId -and -not $h2.workspaces.ok -and -not $live.Contains($RecordedPaneId) -and
+        @($panes.panes | Where-Object { "$(Get-TeardownField $_ 'pane_id')" -eq $RecordedPaneId }).Count -gt 0) {
+        & $keep "herdr workspaces could not be read, so the recorded pane could not be checked - $($h2.workspaces.error)"
+        return & $result $false
+    }
+    $ours =@($h2.workspaces.workspaces | Where-Object { "$(Get-TeardownField $_ 'label')" -eq $script:WorkspaceLabel } |
               ForEach-Object { "$(Get-TeardownField $_ 'workspace_id')" })
     $targets = @($panes.panes | Where-Object {
         $id = "$(Get-TeardownField $_ 'pane_id')"

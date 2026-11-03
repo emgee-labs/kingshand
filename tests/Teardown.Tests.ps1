@@ -253,6 +253,22 @@ Describe 'Remove-WorkerCopy' {
         Test-Path -LiteralPath $copy | Should -BeTrue
     }
 
+    It 'keeps the copy when the workspace list cannot be read and the recorded pane is still open' {
+        $copy = New-WorkerCopy $script:F 'w-nospaces' -PaneId 'p12' -Push
+        Add-FakePane -PaneId 'p12' -Cwd 'C:\elsewhere' -Workspace 'w12'
+        Mock -ModuleName Teardown Get-HerdrWorkspaceInventory {
+            [pscustomobject]@{ ok = $false; workspaces = @(); error = 'herdr workspace list: timeout - from the fake' }
+        }
+
+        $r = Remove-WorkerCopy -WorkerId 'w-nospaces' -StatePath $script:F.state
+
+        $r.outcome | Should -Be 'kept'
+        $r.kept[0].why | Should -BeLike '*recorded pane could not be checked*timeout*'
+        @($script:Herdr.panes).Count | Should -Be 1
+        Test-Path -LiteralPath $copy | Should -BeTrue
+        (Import-CrewState -Path $script:F.state).workers['w-nospaces'].Contains('torn_down_at') | Should -BeFalse
+    }
+
     # A version mismatch throws out of every herdr read rather than answering, and it must come
     # back as a kept copy naming why, not as an exception half way through a cleanup.
     It 'keeps everything when herdr throws, and names the failure' {
