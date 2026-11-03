@@ -1006,6 +1006,37 @@ function Test-HerdrScreenAwaitingInput {
     $false
 }
 
+# Claude Code's exit dialog for its own running background work - the one `/exit` raises while
+# background shells run - quoted as the shipped 2.1.309 binary emits it: the title, and the first
+# and last of its three options (exit and stop, move to background, stay). Bound to a harness
+# version like the placeholders above: a later wording is simply not seen, which reads as some
+# other screen and leaves the caller where it was.
+$script:ExitBackgroundDialog = @('Background work is running', 'Exit and stop tasks', 'Stay')
+
+function Test-HerdrScreenExitBackgroundDialog {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+
+    foreach ($phrase in $script:ExitBackgroundDialog) {
+        if (-not $Text.Contains($phrase)) { return $false }
+    }
+    $true
+}
+
+# A worker's live screen, for a caller deciding what a dialog on it is: .ok, .exitBackground when it
+# is the exit dialog above, and .text, the screen's non-blank lines exactly as drawn, for quoting.
+function Read-HerdrAgentDialog {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Name)
+
+    $read = Read-HerdrAgentScreen -Name $Name
+    if (-not $read.ok) { return [pscustomobject]@{ ok = $false; exitBackground = $false; text = '' } }
+    $lines = @($read.text -split "`r?`n" | ForEach-Object { $_.TrimEnd() } | Where-Object { $_.Trim() })
+    [pscustomobject]@{
+        ok = $true; exitBackground = (Test-HerdrScreenExitBackgroundDialog -Text $read.text)
+        text = $lines -join "`n"
+    }
+}
+
 # The state kingshand acts on: herdr's, corrected by the screen.
 #
 # Nothing downstream should read `agent_status` directly. A worker whose screen is showing a
@@ -1530,4 +1561,5 @@ Export-ModuleMember -Function Get-HerdrCommandPath, Get-HerdrCommandHint, Conver
                               Wait-HerdrAgentSettled, Test-HerdrAgentReadable,
                               Get-HerdrAgentProgressSignal, Wait-HerdrAgentProgress,
                               Get-HerdrAgentPromptBox, Read-HerdrAgentScreen,
-                              Get-HerdrBackgroundShellCount
+                              Get-HerdrBackgroundShellCount, Read-HerdrAgentDialog,
+                              Test-HerdrScreenExitBackgroundDialog

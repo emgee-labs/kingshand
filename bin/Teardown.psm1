@@ -777,6 +777,7 @@ function Invoke-PauseGate {
 # .safety       branch_sync.safety - custody_returned, blocked_pipeline_owned_recoverable, ...
 # .relation     branch_sync.relation - equal, behind, ...
 # .currentHead  branch_sync.pipeline.current_head, the gate's own head, or ''
+# .run          branch_sync.pipeline.run, the run bound to this branch, or '' where none is
 # .note         branch_sync.note, the tool's own words, or ''
 # .error        why it could not be read, or ''
 #
@@ -786,7 +787,7 @@ function Invoke-PauseGate {
 function Read-PauseCustody {
     param([AllowEmptyString()][string]$Text)
 
-    $fail = { param($why) [pscustomobject]@{ ok = $false; safety = ''; relation = ''; currentHead = ''; note = ''; error = $why } }
+    $fail = { param($why) [pscustomobject]@{ ok = $false; safety = ''; relation = ''; currentHead = ''; run = ''; note = ''; error = $why } }
     if ([string]::IsNullOrWhiteSpace($Text)) { return & $fail 'no-mistakes axi sync printed nothing' }
     $decoded = ConvertFrom-ToonText -Text $Text
     if (-not $decoded.ok) { return & $fail $decoded.error }
@@ -802,8 +803,9 @@ function Read-PauseCustody {
     if (-not $relation.text) { return & $fail 'its branch_sync.relation is missing or in a shape this cannot read' }
     $pipeline = (Read-ToonField -Table $sync -Key 'pipeline').value
     $head = if ($pipeline -is [System.Collections.IDictionary]) { (Read-ToonField -Table $pipeline -Key 'current_head').text } else { '' }
+    $run  = if ($pipeline -is [System.Collections.IDictionary]) { (Read-ToonField -Table $pipeline -Key 'run').text } else { '' }
     [pscustomobject]@{
-        ok = $true; safety = $safety.text; relation = $relation.text; currentHead = $head
+        ok = $true; safety = $safety.text; relation = $relation.text; currentHead = $head; run = $run
         note = (Read-ToonField -Table $sync -Key 'note').text; error = ''
     }
 }
@@ -813,7 +815,7 @@ function Get-PauseCustody {
     param([Parameter(Mandatory)][string]$Copy)
     $r = Invoke-PauseGate -Arguments @('axi', 'sync', '--check') -Directory $Copy
     if (-not $r.ok) {
-        return [pscustomobject]@{ ok = $false; safety = ''; relation = ''; currentHead = ''; note = ''; error = $r.error }
+        return [pscustomobject]@{ ok = $false; safety = ''; relation = ''; currentHead = ''; run = ''; note = ''; error = $r.error }
     }
     Read-PauseCustody -Text $r.stdout
 }
@@ -882,12 +884,14 @@ function Format-PauseResumeCommand {
 #
 #   read     The record, its copy on disk, and the pause record's path - which must be absent or
 #            this command's own - all checked before anything is touched.
-#   gate     The gate run on the worker's branch, read through GateRun.psm1. A run that has not
-#            ended is aborted with `no-mistakes axi abort` and read again until it reads ended. An
-#            unreadable run ends nothing, and neither does a newest run on another branch, which
-#            says nothing about this one. No run on the branch skips the custody steps: the gate
-#            holds nothing of it.
-#   custody  `axi sync --check`. custody_returned with relation equal is already safe. Only
+#   gate     The run bound to the worker's own branch, named by `axi sync --check` in the copy and
+#            read by that id through GateRun.psm1 - never the repository's newest run, which in a
+#            project with parallel workers is usually another worker's. A run that has not ended is
+#            aborted with `no-mistakes axi abort` and read again until it reads ended. An unreadable
+#            answer ends nothing. No run of its own - no binding, never gated, or a run on another
+#            branch - is recorded and skips the custody steps: the gate holds nothing of it.
+#   custody  `axi sync --check`, asked again only after an abort. custody_returned with relation
+#            equal is already safe. Only
 #            blocked_pipeline_owned_recoverable is recovered; any other answer stops here, because
 #            moving a branch nobody understood is how commits are lost.
 #   rescue   Before recovering, the gate's own head is saved to a refs/gate/ ref with
@@ -897,9 +901,11 @@ function Format-PauseResumeCommand {
 #   verify   A second `--check`, which must read custody_returned and equal.
 #   stop     Every agent alive in the copy, found by its cwd as cleanup finds it, is stopped with
 #            Stop-HerdrAgent. Never a kill. Text in its input box stops the pause with the text
-#            quoted. A worker that did not exit because it sits on Claude Code's exit dialog for its
-#            own background work has its pane closed instead - the work is already safe by then -
-#            and the record says so. One that did not exit with no dialog showing is left running.
+#            quoted. A worker that did not exit because its screen shows Claude Code's exit dialog
+#            for its own background work, matched by that dialog's own wording, has its pane closed
+#            instead - the work is already safe by then - and the record says so. Any other screen -
+#            a menu, a permission prompt, folder trust, or nothing - stops the pause with the screen
+#            quoted, nothing closed and nothing sent.
 #   pane     Steps 4 and 5 of cleanup, shared with it: every pane in the copy and the recorded one.
 #   record   data\<id>\pause.md - branch, head, what the gate had reached, uncommitted files and the
 #            one command to resume - written and indexed in one call, and the crew stage set to
@@ -967,26 +973,34 @@ function Suspend-Worker {
     & $done 'read' "its copy is $copy on branch $branch"
 
     # gate
-    $gate = Get-GateRunState -RepoPath $copy -Branch $branch
-    if ($gate.status -eq 'unreadable') {
-        return & $stopAt 'gate' "what its review gate is doing could not be read, so nothing was ended - $($gate.detail)"
+    $bound = Get-PauseCustody -Copy $copy
+    if (-not $bound.ok) {
+        return & $stopAt 'gate' "which gate run belongs to its branch could not be read, so nothing was ended - $($bound.error)"
     }
-    if ($gate.signal -eq 'wrong-branch') {
-        return & $stopAt 'gate' ("the newest gate run is on another branch, so whether this branch has a live run " +
-                                 "could not be told and nothing was ended - $($gate.detail)")
-    }
-    $hasRun = $gate.status -eq 'has-run'
-    $reached = 'no review gate run on this branch'
-    if (-not $hasRun) {
-        & $done 'gate' "there is no gate run on its branch - $($gate.detail)"
+    $hasRun = $false
+    $aborted = $false
+    $reached = 'no review gate run of its own on this branch'
+    if (-not $bound.run) {
+        & $done 'gate' "no gate run is bound to its branch ($(Format-PauseCustody $bound)), so there was nothing of its own to end"
     } else {
+        $gate = Get-GateRunState -RepoPath $copy -Run $bound.run -Branch $branch
+        if ($gate.status -eq 'unreadable') {
+            return & $stopAt 'gate' "what its gate run $($bound.run) is doing could not be read, so nothing was ended - $($gate.detail)"
+        }
+        $hasRun = $gate.status -eq 'has-run'
+        if (-not $hasRun) {
+            & $done 'gate' "run $($bound.run) is not a run of its own on this branch, so there was nothing to end - $($gate.detail)"
+        }
+    }
+    if ($hasRun) {
         $reached = Format-PauseGateReached -Gate $gate
         if ($gate.runStatus -in $script:EndedRunStatuses -and -not $gate.isParked) {
             & $done 'gate' "its gate run had already ended ($($gate.runStatus)), so there was nothing to end"
         } else {
             $abort = Invoke-PauseGate -Arguments @('axi', 'abort') -Directory $copy
             if (-not $abort.ok) { return & $stopAt 'gate' "its gate run could not be ended - $($abort.error)" }
-            $after = Get-GateRunState -RepoPath $copy -Branch $branch
+            $aborted = $true
+            $after = Get-GateRunState -RepoPath $copy -Run $bound.run -Branch $branch
             if ($after.status -ne 'has-run' -or $after.runStatus -notin $script:EndedRunStatuses) {
                 $said = if ($abort.stderr) { " no-mistakes said: $($abort.stderr)" } else { '' }
                 return & $stopAt 'gate' ("no-mistakes axi abort exited $($abort.exitCode) and the run does not read ended " +
@@ -997,10 +1011,10 @@ function Suspend-Worker {
     }
 
     # custody, rescue, recover, verify
-    $custodyNote = 'the gate never ran on this branch, so it holds none of its commits'
+    $custodyNote = 'no gate run of its own on this branch, so the gate holds none of its commits'
     $rescueRef = ''
     if ($hasRun) {
-        $c = Get-PauseCustody -Copy $copy
+        $c = if ($aborted) { Get-PauseCustody -Copy $copy } else { $bound }
         if (-not $c.ok) { return & $stopAt 'custody' "who holds the branch could not be read, so nothing was moved - $($c.error)" }
         if (Test-PauseCustodyReturned $c) {
             $custodyNote = 'already back with the copy - custody_returned, equal'
@@ -1066,9 +1080,16 @@ function Suspend-Worker {
             $out.stoppedBy = ''
             return & $stopAt 'stop' "worker $name was not stopped ($($stop.refused)): its box reads '$($stop.promptBox)' and nothing was sent - load rally"
         }
-        if (-not (Test-HerdrAgentAwaitingInput -Name $name)) {
+        $screen = Read-HerdrAgentDialog -Name $name
+        if (-not $screen.ok) {
             $out.stoppedBy = ''
-            return & $stopAt 'stop' "worker $name did not exit and shows no dialog, so it was left running - load rally"
+            return & $stopAt 'stop' "worker $name did not exit and its screen could not be read, so it was left running with nothing closed - load rally"
+        }
+        if (-not $screen.exitBackground) {
+            $out.stoppedBy = ''
+            return & $stopAt 'stop' ("worker $name did not exit and is not on the exit dialog for its own background work, " +
+                                     "so it was left running with nothing closed and nothing sent - load rally. Its screen reads:`n" +
+                                     $screen.text)
         }
         # The exit dialog for its own background work. Answering it would mean sending keys at a
         # menu nobody has read; the work is safe by now, so the pane is closed instead.
