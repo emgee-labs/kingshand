@@ -5914,9 +5914,8 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         }
     }
 
-    # The hard half of that exception. The accounts directory holds the credential blobs the King's
-    # own switch script moves between, and this change may know which account is active and nothing
-    # else about it. Named files rather than a general pattern, because the risk is specific.
+    # The accounts directory holds the credential blobs the King's own switch script moves between,
+    # and the usage reader may know which account is active and nothing else about it. Named files rather than a general pattern, because the risk is specific.
     It 'the usage reader never goes near a credential file' {
         $usage = Get-Content -Path (Join-Path $script:Root 'bin\Usage.psm1') -Raw
         foreach ($forbidden in @('.credentials.json', 'accessToken', 'refreshToken',
