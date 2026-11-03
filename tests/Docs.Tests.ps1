@@ -1895,7 +1895,13 @@ Describe 'rally states what steering can and cannot do, and protects unlanded wo
             -Phrase ('Running `git worktree remove` on a stuck worker that holds uncommitted ' +
                      'changes or unpushed commits destroys that work')
         Assert-Phrase -Text $text -Where 'the removal hazard' `
-            -Phrase 'Use `Stop-HerdrAgent -Name <worker id>` while anything is unlanded.'
+            -Phrase ('While anything is unlanded, pause the worker with `Suspend-Worker` rather ' +
+                     'than a bare stop.')
+        Assert-Phrase -Text $text -Where 'the removal hazard' `
+            -Phrase ('Its comment in `bin\Teardown.psm1` owns the order and every refusal; a ' +
+                     'result whose `outcome` is not `paused` names the step it stopped at and why.')
+        @(Get-CodeFence $script:StuckMd | Where-Object { $_.Contains('Suspend-Worker -WorkerId "<worker id>"') }).Count |
+            Should -Be 1 -Because 'the safe order hands the reader the pause call itself'
         Assert-Phrase -Text $text -Where 'the removal hazard' `
             -Phrase ('Remove the copy only with `Remove-WorkerCopy`, whose header in ' +
                      '`bin\Teardown.psm1` owns the')
@@ -2013,10 +2019,19 @@ Describe 'rally states what steering can and cannot do, and protects unlanded wo
                      'work is gone.')
     }
 
-    It 'names the six valid stages and sets failed through Set-CrewStage' {
+    It 'names the seven valid stages and sets failed through Set-CrewStage' {
         Assert-Phrase -Text (Get-DocText $script:StuckMd) -Where 'rally' `
             -Phrase ("Set-CrewStage -Stage 'failed'``; the valid stages are exactly " +
-                     "``dispatched``, ``implementing``, ``gating``, ``ready``, ``landed``, ``failed``")
+                     "``dispatched``, ``implementing``, ``gating``, ``ready``, ``landed``, ``failed``, " +
+                     "``paused``, and ``Set-CrewStage`` throws on anything else.")
+        Assert-Phrase -Text (Get-DocText $script:StuckMd) -Where 'rally' `
+            -Phrase '`paused` is set by `Suspend-Worker` alone.'
+    }
+
+    It 'names the same seven stages in muster''s close-out' {
+        Assert-Phrase -Text (Get-DocText $script:MusterMd) -Where 'muster' `
+            -Phrase ('The stages are exactly `dispatched`, `implementing`, `gating`, `ready`, ' +
+                     '`landed`, `failed`, `paused` - `Set-CrewStage` throws on anything else')
     }
 }
 

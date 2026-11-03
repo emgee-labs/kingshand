@@ -62,6 +62,10 @@ Set-StrictMode -Version Latest
 #
 # The sweep never runs on its own. The session-start digest counts what it would clear and names
 # it, and the Hand runs it.
+#
+# PAUSING IS NOT CLEANUP. Suspend-Worker ends a worker and keeps everything it made - the copy, the
+# branch and the gate's commits - so a later session can start it again in the same copy. It shares
+# steps 4 and 5 above and none of the rest, and its own comment owns its order.
 
 # NOT -Force - a module never forces a nested import. The `statute` skill's style rules own why.
 Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
@@ -69,6 +73,9 @@ Import-Module (Join-Path $PSScriptRoot 'Herdr.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Crew.psm1')
 Import-Module (Join-Path $PSScriptRoot 'Projects.psm1')
 Import-Module (Join-Path $PSScriptRoot 'ClaudeWorkspace.psm1')
+Import-Module (Join-Path $PSScriptRoot 'GateRun.psm1')
+Import-Module (Join-Path $PSScriptRoot 'NightsWatch.psm1')
+Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
 
 # The label New-HerdrPane gives every workspace dispatch creates.
 $script:WorkspaceLabel = 'kingshand'
@@ -262,6 +269,50 @@ function Close-EmptyWorkspaces {
     }
 }
 
+# Steps 4 and 5 of the order the header owns: close the recorded pane and every pane in the copy,
+# check they went, then close a workspace whose last pane just went. Shared by the teardown and by
+# Suspend-Worker. '' when every pane went, otherwise the reason it stopped, with nothing after it
+# touched.
+function Close-CopyPanes {
+    param([Parameter(Mandatory)][string]$Copy, [string]$RecordedPaneId = '', $Removed, $Kept)
+
+    $h2 = Read-TeardownHerdr
+    if (-not $h2.ok) { return "herdr could not be read after the stop - $($h2.error)" }
+    $panes = $h2.panes
+    $live = Get-LivePaneIds -Agents $h2.agents
+    if ($RecordedPaneId -and -not $h2.workspaces.ok -and -not $live.Contains($RecordedPaneId) -and
+        @($panes.panes | Where-Object { "$(Get-TeardownField $_ 'pane_id')" -eq $RecordedPaneId }).Count -gt 0) {
+        return "herdr workspaces could not be read, so the recorded pane could not be checked - $($h2.workspaces.error)"
+    }
+    $ours =@($h2.workspaces.workspaces | Where-Object { "$(Get-TeardownField $_ 'label')" -eq $script:WorkspaceLabel } |
+              ForEach-Object { "$(Get-TeardownField $_ 'workspace_id')" })
+    $targets = @($panes.panes | Where-Object {
+        $id = "$(Get-TeardownField $_ 'pane_id')"
+        ((Test-TeardownPathWithin "$(Get-TeardownField $_ 'cwd')" $Copy) -or
+         ($RecordedPaneId -and $id -eq $RecordedPaneId -and -not $live.Contains($id) -and
+          $ours -contains "$(Get-TeardownField $_ 'workspace_id')"))
+    })
+    foreach ($p in $targets) {
+        $id = "$(Get-TeardownField $p 'pane_id')"
+        if ($live.Contains($id)) { return "pane $id still has a live agent in it" }
+    }
+    $workspaces = @($targets | ForEach-Object { "$(Get-TeardownField $_ 'workspace_id')" })
+    foreach ($p in $targets) { Remove-HerdrPane -PaneId "$(Get-TeardownField $p 'pane_id')" }
+    if ($targets.Count -gt 0) {
+        $after = Read-TeardownHerdrList { Get-HerdrPaneInventory } 'panes'
+        if (-not $after.ok) { return "herdr could not confirm the panes closed - $($after.error)" }
+        $open = @($after.panes | ForEach-Object { "$(Get-TeardownField $_ 'pane_id')" })
+        foreach ($p in $targets) {
+            $id = "$(Get-TeardownField $p 'pane_id')"
+            if ($open -contains $id) { return "pane $id did not close, so it may still hold the folder" }
+            $Removed.Add("pane $id")
+        }
+    }
+
+    Close-EmptyWorkspaces -WorkspaceIds $workspaces -Removed $Removed -Kept $Kept
+    ''
+}
+
 # The teardown itself, shared by Remove-WorkerCopy and the sweep. The header owns the order.
 function Invoke-CopyTeardown {
     param(
@@ -333,46 +384,9 @@ function Invoke-CopyTeardown {
         if ($paneOf) { $null = $stopped.Add($paneOf) }
     }
 
-    # 4. Close the recorded pane and every pane in the copy, then check they went.
-    $h2 = Read-TeardownHerdr
-    if (-not $h2.ok) { & $keep "herdr could not be read after the stop - $($h2.error)"; return & $result $false }
-    $panes = $h2.panes
-    $live = Get-LivePaneIds -Agents $h2.agents
-    if ($RecordedPaneId -and -not $h2.workspaces.ok -and -not $live.Contains($RecordedPaneId) -and
-        @($panes.panes | Where-Object { "$(Get-TeardownField $_ 'pane_id')" -eq $RecordedPaneId }).Count -gt 0) {
-        & $keep "herdr workspaces could not be read, so the recorded pane could not be checked - $($h2.workspaces.error)"
-        return & $result $false
-    }
-    $ours =@($h2.workspaces.workspaces | Where-Object { "$(Get-TeardownField $_ 'label')" -eq $script:WorkspaceLabel } |
-              ForEach-Object { "$(Get-TeardownField $_ 'workspace_id')" })
-    $targets = @($panes.panes | Where-Object {
-        $id = "$(Get-TeardownField $_ 'pane_id')"
-        ((Test-TeardownPathWithin "$(Get-TeardownField $_ 'cwd')" $copy) -or
-         ($RecordedPaneId -and $id -eq $RecordedPaneId -and -not $live.Contains($id) -and
-          $ours -contains "$(Get-TeardownField $_ 'workspace_id')"))
-    })
-    foreach ($p in $targets) {
-        $id = "$(Get-TeardownField $p 'pane_id')"
-        if ($live.Contains($id)) {
-            & $keep "pane $id still has a live agent in it"
-            return & $result $false
-        }
-    }
-    $workspaces = @($targets | ForEach-Object { "$(Get-TeardownField $_ 'workspace_id')" })
-    foreach ($p in $targets) { Remove-HerdrPane -PaneId "$(Get-TeardownField $p 'pane_id')" }
-    if ($targets.Count -gt 0) {
-        $after = Read-TeardownHerdrList { Get-HerdrPaneInventory } 'panes'
-        if (-not $after.ok) { & $keep "herdr could not confirm the panes closed - $($after.error)"; return & $result $false }
-        $open = @($after.panes | ForEach-Object { "$(Get-TeardownField $_ 'pane_id')" })
-        foreach ($p in $targets) {
-            $id = "$(Get-TeardownField $p 'pane_id')"
-            if ($open -contains $id) { & $keep "pane $id did not close, so it may still hold the folder"; return & $result $false }
-            $removed.Add("pane $id")
-        }
-    }
-
-    # 5. The workspace, when its last pane just went.
-    Close-EmptyWorkspaces -WorkspaceIds $workspaces -Removed $removed -Kept $kept
+    # 4 and 5. The panes, then the workspace a closed pane left empty.
+    $why = Close-CopyPanes -Copy $copy -RecordedPaneId $RecordedPaneId -Removed $removed -Kept $kept
+    if ($why) { & $keep $why; return & $result $false }
 
     # 6. git worktree remove, never forced.
     if ($exists -and $isRegistered) {
@@ -667,5 +681,476 @@ function Invoke-WorkerSweep {
     }
 }
 
+# ---------------------------------------------------------------------------------------------
+# Pausing a worker
+# ---------------------------------------------------------------------------------------------
+
+# How long one gate call may take. `axi abort` and `axi sync` answer from a local daemon in seconds,
+# so this guards against a wedged daemon rather than budgeting slow work - the Hand is blocked until
+# the pause returns.
+$script:PauseGateTimeoutSeconds = 60
+
+# A run reading one of these has ended and there is nothing to abort. Anything else - running,
+# waiting on approval, or a word this does not know - may still own the branch, so it is aborted
+# and read again.
+$script:EndedRunStatuses = @('completed', 'failed', 'cancelled')
+
+# The pause record's first line. A file at that path not opening with it is somebody else's.
+function Get-PauseRecordHeading {
+    param([Parameter(Mandatory)][string]$WorkerId)
+    "# Paused - $WorkerId"
+}
+
+# '' when the pause record may be written - absent, or opening with this command's own heading -
+# otherwise why not.
+function Get-PauseRecordRefusal {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$WorkerId)
+
+    if (-not (Test-Path -LiteralPath $Path)) { return '' }
+    $heading = Get-PauseRecordHeading -WorkerId $WorkerId
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return "$Path is there and is not a file, so it is not overwritten" }
+    try { $first = "$(Get-Content -LiteralPath $Path -TotalCount 1 -ErrorAction Stop)" } catch {
+        return "$Path is there and could not be read, so it is not overwritten - $($_.Exception.Message)"
+    }
+    if ($first.TrimEnd() -ne $heading) {
+        return "$Path is there and this command did not write it - it does not open with '$heading' - so it is not overwritten"
+    }
+    ''
+}
+
+# The gate binary, run in the copy, for the pause's two calls that drive a run: `axi abort` and
+# `axi sync`. GateRun.psm1 reads and never drives - its export list enforces that - so the driving
+# lives here beside the one function that needs it.
+#
+# .ok        whether the binary ran and answered inside the timeout
+# .stdout    what it printed
+# .stderr    what it said on stderr - progress and its update notice, never state
+# .exitCode  its exit code, or $null where it never answered
+# .error     why it did not answer, or ''
+#
+# Never throws. A non-zero exit is not a failure here: `axi sync --check` exits 1 on a blocked
+# branch while printing a readable answer, and the caller reads the answer.
+function Invoke-PauseGate {
+    param([Parameter(Mandatory)][string[]]$Arguments, [Parameter(Mandatory)][string]$Directory)
+
+    $failed = { param($why) [pscustomobject]@{ ok = $false; stdout = ''; stderr = ''; exitCode = $null; error = $why } }
+    $exe = Get-NoMistakesCommandPath
+    if (-not $exe) { return & $failed (Get-NoMistakesHint) }
+
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName               = $exe
+    $psi.WorkingDirectory       = $Directory
+    $psi.UseShellExecute        = $false
+    $psi.CreateNoWindow         = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $psi.StandardErrorEncoding  = [System.Text.UTF8Encoding]::new($false)
+    foreach ($a in $Arguments) { $psi.ArgumentList.Add($a) }
+
+    $p = $null
+    try {
+        $p = [System.Diagnostics.Process]::Start($psi)
+        # Both streams are drained before the wait, so a full pipe cannot block the child.
+        $out = $p.StandardOutput.ReadToEndAsync()
+        $err = $p.StandardError.ReadToEndAsync()
+        if (-not $p.WaitForExit($script:PauseGateTimeoutSeconds * 1000)) {
+            try { $p.Kill($true) } catch { }
+            return & $failed "no-mistakes $($Arguments -join ' ') did not answer within $($script:PauseGateTimeoutSeconds) seconds and was stopped"
+        }
+        $null = [System.Threading.Tasks.Task]::WaitAll([System.Threading.Tasks.Task[]]@($out, $err), 10000)
+        [pscustomobject]@{
+            ok = $true; exitCode = $p.ExitCode; error = ''
+            stdout = $(if ($out.IsCompletedSuccessfully) { "$($out.Result)" } else { '' })
+            stderr = $(if ($err.IsCompletedSuccessfully) { "$($err.Result)".Trim() } else { '' })
+        }
+    } catch {
+        & $failed "no-mistakes could not be run: $($_.Exception.Message)"
+    } finally {
+        if ($p) { $p.Dispose() }
+    }
+}
+
+# Who holds the branch, from `axi sync`'s own answer.
+#
+# .ok           whether the answer was read
+# .safety       branch_sync.safety - custody_returned, blocked_pipeline_owned_recoverable, ...
+# .relation     branch_sync.relation - equal, behind, ...
+# .currentHead  branch_sync.pipeline.current_head, the gate's own head, or ''
+# .note         branch_sync.note, the tool's own words, or ''
+# .error        why it could not be read, or ''
+#
+# The answer is TOON, decoded by GateRun.psm1's vendored decoder and read through its field reader -
+# nothing here matches text - so a field that is missing or in a shape this cannot take reads as
+# unreadable, never as a state word.
+function Read-PauseCustody {
+    param([AllowEmptyString()][string]$Text)
+
+    $fail = { param($why) [pscustomobject]@{ ok = $false; safety = ''; relation = ''; currentHead = ''; note = ''; error = $why } }
+    if ([string]::IsNullOrWhiteSpace($Text)) { return & $fail 'no-mistakes axi sync printed nothing' }
+    $decoded = ConvertFrom-ToonText -Text $Text
+    if (-not $decoded.ok) { return & $fail $decoded.error }
+    $doc = $null
+    try { $doc = $decoded.value | ConvertFrom-Json -AsHashtable } catch {
+        return & $fail "its answer did not come back as readable JSON ($($_.Exception.Message))"
+    }
+    $sync = (Read-ToonField -Table $doc -Key 'branch_sync').value
+    if ($sync -isnot [System.Collections.IDictionary]) { return & $fail 'its answer carries no branch_sync object' }
+    $safety   = Read-ToonField -Table $sync -Key 'safety'
+    $relation = Read-ToonField -Table $sync -Key 'relation'
+    if (-not $safety.text)   { return & $fail 'its branch_sync.safety is missing or in a shape this cannot read' }
+    if (-not $relation.text) { return & $fail 'its branch_sync.relation is missing or in a shape this cannot read' }
+    $pipeline = (Read-ToonField -Table $sync -Key 'pipeline').value
+    $head = if ($pipeline -is [System.Collections.IDictionary]) { (Read-ToonField -Table $pipeline -Key 'current_head').text } else { '' }
+    [pscustomobject]@{
+        ok = $true; safety = $safety.text; relation = $relation.text; currentHead = $head
+        note = (Read-ToonField -Table $sync -Key 'note').text; error = ''
+    }
+}
+
+# `axi sync --check` in the copy, read.
+function Get-PauseCustody {
+    param([Parameter(Mandatory)][string]$Copy)
+    $r = Invoke-PauseGate -Arguments @('axi', 'sync', '--check') -Directory $Copy
+    if (-not $r.ok) {
+        return [pscustomobject]@{ ok = $false; safety = ''; relation = ''; currentHead = ''; note = ''; error = $r.error }
+    }
+    Read-PauseCustody -Text $r.stdout
+}
+
+function Test-PauseCustodyReturned {
+    param($Custody)
+    $Custody.ok -and $Custody.safety -eq 'custody_returned' -and $Custody.relation -eq 'equal'
+}
+
+function Format-PauseCustody {
+    param($Custody)
+    $note = if ($Custody.note) { " - no-mistakes said: $($Custody.note)" } else { '' }
+    "safety $($Custody.safety), relation $($Custody.relation)$note"
+}
+
+# What the gate had reached, in one line for the pause record.
+function Format-PauseGateReached {
+    param($Gate)
+
+    $run = if ($Gate.runId) { "run $($Gate.runId)" } else { 'its run' }
+    $said = if ($Gate.runStatus) { $Gate.runStatus } else { 'no status word' }
+    $parts = [System.Collections.Generic.List[string]]::new()
+    $parts.Add("$run read $said")
+    if ($Gate.isParked) {
+        $at = if ($Gate.parkedOn) { "its $($Gate.parkedOn) step" } else { 'a step it did not name' }
+        $parts.Add("parked at $at with $(@($Gate.findings).Count) finding(s) to decide")
+    }
+    $steps = @(@($Gate.steps) | Where-Object { $_ -and $_.status -and $_.status -ne 'pending' } |
+               ForEach-Object { "$($_.step) $($_.status)" })
+    if ($steps.Count -gt 0) { $parts.Add("steps: $($steps -join ', ')") }
+    if ($Gate.pr) { $parts.Add("pull request $($Gate.pr)") }
+    if ($Gate.outcome) { $parts.Add("outcome $($Gate.outcome)") }
+    $parts -join '; '
+}
+
+# The one PowerShell line that starts a paused worker again in its kept copy: a fresh pane at the
+# copy, the worker started in it, a prompt pointing it at its brief and its pause record, and the
+# crew record moved back to `dispatched` the way rally re-records a relaunch.
+function Format-PauseResumeCommand {
+    param([string]$WorkerId, [string]$Copy, [string]$Branch, [string]$Base, [string]$Brief,
+          [string]$RecordPath, [string]$StatePath)
+
+    $q = { param($s) "'" + ("$s" -replace "'", "''") + "'" }
+    $prompt = ("You were paused and are now started again in the same copy, on the same branch. " +
+               "Read your brief at $Brief and anything dispatch wrote beside it, then the pause " +
+               "record at $RecordPath, which says where the work stood. Carry on from there. The " +
+               'earlier review gate run was ended, so start a fresh one when you reach the gate.')
+    $id = & $q $WorkerId
+    $state = & $q $StatePath
+    ("Import-Module $(& $q (Join-Path $PSScriptRoot 'Herdr.psm1')), $(& $q (Join-Path $PSScriptRoot 'Crew.psm1')); " +
+     "`$p = New-HerdrPane -Cwd $(& $q $Copy); `$null = Start-HerdrAgent -Name $id -PaneId `$p; " +
+     "`$null = Send-HerdrPrompt -Name $id -Text $(& $q $prompt); " +
+     "`$s = Import-CrewState -Path $state; Set-CrewRelaunch -State `$s -WorkerId $id " +
+     "-Worktree $(& $q $Copy) -Branch $(& $q $Branch) -Base $(& $q $Base); Save-CrewState -State `$s -Path $state")
+}
+
+# Pauses one recorded worker: ends its review gate run, brings the gate's commits back to its
+# branch, stops it, closes its pane and keeps its copy, then writes down where the work stands.
+#
+# THE ORDER, and each step stops the pause where it fails, naming the step and why:
+#
+#   read     The record, its copy on disk, and the pause record's path - which must be absent or
+#            this command's own - all checked before anything is touched.
+#   gate     The gate run on the worker's branch, read through GateRun.psm1. A run that has not
+#            ended is aborted with `no-mistakes axi abort` and read again until it reads ended. An
+#            unreadable run ends nothing. No run on the branch skips the custody steps: the gate
+#            holds nothing of it.
+#   custody  `axi sync --check`. custody_returned with relation equal is already safe. Only
+#            blocked_pipeline_owned_recoverable is recovered; any other answer stops here, because
+#            moving a branch nobody understood is how commits are lost.
+#   rescue   Before recovering, the gate's own head is saved to a refs/gate/ ref with
+#            Save-WatchGateRescue, so the commits are reachable from the repository even if the
+#            recover is refused.
+#   recover  `axi sync --recover`, which returns the gate's commits to the branch.
+#   verify   A second `--check`, which must read custody_returned and equal.
+#   stop     Every agent alive in the copy, found by its cwd as cleanup finds it, is stopped with
+#            Stop-HerdrAgent. Never a kill. Text in its input box stops the pause with the text
+#            quoted. A worker that did not exit because it sits on Claude Code's exit dialog for its
+#            own background work has its pane closed instead - the work is already safe by then -
+#            and the record says so. One that did not exit with no dialog showing is left running.
+#   pane     Steps 4 and 5 of cleanup, shared with it: every pane in the copy and the recorded one.
+#   record   data\<id>\pause.md - branch, head, what the gate had reached, uncommitted files and the
+#            one command to resume - written and indexed in one call, and the crew stage set to
+#            `paused`.
+#
+# THE COPY AND THE BRANCH ARE NEVER REMOVED, by anything here. Removing them stays Remove-WorkerCopy's
+# alone, with its own refusals.
+#
+# NIGHT'S WATCH DOES NOT USE THIS. Its pause across a usage reset keeps the gate run alive so the
+# worker can resume it, and the `nights-watch` skill owns that order.
+#
+#   .id          the worker
+#   .outcome     paused - every step went; failed - .failedStep says where it stopped
+#   .failedStep  '' or the step that stopped it
+#   .steps       every step reached, each with .step, .ok and .detail
+#   .record      the pause record's path, or ''
+#   .stoppedBy   exit, pane-closed or not-running, or '' where the stop step was not reached
+#
+# Throws only for a worker crew.json does not know. Everything else is an answer.
+function Suspend-Worker {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$WorkerId,
+        # The crew record and the data root. Every real caller takes the installation's own; tests
+        # point them elsewhere.
+        [string]$StatePath = (Get-TeardownDefaultPath 'state\crew.json'),
+        [string]$DataPath  = (Get-TeardownDefaultPath 'data')
+    )
+
+    $state = Import-CrewState -Path $StatePath
+    $rec = Get-CrewWorker -State $state -WorkerId $WorkerId
+    if (-not $rec) { throw "Worker '$WorkerId' is not in $StatePath, so there is nothing recorded to pause." }
+
+    $steps = [System.Collections.Generic.List[object]]::new()
+    $out = [ordered]@{ id = $WorkerId; outcome = 'failed'; failedStep = ''; steps = @(); record = ''; stoppedBy = '' }
+    $done = { param($step, $detail) $steps.Add([pscustomobject]@{ step = $step; ok = $true; detail = $detail }) }
+    $stopAt = {
+        param($step, $detail)
+        $steps.Add([pscustomobject]@{ step = $step; ok = $false; detail = $detail })
+        $out.failedStep = $step
+        $out.steps = @($steps.ToArray())
+        [pscustomobject]$out
+    }
+
+    # read
+    $copy   = "$($rec.worktree)"
+    $branch = "$($rec.branch)"
+    $repo   = "$($rec.repo)"
+    if ((Get-TeardownField $rec 'checkout') -eq $true) {
+        return & $stopAt 'read' ('it runs in the project''s own checkout with no copy of its own - ' +
+                                 'fief ends that worker, and this command is for a worker with a copy')
+    }
+    if (Get-TeardownField $rec 'torn_down_at') { return & $stopAt 'read' 'its cleanup already finished, so there is no copy left to keep' }
+    if (-not $copy -or -not (Test-Path -LiteralPath $copy -PathType Container)) {
+        return & $stopAt 'read' "its copy is not on disk at '$copy', so there is nothing to keep"
+    }
+    $copy = ConvertTo-TeardownPath $copy
+    $recordPath = Join-Path (Join-Path $DataPath $WorkerId) 'pause.md'
+    $why = Get-PauseRecordRefusal -Path $recordPath -WorkerId $WorkerId
+    if ($why) { return & $stopAt 'read' "$why, and nothing was touched" }
+    try { $null = Get-IndexPath -Project $repo -DataPath $DataPath } catch {
+        return & $stopAt 'read' "its pause record could not be indexed under project '$repo', so nothing was touched - $($_.Exception.Message)"
+    }
+    & $done 'read' "its copy is $copy on branch $branch"
+
+    # gate
+    $gate = Get-GateRunState -RepoPath $copy -Branch $branch
+    if ($gate.status -eq 'unreadable') {
+        return & $stopAt 'gate' "what its review gate is doing could not be read, so nothing was ended - $($gate.detail)"
+    }
+    $hasRun = $gate.status -eq 'has-run'
+    $reached = 'no review gate run on this branch'
+    if (-not $hasRun) {
+        & $done 'gate' "there is no gate run on its branch - $($gate.detail)"
+    } else {
+        $reached = Format-PauseGateReached -Gate $gate
+        if ($gate.runStatus -in $script:EndedRunStatuses -and -not $gate.isParked) {
+            & $done 'gate' "its gate run had already ended ($($gate.runStatus)), so there was nothing to end"
+        } else {
+            $abort = Invoke-PauseGate -Arguments @('axi', 'abort') -Directory $copy
+            if (-not $abort.ok) { return & $stopAt 'gate' "its gate run could not be ended - $($abort.error)" }
+            $after = Get-GateRunState -RepoPath $copy -Branch $branch
+            if ($after.status -ne 'has-run' -or $after.runStatus -notin $script:EndedRunStatuses) {
+                $said = if ($abort.stderr) { " no-mistakes said: $($abort.stderr)" } else { '' }
+                return & $stopAt 'gate' ("no-mistakes axi abort exited $($abort.exitCode) and the run does not read ended " +
+                                         "afterwards - $($after.detail)$said")
+            }
+            & $done 'gate' "ended its gate run, which now reads $($after.runStatus)"
+        }
+    }
+
+    # custody, rescue, recover, verify
+    $custodyNote = 'the gate never ran on this branch, so it holds none of its commits'
+    $rescueRef = ''
+    if ($hasRun) {
+        $c = Get-PauseCustody -Copy $copy
+        if (-not $c.ok) { return & $stopAt 'custody' "who holds the branch could not be read, so nothing was moved - $($c.error)" }
+        if (Test-PauseCustodyReturned $c) {
+            $custodyNote = 'already back with the copy - custody_returned, equal'
+            & $done 'custody' "the branch is $custodyNote"
+        } elseif ($c.safety -eq 'blocked_pipeline_owned_recoverable') {
+            & $done 'custody' "the gate still holds commits of this branch ($(Format-PauseCustody $c))"
+
+            $local = Invoke-TeardownGit -Directory $copy -Arguments @('rev-parse', 'HEAD')
+            if ($c.currentHead -match '^[0-9a-f]{40}$' -and (-not $local.ok -or $local.text -ne $c.currentHead)) {
+                try {
+                    $rescueRef = (Save-WatchGateRescue -RepoPath $copy -Head $c.currentHead -Task $WorkerId).ref
+                } catch {
+                    return & $stopAt 'rescue' ("the gate's head $($c.currentHead) could not be saved before " +
+                                               "recovering it, so nothing was moved - $($_.Exception.Message)")
+                }
+                & $done 'rescue' "the gate's head $($c.currentHead) is saved at $rescueRef"
+            }
+            $saved = if ($rescueRef) { " The gate's commits are saved at $rescueRef." } else { '' }
+
+            $r = Invoke-PauseGate -Arguments @('axi', 'sync', '--recover') -Directory $copy
+            if (-not $r.ok) { return & $stopAt 'recover' "the gate's commits could not be recovered - $($r.error).$saved" }
+            if ($r.exitCode -ne 0) {
+                $said = Read-PauseCustody -Text $r.stdout
+                $what = if ($said.ok) { Format-PauseCustody $said } else { "an answer that could not be read - $($said.error)" }
+                return & $stopAt 'recover' "no-mistakes refused to recover the gate's commits (exit $($r.exitCode)): $what.$saved"
+            }
+            & $done 'recover' 'no-mistakes axi sync --recover returned the gate''s commits'
+
+            $v = Get-PauseCustody -Copy $copy
+            if (-not $v.ok) { return & $stopAt 'verify' "who holds the branch after the recover could not be read - $($v.error).$saved" }
+            if (-not (Test-PauseCustodyReturned $v)) {
+                return & $stopAt 'verify' "after the recover the branch reads $(Format-PauseCustody $v), not custody_returned and equal.$saved"
+            }
+            $custodyNote = "recovered to the branch - custody_returned, equal$(if ($rescueRef) { "; also saved at $rescueRef" })"
+            & $done 'verify' 'the branch reads custody_returned and equal'
+        } else {
+            return & $stopAt 'custody' ("the branch reads $(Format-PauseCustody $c). Only " +
+                                        'blocked_pipeline_owned_recoverable is recovered here, so nothing was moved')
+        }
+    }
+
+    # stop
+    $agents = Read-TeardownHerdrList { Get-HerdrAgentInventory } 'agents'
+    if (-not $agents.ok) { return & $stopAt 'stop' "herdr could not be read, so the worker was not stopped - $($agents.error)" }
+    $mine = @($agents.agents | Where-Object { Test-TeardownPathWithin "$(Get-TeardownField $_ 'cwd')" $copy })
+    $out.stoppedBy = 'not-running'
+    if ($mine.Count -eq 0) { & $done 'stop' 'no worker was running in the copy' }
+    $spaces = [System.Collections.Generic.List[string]]::new()
+    foreach ($a in $mine) {
+        $name = "$(Get-TeardownField $a 'name')"
+        $paneOf = "$(Get-TeardownField $a 'pane_id')"
+        if ($name -notmatch '[A-Za-z]') {
+            $out.stoppedBy = ''
+            return & $stopAt 'stop' "an unnamed agent is live in the copy in pane $paneOf, so there is nothing to stop it by - load rally"
+        }
+        $stop = Stop-HerdrAgent -Name $name
+        if ($stop.stopped) {
+            $out.stoppedBy = 'exit'
+            & $done 'stop' "worker $name exited"
+            continue
+        }
+        if ($stop.refused) {
+            $out.stoppedBy = ''
+            return & $stopAt 'stop' "worker $name was not stopped ($($stop.refused)): its box reads '$($stop.promptBox)' and nothing was sent - load rally"
+        }
+        if (-not (Test-HerdrAgentAwaitingInput -Name $name)) {
+            $out.stoppedBy = ''
+            return & $stopAt 'stop' "worker $name did not exit and shows no dialog, so it was left running - load rally"
+        }
+        # The exit dialog for its own background work. Answering it would mean sending keys at a
+        # menu nobody has read; the work is safe by now, so the pane is closed instead.
+        $pane = if ("$($stop.paneId)") { "$($stop.paneId)" } else { $paneOf }
+        if (-not $pane) {
+            $out.stoppedBy = ''
+            return & $stopAt 'stop' "worker $name sits on a dialog and herdr named no pane for it, so it was left running - load rally"
+        }
+        Remove-HerdrPane -PaneId $pane
+        $again = Read-TeardownHerdrList { Get-HerdrAgentInventory } 'agents'
+        if (-not $again.ok) {
+            $out.stoppedBy = ''
+            return & $stopAt 'stop' "herdr could not confirm worker $name went after its pane $pane was closed - $($again.error)"
+        }
+        if (@($again.agents | Where-Object { "$(Get-TeardownField $_ 'name')" -eq $name }).Count -gt 0) {
+            $out.stoppedBy = ''
+            return & $stopAt 'stop' "worker $name is still there after its pane $pane was closed - load rally"
+        }
+        $ws = "$(Get-TeardownField $a 'workspace_id')"
+        if ($ws) { $spaces.Add($ws) }
+        $out.stoppedBy = 'pane-closed'
+        & $done 'stop' ("worker $name sat on the exit dialog for its own background work, so its pane $pane " +
+                        'was closed rather than the dialog answered - its copy and commits were already safe')
+    }
+
+    # pane
+    $removed = [System.Collections.Generic.List[string]]::new()
+    $kept    = [System.Collections.Generic.List[object]]::new()
+    Close-EmptyWorkspaces -WorkspaceIds @($spaces) -Removed $removed -Kept $kept
+    $why = Close-CopyPanes -Copy $copy -RecordedPaneId "$(Get-TeardownField $rec 'pane_id')" -Removed $removed -Kept $kept
+    if ($why) { return & $stopAt 'pane' $why }
+    $closed = if ($removed.Count -gt 0) { "closed $($removed -join ', ')" } else { 'no pane was left open' }
+    $left = @($kept | ForEach-Object { "$($_.what) kept: $($_.why)" })
+    & $done 'pane' ((@($closed) + $left) -join '; ')
+
+    # record
+    $head   = Invoke-TeardownGit -Directory $copy -Arguments @('rev-parse', 'HEAD')
+    $onto   = Invoke-TeardownGit -Directory $copy -Arguments @('branch', '--show-current')
+    $status = Invoke-TeardownGit -Directory $copy -Arguments @('status', '--short')
+    foreach ($g in @($head, $onto, $status)) {
+        if (-not $g.ok) {
+            return & $stopAt 'record' ('the worker is stopped and its copy kept, but git could not read ' +
+                                       "the copy for the pause record - $($g.text)")
+        }
+    }
+    $why = Get-PauseRecordRefusal -Path $recordPath -WorkerId $WorkerId
+    if ($why) { return & $stopAt 'record' "the worker is stopped and its copy kept, but $why" }
+
+    $uncommitted = if ($status.text) { @('```', $status.text, '```') } else { @('None.') }
+    $onBranch = if ($onto.text) { $onto.text } else { 'none - its HEAD is detached' }
+    $resume = Format-PauseResumeCommand -WorkerId $WorkerId -Copy $copy -Branch $branch `
+                  -Base "$(Get-TeardownField $rec 'base')" -Brief "$($rec.brief)" -RecordPath $recordPath -StatePath $StatePath
+    $lines = @(
+        (Get-PauseRecordHeading -WorkerId $WorkerId),
+        '',
+        "Paused $((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC by Suspend-Worker. The copy and the branch are kept.",
+        '',
+        "- Project: $repo",
+        "- Copy: $copy",
+        "- Branch: $onBranch",
+        "- Head: $($head.text)",
+        "- Stage before the pause: $($rec.stage)",
+        "- Review gate: $reached",
+        "- Gate commits: $custodyNote",
+        "- Worker: $(($steps | Where-Object { $_.step -eq 'stop' } | ForEach-Object { $_.detail }) -join '; ')",
+        '',
+        '## Uncommitted files',
+        ''
+    ) + $uncommitted + @(
+        '',
+        '## Resume',
+        '',
+        'One line, run from PowerShell. Arm its watch afterwards, as for any dispatch.',
+        '',
+        '```powershell',
+        $resume,
+        '```'
+    )
+    try {
+        $null = Write-DataFile -Path $recordPath -Content ($lines -join "`n") -Project $repo -DataPath $DataPath `
+                               -Summary "where paused worker $WorkerId stands, and the one command to resume it"
+    } catch {
+        return & $stopAt 'record' "the worker is stopped and its copy kept, but the pause record could not be written - $($_.Exception.Message)"
+    }
+    Set-CrewStage -State $state -WorkerId $WorkerId -Stage 'paused'
+    Save-CrewState -State $state -Path $StatePath
+    & $done 'record' "wrote $recordPath and set the stage to paused"
+
+    $out.outcome = 'paused'
+    $out.record  = $recordPath
+    $out.steps   = @($steps.ToArray())
+    [pscustomobject]$out
+}
+
 Export-ModuleMember -Function Remove-WorkerCopy, Get-WorkerLeftovers, Format-WorkerLeftovers,
-                              Invoke-WorkerSweep
+                              Invoke-WorkerSweep, Suspend-Worker
