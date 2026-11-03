@@ -1345,10 +1345,12 @@ Describe 'completion is evidence, not a state, and there is no transcript to fal
     }
 }
 
-Describe 'teardown exits the worker cleanly and never kills it' {
-    # A force-killed worker leaves its pane echoing every keystroke as literal junk, permanently,
-    # and can leave a handle open on the directory about to be removed. Both failures are silent
-    # at the moment they are caused, so the prohibition has to be in the step that does it.
+Describe 'teardown is one command whose header owns the order, and never kills' {
+    # The hand-written steps closed nothing for a worker that had already exited, because the pane
+    # was found through the live agent, and left a hundred dead panes and sixty-four folders behind.
+    # So the step runs one command, and the order and refusals live in that command's header.
+    # tests\Teardown.Tests.ps1 proves the behaviour; these pin that the step still sends the reader
+    # there and still forbids the routes around it.
     BeforeAll { $script:Step8b = Get-MusterStep 'Step 8b' }
 
     It 'says an idle worker is still a live process holding the worktree' {
@@ -1356,35 +1358,43 @@ Describe 'teardown exits the worker cleanly and never kills it' {
             -Phrase '**A worker that reads `idle` is not a dead worker.**'
     }
 
-    It 'stops with /exit and forbids reaching for the pid' {
+    It 'runs Remove-WorkerCopy and points at its header for the order and the safety rules' {
         Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
-            -Phrase ('**`Stop-HerdrAgent` exits the worker with `/exit`, and that is not a ' +
-                     'formality.**')
+            -Phrase ('**Teardown is one command, `Remove-WorkerCopy` from `bin\Teardown.psm1`, and ' +
+                     'that module''s header owns the order and every safety rule**')
         Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
-            -Phrase ('A worker killed with `Stop-Process` never sends its terminal-mode reset, ' +
-                     'which leaves its pane echoing every later keystroke as literal junk and ' +
-                     'unusable for anything, permanently.')
+            -Phrase 'Never hand-write those steps'
         Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
-            -Phrase 'Never reach for the pid.'
+            -Phrase '$t = Remove-WorkerCopy -WorkerId "<worker id>"'
+        $script:Step8b.Contains('worktree remove "<worktree path>"') |
+            Should -BeFalse -Because 'the order is stated once, in the command, and not hand-written beside it'
     }
 
-    It 'routes a stop refused over box text to rally' {
+    It 'reads kept as an answer and forbids forcing past it' {
         Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
-            -Phrase ('A `$stop.refused` of `prompt-box-not-empty` means its input box holds text ' +
-                     'and nothing was sent - load `rally`.')
+            -Phrase '**`kept` is an answer to read, never one to force past.**'
+        Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
+            -Phrase ('`prompt-box-not-empty` means the worker''s input box holds text and nothing ' +
+                     'was sent - load `rally`.')
+        Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
+            -Phrase 'Never reach for the pid, for `--force`, or for a delete underneath git.'
     }
 
-    It 'leaves the worktree alone when the stop did not take' {
+    It 'names the sweep and says the Hand runs it' {
         Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
-            -Phrase ('`$stop.stopped` being false means the worker did not exit. Stop there, ' +
-                     'report it, and leave the worktree alone')
+            -Phrase '`Invoke-WorkerSweep` from the same module clears it by the same rules'
+        Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
+            -Phrase 'The Hand runs it; nothing runs it on its own.'
     }
 
-    It 'refuses to force a dirty worktree away' {
-        Assert-Phrase -Text $script:Step8b -Where 'muster Step 8b' `
-            -Phrase ('If `worktree remove` refuses because the tree is dirty, that is unlanded ' +
-                     'work you were about to destroy - stop and read it rather than reaching for ' +
-                     '`--force`.')
+    It 'records the pane id at dispatch, so cleanup can close it after an exit' {
+        Assert-Phrase -Text (Get-Content -Path $script:MusterMd -Raw) -Where 'muster Step 4' `
+            -Phrase '-PaneId $r.paneId'
+    }
+
+    It 'lists the module in the Tooling table' {
+        Assert-Phrase -Text (Get-HandSection 'Tooling') -Where 'the CLAUDE.md tooling table' `
+            -Phrase '| `bin\Teardown.psm1` | worker cleanup as one command that finishes'
     }
 }
 
@@ -1846,8 +1856,10 @@ Describe 'rally states what steering can and cannot do, and protects unlanded wo
         Assert-Phrase -Text $text -Where 'the removal hazard' `
             -Phrase 'Use `Stop-HerdrAgent -Name <worker id>` while anything is unlanded.'
         Assert-Phrase -Text $text -Where 'the removal hazard' `
-            -Phrase ('Remove the worktree only once the work is committed and either landed or ' +
-                     'pushed, or the user has explicitly authorised discarding it.')
+            -Phrase ('Remove the copy only with `Remove-WorkerCopy`, whose header in ' +
+                     '`bin\Teardown.psm1` owns the')
+        Assert-Phrase -Text $text -Where 'the removal hazard' `
+            -Phrase 'Discarding unlanded work instead is the user''s explicit call alone.'
     }
 
     # A force-killed worker leaves a pane that echoes every keystroke as literal text and cannot

@@ -48,6 +48,10 @@ Set-StrictMode -Version Latest
 #
 # A worker in the project's own checkout, with no worktree, carries `checkout` and the path of the
 # permission-file record dispatch wrote, which is what its cleanup reads back.
+#
+# `pane_id` is the herdr pane dispatch started the worker in, absent on records from before it was
+# kept, and `torn_down_at` says its cleanup finished. bin\Teardown.psm1 reads the first and writes
+# the second.
 
 $script:ValidStages = @('dispatched', 'implementing', 'gating', 'ready', 'landed', 'failed')
 $script:ValidKinds  = @('ticket', 'adhoc')
@@ -96,7 +100,11 @@ function Add-CrewWorker {
         # Dispatch-Worker returned as settingsRecord, and it is required here because cleanup
         # cannot put the King's settings file back without it.
         [switch]$InCheckout,
-        [string]$SettingsRecord = ''
+        [string]$SettingsRecord = '',
+        # The herdr pane the worker was started in, as Dispatch-Worker returned it in paneId. Kept so
+        # cleanup can close that pane after the worker has exited, when herdr no longer has an agent
+        # to find it through. Left off, nothing is recorded and cleanup finds the pane by its cwd.
+        [string]$PaneId = ''
     )
 
     if ($Kind -notin $script:ValidKinds) {
@@ -138,6 +146,22 @@ function Add-CrewWorker {
         $State.workers[$WorkerId].checkout        = $true
         $State.workers[$WorkerId].settings_record = $SettingsRecord.Trim()
     }
+    if ($PaneId.Trim()) { $State.workers[$WorkerId].pane_id = $PaneId.Trim() }
+}
+
+# Records that a worker's cleanup finished: its pane, workspace and copy are gone. The stage is left
+# where it was - cleanup runs at `ready` or at `landed`, and both still say truly how far the work
+# got - so this is a field beside the stage rather than a seventh stage every reader would have to
+# learn. bin\Teardown.psm1 is the one writer.
+function Set-CrewTornDown {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$State,
+        [Parameter(Mandatory)][string]$WorkerId
+    )
+
+    if (-not $State.workers.ContainsKey($WorkerId)) { throw "Worker '$WorkerId' not found." }
+    $State.workers[$WorkerId].torn_down_at = (Get-Date).ToUniversalTime().ToString('o')
 }
 
 # One more ticket or fix joining a session worker's branch, appended in order. Refused on a worker
@@ -341,4 +365,4 @@ function Import-CrewState {
 
 Export-ModuleMember -Function New-CrewState, Add-CrewWorker, Set-CrewStage, Set-CrewWaitingOn,
                               Get-CrewWorker, Get-CrewByStage, Save-CrewState, Import-CrewState,
-                              Add-CrewItem, Get-CrewItems, Set-CrewRelaunch
+                              Add-CrewItem, Get-CrewItems, Set-CrewRelaunch, Set-CrewTornDown

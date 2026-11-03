@@ -270,6 +270,22 @@ Describe 'a session worker carries several items, and nothing else changes shape
                          'ticket', 'waiting_on', 'worktree')
     }
 
+    It 'records the pane dispatch created when it is given, so cleanup can close it after an exit' {
+        Add-CrewWorker -State $script:s -WorkerId 'T-1002' -Ticket 'T-1002' -Kind 'ticket' `
+                       -Repo 'acme-web' -Worktree 'w' -Branch 'worktree-T-1002' -Brief 'f' -PaneId 'w1:p1'
+        $script:s.workers['T-1002'].pane_id | Should -Be 'w1:p1'
+    }
+
+    It 'records that cleanup finished beside the stage, leaving the stage where it was' {
+        Add-CrewWorker -State $script:s -WorkerId 'T-1003' -Ticket 'T-1003' -Kind 'ticket' `
+                       -Repo 'acme-web' -Worktree 'w' -Branch 'worktree-T-1003' -Brief 'f'
+        Set-CrewStage -State $script:s -WorkerId 'T-1003' -Stage 'ready'
+        Set-CrewTornDown -State $script:s -WorkerId 'T-1003'
+        $script:s.workers['T-1003'].torn_down_at | Should -Not -BeNullOrEmpty
+        $script:s.workers['T-1003'].stage | Should -Be 'ready'
+        { Set-CrewTornDown -State $script:s -WorkerId 'nobody' } | Should -Throw '*not found*'
+    }
+
     It 'reads an ordinary record as its one ticket' {
         Add-CrewWorker -State $script:s -WorkerId 'T-1001' -Ticket 'T-1001' -Kind 'ticket' `
                        -Repo 'acme-web' -Worktree 'w' -Branch 'worktree-T-1001' -Brief 'f'

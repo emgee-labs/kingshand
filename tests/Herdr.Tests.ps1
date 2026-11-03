@@ -522,6 +522,56 @@ Describe 'Get-HerdrAgentInventory keeps the failure that Get-HerdrAgents throws 
     }
 }
 
+Describe 'The pane and workspace inventories keep a failed read, and the workspace close is one call' {
+    # Cleanup deletes a folder only once no pane holds it, so "could not ask herdr" read as "no
+    # panes" would delete a folder still open in a pane. Each failure shape is named.
+
+    It 'reports the panes herdr listed' {
+        Mock -ModuleName Herdr Invoke-Herdr {
+            [pscustomobject]@{ panes = @([pscustomobject]@{ pane_id = 'w1:p1'; cwd = 'C:\x'; workspace_id = 'w1' }) }
+        } -ParameterFilter { $Arguments[0] -eq 'pane' -and $Arguments[1] -eq 'list' }
+        $i = Get-HerdrPaneInventory
+        $i.ok | Should -BeTrue
+        @($i.panes).pane_id | Should -Be 'w1:p1'
+    }
+
+    It 'reports herdr''s own error rather than an empty pane list' {
+        Mock -ModuleName Herdr Invoke-Herdr { New-HerdrError -Code 'server_unavailable' -Message 'no server' }
+        $i = Get-HerdrPaneInventory
+        $i.ok | Should -BeFalse
+        $i.error | Should -Match 'herdr pane list: server_unavailable'
+        @($i.panes).Count | Should -Be 0
+    }
+
+    It 'reports a pane reply that could not be read, and one with no panes list in it' {
+        Mock -ModuleName Herdr Invoke-Herdr { $null }
+        (Get-HerdrPaneInventory).error | Should -Match 'nothing that could be read'
+        Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } }
+        (Get-HerdrPaneInventory).error | Should -Match 'without a panes list'
+    }
+
+    It 'reports the workspaces herdr listed, and a failed workspace read by name' {
+        Mock -ModuleName Herdr Invoke-Herdr {
+            [pscustomobject]@{ workspaces = @([pscustomobject]@{ workspace_id = 'w1'; label = 'kingshand' }) }
+        }
+        $i = Get-HerdrWorkspaceInventory
+        $i.ok | Should -BeTrue
+        @($i.workspaces).label | Should -Be 'kingshand'
+
+        Mock -ModuleName Herdr Invoke-Herdr { New-HerdrError -Code 'server_unavailable' }
+        $bad = Get-HerdrWorkspaceInventory
+        $bad.ok | Should -BeFalse
+        $bad.error | Should -Match 'herdr workspace list: server_unavailable'
+    }
+
+    It 'closes a workspace with herdr''s workspace close, and tolerates one already gone' {
+        $script:seen = $null
+        Mock -ModuleName Herdr Invoke-Herdr { $script:seen = $Arguments; New-HerdrError -Code 'workspace_not_found' }
+        { Remove-HerdrWorkspace -WorkspaceId 'w9' } | Should -Not -Throw
+        $script:seen | Should -Be @('workspace', 'close', 'w9')
+    }
+}
+
 Describe 'Send-HerdrPrompt routes a blocked worker rather than throwing at it' {
     # agent_blocked is a state, not a fault: the worker is sitting on an interactive prompt and
     # cannot take text until it is answered. Throwing would make every caller wrap this in a

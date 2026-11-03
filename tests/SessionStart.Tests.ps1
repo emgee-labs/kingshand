@@ -1833,3 +1833,38 @@ Describe 'the digest says when a newer release exists, for every installation' {
         Test-Path -LiteralPath (Join-Path $f.Root 'state\release-check.json') | Should -BeFalse
     }
 }
+# What earlier cleanups left behind is one line, printed only when there is something to clear or a
+# read failed. bin\Teardown.psm1 owns the counts; this pins that the digest carries them, names the
+# sweep, says nothing on a clean fixture, and prints a failed read as unreadable rather than zero.
+Describe 'the leftovers line' {
+    It 'counts a dispatched folder git no longer lists, and names the sweep' {
+        $f = New-Fixture 'leftovers'
+        $repo = Join-Path $f.Root 'acme-api'
+        $null = & git init -q -b main $repo 2>&1
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $repo '.claude\worktrees\w-gone\bin')
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $f.Data 'w-gone')
+        Set-Content -LiteralPath (Join-Path $f.Data 'w-gone\brief.md') -Value 'brief'
+        Add-RegistryEntry -Fixture $f -Line '- acme-api [local-only] - a project' -Path $repo
+
+        $line = @((Get-Digest $f) -split "`n" | Where-Object { $_ -like '*LEFTOVERS:*' })
+        $line.Count | Should -Be 1
+        $line[0] | Should -BeLike '*1 leftover copies*'
+        $line[0] | Should -BeLike '*Invoke-WorkerSweep*'
+    }
+
+    It 'says unreadable, never zero, when git cannot list a project''s copies' {
+        $f = New-Fixture 'leftovers-unreadable'
+        $repo = Join-Path $f.Root 'not-a-repo'
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $repo '.claude\worktrees')
+        Add-RegistryEntry -Fixture $f -Line '- not-a-repo [local-only] - a project' -Path $repo
+
+        (Get-Digest $f).Contains('leftover copies unreadable') | Should -BeTrue
+    }
+
+    # The pane and workspace counts come from this machine's real herdr, as the fleet's liveness
+    # does, so only the copies half - which the fixture controls - is pinned here.
+    It 'counts no leftover copies where no project has any' {
+        $f = New-Fixture 'leftovers-none'
+        (Get-Digest $f) | Should -Not -Match '([1-9]\d*|unreadable) leftover copies|leftover copies unreadable'
+    }
+}

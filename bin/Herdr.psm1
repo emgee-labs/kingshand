@@ -1475,13 +1475,57 @@ function Remove-HerdrPane {
     $null = Invoke-Herdr -AllowError -Arguments @('pane', 'close', $PaneId)
 }
 
+# Closes a whole workspace - the window a worker's pane was created in. A workspace left holding no
+# live pane is invisible to everything that reads agents, so cleanup closes it here. Like the pane
+# close above it answers nothing: the caller re-reads the inventory to see it went.
+function Remove-HerdrWorkspace {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$WorkspaceId)
+    $null = Invoke-Herdr -AllowError -Arguments @('workspace', 'close', $WorkspaceId)
+}
+
+# `pane list` and `workspace list` with the failure kept, in Get-HerdrAgentInventory's shape:
+# .ok, the list itself (empty whenever .ok is false), and .error naming what could not be read.
+# Cleanup refuses on a failed read rather than reading it as "no panes", because nothing open is
+# exactly the answer that lets a folder be deleted.
+function Get-HerdrListInventory {
+    param([string]$Noun, [string]$Field)
+
+    $r = Invoke-Herdr -AllowError -Arguments @($Noun, 'list')
+    $fail = { param($why) [pscustomobject]@{ ok = $false; items = @(); error = $why } }
+    if (-not $r) { return & $fail "herdr answered $Noun list with nothing that could be read as a result." }
+    if ($r.PSObject.Properties.Name -contains 'error') {
+        return & $fail "herdr $Noun list: $($r.error.code) - $($r.error.message)"
+    }
+    if ($r.PSObject.Properties.Name -notcontains $Field) {
+        return & $fail "herdr answered $Noun list without a $Field list in it."
+    }
+    [pscustomobject]@{ ok = $true; items = @($r.$Field); error = '' }
+}
+
+function Get-HerdrPaneInventory {
+    [CmdletBinding()]
+    param()
+    $i = Get-HerdrListInventory -Noun 'pane' -Field 'panes'
+    [pscustomobject]@{ ok = $i.ok; panes = $i.items; error = $i.error }
+}
+
+function Get-HerdrWorkspaceInventory {
+    [CmdletBinding()]
+    param()
+    $i = Get-HerdrListInventory -Noun 'workspace' -Field 'workspaces'
+    [pscustomobject]@{ ok = $i.ok; workspaces = $i.items; error = $i.error }
+}
+
 Export-ModuleMember -Function Get-HerdrCommandPath, Get-HerdrCommandHint, ConvertTo-HerdrAgentName,
                               Invoke-Herdr, Test-HerdrServer, Get-HerdrServerState, Get-HerdrVersion,
                               Start-HerdrServer, New-HerdrPane,
                               Start-HerdrAgent, Get-HerdrAgent, Get-HerdrAgents,
                               Get-HerdrAgentInventory, Send-HerdrPrompt, Confirm-HerdrPromptTaken,
                               Wait-HerdrAgent, Read-HerdrAgent, Send-HerdrKeys, Stop-HerdrAgent,
-                              Remove-HerdrPane, Test-HerdrAgentAwaitingInput, Get-HerdrAgentState,
+                              Remove-HerdrPane, Remove-HerdrWorkspace, Get-HerdrPaneInventory,
+                              Get-HerdrWorkspaceInventory,
+                              Test-HerdrAgentAwaitingInput, Get-HerdrAgentState,
                               Wait-HerdrAgentSettled, Test-HerdrAgentReadable,
                               Get-HerdrAgentProgressSignal, Wait-HerdrAgentProgress,
                               Get-HerdrAgentPromptBox, Read-HerdrAgentScreen,

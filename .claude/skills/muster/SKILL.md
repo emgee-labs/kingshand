@@ -1138,7 +1138,7 @@ Import-Module $env:KINGSHAND_HOME\bin\Crew.psm1 -Force
 $s = Import-CrewState -Path $env:KINGSHAND_HOME\state\crew.json
 Add-CrewWorker -State $s -WorkerId $r.id -Ticket "<id>" -Kind "<ticket|adhoc>" `
                -Repo "<repo>" -Worktree $r.worktree -Branch $r.branch -Base $r.base `
-               -Brief "$env:KINGSHAND_HOME\data\<id>\brief.md"
+               -PaneId $r.paneId -Brief "$env:KINGSHAND_HOME\data\<id>\brief.md"
 Save-CrewState -State $s -Path $env:KINGSHAND_HOME\state\crew.json
 ```
 
@@ -2518,44 +2518,29 @@ cannot reach it and nothing here should. Outliving the session is the entire rea
 was made to write it: the worktree, the pane and everything the worker said all go, and the
 findings stay. Leave `data\<id>\` alone.
 
-Teardown is three things in this order, and the order is the safety: stop the worker, discard its
-pane, remove its worktree.
-
-**A worker recorded with `checkout` has no worktree: tear it down with `Stop-CheckoutWorker` from
-`bin\ClaudeWorkspace.psm1`, passing its `settings_record`, and never with the steps below.**
-A close-out passes `-EndSession` as well, which removes the session's baseline; only `fief`'s
-relaunch of a wedged warm worker leaves it off.
-
-```powershell
-Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
-$stop = Stop-HerdrAgent -Name "<worker id>"
-if (-not $stop.stopped) { "STOP FAILED <worker id>" }     # do not touch the worktree
-Remove-HerdrPane -PaneId $stop.paneId
-```
-
-**`Stop-HerdrAgent` exits the worker with `/exit`, and that is not a formality.** A worker killed
-with `Stop-Process` never sends its terminal-mode reset, which leaves its pane echoing every later
-keystroke as literal junk and unusable for anything, permanently. The worktree is never harmed by
-either route - it is only a directory - but a killed worker costs you the pane and can leave a
-handle open on the directory you are about to remove. Never reach for the pid.
-
-`$stop.stopped` being false means the worker did not exit. Stop there, report it, and leave the
-worktree alone: the process is still live and still holding the directory. A `$stop.refused` of
-`prompt-box-not-empty` means its input box holds text and nothing was sent - load `rally`.
-
-Then remove the worktree, which is kingshand's own now - the dispatcher created it, so the
-dispatcher's caller cleans it up:
+**Teardown is one command, `Remove-WorkerCopy` from `bin\Teardown.psm1`, and that module's header
+owns the order and every safety rule** - the stop, the panes, the workspace, the worktree, the
+folder check, the branch and the record. Never hand-write those steps: the hand-written version
+closed nothing for a worker that had already exited, and left a hundred dead panes and sixty-four
+folders behind. A worker recorded with `checkout` goes through the same command, which hands it to
+`Stop-CheckoutWorker` with `-EndSession`; only `fief`'s relaunch of a wedged warm worker calls
+`Stop-CheckoutWorker` itself, without it.
 
 ```powershell
-git -C "<repo path>" worktree remove "<worktree path>"
-git -C "<repo path>" worktree prune
-git -C "<repo path>" branch -D "<branch>"      # only when discarding unlanded work
+Import-Module $env:KINGSHAND_HOME\bin\Teardown.psm1 -Force
+$t = Remove-WorkerCopy -WorkerId "<worker id>"
+$t.outcome; $t.kept          # removed, or kept with the reason for each thing it left
 ```
 
-If `worktree remove` refuses because the tree is dirty, that is unlanded work you were about to
-destroy - stop and read it rather than reaching for `--force`. If it refuses because the directory
-is in use, the worker is not actually stopped. Do not force-delete the directory underneath git:
-that leaves the worktree registered and the next dispatch with the same name will fail.
+**`kept` is an answer to read, never one to force past.** Uncommitted changes or a commit on no
+remote branch is unlanded work: stop and read it. `prompt-box-not-empty` means the worker's input
+box holds text and nothing was sent - load `rally`. `locked` means something still holds the folder;
+it is counted at the next session start and the sweep clears it once the lock is gone. Never reach
+for the pid, for `--force`, or for a delete underneath git.
+
+What earlier cleanups left behind is counted in one line of the session-start digest, and
+`Invoke-WorkerSweep` from the same module clears it by the same rules. The Hand runs it; nothing
+runs it on its own.
 
 ## Step 9 - Report
 

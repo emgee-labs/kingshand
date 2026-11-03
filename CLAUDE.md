@@ -78,8 +78,9 @@ exists to prevent.
 A `SessionStart` hook runs `bin\Get-SessionStart.ps1` and injects its digest as this session's
 first input. The digest carries ten things: the full contents of `instructions.md`, first; this
 installation's version on one `VERSION:` line; any actionable toolchain problem; the fleet -
-registered projects, recorded workers, un-dispatched briefs and available reports; a `RE-ARM:`
-section carrying what the last session's restart killed; the queue from `tasks-axi ready
+registered projects, recorded workers, un-dispatched briefs, available reports and a count of
+what earlier cleanups left behind; a `RE-ARM:` section carrying what the last session's restart
+killed; the queue from `tasks-axi ready
 --include-held`; a `DEPENDENCY_CHECK_DUE:` line when the weekly dependency check is due on a
 maintainer's installation; an `UPDATE_AVAILABLE:` line when a newer release exists; the data
 index as counts alone - how much it covers and how many files under `data\` it has lost track of -
@@ -223,10 +224,11 @@ rather than trusting a list; a list here goes stale and has twice.
 | Script | Job |
 |---|---|
 | `bin\Paths.psm1` | the one resolution point for `KINGSHAND_HOME` |
-| `bin\Herdr.psm1` | the only place that knows herdr's command line: start the server, make a pane, start a worker, read its state, prompt it, wait on it, notice it has stopped advancing, read its screen, answer a prompt, stop it |
+| `bin\Herdr.psm1` | the only place that knows herdr's command line: start the server, make a pane, start a worker, read its state, prompt it, wait on it, notice it has stopped advancing, read its screen, answer a prompt, stop it, list and close its panes and workspaces |
 | `bin\Ci.psm1` | whether a repository has any CI that could report a check, before a task is promised a wait for one |
 | `bin\ClaudeWorkspace.psm1` | writes a worktree's `settings.local.json` and pre-seeds folder trust, because no arguments can be passed to a worker - and for a worker in the project's own checkout, records, edits and restores that checkout's file, with `Stop-CheckoutWorker` as its cleanup |
-| `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, point a worker at the decision it parked on, carry a session worker's ordered list of items, query, save |
+| `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, point a worker at the decision it parked on, carry a session worker's ordered list of items, record a cleanup, query, save |
+| `bin\Teardown.psm1` | worker cleanup as one command that finishes - agent, pane, workspace, copy, branch, record - and the leftover count and sweep for what earlier cleanups missed; its header owns the order and the safety rules |
 | `bin\Projects.psm1` | the project registry: read an entry and its posture, add one, test importability |
 | `bin\Dispatch-Worker.ps1` | creates one worktree - or, with `-InCheckout`, uses the project's own checkout on the branch it is already on - and spawns one worker in it, attaches the standing files that project carries - its own and its family's - to the brief without being asked, and returns what Crew.psm1 must record |
 | `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the one ref a worker branches from and the landing gate diffs against, unless that dispatch names its own - the integration branch the repo declares in `.no-mistakes.yaml`, and its default branch where it declares none, always confirmed with `git rev-parse --verify` |
@@ -234,7 +236,7 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\Get-SurveySnapshot.ps1` | the one bounded gather behind `/survey`: registry, workers joined with live state, reports, un-dispatched briefs. Returns structured data, renders nothing, never throws |
 | `bin\Render-Review.ps1` | structured data to reviewable HTML for lavish |
 | `bin\Test-CrewPrereqs.ps1` | verifies the toolchain; run it if anything behaves oddly |
-| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook, under the harness's inline limit: instructions.md whole and first, version, toolchain problems, what is live or waiting in the fleet and the queue with counts for the rest, what a restart killed and has to be re-armed, the weekly dependency check on a maintainer's installation, a newer release, index counts, and each memory file whole where it fits. Never throws |
+| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook, under the harness's inline limit: instructions.md whole and first, version, toolchain problems, what is live or waiting in the fleet and the queue with counts for the rest, what earlier cleanups left behind, what a restart killed and has to be re-armed, the weekly dependency check on a maintainer's installation, a newer release, index counts, and each memory file whole where it fits. Never throws |
 | `bin\Version.psm1` | the `VERSION` file at the repo root: this installation's version, read and validated in one place, and never fabricated when it cannot be read |
 | `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the latest release tag, the commit subjects between two releases, and the installer run that moves every dependency to the release's pins - and the once-a-day new-release notice the digest prints |
 | `bin\Dependencies.psm1` | the pins in `dependencies.json`: each one read and checked, the installed and the latest published version of each read from the tool that owns it, and whether herdr may be replaced right now |

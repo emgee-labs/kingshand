@@ -1,8 +1,8 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  The once-per-session digest: this installation's version, toolchain problems, fleet state, what
-  a restart killed and has to be re-armed, the queue, whether the weekly dependency check is due on
+  The once-per-session digest: this installation's version, toolchain problems, fleet state and a
+  count of what earlier cleanups left behind, what a restart killed and has to be re-armed, the queue, whether the weekly dependency check is due on
   a maintainer's installation, whether a newer release exists, where the data index is and how far
   it has drifted, the King's own standing instructions, and the two curated memory files, rendered
   as one block a session can read and trust.
@@ -701,6 +701,18 @@ try {
     }
 } catch {
     Add-Line ("  FLEET: could not read the fleet - " + (Format-Fault $_.Exception.Message))
+}
+
+# What earlier cleanups left behind: dead panes, empty workspaces, leftover copies. One line, and
+# only when there is something to clear or a read failed - Teardown.psm1 owns what each count means
+# and why a failed read is printed as unreadable rather than as nothing left over.
+try {
+    Import-Module (Join-Path $PSScriptRoot 'Teardown.psm1') -Force -ErrorAction Stop
+    $leftovers = Get-WorkerLeftovers -RegistryPath $RegistryPath -StatePath $StatePath -DataPath $DataPath
+    $leftLine  = Format-WorkerLeftovers -Leftovers $leftovers
+    if ($leftLine) { Add-Line ("  " + (Format-Fault $leftLine)) }
+} catch {
+    Add-Line ("  LEFTOVERS: could not be counted - " + (Format-Fault $_.Exception.Message))
 }
 
 # --------------------------------------------------------------------------------
