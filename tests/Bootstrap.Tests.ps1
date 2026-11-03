@@ -219,6 +219,24 @@ Describe 'bootstrap.ps1 - an existing kingshand clone' {
         Get-InstallRecord -Target $target | Should -Be 'bound=;args='
     }
 
+    It 'accepts a clone whose origin matches only as configured, before a url insteadOf rewrite' {
+        $target = Join-Path (New-TargetBase 'existing-insteadof') 'kingshand'
+        git clone -q "$($script:Remote.Path)" $target 2>&1 | Out-Null
+        git -C $target checkout -q v0.2.0 2>&1 | Out-Null
+        # Set in the clone's own config, so the test touches no global config. git remote get-url
+        # reports the rewritten mirror URL; only the configured value matches -Repository.
+        $repository = 'https://example.invalid/emgee-labs/kingshand'
+        git -C $target config remote.origin.url $repository
+        git -C $target config url.https://mirror.invalid/kingshand.insteadOf $repository
+        (git -C $target remote get-url origin) | Should -Be 'https://mirror.invalid/kingshand'
+
+        $r = Invoke-Bootstrap -ArgumentList @('-Path', $target, '-Repository', $repository)
+
+        $r.Code | Should -Be 0 -Because $r.Text
+        $r.Text.Contains('already a kingshand clone') | Should -BeTrue -Because $r.Text
+        Get-InstallRecord -Target $target | Should -Be 'bound=;args='
+    }
+
     It 'says the release could not be checked when the clone has no update module' {
         $remote = New-Remote -Name 'existing-nomodule' -NoUpdateModule
         $target = Join-Path (New-TargetBase 'existing-nomodule') 'kingshand'
@@ -273,6 +291,7 @@ Describe 'bootstrap.ps1 - refusals that change nothing' {
 
         $r.Code | Should -Not -Be 0
         $r.Text.Contains("is a clone of $other") | Should -BeTrue -Because $r.Text
+        $r.Text.Contains("If this is your kingshand clone, run again with -Repository $other.") | Should -BeTrue -Because $r.Text
         (git -C $target remote get-url origin) | Should -Be $other
         Get-InstallRecord -Target $target | Should -BeNullOrEmpty
     }

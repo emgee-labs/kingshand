@@ -112,16 +112,29 @@ $exitCode = & {
         $first = Get-ChildItem -LiteralPath $target -Force | Select-Object -First 1
         if ($first) {
             $origin = $null
+            $configured = $null
             if (Test-Path -LiteralPath (Join-Path $target '.git')) {
                 $origin = (& git -C $target remote get-url origin 2>$null | Out-String).Trim()
+                # As configured, before any url insteadOf rule rewrites it - get-url reports the
+                # rewritten one, so a clone made under such a rule matches only on this.
+                $configured = (& git -C $target config --get remote.origin.url 2>$null | Out-String).Trim()
                 $global:LASTEXITCODE = 0
             }
-            if (-not $origin -or (Get-RepositoryKey $origin) -ne (Get-RepositoryKey $Repository)) {
-                $what = if ($origin) { "a clone of $(Format-Repository -Value $origin)" }
-                        else { 'not a kingshand clone' }
+            $key = Get-RepositoryKey $Repository
+            $matched = ($origin -and (Get-RepositoryKey $origin) -eq $key) -or
+                       ($configured -and (Get-RepositoryKey $configured) -eq $key)
+            if (-not $matched) {
+                if ($origin) {
+                    $named = Format-Repository -Value $origin
+                    $what  = "a clone of $named"
+                    $hint  = " If this is your kingshand clone, run again with -Repository $named."
+                } else {
+                    $what = 'not a kingshand clone'
+                    $hint = ''
+                }
                 Stop-Bootstrap ("$target already exists, is not empty, and is $what. Nothing was " +
                                 'changed - this never overwrites a folder. Choose an empty or new ' +
-                                '-Path, or point it at an existing kingshand clone.')
+                                "-Path, or point it at an existing kingshand clone.$hint")
             }
             $existing = $true
         }
