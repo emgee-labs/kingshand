@@ -1265,7 +1265,8 @@ Describe 'the Hand arms a wait so a finished worker actually wakes it' {
     It 'lets the screen outrank the state word, and keeps not-settled from becoming one' {
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase ('The line says `BLOCKED` off the worker''s own screen, whatever its state ' +
-                     'word says.')
+                     'word says, and only for a prompt still up after a confirmation window ' +
+                     '`bin\Watch.psm1` owns.')
         Assert-Phrase -Text $script:Step4 -Where 'muster Step 4' `
             -Phrase 'not settled is the absence of an outcome, never an outcome of its own'
     }

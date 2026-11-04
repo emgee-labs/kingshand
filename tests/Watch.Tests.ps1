@@ -419,6 +419,122 @@ Describe 'A worker watch never reports settled while the worker waits on its own
     }
 }
 
+Describe 'A worker watch confirms a prompt is still up before it reports BLOCKED' {
+    # The prompt the PermissionRequest hook answers: up for a second or two, then the screen says it
+    # was allowed and the worker carries on. Only the waits and herdr's screen are faked; the prompt
+    # signatures are Herdr.psm1's own. The clock moves only when the watch sleeps.
+    BeforeAll {
+        $script:PromptScreen = ("  Do you want to make this edit to settings.json?`n  `u{276F} 1. Yes`n" +
+                                "    2. No`n  Esc to cancel")
+        $script:ClearScreen  = "  Allowed by PermissionRequest hook`n  Editing settings.json"
+    }
+
+    BeforeEach {
+        $script:clock = Get-Date
+        $script:slept = 0
+        Mock -ModuleName Watch Get-Date { $script:clock }
+        Mock -ModuleName Watch Start-Sleep {
+            param($Seconds)
+            $script:slept += $Seconds
+            $script:clock = $script:clock.AddSeconds($Seconds)
+        }
+        $script:waits = 0
+        Mock -ModuleName Watch Wait-HerdrAgentProgress {
+            $script:waits++
+            if ($script:waits -eq 1) { New-Wake -State 'blocked' -Awaiting $true -Last 'Do you want to' }
+            else { New-Wake -State 'done' }
+        }
+    }
+
+    It 'keeps waiting to the real outcome when the prompt clears inside the window' {
+        $script:reads = 0
+        Mock -ModuleName Watch Read-HerdrAgentScreen {
+            $script:reads++
+            $t = if ($script:reads -eq 1) { $script:PromptScreen } else { $script:ClearScreen }
+            [pscustomobject]@{ ok = $true; text = $t }
+        }
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 5
+        Assert-OneLine $l
+        $l | Should -BeLike 'SETTLED T-1 state=done*'
+        $l | Should -Not -BeLike '*BLOCKED*'
+        Should -Invoke -ModuleName Watch Wait-HerdrAgentProgress -Times 2 -Exactly
+        $script:slept | Should -Be 20
+    }
+
+    # The default is what every arm through Watch.ps1 takes, since the script never passes one.
+    It 'reports a prompt still up after the default window as blocked, exactly as before' {
+        Mock -ModuleName Watch Read-HerdrAgentScreen {
+            [pscustomobject]@{ ok = $true; text = $script:PromptScreen }
+        }
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 5
+        $before = New-Wake -State 'blocked' -Awaiting $true -Last 'Do you want to'
+        $l | Should -Be (Format-WorkerWake -Name 'T-1' -Wake $before)
+        $l | Should -BeLike 'BLOCKED T-1*Last seen: Do you want to'
+        Should -Invoke -ModuleName Watch Wait-HerdrAgentProgress -Times 1 -Exactly
+        Should -Invoke -ModuleName Watch Read-HerdrAgentScreen -Times 6 -Exactly
+        $script:slept | Should -Be 60
+    }
+
+    It 'never reads a screen it could not read as a cleared prompt' {
+        $script:reads = 0
+        Mock -ModuleName Watch Read-HerdrAgentScreen {
+            $script:reads++
+            if ($script:reads -eq 1) { throw 'herdr did not answer' }
+            if ($script:reads -eq 2) { return [pscustomobject]@{ ok = $true; text = $script:PromptScreen } }
+            [pscustomobject]@{ ok = $false; text = '' }
+        }
+        $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 5
+        Assert-OneLine $l
+        $l | Should -BeLike 'BLOCKED T-1*'
+        $l | Should -BeLike '*5 of 6 reads of its screen could not be read, so it was never seen to clear.'
+        Should -Invoke -ModuleName Watch Wait-HerdrAgentProgress -Times 1 -Exactly
+    }
+
+    It 'confirms a stalled worker on a prompt the same way' {
+        Mock -ModuleName Watch Wait-HerdrAgentProgress {
+            $script:waits++
+            if ($script:waits -eq 1) { New-Wake -Reason 'stalled' -State 'working' -Awaiting $true }
+            else { New-Wake -State 'done' }
+        }
+        Mock -ModuleName Watch Read-HerdrAgentScreen {
+            [pscustomobject]@{ ok = $true; text = $script:ClearScreen }
+        }
+        (Watch-Worker -Name 'T-1' -TimeoutMinutes 5) | Should -BeLike 'SETTLED T-1*'
+    }
+
+    It 'reports a prompt the moment it is seen when the window is 0' {
+        Mock -ModuleName Watch Read-HerdrAgentScreen { throw 'should not read' }
+        (Watch-Worker -Name 'T-1' -TimeoutMinutes 5 -PromptConfirmSeconds 0) |
+            Should -BeLike 'BLOCKED T-1*'
+        Should -Invoke -ModuleName Watch Start-Sleep -Times 0 -Exactly
+    }
+
+    It 'confirms the prompt on a delivery watch too, by default' {
+        Mock -ModuleName Watch Get-GateRunState {
+            $s = ConvertFrom-GateRunOutput -Text ''; $s.status = 'no-run'; $s }
+        $script:reads = 0
+        Mock -ModuleName Watch Read-HerdrAgentScreen {
+            $script:reads++
+            $t = if ($script:reads -le 2) { $script:PromptScreen } else { $script:ClearScreen }
+            [pscustomobject]@{ ok = $true; text = $t }
+        }
+        $l = Watch-Delivery -Name 'T-1' -RepoPath 'C:\wt' -Branch 'feature-x' -TimeoutMinutes 5
+        $l | Should -BeLike 'SETTLED T-1*No gate run is recorded on feature-x.'
+        $script:slept | Should -Be 30
+    }
+
+    It 'reports a prompt that persists on a delivery watch as blocked and reads no gate' {
+        Mock -ModuleName Watch Get-GateRunState { throw 'should not read' }
+        Mock -ModuleName Watch Read-HerdrAgentScreen {
+            [pscustomobject]@{ ok = $true; text = $script:PromptScreen }
+        }
+        (Watch-Delivery -Name 'T-1' -RepoPath 'C:\wt' -Branch 'feature-x' -TimeoutMinutes 5) |
+            Should -BeLike 'BLOCKED T-1*'
+        $script:slept | Should -Be 60
+        Should -Invoke -ModuleName Watch Get-GateRunState -Times 0
+    }
+}
+
 Describe 'A report watch' {
     BeforeEach {
         $script:data = Join-Path $TestDrive "data-$([guid]::NewGuid().ToString('N'))"
@@ -710,6 +826,13 @@ Describe 'Watch-Delivery' {
 
     It 'reports a worker that did not settle cleanly as its own outcome and reads no gate' {
         Mock -ModuleName Watch Get-GateRunState { throw 'should not read' }
+        # The prompt stays up through its confirmation window, so it is reported.
+        $script:clock = Get-Date
+        Mock -ModuleName Watch Get-Date { $script:clock }
+        Mock -ModuleName Watch Start-Sleep { param($Seconds) $script:clock = $script:clock.AddSeconds($Seconds) }
+        Mock -ModuleName Watch Read-HerdrAgentScreen {
+            [pscustomobject]@{ ok = $true; text = 'Do you want to proceed? Esc to cancel' }
+        }
         foreach ($w in @((New-Wake -Reason 'stalled'), (New-Wake -Awaiting $true), (New-Wake -Reason 'gone'))) {
             Mock -ModuleName Watch Wait-HerdrAgentProgress { $w }.GetNewClosure()
             (Watch-Delivery -Name 'T-1' -RepoPath 'C:\wt' -Branch 'feature-x') |

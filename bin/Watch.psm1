@@ -25,9 +25,9 @@ Import-Module (Join-Path $PSScriptRoot 'Crew.psm1')
 # anything going silent.
 #
 # EVERY OUTCOME THE WAITS CAN REPORT HAS ITS OWN LINE, and none is folded into another: a worker
-# blocked, stalled, gone, settled, settled over text it never took, idle on its own background
-# shells until the clock ran out, its watch failing or timing out, a screen the watch could not
-# read, text in its input box; a gate run parked with its findings, passed, failed, unreadable or
+# blocked on a prompt still up after the confirmation window, stalled, gone, settled, settled over
+# text it never took, idle on its own background shells until the clock ran out, its watch failing
+# or timing out, a screen the watch could not read, text in its input box; a gate run parked with its findings, passed, failed, unreadable or
 # quiet until the clock ran out; a worker gone idle while the gate it started keeps running; and a
 # report written, not written, or unreadable. A line that cannot be composed is never replaced by a
 # quieter one - an unreadable input reads as unreadable, never as a state word.
@@ -48,6 +48,13 @@ $script:ReportSampleSeconds = 15
 # How long a worker still idle when its last shell has gone is given to start the turn that shell's
 # finish brings, before the wait that follows may read it settled.
 $script:ShellDrainConfirmSeconds = 10
+
+# How long a worker seen on a prompt is watched before it is reported blocked, and how often its
+# screen is read meanwhile. The PermissionRequest hook answers the prompts it owns within a second
+# or two, and on 2026-11-04 those woke the Hand about fifteen times in one night for prompts that
+# had already cleared; a prompt still up a minute later is one nothing is going to answer.
+$script:PromptConfirmSeconds = 60
+$script:PromptSampleSeconds  = 10
 
 # How many reads of a report in a row may fail before the watch says it cannot read it. One is not
 # enough: the worker's own write holds the file for a moment, and that is not a fault.
@@ -288,21 +295,78 @@ function Wait-WorkerShells {
     'deadline'
 }
 
+# Whether a wake is one Format-WorkerWake reports as BLOCKED - the same two conditions it checks.
+function Test-WorkerWakeBlocked {
+    param($Wake)
+    $reason   = "$(Get-WatchField $Wake 'reason')"
+    $awaiting = (Get-WatchField $Wake 'awaitingInput') -eq $true
+    ($reason -eq 'settled' -and ($awaiting -or "$(Get-WatchField $Wake 'state')" -eq 'blocked')) -or
+        ($reason -eq 'stalled' -and $awaiting)
+}
+
+# Watches a worker seen on a prompt for up to -Seconds, reading its screen every few seconds, and
+# says whether the prompt was seen to clear. 0 or less reads nothing and confirms it at once.
+#
+# .cleared     a read succeeded and showed no prompt
+# .reads       how many reads were taken
+# .unreadable  how many of them could not be read
+#
+# Only a screen read and found free of a prompt is a clear. A read that fails or throws is counted
+# as unreadable and the window goes on, so a blind watch reports the prompt rather than guessing it
+# went away.
+function Confirm-WorkerPrompt {
+    param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][int]$Seconds)
+
+    $reads  = 0
+    $unread = 0
+    $until  = (Get-Date).AddSeconds($Seconds)
+    while ((Get-Date) -lt $until) {
+        $left = [int][Math]::Ceiling(($until - (Get-Date)).TotalSeconds)
+        Start-Sleep -Seconds ([Math]::Max(1, [Math]::Min($script:PromptSampleSeconds, $left)))
+        $reads++
+        $screen = $null
+        try { $screen = Read-HerdrAgentScreen -Name $Name } catch { $screen = $null }
+        if ((Get-WatchField $screen 'ok') -ne $true) { $unread++; continue }
+        if (-not (Test-HerdrScreenAwaitingInput -Text "$(Get-WatchField $screen 'text')")) {
+            return [pscustomobject]@{ cleared = $true; reads = $reads; unreadable = $unread }
+        }
+    }
+    [pscustomobject]@{ cleared = $false; reads = $reads; unreadable = $unread }
+}
+
 # The worker wait, waited through any turn that ends on the worker's own background shells, as one
 # line. -OnShell is asked first on each such turn, and a true answer reports it at once instead -
 # the delivery watch's way of handing a worker idle on its own gate run to the gate watch.
+#
+# A wake on a prompt is confirmed first, over -PromptConfirmSeconds: a prompt the PermissionRequest
+# hook answers is gone within seconds, and the wait goes on to the real outcome instead of
+# reporting it. One still up at the end of the window is reported BLOCKED as before.
 function Invoke-WorkerWatch {
     param(
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][int]$TimeoutMinutes,
         [Parameter(Mandatory)][int]$StallMinutes,
-        [scriptblock]$OnShell = $null
+        [scriptblock]$OnShell = $null,
+        [int]$PromptConfirmSeconds = $script:PromptConfirmSeconds
     )
 
     $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
     $ms = $TimeoutMinutes * 60000
     while ($true) {
         $worker = Invoke-WorkerWait -Name $Name -TimeoutMs $ms -StallMinutes $StallMinutes
+        if (Test-WorkerWakeBlocked $worker.wake) {
+            $seen = Confirm-WorkerPrompt -Name $Name -Seconds $PromptConfirmSeconds
+            if ($seen.cleared) {
+                $ms = [int][Math]::Max(1000, ($deadline - (Get-Date)).TotalMilliseconds)
+                continue
+            }
+            if ($seen.unreadable -gt 0) {
+                $worker.line += (" While the prompt was being confirmed, $($seen.unreadable) of " +
+                                 "$($seen.reads) reads of its screen could not be read, so it " +
+                                 'was never seen to clear.')
+            }
+            return $worker
+        }
         if (-not (Test-WorkerWakeOnShell $worker.wake)) { return $worker }
         if ($null -ne $OnShell -and (& $OnShell $worker.wake)) { return $worker }
         if ((Wait-WorkerShells -Name $Name -Deadline $deadline) -eq 'deadline') { return $worker }
@@ -322,10 +386,14 @@ function Watch-Worker {
         [int]$TimeoutMinutes = $script:DefaultTimeoutMinutes,
         # 0 is the wait's own threshold, which every caller takes unless the work is quiet for
         # longer - muster says never under fifteen.
-        [int]$StallMinutes = 0
+        [int]$StallMinutes = 0,
+        # How long a prompt must stay up before it is reported BLOCKED. Watch.ps1 never passes it,
+        # so every arm takes this default; 0 reports a prompt the moment it is seen.
+        [int]$PromptConfirmSeconds = $script:PromptConfirmSeconds
     )
 
-    (Invoke-WorkerWatch -Name $Name -TimeoutMinutes $TimeoutMinutes -StallMinutes $StallMinutes).line
+    (Invoke-WorkerWatch -Name $Name -TimeoutMinutes $TimeoutMinutes -StallMinutes $StallMinutes `
+         -PromptConfirmSeconds $PromptConfirmSeconds).line
 }
 
 # One gate wait's result as one line. Exported so every outcome can be driven with the wait forced.
@@ -559,7 +627,9 @@ function Watch-Delivery {
         [Parameter(Mandatory)][string]$RepoPath,
         [Parameter(Mandatory)][string]$Branch,
         [int]$TimeoutMinutes = $script:DefaultTimeoutMinutes,
-        [int]$StallMinutes = 0
+        [int]$StallMinutes = 0,
+        # As Watch-Worker's: how long a prompt must stay up before it is reported BLOCKED.
+        [int]$PromptConfirmSeconds = $script:PromptConfirmSeconds
     )
 
     # A worker idle on its own background shells is waited through, as Watch-Worker does - unless
@@ -571,7 +641,8 @@ function Watch-Delivery {
         "$(Get-WatchField $g 'status')" -eq 'has-run' -and $null -eq (ConvertTo-GateStopWait -State $g)
     }
     $worker = Invoke-WorkerWatch -Name $Name -TimeoutMinutes $TimeoutMinutes `
-                  -StallMinutes $StallMinutes -OnShell $gateRunning
+                  -StallMinutes $StallMinutes -OnShell $gateRunning `
+                  -PromptConfirmSeconds $PromptConfirmSeconds
     $wake   = $worker.wake
     $ended  = "$(Get-WatchField $wake 'reason')" -eq 'settled' -and
               (Get-WatchField $wake 'awaitingInput') -ne $true -and
