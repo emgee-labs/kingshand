@@ -286,13 +286,15 @@ function Compare-GateRunSignature {
     $show = { param([string]$V) if ($V) { $V } else { '(none)' } }
     $keys = @(@($From.Keys) + @($To.Keys) | Select-Object -Unique)
 
-    @(foreach ($key in $keys) {
+    $out = [System.Collections.Generic.List[object]]::new()
+    foreach ($key in $keys) {
         $a = $(if ($From.Contains($key)) { "$($From[$key])" } else { '' })
         $b = $(if ($To.Contains($key))   { "$($To[$key])"   } else { '' })
         if ($a -cne $b) {
-            [pscustomobject]@{ key = $key; text = "$key`: $(& $show $a) -> $(& $show $b)" }
+            $out.Add([pscustomobject]@{ key = $key; text = "$key`: $(& $show $a) -> $(& $show $b)" })
         }
-    })
+    }
+    return , $out
 }
 
 # How long the wait ran, in the units a person would say it in.
@@ -498,7 +500,7 @@ function Wait-GateRunChange {
                 $baselineSig   = $signature
                 $baselineTaken = Get-StateText -State $reading -Name 'takenAt'
             } else {
-                $changes = @(Compare-GateRunSignature -From $baselineSig -To $signature)
+                $changes = Compare-GateRunSignature -From $baselineSig -To $signature
                 if ($changes.Count -gt 0) {
                     $keys = @($changes | ForEach-Object { $_.key })
                     $stop = Get-GateRunStopReason -State $reading -ChangedKeys $keys

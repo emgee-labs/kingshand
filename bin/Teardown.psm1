@@ -515,8 +515,8 @@ function Get-WorkerLeftovers {
     $state = $null
     try { $state = Import-CrewState -Path $StatePath } catch { $problems.Add("crew.json could not be read: $($_.Exception.Message)") }
     $projects = @()
-    # Assigned bare: Get-AllProjects hands back its list as one object, and @() would nest it. No
-    # registry at all is nothing registered - an ordinary state - rather than a failed read.
+    # Assigned bare, under statute's collection-return rule. No registry at all is nothing
+    # registered - an ordinary state - rather than a failed read.
     try {
         if (Test-Path -LiteralPath $RegistryPath -PathType Leaf) { $projects = Get-AllProjects -RegistryPath $RegistryPath }
     } catch { $problems.Add("the registry could not be read: $($_.Exception.Message)") }

@@ -166,16 +166,14 @@ if ($registryPresent) {
     try {
         Import-Module (Join-Path $PSScriptRoot 'Projects.psm1') -Force -ErrorAction Stop
 
-        # Deliberately NOT wrapped in @(). Get-AllProjects returns via the leading-comma idiom,
-        # so the pipeline hands back the intact entries array as one object; @() would nest it a
-        # second time and every entry would read as one unnamed row.
+        # Assigned, never wrapped in @() - statute's collection-return rule.
         # A registry typo is a Write-Warning, not an exception, and it silently makes a project
         # stricter - captured here so the digest can say so instead of losing it to the console.
         $regWarn  = $null
         $projects = Get-AllProjects -RegistryPath $RegistryPath -WarningVariable regWarn -WarningAction SilentlyContinue
         foreach ($w in @($regWarn)) { if ($w) { Add-Fault 'registry' "$w" } }
 
-        foreach ($p in @($projects)) {
+        foreach ($p in $projects) {
             $path = Get-Field $p 'path'
             $entries += [pscustomobject]@{
                 name    = (Get-Field $p 'name' '(unnamed)')
@@ -225,8 +223,9 @@ if ($crewReadable -and $crewIds.Count -gt 0) {
         if (-not (Test-PathQuiet $statusScript)) { throw "Get-CrewStatus.ps1 is not at $statusScript." }
         # Invoked in a child scope with strict mode off: it predates this script and reads
         # optional properties off the agent objects, which StrictMode Latest would turn into an
-        # exception if it inherited the setting from here.
-        $rows = @(& { Set-StrictMode -Off; & $statusScript -StatePath $StatePath })
+        # exception if it inherited the setting from here. Assigned, never wrapped in @(): the
+        # script returns its rows as one list - statute's collection-return rule.
+        $rows = & { Set-StrictMode -Off; & $statusScript -StatePath $StatePath }
     } catch {
         Add-Fault 'liveness' $_.Exception.Message
         $rows = $null

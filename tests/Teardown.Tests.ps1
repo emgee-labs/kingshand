@@ -837,7 +837,7 @@ branch_sync:
         $text.Contains("New-HerdrPane -Cwd '$($script:Copy)'") | Should -BeTrue
 
         (Import-CrewState -Path $script:F.state).workers['w-pause'].stage | Should -Be 'paused'
-        @(Get-IndexEntries -Project 'acme-api' -DataPath $script:F.data | Where-Object { $_.path -like '*w-pause\pause.md' }).Count |
+        @((Get-IndexEntries -Project 'acme-api' -DataPath $script:F.data) | Where-Object { $_.path -like '*w-pause\pause.md' }).Count |
             Should -Be 1
     }
 

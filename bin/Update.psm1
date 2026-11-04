@@ -84,13 +84,14 @@ function Get-LiveWorkerNames {
     $liveness = Get-HerdrLiveness
     if ($liveness.state -eq 'unknown') { throw $liveness.evidence }
 
-    @($liveness.workers | ForEach-Object {
-        $name = if ($_.PSObject.Properties.Name -contains 'name') { "$($_.name)" } else { '' }
-        if ($name) { $name } else {
-            $pane = if ($_.PSObject.Properties.Name -contains 'pane_id') { "$($_.pane_id)" } else { '' }
-            "an unnamed worker$(if ($pane) { " in pane $pane" })"
-        }
-    })
+    $out = [System.Collections.Generic.List[object]]::new()
+    foreach ($w in @($liveness.workers)) {
+        $name = if ($w.PSObject.Properties.Name -contains 'name') { "$($w.name)" } else { '' }
+        if ($name) { $out.Add($name); continue }
+        $pane = if ($w.PSObject.Properties.Name -contains 'pane_id') { "$($w.pane_id)" } else { '' }
+        $out.Add("an unnamed worker$(if ($pane) { " in pane $pane" })")
+    }
+    return , $out
 }
 
 # The tracked paths git reports as modified, staged, deleted or untracked. Empty means clean.
@@ -105,8 +106,12 @@ function Get-DirtyPaths {
     $global:LASTEXITCODE = 0
     if ($code -ne 0) { throw "git could not read the state of $RepoPath - $(($out | Out-String).Trim())" }
 
-    @($out | ForEach-Object { "$_".Trim() } | Where-Object { $_ } |
-      ForEach-Object { ($_ -split '\s+', 2)[-1] })
+    $paths = [System.Collections.Generic.List[object]]::new()
+    foreach ($line in $out) {
+        $t = "$line".Trim()
+        if ($t) { $paths.Add(($t -split '\s+', 2)[-1]) }
+    }
+    return , $paths
 }
 
 # The checked-out branch, an empty string on a detached HEAD, or a throw when git could not answer.
@@ -218,7 +223,9 @@ function Get-ReleaseChanges {
         throw "git could not list the commits between $From and $To - $(($out | Out-String).Trim())"
     }
 
-    @($out | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+    $subjects = [System.Collections.Generic.List[object]]::new()
+    foreach ($line in $out) { $t = "$line".Trim(); if ($t) { $subjects.Add($t) } }
+    return , $subjects
 }
 
 # Must a live session read its instructions again? `CLAUDE.md`, `bin\` and `.claude\skills\` are
@@ -327,7 +334,7 @@ function Invoke-KingshandUpdate {
     # Guard 1 - a dirty tree. Someone's unsaved work, and a fast-forward over it would either
     # refuse halfway or carry it into a release it does not belong to.
     try {
-        $dirty = @(Get-DirtyPaths -RepoPath $Root)
+        $dirty = Get-DirtyPaths -RepoPath $Root
     } catch {
         return & $refuse $_.Exception.Message
     }
@@ -345,7 +352,7 @@ function Invoke-KingshandUpdate {
     # Guard 2 - a live worker. Moving bin\ and the skills under a worker mid-task breaks it, and
     # liveness is herdr's answer rather than crew.json's.
     try {
-        $live = @(Get-LiveWorkerNames)
+        $live = Get-LiveWorkerNames
     } catch {
         return & $refuse ('Whether any worker is live could not be established, so nothing was ' +
                           "updated - $($_.Exception.Message)")
@@ -432,7 +439,8 @@ function Invoke-KingshandUpdate {
     }
 
     try {
-        $result.changes = @(Get-ReleaseChanges -RepoPath $Root -From $result.fromCommit -To $target)
+        $changes = Get-ReleaseChanges -RepoPath $Root -From $result.fromCommit -To $target
+        $result.changes = $changes.ToArray()
     } catch {
         return & $refuse $_.Exception.Message
     }

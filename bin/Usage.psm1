@@ -154,8 +154,8 @@ function Get-JsonField {
     if ($Object -isnot [psobject]) { return $null }
     if ($Object.PSObject.Properties.Name -notcontains $Name) { return $null }
 
-    # The leading comma is the same load-bearing idiom ConvertTo-JsonList documents, and it is here
-    # for the case that idiom exists for: PowerShell unrolls an array on return, so a field the tool
+    # The leading comma is statute's collection-return idiom, and it is here for the case that
+    # idiom exists for: PowerShell unrolls an array on return, so a field the tool
     # wrote as `[]` came back as $null - indistinguishable from one it wrote as `null`, which is the
     # difference between "there are none" and "the tool did not say". The outer array survives the
     # unwrap and every scalar field reads exactly as it did.
@@ -186,11 +186,12 @@ function ConvertTo-JsonList {
     [CmdletBinding()]
     param($Value)
 
-    # The leading comma is load-bearing, and it is the same idiom Crew.psm1's Get-CrewByStage
-    # documents. PowerShell unrolls an array on return, so a bare `@()` would come back as $null and
-    # the caller's `.Count` would fail on nothing at all. The outer array survives the unwrap.
-    if ($null -eq $Value) { return , @() }
-    , @($Value)
+    # Returned whole under statute's collection-return rule: a bare empty list would come back as
+    # $null and the caller's `.Count` would fail on nothing at all.
+    $out = [System.Collections.Generic.List[object]]::new()
+    if ($null -eq $Value) { return , $out }
+    foreach ($v in @($Value)) { $out.Add($v) }
+    return , $out
 }
 
 # The launchable `quota-axi`, or $null.
@@ -802,7 +803,7 @@ function Get-AccountUsageWindows {
             applies     = ($status -ne 'rolled')
         })
     }
-    , $out.ToArray()
+    return , $out
 }
 
 # What could not be read off the account's windows, as a sentence to sit beside the percentage.
@@ -1343,12 +1344,15 @@ function Get-UsageFleet {
     # `title`. Under Latest each of those is an exception instead of a $null, and one such record
     # would take the pulse out for the whole session: the tick throws, the loop's containment turns
     # it into a warning, and it does the same again every interval from then on.
+    #
+    # Assigned inside each branch rather than from the `if`, which would unroll the script's list.
     $script = Join-Path $PSScriptRoot 'Get-CrewStatus.ps1'
     if ($CrewStatePath) {
-        @(& { Set-StrictMode -Off; & $script -StatePath $CrewStatePath })
+        $rows = & { Set-StrictMode -Off; & $script -StatePath $CrewStatePath }
     } else {
-        @(& { Set-StrictMode -Off; & $script })
+        $rows = & { Set-StrictMode -Off; & $script }
     }
+    return , $rows
 }
 
 # What one live worker is doing, in the King's own words rather than in a stage label.
@@ -1481,7 +1485,7 @@ function Get-UsagePulse {
     [CmdletBinding()]
     param([string]$CrewStatePath = '')
 
-    $fleet   = @(Get-UsageFleet -CrewStatePath $CrewStatePath)
+    $fleet   = Get-UsageFleet -CrewStatePath $CrewStatePath
     $live    = @($fleet | Where-Object { $true -eq (Get-JsonField $_ 'live') })
 
     # NO READING WHILE NOTHING RUNS - the King's word, 2026-10-22. The number barely moves with no

@@ -886,13 +886,13 @@ Describe 'Stop-CheckoutWorker drops the record''s index line from the installati
         $plan = New-CheckoutSettingsPlan -CheckoutPath $checkout -RecordPath $record
         $null = Set-CheckoutWorkerSettings -Plan $plan
         $null = Add-IndexEntry -Path $record -Summary 'checkout settings record' -DataPath $data
-        @(Get-IndexEntries -All -DataPath $data).Count | Should -Be 1
+        (Get-IndexEntries -All -DataPath $data).Count | Should -Be 1
 
         $env:KINGSHAND_HOME = $homeDir
         Mock -ModuleName ClaudeWorkspace Stop-HerdrAgent { [pscustomobject]@{ stopped = $true; paneId = $null } }
         $r = Stop-CheckoutWorker -Name 'acme-api-session' -RecordPath $record
         $r.settings | Should -Be 'deleted'
-        @(Get-IndexEntries -All -DataPath $data).Count | Should -Be 0
+        (Get-IndexEntries -All -DataPath $data).Count | Should -Be 0
     }
 }
 

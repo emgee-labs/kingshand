@@ -59,7 +59,7 @@ Describe 'a herdr pin is read for the machine it runs on' {
     It 'knows the bundled copy by this system''s file name' {
         Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
         $manifest = Join-Path (New-PinRoot -Json "{$($script:HerdrEntry)}") 'dependencies.json'
-        $pin  = @(Read-DependencyPins -Path $manifest)[0]
+        $pin  = (Read-DependencyPins -Path $manifest)[0]
         $root = Join-Path $TestDrive 'unix-install'
         $exe  = Join-Path $root 'tools' 'herdr' 'herdr'
         Mock -ModuleName Dependencies Get-HerdrVersion {
@@ -85,6 +85,48 @@ Describe 'the tracked manifest' {
         $c.minimum | Should -Not -BeNullOrEmpty
         $c.version | Should -BeNullOrEmpty -Because 'it updates itself, so only a floor is pinned'
         @($pins | Where-Object { $_.name -ne 'claude-code' -and -not $_.version }).Count | Should -Be 0
+    }
+}
+
+# Statute's collection-return rule: the list itself on assignment, at every size, from each reader.
+Describe 'the pin lists come back whole' {
+    BeforeAll {
+        $script:ShapeEntries = @($script:NpmEntry, $script:GhEntry, $script:MinEntry)
+        function New-ShapeRoot {
+            param([int]$Count)
+            New-PinRoot -Json ('{' + (@($script:ShapeEntries | Select-Object -First $Count) -join ',') + '}')
+        }
+    }
+
+    It 'reads <n> pins as a list on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        $pins = Read-DependencyPins -Path (Join-Path (New-ShapeRoot $n) 'dependencies.json')
+        $pins -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $pins.Count | Should -Be $n
+    }
+
+    It 'returns <n> status rows as a list on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        Mock -ModuleName Dependencies Get-InstalledDependencyVersion {
+            [pscustomobject]@{ found = $true; version = '9.9.9'; path = 'C:\x'; bundled = $false; detail = '' }
+        }
+        $rows = Get-DependencyPinStatus -Root (New-ShapeRoot $n)
+        $rows -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $rows.Count | Should -Be $n
+    }
+
+    It 'returns <n> report rows as a list on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        Mock -ModuleName Dependencies Invoke-WebJson { '{"tag_name":"v1.84.0"}' | ConvertFrom-Json }
+        Mock -ModuleName Dependencies Invoke-NpmJson { '"0.2.6"' | ConvertFrom-Json }
+        $rows = Get-DependencyPinReport -Root (New-ShapeRoot $n)
+        $rows -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $rows.Count | Should -Be $n
+    }
+
+    # The script runs the report itself, against the network, so only the empty manifest is
+    # reachable here without one - the report's own sizes are covered by the case above.
+    It 'is returned whole by bin\Update-DependencyPins.ps1 too' {
+        $rows = & "$PSScriptRoot\..\bin\Update-DependencyPins.ps1" -Root (New-ShapeRoot 0)
+        $rows -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $rows.Count | Should -Be 0
     }
 }
 
@@ -265,7 +307,7 @@ Describe 'Get-DependencyPinStatus sets every pin against what is installed' {
             [pscustomobject]@{ found = $script:CaseFound; version = $script:CaseVersion; path = 'C:\x'; bundled = $true; detail = 'read failed' }
         }
 
-        $row = @(Get-DependencyPinStatus -Root $script:StatusRoot | Where-Object name -eq $name)[0]
+        $row = @((Get-DependencyPinStatus -Root $script:StatusRoot) | Where-Object name -eq $name)[0]
         $row.state | Should -Be $state
     }
 
@@ -274,7 +316,7 @@ Describe 'Get-DependencyPinStatus sets every pin against what is installed' {
         Mock -ModuleName Dependencies Get-InstalledDependencyVersion {
             [pscustomobject]@{ found = $true; version = '0.0.1'; path = 'C:\x'; bundled = $true; detail = '' }
         }
-        $rows = @(Get-DependencyPinStatus -Root $script:StatusRoot)
+        $rows = Get-DependencyPinStatus -Root $script:StatusRoot
         @($rows | Where-Object name -eq 'tasks-axi')[0].command | Should -Be 'npm install -g tasks-axi@0.2.6'
         @($rows | Where-Object name -eq 'herdr')[0].command     | Should -Be '.\install.ps1 -SyncPins'
         @($rows | Where-Object name -eq 'claude-code')[0].command | Should -Be 'claude update'
@@ -338,7 +380,7 @@ Describe 'the weekly pin report' {
         }
         Mock -ModuleName Dependencies Invoke-NpmJson { '"0.2.6"' | ConvertFrom-Json }
 
-        $rows = @(Get-DependencyPinReport -Root $script:ReportRoot)
+        $rows = Get-DependencyPinReport -Root $script:ReportRoot
         $h = @($rows | Where-Object name -eq 'herdr')[0]
         $h.latest   | Should -Be '0.9.6'
         $h.move     | Should -Be 'newer'
@@ -356,7 +398,7 @@ Describe 'the weekly pin report' {
         Mock -ModuleName Dependencies Invoke-WebJson { throw 'offline' }
         Mock -ModuleName Dependencies Invoke-NpmJson { $null }
 
-        $rows = @(Get-DependencyPinReport -Root $script:ReportRoot)
+        $rows = Get-DependencyPinReport -Root $script:ReportRoot
         foreach ($r in $rows) {
             $r.latest   | Should -BeNullOrEmpty
             $r.move     | Should -Be 'unknown'

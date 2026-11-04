@@ -388,7 +388,7 @@ nothing here reads a file to decide whether it counts:
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Projects.psm1 -Force
-$files = @(Find-ProjectConventionFiles -Path $path)
+$files = Find-ProjectConventionFiles -Path $path
 $files | Format-Table kind, path -AutoSize
 ```
 
@@ -428,7 +428,7 @@ in one line when the seed is written, so nobody mistakes a short file for a comp
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Projects.psm1 -Force
-Get-AllProjects | ForEach-Object { [pscustomobject]$_ } |
+(Get-AllProjects) | ForEach-Object { [pscustomobject]$_ } |
     Select-Object name, rawMode, yolo, merge, family, path | Format-Table -AutoSize
 ```
 

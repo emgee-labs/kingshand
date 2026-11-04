@@ -71,15 +71,22 @@ Describe 'Get-ProjectPosture - mode parsing' {
 
 Describe 'Get-ProjectModes' {
     It 'names all five modes, review-only last' {
-        Get-ProjectModes |
+        (Get-ProjectModes) |
             Should -Be @('no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only', 'review-only')
     }
 
     It 'hands back a copy, so editing it changes nothing the module accepts' {
-        $modes = @(Get-ProjectModes)
+        $modes = Get-ProjectModes
         $modes[0] = 'tampered'
-        Get-ProjectModes | Should -Contain 'no-mistakes'
-        Get-ProjectModes | Should -Not -Contain 'tampered'
+        (Get-ProjectModes) | Should -Contain 'no-mistakes'
+        (Get-ProjectModes) | Should -Not -Contain 'tampered'
+    }
+
+    # Statute's collection-return rule. The mode list is fixed, so only its one size is reachable.
+    It 'returns the modes as one list on assignment' {
+        $modes = Get-ProjectModes
+        $modes -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $modes.Count | Should -Be 5
     }
 }
 
@@ -448,10 +455,17 @@ Describe 'Get-AllProjects' {
 
     It 'returns an empty array for a registry with no entries' {
         $reg = New-TestRegistry '# Projects'
-        # Plain parens, not @(...): wrapping a leading-comma return in @() at the call site
-        # re-nests it into a 1-element array (see Crew.Tests.ps1's Get-CrewByStage empty case,
-        # which uses the same (cmd).Count form for the same reason).
         (Get-AllProjects -RegistryPath $reg).Count | Should -Be 0
+    }
+
+    # Statute's collection-return rule: the list itself on assignment, at every size.
+    It 'returns a list of <n> entries on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        $body = (@('# Projects') + @(1..3 | Select-Object -First $n | ForEach-Object {
+            "- p$_ [local-only] - entry $_ (added 2026-08-24)`n      path: C:\does\not\exist`n"
+        })) -join "`n"
+        $all = Get-AllProjects -RegistryPath (New-TestRegistry $body)
+        $all -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $all.Count | Should -Be $n
     }
 }
 
@@ -627,7 +641,7 @@ Describe 'Add-ProjectEntry' {
         New-Item -ItemType Directory -Force -Path $other | Out-Null
         { Add-ProjectEntry -Name two -Path $other -Mode 'local-only' -Merge `
                            -Description 'd' -RegistryPath $script:reg } | Should -Throw '*local-only*'
-        @(Get-AllProjects -RegistryPath $script:reg | ForEach-Object { $_.name }) | Should -Be @('one')
+        @((Get-AllProjects -RegistryPath $script:reg) | ForEach-Object { $_.name }) | Should -Be @('one')
     }
 
     # review-only lands nothing at all, so it is held to exactly the refusal local-only is: a token
@@ -707,7 +721,7 @@ Describe 'Add-ProjectEntry' {
             Add-ProjectEntry -Name $name -Path (Join-Path $script:RealPath $name) -Mode 'local-only' `
                              -Description 'd' -RegistryPath $script:reg
         }
-        @(Get-AllProjects -RegistryPath $script:reg | ForEach-Object { $_.name }) |
+        @((Get-AllProjects -RegistryPath $script:reg) | ForEach-Object { $_.name }) |
             Should -Be @('acme-api', 'acme_api', 'acme.api', 'Acme123')
     }
 
@@ -1263,19 +1277,29 @@ Describe 'Find-ProjectConventionFiles' {
     It 'lists only tracked files' {
         $repo = New-ConvRepo
         Set-Content -LiteralPath (Join-Path $repo 'CONTRIBUTING.md') -Value 'untracked'
-        @(Find-ProjectConventionFiles -Path $repo).Count | Should -Be 0
+        (Find-ProjectConventionFiles -Path $repo).Count | Should -Be 0
     }
 
     It 'looks for lint and format config at the root only' {
         $repo = New-ConvRepo
         Add-Tracked -Repo $repo -Files @('vendor/pkg/.eslintrc.json')
-        @(Find-ProjectConventionFiles -Path $repo).Count | Should -Be 0
+        (Find-ProjectConventionFiles -Path $repo).Count | Should -Be 0
     }
 
     It 'returns an empty list for a repository that documents none of them' {
         $repo = New-ConvRepo
         Add-Tracked -Repo $repo -Files @('README.md')
-        @(Find-ProjectConventionFiles -Path $repo).Count | Should -Be 0
+        (Find-ProjectConventionFiles -Path $repo).Count | Should -Be 0
+    }
+
+    # Statute's collection-return rule: the list itself on assignment, at every size.
+    It 'returns a list of <n> files on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        $repo = New-ConvRepo
+        Add-Tracked -Repo $repo -Files (@('README.md') + @(@('CONTRIBUTING.md', 'AGENTS.md', '.editorconfig') |
+            Select-Object -First $n))
+        $r = Find-ProjectConventionFiles -Path $repo
+        $r -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $r.Count | Should -Be $n
     }
 
     It 'throws, naming git, for a directory that is not a repository - never an empty list' {

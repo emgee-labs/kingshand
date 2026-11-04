@@ -1716,6 +1716,20 @@ Describe 'the ported reference skills are loadable and keep their load-bearing r
                      'a git remote or Azure DevOps: ticket text, commit messages, PR bodies.')
     }
 
+    It 'statute holds every bin helper to one collection-return shape' {
+        # The rule governs code, so tests\CollectionReturn.Tests.ps1 and each helper's own shape
+        # test hold the behaviour; this holds the text a reader writes the next helper from.
+        $text = Get-DocText $script:GuidelinesMd
+        Assert-Phrase -Text $text -Where 'statute' `
+            -Phrase ('**A helper under `bin\` that returns a collection returns one ' +
+                     '`[System.Collections.Generic.List[object]]`, whole: `return , $list`.**')
+        Assert-Phrase -Text $text -Where 'statute' `
+            -Phrase ('Never `@(Get-Thing)`, `Get-Thing | ...` or `foreach ($i in Get-Thing)`: each ' +
+                     'sees the list as one item.')
+        Assert-Phrase -Text $text -Where 'statute' `
+            -Phrase 'A bare `return $list` is not the rule'
+    }
+
     It 'statute names the checkpoint that must pass' {
         Assert-Phrase -Text (Get-DocText $script:GuidelinesMd) -Where 'statute' `
             -Phrase 'Invoke-Pester -Path $env:KINGSHAND_HOME\tests'
@@ -11036,7 +11050,7 @@ Describe 'deleting files under data has one owner, and it is not chronicle' {
 Describe 'review-only lands nothing, and annex offers a criteria seed' {
     BeforeAll {
         Import-Module (Join-Path $script:Root 'bin\Projects.psm1')
-        $script:Modes = @(Get-ProjectModes)
+        $script:Modes = Get-ProjectModes
 
         function Get-ImportStep {
             param([Parameter(Mandatory)][string]$Heading)

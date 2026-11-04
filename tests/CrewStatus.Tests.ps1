@@ -115,7 +115,9 @@ BeforeAll {
 
     function Get-Status {
         param([Parameter(Mandatory)][string]$StatePath)
-        @(& $script:StatusScript -StatePath $StatePath)
+        # The script returns one list; its rows are unrolled here so each case can pipe them.
+        $rows = & $script:StatusScript -StatePath $StatePath
+        $rows.ToArray()
     }
 }
 
@@ -130,6 +132,22 @@ Describe 'the shim really is what herdr resolves to' {
     It 'puts the test double ahead of the bundled binary' {
         (Get-HerdrCommandPath) | Should -Be $script:Shim `
             -Because 'every case below is meaningless if the real herdr answered instead'
+    }
+}
+
+Describe 'the rows come back whole' {
+    # Statute's collection-return rule: the list itself on assignment, at every size.
+    It 'returns a list of <n> rows on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        Set-HerdrAgents @()
+        $workers = @{}
+        for ($i = 1; $i -le $n; $i++) {
+            $workers["T-100$i"] = @{ ticket = "T-100$i"; kind = 'ticket'; repo = 'acme-web'; stage = 'ready' }
+        }
+        $state = New-CrewFile -Name "shape-$n" -Workers $workers
+
+        $rows = & $script:StatusScript -StatePath $state
+        $rows -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $rows.Count | Should -Be $n
     }
 }
 

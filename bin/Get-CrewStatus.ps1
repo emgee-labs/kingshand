@@ -66,12 +66,13 @@ if ($state.workers.Count -gt 0) {
     # worker as dead because the tool is missing would be a confident lie. A herdr binary on a
     # different version from its running server throws for the same reason; Herdr.psm1 owns it.
     #
-    # Deliberately NOT wrapped in @(). Get-HerdrAgents returns via the leading-comma idiom, so the
-    # pipeline hands back the intact agents array as one object; @() would nest it a second time
-    # and every worker would then fail to match an agent that is right there.
+    # Assigned, never wrapped in @() - statute's collection-return rule. @() would nest the list a
+    # second time and every worker would then fail to match an agent that is right there.
     $agents = Get-HerdrAgents
 }
 
+# The rows come back as one list under statute's collection-return rule, so a caller assigns them.
+$rows = [System.Collections.Generic.List[object]]::new()
 foreach ($id in $state.workers.Keys) {
     $w = $state.workers[$id]
 
@@ -110,7 +111,7 @@ foreach ($id in $state.workers.Keys) {
     try { $items = @(foreach ($it in (Get-CrewItems -State $state -WorkerId $id)) { $it.id }) }
     catch { $itemsError = $_.Exception.Message }
 
-    [PSCustomObject]@{
+    $rows.Add([PSCustomObject]@{
         id          = $id
         ticket      = $w.ticket
         repo        = $w.repo
@@ -133,5 +134,7 @@ foreach ($id in $state.workers.Keys) {
         # Why the list could not be read, or the empty string. A list that cannot be read is said
         # to be unreadable rather than shown as empty, which would read as nothing on the branch.
         itemsError  = $itemsError
-    }
+    })
 }
+
+return , $rows

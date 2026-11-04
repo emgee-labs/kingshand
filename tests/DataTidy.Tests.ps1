@@ -319,6 +319,21 @@ Describe 'what is reported and never removed' {
         @($script:R.unindexed) | Should -Contain 'data\loose-note.md'
     }
 
+    # Statute's collection-return rule. A report always carries its dry-run line, a gap and its
+    # unindexed count, so three lines is the smallest one there is.
+    It 'returns its <n> lines as a list on assignment' -TestCases @(
+        @{ n = 3; unindexed = @() }
+        @{ n = 5; unindexed = @('data\a.md', 'data\b.md') }
+    ) {
+        $result = @{
+            backlog = @{ readable = $true }; applied = $false; removable = @(); suspected = @()
+            indexProblem = ''; unindexed = $unindexed
+        }
+        $lines = Format-DataTidyReport -Result $result
+        $lines -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $lines.Count | Should -Be $n
+    }
+
     It 'says plainly in its printed form that a dry run removed nothing' {
         $lines = Format-DataTidyReport -Result (Invoke-Tidy $script:H)
         $lines[0] | Should -BeLike 'Dry run - nothing removed.*Pass -Apply*'

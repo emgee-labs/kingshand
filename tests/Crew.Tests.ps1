@@ -284,6 +284,20 @@ Describe 'Get-CrewByStage' {
         $s = New-CrewState
         (Get-CrewByStage -State $s -Stage 'ready').Count | Should -Be 0
     }
+
+    # Statute's collection-return rule: the list itself on assignment, at every size.
+    It 'returns a list of <n> on assignment, never a bare hashtable or nothing' -TestCases @(
+        @{ n = 0 }, @{ n = 1 }, @{ n = 3 }
+    ) {
+        $s = New-CrewState
+        for ($i = 1; $i -le $n; $i++) {
+            Add-CrewWorker -State $s -WorkerId "a$i" -Ticket "$i" -Kind 'ticket' -Repo 'r' -Worktree 'w' -Branch 'b' -Brief 'f'
+            Set-CrewStage -State $s -WorkerId "a$i" -Stage 'ready'
+        }
+        $r = Get-CrewByStage -State $s -Stage 'ready'
+        $r -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $r.Count | Should -Be $n
+    }
 }
 
 Describe 'Save and Import round-trip' {
@@ -353,16 +367,29 @@ Describe 'a session worker carries several items, and nothing else changes shape
     It 'reads an ordinary record as its one ticket' {
         Add-CrewWorker -State $script:s -WorkerId 'T-1001' -Ticket 'T-1001' -Kind 'ticket' `
                        -Repo 'acme-web' -Worktree 'w' -Branch 'worktree-T-1001' -Brief 'f'
-        $items = @(Get-CrewItems -State $script:s -WorkerId 'T-1001')
+        $items = Get-CrewItems -State $script:s -WorkerId 'T-1001'
         $items.Count   | Should -Be 1
         $items[0].id   | Should -Be 'T-1001'
         $items[0].kind | Should -Be 'ticket'
     }
 
+    # Statute's collection-return rule. An empty list is refused by name, so 0 is a throw, below.
+    It 'returns the items as a list on assignment, for one item and for several' {
+        Add-SessionWorker -State $script:s
+        $one = Get-CrewItems -State $script:s -WorkerId 'acme-api-session'
+        $one -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $one.Count | Should -Be 1
+        Add-CrewItem -State $script:s -WorkerId 'acme-api-session' -Item 'fix-header' -Kind 'adhoc'
+        Add-CrewItem -State $script:s -WorkerId 'acme-api-session' -Item 'T-1003' -Kind 'ticket'
+        $many = Get-CrewItems -State $script:s -WorkerId 'acme-api-session'
+        $many -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $many.Count | Should -Be 3
+    }
+
     It 'starts a session worker with its first ticket as the first item' {
         Add-SessionWorker -State $script:s
         $script:s.workers['acme-api-session'].ticket | Should -Be 'T-1001'
-        @(Get-CrewItems -State $script:s -WorkerId 'acme-api-session').id | Should -Be @('T-1001')
+        (Get-CrewItems -State $script:s -WorkerId 'acme-api-session').id | Should -Be @('T-1001')
     }
 
     It 're-records a relaunched worker without losing its items or the hold it parked on' {
@@ -373,7 +400,7 @@ Describe 'a session worker carries several items, and nothing else changes shape
         Set-CrewRelaunch -State $script:s -WorkerId 'acme-api-session' -Worktree 'C:/repos/acme-api' `
             -Branch 'feature-x' -Base 'origin/main' -SettingsRecord 'D:\data\acme-api-session\checkout-settings-2.json'
         $rec = $script:s.workers['acme-api-session']
-        @(Get-CrewItems -State $script:s -WorkerId 'acme-api-session').id | Should -Be @('T-1001', 'fix-header')
+        (Get-CrewItems -State $script:s -WorkerId 'acme-api-session').id | Should -Be @('T-1001', 'fix-header')
         $rec.waiting_on      | Should -Be 'T-1001-copy'
         $rec.base            | Should -Be 'origin/main'
         $rec.stage           | Should -Be 'dispatched'
@@ -402,7 +429,7 @@ Describe 'a session worker carries several items, and nothing else changes shape
         $p = Join-Path $TestDrive 'session-crew.json'
         Save-CrewState -State $script:s -Path $p
         $r = Import-CrewState -Path $p
-        $items = @(Get-CrewItems -State $r -WorkerId 'acme-api-session')
+        $items = Get-CrewItems -State $r -WorkerId 'acme-api-session'
         $items.id   | Should -Be @('T-1001', 'fix-header', 'T-1003')
         $items.kind | Should -Be @('ticket', 'adhoc', 'ticket')
     }
@@ -413,7 +440,7 @@ Describe 'a session worker carries several items, and nothing else changes shape
         Save-CrewState -State $script:s -Path $p
         $r = Import-CrewState -Path $p
         Add-CrewItem -State $r -WorkerId 'acme-api-session' -Item 'T-1002' -Kind 'ticket'
-        @(Get-CrewItems -State $r -WorkerId 'acme-api-session').id | Should -Be @('T-1001', 'T-1002')
+        (Get-CrewItems -State $r -WorkerId 'acme-api-session').id | Should -Be @('T-1001', 'T-1002')
     }
 
     It 'refuses an item joining a worker that is not a session worker' {

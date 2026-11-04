@@ -717,9 +717,11 @@ function Get-HerdrAgents {
     [CmdletBinding()]
     param()
 
+    $out = [System.Collections.Generic.List[object]]::new()
     $r = Invoke-Herdr -AllowError -Arguments @('agent', 'list')
-    if (-not $r -or $r.PSObject.Properties.Name -contains 'error') { return , @() }
-    , @($r.agents)
+    if (-not $r -or $r.PSObject.Properties.Name -contains 'error') { return , $out }
+    foreach ($a in @($r.agents)) { $out.Add($a) }
+    return , $out
 }
 
 # The same `agent list`, with the failure kept rather than collapsed:

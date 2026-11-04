@@ -76,12 +76,12 @@ $script:PushCapableModes = @('no-mistakes', 'direct-PR', 'no-mistakes-prod-only'
 # the `statute` skill's style rules; tests\Projects.Tests.ps1 pins this edge.
 Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
 
-# Every mode the registry accepts, one per pipeline object, in the order the error messages list
-# them. A copy, so a caller cannot change what this module accepts by editing what it was handed.
+# Every mode the registry accepts, as one list in the order the error messages list them. A copy,
+# so a caller cannot change what this module accepts by editing what it was handed.
 function Get-ProjectModes {
     [CmdletBinding()]
     param()
-    $script:ValidModes.Clone()
+    return , [System.Collections.Generic.List[object]]::new([object[]]$script:ValidModes)
 }
 
 function Get-DefaultRegistryPath {
@@ -98,7 +98,7 @@ function Read-Registry {
     }
 
     $lines = @(Get-Content -Path $RegistryPath)
-    $entries = [System.Collections.Generic.List[hashtable]]::new()
+    $entries = [System.Collections.Generic.List[object]]::new()
 
     for ($i = 0; $i -lt $lines.Count; $i++) {
         $m = [regex]::Match($lines[$i], '^-\s+(?<name>\S+)(?:\s+\[(?<ann>[^\]]*)\])?\s+-\s+(?<desc>.*)$')
@@ -245,15 +245,14 @@ function Read-Registry {
         })
     }
 
-    , $entries.ToArray()
+    return , $entries
 }
 
 function Get-AllProjects {
     [CmdletBinding()]
     param([string]$RegistryPath = (Get-DefaultRegistryPath))
-    # Read-Registry already returns via the leading-comma idiom, so its output is a single
-    # pipeline object holding the intact array. Re-wrapping with `, @(...)` here would nest it
-    # a second time and corrupt .Count for callers - pass it through unchanged instead.
+    # Passed through whole: Read-Registry's list is already one object, under statute's
+    # collection-return rule, and re-wrapping it here would nest it a second time.
     Read-Registry -RegistryPath $RegistryPath
 }
 
@@ -264,9 +263,7 @@ function Get-ProjectEntry {
         [string]$RegistryPath = (Get-DefaultRegistryPath)
     )
 
-    # Read-Registry returns via the leading-comma idiom - the whole array as one pipeline
-    # object. Wrapping it in @(...) here would only re-confirm it is a single-element array
-    # whose one element is that array, so a plain loop is used instead of a pipeline filter.
+    # Assigned, then looped - statute's collection-return rule.
     $allEntries = Read-Registry -RegistryPath $RegistryPath
     $entry = $null
     foreach ($candidate in $allEntries) {
@@ -371,8 +368,7 @@ function Add-ProjectEntry {
     }
 
     if (Test-Path $RegistryPath) {
-        # Read-Registry returns via the leading-comma idiom - the whole array as one pipeline
-        # object. A plain loop is used instead of a pipeline filter, matching Get-ProjectEntry.
+        # Assigned, then looped - statute's collection-return rule.
         $existing = Read-Registry -RegistryPath $RegistryPath
         $norm = Get-NormalisedPath $Path
         foreach ($candidate in $existing) {
@@ -494,9 +490,9 @@ $script:ConventionPathspecs = [ordered]@{
                        ':(glob)PSScriptAnalyzerSettings.psd1')
 }
 
-# Lists the tracked convention files in one repository: one pipeline object per file, with `kind` (a
-# key of the list above) and `path` (repository-relative, forward slashes), sorted by kind then
-# path - wrap the call in @() to count them. No output means the repository documents none of them.
+# Lists the tracked convention files in one repository, as one list of objects with `kind` (a key
+# of the list above) and `path` (repository-relative, forward slashes), sorted by kind then path.
+# An empty list means the repository documents none of them.
 # A repository that cannot be listed THROWS, naming why, because an empty list there would read as
 # "documents nothing" when the truth is "could not tell".
 function Find-ProjectConventionFiles {
@@ -507,7 +503,7 @@ function Find-ProjectConventionFiles {
         throw "Cannot list convention files: the path does not exist: $Path"
     }
 
-    $found = [System.Collections.Generic.List[pscustomobject]]::new()
+    $found = [System.Collections.Generic.List[object]]::new()
     $seen  = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     # git writes paths as UTF-8 whatever the console is set to, so this read decodes as UTF-8 and
     # then puts the console back; a code page console would otherwise garble a non-ASCII path.
@@ -533,7 +529,7 @@ function Find-ProjectConventionFiles {
         $global:LASTEXITCODE = 0
     }
 
-    $found.ToArray()
+    return , $found
 }
 
 # Writes the seed of one project's standing criteria, data\done-<Name>.md, and indexes it, in one
