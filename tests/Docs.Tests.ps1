@@ -10990,3 +10990,16 @@ Describe 'deleting files under data has one owner, and it is not chronicle' {
                      '`bin\DataTidy.psm1`''s, run only when the Hand runs it')
     }
 }
+
+# The README's Tests badge once carried the suite's exact count. Every branch that added a test
+# edited that one line, so any two parallel branches conflicted on it and the merged number was
+# neither side's. The badge names the framework instead, which no ordinary branch changes.
+Describe 'the README Tests badge carries no test count' {
+    It 'names the framework rather than a number of passing tests' {
+        $readme = Get-Content -Raw -Path (Join-Path $script:Root 'README.md')
+        Assert-Phrase -Text $readme -Where 'the README badge row' `
+            -Phrase '[![Tests](https://img.shields.io/badge/tests-Pester-3fb950)](tests)'
+        $readme.Contains('%20passing-') |
+            Should -BeFalse -Because 'a count in the badge is the line every branch collides on'
+    }
+}
