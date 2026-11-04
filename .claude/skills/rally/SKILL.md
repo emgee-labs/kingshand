@@ -143,8 +143,16 @@ The safe order is not negotiable:
 
 1. Inspect first - `Read-HerdrAgent -Name <worker id>`, then the worktree itself.
 2. Confirm exactly what is committed, and whether the branch exists on the remote.
-3. Use `Stop-HerdrAgent -Name <worker id>` while anything is unlanded. It ends the run and keeps
-   the work.
+3. While anything is unlanded, pause the worker with `Suspend-Worker` rather than a bare stop. It
+   ends the gate run, brings the gate's commits back to the branch, stops the worker, closes its
+   pane, keeps the copy and writes `data\<id>\pause.md` with the one command to resume. Its comment
+   in `bin\Teardown.psm1` owns the order and every refusal; a result whose `outcome` is not
+   `paused` names the step it stopped at and why.
+
+   ```powershell
+   Import-Module $env:KINGSHAND_HOME\bin\Teardown.psm1 -Force
+   Suspend-Worker -WorkerId "<worker id>"
+   ```
 4. Remove the copy only with `Remove-WorkerCopy`, whose header in `bin\Teardown.psm1` owns the
    order and the refusals. Discarding unlanded work instead is the user's explicit call alone.
 
@@ -229,7 +237,8 @@ and only then removed under the safe order above.
 If the worktree or the ownership cannot be reconciled safely, leave all state intact and report
 the task failed or blocked with the conflicting evidence. Set the stage with
 `Set-CrewStage -Stage 'failed'`; the valid stages are exactly `dispatched`, `implementing`,
-`gating`, `ready`, `landed`, `failed`, and `Set-CrewStage` throws on anything else.
+`gating`, `ready`, `landed`, `failed`, `paused`, and `Set-CrewStage` throws on anything else.
+`paused` is set by `Suspend-Worker` alone.
 
 ## A parked worker is waiting, not wedged
 

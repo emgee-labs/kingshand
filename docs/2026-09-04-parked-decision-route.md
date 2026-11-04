@@ -27,10 +27,12 @@ restart, a compaction, and a session that dispatched nothing.
 
 ### Why not a seventh stage
 
-The six stages - `dispatched`, `implementing`, `gating`, `ready`, `landed`, `failed` - are a
+The original six stages - `dispatched`, `implementing`, `gating`, `ready`, `landed`, `failed` - are a
 lifecycle. A worker is at exactly one of them and moves forward through them. Waiting for a
 decision is not a position in that lifecycle; it is a condition that can happen at any of them and
-then resolves back to wherever the worker already was.
+then resolves back to wherever the worker already was. (A seventh stage, `paused`, was added later
+for a worker stopped with its copy kept; it sits off that forward line, and the header of
+`bin\Crew.psm1` owns why it could be a stage when waiting could not.)
 
 A `waiting` stage would therefore have to overwrite the stage it interrupted, destroying the one
 fact most needed when the answer comes back: what the worker was doing before it parked. Restoring

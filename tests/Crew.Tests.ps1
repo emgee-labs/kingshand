@@ -72,6 +72,12 @@ Describe 'Set-CrewStage' {
         $script:s.workers['a1'].landed | Should -BeTrue
     }
 
+    It 'sets paused, the stage a worker stopped with its copy kept is left at' {
+        Set-CrewStage -State $script:s -WorkerId 'a1' -Stage 'paused'
+        $script:s.workers['a1'].stage | Should -Be 'paused'
+        $script:s.workers['a1'].landed | Should -BeFalse
+    }
+
     It 'rejects an invalid stage' {
         { Set-CrewStage -State $script:s -WorkerId 'a1' -Stage 'sideways' } | Should -Throw '*stage*'
     }
@@ -85,7 +91,7 @@ Describe 'Set-CrewStage' {
 # on this record - never that there is nothing to answer, since only a Hand who has read the report
 # ever writes it; a key means it did, and whether that decision is still outstanding is the hold's
 # own state in the queue, which this module does not read.
-# It is deliberately not a stage: the six stages are a lifecycle a
+# It is deliberately not a stage: the stages are a lifecycle a
 # worker moves along, while waiting is a condition that can happen at any of them and resolves back
 # to the one the worker was already at.
 Describe 'waiting_on points at a hold and is never a stage' {
