@@ -564,7 +564,7 @@ try {
     # A worker is live or waiting when herdr reads it live, or when its stage is not over - whatever
     # its liveness, so unknown is never read as dead: `dispatched` and `implementing` are recorded as
     # working, which a
-    # worker that is not live needs `rally` for, and `gating` and `ready` wait on the King. Only
+    # worker that is not live needs `rally` for, and `gating`, `ready` and `paused` wait on the King. Only
     # `landed` and `failed` are over. Live ones come first, then the ones recorded as working, then
     # the ones waiting on approval, so the cap below cuts the least urgent.
     $workers  = @($snap.crew.workers)

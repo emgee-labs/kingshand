@@ -2457,8 +2457,8 @@ about deciding a merge has happened, never about reading a repository's own sett
 strategy probe above is a read of configuration, not a judgement about forge state, and the two do
 not collide. A merge under `+merge` is one the block above performed against Step 7's floors and
 reported; a stage waiting to advance is never the reason for one. The stages are exactly `dispatched`, `implementing`,
-`gating`, `ready`, `landed`, `failed` - `Set-CrewStage` throws on anything else, so do not invent
-one for this path.
+`gating`, `ready`, `landed`, `failed`, `paused` - `Set-CrewStage` throws on anything else, so do not
+invent one for this path.
 
 Then go to Step 8b. The confirmed push is what makes teardown safe here - waiting for the merge
 would leave the worktree and the live worker process sitting around until the user gets to it.

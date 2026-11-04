@@ -1370,6 +1370,7 @@ function Get-WorkerPhrase {
         'ready'        { return 'waiting on you' }
         'landed'       { return 'merged' }
         'failed'       { return 'stopped after a failure' }
+        'paused'       { return 'paused, its work kept' }
     }
     'phase not known'
 }

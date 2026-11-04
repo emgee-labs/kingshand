@@ -2,7 +2,7 @@
 Set-StrictMode -Version Latest
 
 # bin\Teardown.psm1 against real git repositories in TestDrive, each with a bare repository as its
-# remote, and with herdr faked: the six herdr functions the module calls are mocked over one
+# remote, and with herdr faked: the herdr functions the module calls are mocked over one
 # in-memory picture of agents, panes and workspaces, so a pane closed by the code under test is
 # gone from the next read exactly as it would be from herdr's.
 
@@ -636,5 +636,662 @@ Describe 'Get-WorkerLeftovers, Format-WorkerLeftovers and Invoke-WorkerSweep' {
         $again = Invoke-WorkerSweep @script:Paths
         $again.summary | Should -BeLike '*1 leftover copies removed*0 kept*'
         Test-Path -LiteralPath $left | Should -BeFalse
+    }
+}
+
+# Suspend-Worker with herdr and the review gate faked: the same in-memory herdr picture as above,
+# a queue of gate-run readings, and the gate binary's answers - `axi sync` answering in real TOON so
+# the decoder the module reads it with is exercised too. Git is real.
+Describe 'Suspend-Worker' {
+    BeforeAll {
+        Import-Module "$PSScriptRoot\..\bin\Index.psm1"
+
+        # One `axi sync --check` answer, in the shape the tool prints.
+        function New-SyncAnswer {
+            param([string]$Safety, [string]$Relation, [string]$CurrentHead = '', [string]$Note = '', [string]$Run = '01RUN')
+            @"
+branch_sync:
+  state: x
+  changed: false
+  local:
+    branch: worktree-w
+    head: "0000000000000000000000000000000000000000"
+    clean: true
+  pipeline:
+    run: "$Run"
+    status: cancelled
+    current_head: "$CurrentHead"
+  relation: $Relation
+  safety: $Safety
+  note: "$Note"
+"@
+        }
+
+        # One gate-run reading, in Get-GateRunState's shape.
+        function New-GateReading {
+            param([string]$Status = 'has-run', [string]$RunStatus = 'running', [switch]$Parked,
+                  [string]$ParkedOn = '', [object[]]$Steps = @(), [string]$Pr = '', [string]$Outcome = '',
+                  [string]$Signal = 'x')
+            [pscustomobject]@{
+                status = $Status; signal = $Signal; detail = "reading $Status $RunStatus"
+                runId = '01RUN'; branch = ''; head = ''; pr = $Pr; runStatus = $RunStatus
+                outcome = $Outcome; isParked = [bool]$Parked; parkedOn = $ParkedOn
+                steps = @($Steps); findings = @(); notUnderstood = @()
+            }
+        }
+
+        # What a worker's live screen shows after `/exit` did not end it.
+        $script:Screens = @{
+            exit = @(
+                ' Background work is running',
+                ' The following will stop when you exit:',
+                ' npm run dev',
+                " $([char]0x276F) 1. Exit and stop tasks",
+                '   2. Move to background and exit',
+                '   3. Stay'
+            ) -join "`n"
+            permission = @(
+                ' Bash command',
+                '   rm -rf build',
+                ' Do you want to proceed?',
+                " $([char]0x276F) 1. Yes",
+                '   2. No, and tell Claude what to do differently (esc)',
+                ' Esc to cancel'
+            ) -join "`n"
+            menu = @(
+                ' Which database should the tests use?',
+                " $([char]0x276F) 1. The local one",
+                '   2. The shared one',
+                '   3. Type something.',
+                '   4. Chat about this',
+                ' Enter to select · Esc to cancel'
+            ) -join "`n"
+            none = @(' Still thinking about the parser', " $([char]0x276F)") -join "`n"
+        }
+    }
+
+    BeforeEach {
+        Reset-FakeHerdr
+        $script:Herdr.stopResult = 'exit'   # exit | box | hang
+        $script:Herdr.screen = 'none'
+        Mock -ModuleName Herdr Read-HerdrAgentScreen { [pscustomobject]@{ ok = $true; text = $script:Screens[$script:Herdr.screen] } }
+        Mock -ModuleName Teardown Get-HerdrAgentInventory { Get-FakeInventory 'agents' }
+        Mock -ModuleName Teardown Get-HerdrPaneInventory { Get-FakeInventory 'panes' }
+        Mock -ModuleName Teardown Get-HerdrWorkspaceInventory { Get-FakeInventory 'workspaces' }
+        Mock -ModuleName Teardown Remove-HerdrPane {
+            $gone = @($script:Herdr.panes | Where-Object { $_.pane_id -eq $PaneId })
+            foreach ($g in $gone) { $null = $script:Herdr.panes.Remove($g) }
+            # Closing a pane ends whatever was running in it.
+            $dead = @($script:Herdr.agents | Where-Object { $_.pane_id -eq $PaneId })
+            foreach ($d in $dead) { $null = $script:Herdr.agents.Remove($d) }
+        }
+        Mock -ModuleName Teardown Remove-HerdrWorkspace {
+            $gone = @($script:Herdr.workspaces | Where-Object { $_.workspace_id -eq $WorkspaceId })
+            foreach ($g in $gone) { $null = $script:Herdr.workspaces.Remove($g) }
+        }
+        Mock -ModuleName Teardown Stop-HerdrAgent {
+            $script:Herdr.stops.Add($Name)
+            switch ($script:Herdr.stopResult) {
+                'box'  { return [pscustomobject]@{ stopped = $false; paneId = 'p1'; refused = 'prompt-box-not-empty'; promptBox = 'half a thought' } }
+                'hang' { return [pscustomobject]@{ stopped = $false; paneId = 'p1'; refused = ''; promptBox = '' } }
+            }
+            $gone = @($script:Herdr.agents | Where-Object { $_.name -eq $Name })
+            foreach ($g in $gone) { $null = $script:Herdr.agents.Remove($g) }
+            [pscustomobject]@{ stopped = $true; paneId = 'p1'; refused = ''; promptBox = '' }
+        }
+        Mock -ModuleName Teardown Send-HerdrKeys { }
+
+        # The gate: readings handed out in order, the last one repeating; the binary's answers by
+        # what it was asked, `--check` answering custody_returned bound to run 01RUN once its queue
+        # is empty; every call recorded.
+        $script:Gate = @{
+            readings = [System.Collections.Generic.Queue[object]]::new()
+            last     = $null
+            checks   = [System.Collections.Generic.Queue[string]]::new()
+            recover  = [pscustomobject]@{ ok = $true; stdout = ''; stderr = ''; exitCode = 0; error = '' }
+            abort    = [pscustomobject]@{ ok = $true; stdout = ''; stderr = ''; exitCode = 0; error = '' }
+            calls    = [System.Collections.Generic.List[string]]::new()
+            rescues  = [System.Collections.Generic.List[string]]::new()
+        }
+        Mock -ModuleName Teardown Get-GateRunState {
+            if ($script:Gate.readings.Count -gt 0) { $script:Gate.last = $script:Gate.readings.Dequeue() }
+            $script:Gate.last
+        }
+        Mock -ModuleName Teardown Invoke-PauseGate {
+            $said = $Arguments -join ' '
+            $script:Gate.calls.Add($said)
+            switch -Wildcard ($said) {
+                'axi abort --run *' { return $script:Gate.abort }
+                'axi sync --recover' { return $script:Gate.recover }
+                'axi sync --check'   {
+                    $answer = if ($script:Gate.checks.Count -gt 0) { $script:Gate.checks.Dequeue() } else { New-SyncAnswer 'custody_returned' 'equal' }
+                    return [pscustomobject]@{ ok = $true; stdout = $answer; stderr = ''; exitCode = 0; error = '' }
+                }
+            }
+            throw "unexpected gate call: $said"
+        }
+        Mock -ModuleName Teardown Save-WatchGateRescue {
+            $script:Gate.rescues.Add($Head)
+            [pscustomobject]@{ ref = "refs/gate/$Task-20261104T0100"; head = $Head; from = 'repository' }
+        }
+
+        $script:F = New-Fixture
+        $script:Copy = New-WorkerCopy $script:F 'w-pause' -Stage 'implementing' -PaneId 'p1'
+        Add-FakePane -PaneId 'p1' -Cwd $script:Copy -Workspace 'w1' -Agent 'w-pause'
+        $script:Record = Join-Path $script:F.data 'w-pause\pause.md'
+        $script:Suspend = { Suspend-Worker -WorkerId 'w-pause' -StatePath $script:F.state -DataPath $script:F.data }
+    }
+
+    It 'ends a running gate run, stops the worker, closes its pane, keeps the copy and writes the record' {
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'running' -Steps @(
+            [pscustomobject]@{ step = 'review'; status = 'completed' },
+            [pscustomobject]@{ step = 'test'; status = 'running' },
+            [pscustomobject]@{ step = 'push'; status = 'pending' })))
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'cancelled'))
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'custody_returned' 'equal'))
+
+        $r = & $script:Suspend
+
+        $r.outcome | Should -Be 'paused'
+        $r.failedStep | Should -Be ''
+        $r.stoppedBy | Should -Be 'exit'
+        @($r.steps | ForEach-Object { $_.step }) | Should -Be @('read', 'gate', 'custody', 'stop', 'pane', 'record')
+        $script:Gate.calls | Should -Be @('axi sync --check', 'axi abort --run 01RUN', 'axi sync --check')
+        $script:Herdr.stops | Should -Be @('w-pause')
+        @($script:Herdr.panes).Count | Should -Be 0
+        Test-Path -LiteralPath $script:Copy | Should -BeTrue -Because 'a pause keeps the copy'
+        & git -C $script:F.repo rev-parse --verify --quiet refs/heads/worktree-w-pause | Should -Not -BeNullOrEmpty
+
+        $text = Get-Content -LiteralPath $r.record -Raw
+        (Get-Content -LiteralPath $r.record -TotalCount 1) | Should -Be '# Paused - w-pause'
+        $head = (& git -C $script:Copy rev-parse HEAD).Trim()
+        $text.Contains("- Head: $head") | Should -BeTrue
+        $text.Contains('- Branch: worktree-w-pause') | Should -BeTrue
+        $text.Contains('- Stage before the pause: implementing') | Should -BeTrue
+        $text.Contains('run 01RUN read running; steps: review completed, test running') | Should -BeTrue
+        $text.Contains('## Uncommitted files') | Should -BeTrue
+        $text.Contains("Set-CrewRelaunch -State `$s -WorkerId 'w-pause'") | Should -BeTrue
+        $text.Contains("New-HerdrPane -Cwd '$($script:Copy)'") | Should -BeTrue
+
+        (Import-CrewState -Path $script:F.state).workers['w-pause'].stage | Should -Be 'paused'
+        @(Get-IndexEntries -Project 'acme-api' -DataPath $script:F.data | Where-Object { $_.path -like '*w-pause\pause.md' }).Count |
+            Should -Be 1
+    }
+
+    It 'lists uncommitted files in the record and leaves them on disk' {
+        Set-Content -LiteralPath (Join-Path $script:Copy 'half.txt') -Value 'not yet committed'
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus ''))
+
+        $r = & $script:Suspend
+
+        $r.outcome | Should -Be 'paused'
+        (Get-Content -LiteralPath $r.record -Raw).Contains('?? half.txt') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $script:Copy 'half.txt') | Should -BeTrue
+    }
+
+    It 'aborts nothing when the gate run has already finished, and still checks custody' {
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'completed' -Pr 'https://example.com/pr/1' -Outcome 'passed'))
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'custody_returned' 'equal'))
+
+        $r = & $script:Suspend
+
+        $r.outcome | Should -Be 'paused'
+        $script:Gate.calls | Should -Be @('axi sync --check')
+        ($r.steps | Where-Object step -eq 'gate').detail | Should -BeLike '*already ended (completed)*'
+        (Get-Content -LiteralPath $r.record -Raw).Contains('pull request https://example.com/pr/1') | Should -BeTrue
+    }
+
+    It 'skips the custody steps when the gate never ran on the branch' {
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'blocked_wrong_branch' 'unknown' '' 'no binding' -Run ''))
+
+        $r = & $script:Suspend
+
+        $r.outcome | Should -Be 'paused'
+        $script:Gate.calls | Should -Be @('axi sync --check')
+        Should -Invoke -ModuleName Teardown Get-GateRunState -Times 0 -Exactly
+        (Get-Content -LiteralPath $r.record -Raw).Contains('- Review gate: no review gate run of its own on this branch') | Should -BeTrue
+    }
+
+    Context 'another worker''s gate run is the newest in the repository' {
+        BeforeEach {
+            # Asked without a run id the gate answers about the newest run, which is on another
+            # branch; asked for this branch's own run by id it answers about that run.
+            Mock -ModuleName Teardown Get-GateRunState {
+                if ($Run -ne '01MINE' -or $Branch -ne 'worktree-w-pause') {
+                    return (New-GateReading -Status 'no-run' -RunStatus '' -Signal 'wrong-branch')
+                }
+                if ($script:Gate.readings.Count -gt 0) { $script:Gate.last = $script:Gate.readings.Dequeue() }
+                $script:Gate.last
+            }
+        }
+
+        It 'pauses a worker that never gated, ending nothing' {
+            $script:Gate.checks.Enqueue((New-SyncAnswer 'blocked_wrong_branch' 'unknown' '' 'no binding' -Run ''))
+
+            $r = & $script:Suspend
+
+            $r.outcome | Should -Be 'paused'
+            @($script:Gate.calls | Where-Object { $_ -like 'axi abort*' }).Count | Should -Be 0
+            @($r.steps | ForEach-Object { $_.step }) | Should -Be @('read', 'gate', 'stop', 'pane', 'record')
+            (Import-CrewState -Path $script:F.state).workers['w-pause'].stage | Should -Be 'paused'
+        }
+
+        It 'ends the worker''s own run, read by its id, and checks custody' {
+            $script:Gate.checks.Enqueue((New-SyncAnswer 'blocked_pipeline_owned_active' 'equal' -Run '01MINE'))
+            $script:Gate.checks.Enqueue((New-SyncAnswer 'custody_returned' 'equal' -Run '01MINE'))
+            $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'running'))
+            $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'cancelled'))
+
+            $r = & $script:Suspend
+
+            $r.outcome | Should -Be 'paused'
+            $script:Gate.calls | Should -Be @('axi sync --check', 'axi abort --run 01MINE', 'axi sync --check')
+            Should -Invoke -ModuleName Teardown Get-GateRunState -Times 2 -Exactly -ParameterFilter {
+                $Run -eq '01MINE' -and $Branch -eq 'worktree-w-pause'
+            }
+            ($r.steps | Where-Object step -eq 'gate').detail | Should -BeLike '*ended its gate run*cancelled*'
+        }
+    }
+
+    It 'writes a resume line that moves the record back to dispatched only once the prompt was taken' {
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus ''))
+        $r = & $script:Suspend
+        $r.outcome | Should -Be 'paused'
+        $text = Get-Content -LiteralPath $r.record -Raw
+        $resume = ([regex]::Match($text, '(?s)```powershell\r?\n(.*?)\r?\n```')).Groups[1].Value
+        $resume | Should -Not -BeNullOrEmpty
+
+        Import-Module "$PSScriptRoot\..\bin\Herdr.psm1"
+        Mock Start-HerdrServer { $script:Herdr.stops.Add('server') }
+        Mock New-HerdrPane { 'p9' }
+        Mock Start-HerdrAgent { [pscustomobject]@{ name = $Name } }
+        Mock Get-HerdrAgentState { 'idle' }
+        Mock Send-HerdrPrompt { [pscustomobject]@{ blocked = $true } }
+
+        { Invoke-Expression $resume } | Should -Throw '*did not take its prompt*'
+        (Import-CrewState -Path $script:F.state).workers['w-pause'].stage | Should -Be 'paused'
+        $script:Herdr.stops | Should -Contain 'server'
+
+        Mock Send-HerdrPrompt { [pscustomobject]@{ status = 'idle' } }
+        Invoke-Expression $resume
+        (Import-CrewState -Path $script:F.state).workers['w-pause'].stage | Should -Be 'dispatched'
+    }
+
+    It 'reports pane-closed when one of several workers in the copy had its pane closed' {
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus ''))
+        Add-FakePane -PaneId 'p2' -Cwd $script:Copy -Workspace 'w1' -Agent 'w-helper'
+        $script:Herdr.screen = 'exit'
+        Mock -ModuleName Teardown Stop-HerdrAgent {
+            $script:Herdr.stops.Add($Name)
+            if ($Name -eq 'w-pause') { return [pscustomobject]@{ stopped = $false; paneId = 'p1'; refused = ''; promptBox = '' } }
+            $gone = @($script:Herdr.agents | Where-Object { $_.name -eq $Name })
+            foreach ($g in $gone) { $null = $script:Herdr.agents.Remove($g) }
+            [pscustomobject]@{ stopped = $true; paneId = 'p2'; refused = ''; promptBox = '' }
+        }
+
+        $r = & $script:Suspend
+
+        $r.outcome | Should -Be 'paused'
+        $script:Herdr.stops | Should -Be @('w-pause', 'w-helper')
+        $r.stoppedBy | Should -Be 'pane-closed'
+    }
+
+    It 'saves the gate''s head, recovers its commits and checks custody came back when the gate still holds them' {
+        $gateHead = 'a' * 40
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'running' -Parked -ParkedOn 'review'))
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'cancelled'))
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'blocked_pipeline_owned_active' 'equal' $gateHead))
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'blocked_pipeline_owned_recoverable' 'behind' $gateHead))
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'custody_returned' 'equal' $gateHead))
+
+        $r = & $script:Suspend
+
+        $r.outcome | Should -Be 'paused'
+        @($r.steps | ForEach-Object { $_.step }) |
+            Should -Be @('read', 'gate', 'custody', 'rescue', 'recover', 'verify', 'stop', 'pane', 'record')
+        $script:Gate.calls | Should -Be @('axi sync --check', 'axi abort --run 01RUN', 'axi sync --check', 'axi sync --recover', 'axi sync --check')
+        $script:Gate.rescues | Should -Be @($gateHead)
+        $text = Get-Content -LiteralPath $r.record -Raw
+        $text.Contains('recovered to the branch - custody_returned, equal; also saved at refs/gate/w-pause-') | Should -BeTrue
+        $text.Contains('parked at its review step') | Should -BeTrue
+    }
+
+    It 'stops at the recover when the gate refuses it, leaving the worker running and naming the saved ref' {
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'cancelled'))
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'blocked_pipeline_owned_recoverable' 'behind' ('b' * 40)))
+        $script:Gate.recover = [pscustomobject]@{
+            ok = $true; stderr = ''; exitCode = 1; error = ''
+            stdout = (New-SyncAnswer 'blocked_remote_moved' 'diverged' '' 'the remote moved')
+        }
+
+        $r = & $script:Suspend
+
+        $r.outcome | Should -Be 'failed'
+        $r.failedStep | Should -Be 'recover'
+        ($r.steps | Where-Object step -eq 'recover').detail |
+            Should -BeLike '*refused*blocked_remote_moved*the remote moved*saved at refs/gate/w-pause-*'
+        $script:Herdr.stops.Count | Should -Be 0 -Because 'a failed step stops the sequence there'
+        @($script:Herdr.panes).Count | Should -Be 1
+        Test-Path -LiteralPath $script:Record | Should -BeFalse
+        (Import-CrewState -Path $script:F.state).workers['w-pause'].stage | Should -Be 'implementing'
+    }
+
+    It 'stops at the verify when custody did not come back after the recover' {
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'cancelled'))
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'blocked_pipeline_owned_recoverable' 'behind'))
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'custody_returned' 'behind'))
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'verify'
+        ($r.steps | Where-Object step -eq 'verify').detail | Should -BeLike '*relation behind*'
+        $script:Gate.rescues.Count | Should -Be 0 -Because 'no gate head was named, so there was nothing to save'
+        $script:Herdr.stops.Count | Should -Be 0
+    }
+
+    It 'moves nothing on a custody answer it does not recover' {
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'cancelled'))
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'blocked_wrong_branch' 'unknown' '' 'no binding'))
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'custody'
+        ($r.steps | Where-Object step -eq 'custody').detail | Should -BeLike '*blocked_wrong_branch*no binding*nothing was moved*'
+        $script:Gate.calls | Should -Not -Contain 'axi sync --recover'
+        $script:Herdr.stops.Count | Should -Be 0
+    }
+
+    It 'reads a custody answer it cannot decode as unreadable, never as a state' {
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'running'))
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'cancelled'))
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'blocked_pipeline_owned_active' 'equal'))
+        $script:Gate.checks.Enqueue('')
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'custody'
+        ($r.steps | Where-Object step -eq 'custody').detail | Should -BeLike '*could not be read*printed nothing*'
+    }
+
+    It 'ends nothing when the gate run cannot be read' {
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'unreadable' -RunStatus ''))
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'gate'
+        $script:Gate.calls | Should -Be @('axi sync --check')
+        $script:Herdr.stops.Count | Should -Be 0
+    }
+
+    It 'ends nothing when which run belongs to the branch cannot be read and the gate reports <what>' -ForEach @(
+        @{ what = 'a run'; status = 'has-run'; signal = 'x'; unread = '' }
+        @{ what = 'a run on another branch'; status = 'no-run'; signal = 'wrong-branch'; unread = '' }
+        @{ what = 'nothing readable'; status = 'unreadable'; signal = 'x'; unread = '' }
+        @{ what = 'a parked gate response'; status = 'no-run'; signal = 'gate-response'; unread = '' }
+        @{ what = 'a run field it could not read'; status = 'no-run'; signal = 'no-run-reported'; unread = 'run' }
+    ) {
+        $script:Gate.checks.Enqueue('')
+        $reading = New-GateReading -Status $status -RunStatus 'running' -Signal $signal
+        if ($unread) { $reading.notUnderstood = @($unread) }
+        $script:Gate.readings.Enqueue($reading)
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'gate'
+        ($r.steps | Where-Object step -eq 'gate').detail | Should -BeLike '*which gate run belongs to its branch could not be read*'
+        $script:Gate.calls | Should -Be @('axi sync --check')
+        $script:Herdr.stops.Count | Should -Be 0
+    }
+
+    It 'pauses a worker in a repository with no gate, whose sync answer is an error' {
+        $script:Gate.checks.Enqueue("error: repository not initialized`nhelp[1]: Run no-mistakes init")
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus '' -Signal 'no-run-reported'))
+
+        $r = & $script:Suspend
+
+        $r.outcome | Should -Be 'paused'
+        @($r.steps | ForEach-Object { $_.step }) | Should -Be @('read', 'gate', 'stop', 'pane', 'record')
+        $script:Gate.calls | Should -Be @('axi sync --check')
+        (Get-Content -LiteralPath $r.record -Raw).Contains('- Gate commits: no gate run of its own on this branch') | Should -BeTrue
+    }
+
+    It 'still recovers the gate''s commits when the run bound to the branch reads as no run' {
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'blocked_pipeline_owned_recoverable' 'behind'))
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'custody_returned' 'equal'))
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus ''))
+
+        $r = & $script:Suspend
+
+        $r.outcome | Should -Be 'paused'
+        @($r.steps | ForEach-Object { $_.step }) | Should -Be @('read', 'gate', 'custody', 'recover', 'verify', 'stop', 'pane', 'record')
+        $script:Gate.calls | Should -Be @('axi sync --check', 'axi sync --recover', 'axi sync --check')
+        $text = Get-Content -LiteralPath $r.record -Raw
+        $text.Contains('- Gate commits: recovered to the branch') | Should -BeTrue
+        $text.Contains('- Review gate: run 01RUN is bound to this branch but read as no run') | Should -BeTrue
+    }
+
+    It 'stops at the gate when the run does not read ended after the abort' {
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'running'))
+        $script:Gate.abort = [pscustomobject]@{ ok = $true; stdout = ''; stderr = 'no active run'; exitCode = 1; error = '' }
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'gate'
+        ($r.steps | Where-Object step -eq 'gate').detail | Should -BeLike '*exited 1*does not read ended*no active run*'
+        $script:Gate.calls | Should -Be @('axi sync --check', 'axi abort --run 01RUN')
+    }
+
+    It 'stops at the gate when the gate binary does not answer the abort' {
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'running'))
+        $script:Gate.abort = [pscustomobject]@{ ok = $false; stdout = ''; stderr = ''; exitCode = $null; error = 'it did not answer within 60 seconds' }
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'gate'
+        ($r.steps | Where-Object step -eq 'gate').detail | Should -BeLike '*could not be ended*did not answer*'
+    }
+
+    It 'refuses to stop a worker whose input box holds text, quoting it and closing nothing' {
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus ''))
+        $script:Herdr.stopResult = 'box'
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'stop'
+        $r.stoppedBy | Should -Be ''
+        ($r.steps | Where-Object step -eq 'stop').detail | Should -BeLike "*prompt-box-not-empty*'half a thought'*"
+        @($script:Herdr.panes).Count | Should -Be 1
+        Test-Path -LiteralPath $script:Record | Should -BeFalse
+    }
+
+    It 'closes the pane of a worker sitting on the exit dialog for its own background work, and says so' {
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus ''))
+        $script:Herdr.stopResult = 'hang'
+        $script:Herdr.screen = 'exit'
+
+        $r = & $script:Suspend
+
+        $r.outcome | Should -Be 'paused'
+        $r.stoppedBy | Should -Be 'pane-closed'
+        Should -Invoke -ModuleName Teardown Remove-HerdrPane -ParameterFilter { $PaneId -eq 'p1' }
+        Should -Invoke -ModuleName Teardown Send-HerdrKeys -Times 0 -Exactly
+        @($script:Herdr.agents).Count | Should -Be 0
+        Test-Path -LiteralPath $script:Copy | Should -BeTrue
+        (Get-Content -LiteralPath $r.record -Raw).Contains('its pane p1 was closed rather than the dialog answered') |
+            Should -BeTrue
+    }
+
+    It 'leaves a worker running that did not exit on <screen>, quoting its screen and closing nothing' -ForEach @(
+        @{ screen = 'permission' }
+        @{ screen = 'menu' }
+        @{ screen = 'none' }
+    ) {
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus ''))
+        $script:Herdr.stopResult = 'hang'
+        $script:Herdr.screen = $screen
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'stop'
+        $r.stoppedBy | Should -Be ''
+        $detail = ($r.steps | Where-Object step -eq 'stop').detail
+        $detail | Should -BeLike '*not on the exit dialog for its own background work*nothing closed and nothing sent*'
+        $detail.Contains($script:Screens[$screen]) | Should -BeTrue -Because 'the screen is quoted as drawn'
+        Should -Invoke -ModuleName Teardown Remove-HerdrPane -Times 0 -Exactly
+        Should -Invoke -ModuleName Teardown Send-HerdrKeys -Times 0 -Exactly
+        @($script:Herdr.panes).Count | Should -Be 1
+        Test-Path -LiteralPath $script:Record | Should -BeFalse
+    }
+
+    It 'stops nothing when herdr cannot be read' {
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus ''))
+        $script:Herdr.fail = 'server not running'
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'stop'
+        ($r.steps | Where-Object step -eq 'stop').detail | Should -BeLike '*server not running*'
+        $script:Herdr.stops.Count | Should -Be 0
+    }
+
+    It 'pauses a worker that has already exited, closing only its leftover pane' {
+        $script:Herdr.agents.Clear()
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus ''))
+
+        $r = & $script:Suspend
+
+        $r.outcome | Should -Be 'paused'
+        $r.stoppedBy | Should -Be 'not-running'
+        ($r.steps | Where-Object step -eq 'pane').detail | Should -BeLike '*pane p1*'
+    }
+
+    It 'refuses a pause record it did not write, before touching anything' {
+        $null = New-Item -ItemType Directory -Force -Path (Split-Path $script:Record)
+        Set-Content -LiteralPath $script:Record -Value 'notes somebody kept here'
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'running'))
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'read'
+        ($r.steps | Where-Object step -eq 'read').detail | Should -BeLike '*did not write it*not overwritten*'
+        Get-Content -LiteralPath $script:Record -Raw | Should -BeLike 'notes somebody kept here*'
+        Should -Invoke -ModuleName Teardown Get-GateRunState -Times 0 -Exactly
+        $script:Herdr.stops.Count | Should -Be 0
+    }
+
+    It 'rewrites its own pause record on a second pause' {
+        $null = New-Item -ItemType Directory -Force -Path (Split-Path $script:Record)
+        Set-Content -LiteralPath $script:Record -Value @('# Paused - w-pause', '', 'an older pause')
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus ''))
+
+        $r = & $script:Suspend
+
+        $r.outcome | Should -Be 'paused'
+        Get-Content -LiteralPath $script:Record -Raw | Should -Not -BeLike '*an older pause*'
+    }
+
+    It 'refuses a worker whose copy is gone' {
+        Invoke-Git $script:F.repo worktree remove --force $script:Copy | Out-Null
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'read'
+        ($r.steps | Where-Object step -eq 'read').detail | Should -BeLike '*not on disk*'
+    }
+
+    It 'refuses <name> before touching anything' -ForEach @(
+        @{ name = 'a worker in the project''s own checkout'; field = 'checkout'; value = $true; like = '*own checkout*fief*' }
+        @{ name = 'a worker whose cleanup already finished'; field = 'torn_down_at'; value = '2026-11-01T00:00:00Z'; like = '*cleanup already finished*' }
+        @{ name = 'a project name its record cannot be indexed under'; field = 'repo'; value = 'not/a name'; like = '*could not be indexed*' }
+    ) {
+        $s = Import-CrewState -Path $script:F.state
+        $s.workers['w-pause'][$field] = $value
+        Save-CrewState -State $s -Path $script:F.state
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'running'))
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'read'
+        ($r.steps | Where-Object step -eq 'read').detail | Should -BeLike $like
+        Should -Invoke -ModuleName Teardown Get-GateRunState -Times 0 -Exactly
+        $script:Herdr.stops.Count | Should -Be 0
+    }
+
+    It 'moves nothing when the gate''s head cannot be saved first' {
+        Mock -ModuleName Teardown Save-WatchGateRescue { throw 'No gate mirror holds it.' }
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'cancelled'))
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'blocked_pipeline_owned_recoverable' 'behind' ('c' * 40)))
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'rescue'
+        ($r.steps | Where-Object step -eq 'rescue').detail | Should -BeLike '*could not be saved*No gate mirror*'
+        $script:Gate.calls | Should -Not -Contain 'axi sync --recover'
+    }
+
+    It 'stops at the recover when the gate binary does not answer it' {
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'cancelled'))
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'blocked_pipeline_owned_recoverable' 'behind'))
+        $script:Gate.recover = [pscustomobject]@{ ok = $false; stdout = ''; stderr = ''; exitCode = $null; error = 'it was stopped' }
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'recover'
+        ($r.steps | Where-Object step -eq 'recover').detail | Should -BeLike '*could not be recovered*it was stopped*'
+        $script:Herdr.stops.Count | Should -Be 0
+    }
+
+    It 'stops at the verify when the second custody answer cannot be read' {
+        $script:Gate.readings.Enqueue((New-GateReading -RunStatus 'cancelled'))
+        $script:Gate.checks.Enqueue((New-SyncAnswer 'blocked_pipeline_owned_recoverable' 'behind'))
+        $script:Gate.checks.Enqueue('branch_sync: just text')
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'verify'
+        ($r.steps | Where-Object step -eq 'verify').detail | Should -BeLike '*could not be read*'
+    }
+
+    It 'stops nothing it has no name for' {
+        $script:Herdr.agents.Clear()
+        $script:Herdr.agents.Add([pscustomobject]@{ name = ''; pane_id = 'p1'; cwd = $script:Copy; workspace_id = 'w1' })
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus ''))
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'stop'
+        ($r.steps | Where-Object step -eq 'stop').detail | Should -BeLike '*unnamed agent*pane p1*'
+        $script:Herdr.stops.Count | Should -Be 0
+    }
+
+    It 'stops at the stop when a worker on the exit dialog outlives its closed pane' {
+        Mock -ModuleName Teardown Remove-HerdrPane { }
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus ''))
+        $script:Herdr.stopResult = 'hang'
+        $script:Herdr.screen = 'exit'
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'stop'
+        $r.stoppedBy | Should -Be ''
+        ($r.steps | Where-Object step -eq 'stop').detail | Should -BeLike '*still there after its pane p1 was closed*'
+        Test-Path -LiteralPath $script:Record | Should -BeFalse
+    }
+
+    It 'stops at the pane step when a pane in the copy will not close' {
+        $script:Herdr.agents.Clear()
+        Mock -ModuleName Teardown Remove-HerdrPane { }
+        $script:Gate.readings.Enqueue((New-GateReading -Status 'no-run' -RunStatus ''))
+
+        $r = & $script:Suspend
+
+        $r.failedStep | Should -Be 'pane'
+        ($r.steps | Where-Object step -eq 'pane').detail | Should -BeLike '*pane p1 did not close*'
+        (Import-CrewState -Path $script:F.state).workers['w-pause'].stage | Should -Be 'implementing'
+    }
+
+    It 'throws for a worker crew.json does not know' {
+        { Suspend-Worker -WorkerId 'nobody' -StatePath $script:F.state -DataPath $script:F.data } |
+            Should -Throw '*nothing recorded to pause*'
     }
 }

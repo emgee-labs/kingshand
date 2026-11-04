@@ -18,12 +18,18 @@ Set-StrictMode -Version Latest
 # and the Hand's console with hashtable dumps.
 #
 # `waiting_on` is a pointer, not a stage, and the distinction is the whole reason it exists.
-# The six stages are a lifecycle - a worker is at exactly one of them and moves forward. Waiting
+# The stages are a lifecycle - a worker is at exactly one of them and moves forward. Waiting
 # for a decision is a condition that can happen at any of them and then resolves back to wherever
-# the worker already was, so a seventh stage would destroy the one fact most needed afterwards:
+# the worker already was, so a stage for it would destroy the one fact most needed afterwards:
 # what the worker was doing before it parked. This field holds the tasks-axi hold key carrying
 # that decision. The `decree` skill owns the hold's own lifecycle and how its key is composed;
 # this module only records which key a worker parked on, so no session has to reconstruct it.
+#
+# `paused` is the one stage off that forward line. Suspend-Worker in bin\Teardown.psm1 sets it once
+# a worker is stopped with its copy kept, so a later session reads it as paused rather than dead,
+# and a relaunch moves it back to `dispatched` with Set-CrewRelaunch. A pause does not resolve back
+# to where the worker was - a relaunch starts over - so nothing is lost by it being a stage, and the
+# stage it left is written into its pause record.
 #
 # THERE IS NO CLEARING VERB, AND THAT IS THE DESIGN RATHER THAN AN OMISSION. Once a worker parks,
 # the field keeps naming that hold for the rest of the worker's life. Clearing it on the way back
@@ -53,7 +59,7 @@ Set-StrictMode -Version Latest
 # kept, and `torn_down_at` says its cleanup finished. bin\Teardown.psm1 reads the first and writes
 # the second.
 
-$script:ValidStages = @('dispatched', 'implementing', 'gating', 'ready', 'landed', 'failed')
+$script:ValidStages = @('dispatched', 'implementing', 'gating', 'ready', 'landed', 'failed', 'paused')
 $script:ValidKinds  = @('ticket', 'adhoc')
 
 # tasks-axi ids are slug-shaped - letters, digits, '.', '_' and '-', with no spaces - and the first

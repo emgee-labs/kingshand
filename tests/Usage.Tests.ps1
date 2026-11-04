@@ -1664,6 +1664,13 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
         Get-UsagePulse | Should -BeLike '*odd phase not known*'
     }
 
+    It 'says a paused worker is paused with its work kept' {
+        Mock -ModuleName Usage Get-UsageFleet {
+            @(New-FleetRow -Ticket 'kh' -Stage 'paused')
+        }
+        Get-UsagePulse | Should -BeLike '*kh paused, its work kept*'
+    }
+
     It 'says a worker is stuck on a question whatever stage it was recorded at' {
         Mock -ModuleName Usage Get-UsageFleet {
             @(New-FleetRow -Ticket 'kh' -Stage 'implementing' -AgentState 'blocked')
