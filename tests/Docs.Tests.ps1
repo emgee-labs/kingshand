@@ -10995,11 +10995,21 @@ Describe 'deleting files under data has one owner, and it is not chronicle' {
 # edited that one line, so any two parallel branches conflicted on it and the merged number was
 # neither side's. The badge names the framework instead, which no ordinary branch changes.
 Describe 'the README Tests badge carries no test count' {
-    It 'names the framework rather than a number of passing tests' {
-        $readme = Get-Content -Raw -Path (Join-Path $script:Root 'README.md')
-        Assert-Phrase -Text $readme -Where 'the README badge row' `
-            -Phrase '[![Tests](https://img.shields.io/badge/tests-Pester-3fb950)](tests)'
-        $readme.Contains('%20passing-') |
-            Should -BeFalse -Because 'a count in the badge is the line every branch collides on'
+    It 'has no digit in the badge text' {
+        $line = Get-Content -Path (Join-Path $script:Root 'README.md') |
+            Where-Object { $_.StartsWith('[![Tests]') } | Select-Object -First 1
+        $line | Should -Not -BeNullOrEmpty -Because 'the README badge row carries a Tests badge'
+        $prefix = 'img.shields.io/badge/'
+        $start = $line.IndexOf($prefix)
+        $start | Should -BeGreaterOrEqual 0 -Because 'the Tests badge is a shields.io static badge'
+        $start += $prefix.Length
+        $end = $line.IndexOf(')', $start)
+        $end | Should -BeGreaterThan $start -Because 'the badge path closes its link'
+        $path = $line.Substring($start, $end - $start)
+        $colour = $path.LastIndexOf('-')
+        $colour | Should -BeGreaterThan 0 -Because 'the badge path ends in -<colour>'
+        $text = $path.Substring(0, $colour)
+        @($text.ToCharArray() | Where-Object { [char]::IsDigit($_) }) |
+            Should -BeNullOrEmpty -Because "a count in '$text' is the line every branch collides on"
     }
 }
