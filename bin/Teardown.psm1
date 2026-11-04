@@ -889,8 +889,9 @@ function Format-PauseResumeCommand {
 #            project with parallel workers is usually another worker's. A run that has not ended is
 #            aborted with `no-mistakes axi abort --run <id>` and read again until it reads ended. A
 #            sync answer that cannot be read ends nothing, unless `axi status` itself answers that
-#            it reports no run, with nothing in its answer left unread - a repository with no gate. No run of its own to end - no binding, never gated, or
-#            a bound run that reads as no run - is recorded, and the pause carries on.
+#            it reports no run, with nothing in its answer left unread - a repository with no gate.
+#            No run of its own to end - no binding, never gated, or a bound run that reads as no
+#            run - is recorded, and the pause carries on.
 #   custody  Whenever a run is bound to the branch, whatever it read as: `axi sync --check`, asked
 #            again only after an abort. custody_returned with relation equal is already safe. Only
 #            blocked_pipeline_owned_recoverable is recovered; any other answer stops here, because
