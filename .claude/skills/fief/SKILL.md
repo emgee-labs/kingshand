@@ -150,6 +150,10 @@ itself.** `parley`'s `## One step at a time` owns that rule and states it in ful
 applies whether or not parley is loaded. **Inside a session that holds whatever the project's
 `yolo` says**: he is present and batching, so `+yolo` lands nothing early here.
 
+**A project registered `review-only` gets no commit, no push and no pull request.** On any of
+those three words, say in one line that the project is registered review-only, and do nothing -
+prompt the worker for nothing. Its delivery is the report, as muster's Step 7 says.
+
 - **Commit** - prompt the worker to commit. The title names every id on the branch, comma
   separated, in the order its durable record holds them, read with `Get-CrewItems`.
 - **Push** - on a task that resolves to `no-mistakes`, this is the word that runs the review gate:
@@ -205,6 +209,9 @@ routing is ordinary and a request for that project is matched the ordinary way.
   and a list that cannot be read is refused rather than guessed at.
 - **One gate run over the whole branch** is enforced by the gate line being absent from every fix
   prompt. No agent is ever inside a run and told to stop.
+- **The review-only refusal** is obeyed by the Hand, which reads the project's mode before it
+  prompts a commit, a push or a pull request. Behind it, muster's Step 7 never pushes a project
+  that is not push-capable; nothing in code stops the commit.
 - **Pinned routing, the one-line mismatch and the step boundary** are obeyed by the Hand while it
   composes a reply, at a turn boundary. Prose is the mechanism and nothing else could be.
 - **The exit conditions are enforced by nothing at all.** A Hand that forgets the mode falls back

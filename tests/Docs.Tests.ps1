@@ -11059,6 +11059,16 @@ Describe 'review-only lands nothing, and annex offers a criteria seed' {
             -Phrase 'a review-only copy holding a change is a worker that broke its brief - read it, never force past it'
     }
 
+    It 'a fief session on a review-only project commits, pushes and raises nothing' {
+        $fief = Get-DocText (Join-Path $script:Root '.claude\skills\fief\SKILL.md')
+        Assert-Phrase -Text $fief -Where 'fief Delivery' `
+            -Phrase '**A project registered `review-only` gets no commit, no push and no pull request.**'
+        Assert-Phrase -Text $fief -Where 'fief Delivery' `
+            -Phrase ('On any of those three words, say in one line that the project is registered ' +
+                     'review-only, and do nothing - prompt the worker for nothing.')
+        Assert-Phrase -Text $fief -Where 'fief enforcement list' -Phrase '**The review-only refusal** is obeyed by the Hand'
+    }
+
     It 'CLAUDE.md rule 2 says review-only lands nothing' {
         Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
             -Phrase '`review-only` lands nothing at all - its delivery is the worker''s report.'
