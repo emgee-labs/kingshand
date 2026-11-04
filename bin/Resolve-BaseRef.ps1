@@ -41,16 +41,15 @@
   `origin/dev` to prefer and no warning.
 
   EACH WARNING SAYS WHAT WAS DECIDED AND WHAT TO DO, AND NOTHING ELSE: the declared name, the ref
-  this worker is based on, the one fact that decided it, and the action. Every fact it states is
-  one this function established - a ref it probed, or a name it refused. It says nothing about a
-  ref it never looked up -
-  whether a refused `worktree-*` name exists or whose it is, whether origin has the declared
-  branch, how far a local copy is behind, which commits a landing diff will carry - because each
-  such sentence was a guess, and the guesses kept turning out false: one said a never-created
-  branch "resolves fine", another that it belonged to another worker. Where the right action
-  depends on something not asked, such as whether origin has the branch - a network round trip on
-  a path that must not hang a dispatch - the action names each answer instead of assuming one.
-  Making the declaration resolvable is advice for the next dispatch, never for this worker,
+  this worker is based on, the one fact that decided it, and the action. Every fact it states is one
+  this function established - a ref it probed, or a name it refused. It says nothing about a ref it
+  never looked up - whether a refused `worktree-*` name exists or whose it is, whether origin has
+  the declared branch, how far a local copy is behind, which commits a landing diff will carry -
+  because each such sentence was a guess, and the guesses kept turning out false: one said a
+  never-created branch "resolves fine", another that it belonged to another worker. Where the right
+  action depends on something not asked, such as whether origin has the branch - a network round
+  trip on a path that must not hang a dispatch - the action names each answer instead of assuming
+  one. Making the declaration resolvable is advice for the next dispatch, never for this worker,
   because nothing done after the worktree is cut moves the base it was cut from; for this worker,
   where the base is not the declared branch, the action is to check what its pull request targets
   before it lands.
