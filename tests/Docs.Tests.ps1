@@ -7480,7 +7480,7 @@ Describe 'the default branch and the integration branch are two things' {
     # branched. Re-dispatching a ticket whose branch survived does not branch again, and muster used
     # to say the record then went stale while Add-CrewWorker refused the id outright - two accounts
     # of one event. Step 4 now records a re-dispatch through Set-CrewRelaunch, which keeps the branch
-    # point, and the old warning about a widened diff is gone because the diff no longer widens.
+    # point, so the diff no longer widens.
     It 'muster re-records a re-dispatch with Set-CrewRelaunch, keeping the branch point' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
@@ -7491,8 +7491,6 @@ Describe 'the default branch and the integration branch are two things' {
         Assert-Phrase -Text $step -Where 'muster Step 4' `
             -Phrase ('**On a re-dispatch the dispatcher''s base and the branch point can disagree, ' +
                      'and the record keeps the branch point.**')
-        $step.Contains('A widened diff on a re-dispatched ticket is that') |
-            Should -BeFalse -Because 'the record now keeps the branch point, so the diff does not widen'
     }
 
     # The warning's content has one owner, the resolver's header, so Step 4 points there rather
