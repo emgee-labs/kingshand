@@ -868,6 +868,7 @@ function New-UsageReading {
         detail        = ''
         resetsAt      = ''
         window        = ''
+        windows       = $null
         account       = $Account
         generatedAt   = ''
         schemaVersion = ''
@@ -946,6 +947,13 @@ function Resolve-UsageWindows {
             'not established - a renamed window id arrives looking exactly like this.' +
             $listed + $Schema)
     }
+
+    # Every account window present, with the percentage this reading can stand behind for each -
+    # $null where the tool wrote no number or the window has already rolled. The pulse shows both
+    # windows from this; only the driving one below is ever acted on.
+    $Reading.windows = @($present | ForEach-Object {
+        [pscustomobject]@{ id = $_.id; percent = $(if ($_.applies) { $_.percent } else { $null }) }
+    })
 
     # Every note this reading could carry, computed once from every window present rather than
     # only from the ones that survived - a window that was dropped is exactly the one whose
@@ -1254,6 +1262,9 @@ function Save-UsageReading {
 # .detail        one line naming the evidence, written to be read to a person
 # .resetsAt      when the driving window resets, ISO, or '' where that could not be read
 # .window        which window the percentage came from, or ''
+# .windows       every account window the reading saw, @{ id; percent }, percent $null where it
+#                could not be read or has rolled - or $null where no window list was read. Shown
+#                by the pulse and never acted on; .percent is the only figure anything acts on.
 # .account       which account the reading belongs to, or '' where that could not be read
 # .generatedAt   when quota-axi generated the answer, ISO, or ''
 # .schemaVersion the schema quota-axi stamped its answer with, as it wrote it, or ''
@@ -1406,6 +1417,46 @@ function Get-UsagePercentShown {
     [int][Math]::Round($n)
 }
 
+# Both account windows of a current reading, session first, in the few words the pulse has room
+# for: `3% session / 5% week`, or `5% session and week` where the two print the same figure.
+#
+# BOTH, BECAUSE ONE FIGURE CANNOT BE PLACED. The line used to name only the driving window, and a
+# weekly 5 read against the King's own session 3 looked like a wrong number rather than a different
+# window. The driving window still decides everything that acts - this only says both.
+#
+# A WINDOW THAT CANNOT BE READ STAYS IN THE LINE AS UNREADABLE - `week unreadable` - and is never
+# left out, because a line with one window missing reads as a line about one window. That covers a
+# window the tool did not report, one whose figure is not a number and one that has already rolled.
+# A reading carrying no window list at all is one built before the list existed, and gets the
+# driving window alone, because nothing says what the other one was.
+function Format-UsagePulseWindows {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Reading)
+
+    $shown   = Get-UsagePercentShown (Get-JsonField $Reading 'percent')
+    $driving = "$(Get-JsonField $Reading 'window')"
+    $listed  = Get-JsonField $Reading 'windows'
+    if ($null -eq $listed) {
+        if ($driving) { return "$shown% $(Format-UsageWindowShortName -Id $driving)" }
+        return "$shown%"
+    }
+
+    $parts = @(foreach ($id in $script:AccountWindowIds) {
+        $w = @($listed | Where-Object { (Get-JsonField $_ 'id') -eq $id }) | Select-Object -First 1
+        [pscustomobject]@{
+            name  = Format-UsageWindowShortName -Id $id
+            shown = $(if ($w) { Get-UsagePercentShown (Get-JsonField $w 'percent') } else { $null })
+        }
+    })
+    $readable = @($parts | Where-Object { $null -ne $_.shown })
+    if ($readable.Count -eq $parts.Count -and @($parts.shown | Select-Object -Unique).Count -eq 1) {
+        return "$($parts[0].shown)% " + (@($parts.name) -join ' and ')
+    }
+    @($parts | ForEach-Object {
+        if ($null -ne $_.shown) { "$($_.shown)% $($_.name)" } else { "$($_.name) unreadable" }
+    }) -join ' / '
+}
+
 # One line. ONE LINE, whatever is live - the tail becomes a count rather than a second line.
 function Format-UsagePulse {
     [CmdletBinding()]
@@ -1415,10 +1466,10 @@ function Format-UsagePulse {
         [Parameter(Mandatory)][AllowEmptyCollection()][array]$Live
     )
 
-    # What the number is about, in the few words a one-line pulse has room for: which window is
-    # driving it, and which account it belongs to. The account is there because the reading silently
-    # follows whichever account is active, so a percentage with no name on it is a percentage the
-    # reader cannot place.
+    # What the number is about, in the few words a one-line pulse has room for: which window, and
+    # which account it belongs to - named once, after both windows on a current reading. The account
+    # is there because the reading silently follows whichever account is active, so a percentage
+    # with no name on it is a percentage the reader cannot place.
     # Every field of the reading is taken through Get-JsonField rather than as a property. This
     # module runs under StrictMode Latest, the reading arrives from a caller, and a reading built
     # before a field existed would otherwise throw here instead of simply not having it.
@@ -1429,7 +1480,7 @@ function Format-UsagePulse {
     $notes = @()
     if ($window)  { $notes += (Format-UsageWindowShortName -Id $window) }
     if ($account) { $notes += $account }
-    $suffix = if ($notes.Count -gt 0) { ' (' + ($notes -join ', ') + ')' } else { '' }
+    $owner = if ($account) { " ($account)" } else { '' }
 
     $shown = Get-UsagePercentShown (Get-JsonField $Reading 'percent')
     # A floor is said as "at least" and rounded DOWN, which is what keeps that phrase true - at a
@@ -1445,7 +1496,7 @@ function Format-UsagePulse {
     $head = if ($null -eq $Reading) {
         'usage not read while nothing runs'
     } elseif ($status -eq 'has-usage' -and $null -ne $shown) {
-        "$shown% used$suffix"
+        (Format-UsagePulseWindows -Reading $Reading) + $owner
     } elseif ($null -ne $floor) {
         "at least $([int][Math]::Floor($floor))% used" +
         $(if ($notes.Count -gt 0) { " ($kind, " + ($notes -join ', ') + ')' } else { " ($kind)" })

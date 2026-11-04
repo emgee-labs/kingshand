@@ -11,7 +11,8 @@ Move this installation of kingshand to the latest release, and say what that cha
 
 **This is not project work and it needs no worker.** Nothing here edits a tracked file: it
 fast-forwards the checkout to a release somebody already cut, then re-runs the installer. Hard rule
-1 is about doing a project's work yourself, and there is no work here to do - so do not write a
+1 [rule:claude/workers-do-the-work] is about doing a project's work yourself, and there is no work
+here to do - so do not write a
 brief, do not dispatch, and do not load `muster`.
 
 **Run it only when the user asks.** An update moves `CLAUDE.md`, `bin\` and the skills underneath
@@ -78,6 +79,6 @@ update; "no, because X" is the answer.
 - **It never touches the user's own state.** `data\`, `state\`, `config\`, `tools\` and
   `instructions.md` are gitignored, so no fetch or fast-forward can reach them. What does move is
   each dependency, to the version the release pins and never past it - the `statute` skill's
-  Dependency pins section owns that contract.
+  Dependency pins section owns that contract [rule:statute/dependency-pins].
 - **It never reports success it did not have.** A version it could not read reads as unreadable,
   and no version is ever invented to fill the gap.

@@ -1461,7 +1461,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                window = 'seven_day'; account = 'personal'; generatedAt = ''
                                schemaVersion = '3'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '62% used (week, personal) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '62% week (personal) - 1 running: kh working'
     }
 
     # TWO READINGS EITHER SIDE OF A SWITCH ARE PERCENTAGES OF TWO DIFFERENT POOLS. Silence would
@@ -1475,11 +1475,11 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                schemaVersion = '3'; takenAt = 'now' }
         }
         Mock -ModuleName Usage Get-UsageWindow { & $reading 'personal' }
-        Get-UsagePulse | Should -Be '62% used (session, personal) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '62% session (personal) - 1 running: kh working'
         Get-UsagePulse | Should -BeNullOrEmpty -Because 'nothing moved within that account'
 
         Mock -ModuleName Usage Get-UsageWindow { & $reading 'office' }
-        Get-UsagePulse | Should -Be '62% used (session, office) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '62% session (office) - 1 running: kh working'
     }
 
     # A floor is never printed as a bare percentage, because a bare percentage reads as a
@@ -1505,7 +1505,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                window = 'five_hour'; account = 'a'; generatedAt = ''
                                schemaVersion = '3'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '40% used (session, a) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '40% session (a) - 1 running: kh working'
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'unknown'; signal = 'stale-reading'; percent = $null
@@ -1525,7 +1525,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                window = 'five_hour'; account = 'a'; generatedAt = ''
                                schemaVersion = '3'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -BeLike '*(session, a)*'
+        Get-UsagePulse | Should -BeLike '*62% session (a)*'
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 'driving-window'; percent = 62
@@ -1533,7 +1533,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                window = 'seven_day'; account = 'a'; generatedAt = ''
                                schemaVersion = '3'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -BeLike '*(week, a)*'
+        Get-UsagePulse | Should -BeLike '*62% week (a)*'
     }
 
     It 'names the percentage, the count and what each worker is doing' {
@@ -1543,7 +1543,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
         }
 
         Get-UsagePulse |
-            Should -Be '62% used (session) - 2 running: kh-usage-watch running checks, emgee-seo waiting on you'
+            Should -Be '62% session - 2 running: kh-usage-watch running checks, emgee-seo waiting on you'
     }
 
     # ONE LINE, hard cap, however many workers are live. A second line is the thing the King ruled
@@ -1577,7 +1577,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
     }
 
     It 'names the percentage beside the one worker running' {
-        Get-UsagePulse | Should -Be '62% used (session) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '62% session - 1 running: kh working'
     }
 
     # NO READING WHILE NOTHING RUNS - the King's word, 2026-10-22. The number barely moves with no
@@ -1597,7 +1597,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
         Get-UsagePulse | Should -Be 'usage not read while nothing runs - nothing running'
 
         Mock -ModuleName Usage Get-UsageFleet { @(New-FleetRow -Ticket 'kh') }
-        Get-UsagePulse | Should -Be '62% used (session) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '62% session - 1 running: kh working'
     }
 
     It 'says a held floor as held rather than as stale' {
@@ -1646,7 +1646,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 71; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '71% used (session) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '71% session - 1 running: kh working'
     }
 
     # THE SAME SENTENCE TWICE IS NOT A CHANGE. The band that decides whether the pulse speaks and
@@ -1658,7 +1658,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 69.6; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '70% used (session) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '70% session - 1 running: kh working'
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 70.2; detail = 'x'
@@ -1672,13 +1672,13 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 69.2; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '69% used (session) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '69% session - 1 running: kh working'
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 70.2; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '70% used (session) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '70% session - 1 running: kh working'
     }
 
     # Losing the number is itself a change worth one line. Reported as the same silence as
@@ -1743,6 +1743,118 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
         } finally {
             $env:KINGSHAND_HOME = $saved
         }
+    }
+}
+
+# A WEEKLY 5 READ AGAINST A SESSION 3 LOOKED LIKE A WRONG NUMBER, because the line named only the
+# driving window. Every case here goes through the real reader - the probe or quota-axi mocked at
+# its boundary and nothing above it - so the windows the line shows are the ones the reading saw.
+Describe 'The pulse shows both account windows on one line' {
+    BeforeEach {
+        Mock -ModuleName Usage Get-ActiveAccountName { 'office' }
+        Mock -ModuleName Usage Get-UsageFleet { @(New-FleetRow -Ticket 'kh') }
+        InModuleScope Usage { $script:LastSpoken = $null }
+    }
+
+    It 'shows both, session first, and names the account once' {
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.03 -SevenDay 0.05) }
+        $line = Get-UsagePulse
+        $line | Should -Be '3% session / 5% week (office) - 1 running: kh working'
+        ([regex]::Matches($line, 'office')).Count | Should -Be 1
+    }
+
+    It 'keeps session first when the session is the driving window' {
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.4 -SevenDay 0.05) }
+        Get-UsagePulse | Should -Be '40% session / 5% week (office) - 1 running: kh working'
+    }
+
+    It 'collapses to one figure naming both windows when they print the same' {
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.05 -SevenDay 0.05) }
+        Get-UsagePulse | Should -Be '5% session and week (office) - 1 running: kh working'
+    }
+
+    It 'collapses on the printed figure, not the raw one' {
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.049 -SevenDay 0.051) }
+        Get-UsagePulse | Should -Be '5% session and week (office) - 1 running: kh working'
+    }
+
+    # The quota-axi fallback is where a window can go missing or arrive as something that is not a
+    # number - the probe refuses either outright. Its report also carries the spend cap at 100,
+    # which is not an account window and must never reach the line.
+    Context 'when one window cannot be read' {
+        BeforeEach {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeFail }
+        }
+
+        It 'says a week the tool did not report is unreadable rather than leaving it out' {
+            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 3) }
+            $line = Get-UsagePulse
+            $line | Should -Be '3% session / week unreadable (office) - 1 running: kh working'
+            $line | Should -Not -BeLike '*100*' -Because 'the spend cap is not an account window'
+            $line | Should -Not -BeLike '*extra*'
+        }
+
+        It 'says a week whose figure is not a number is unreadable' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 3 -WithSevenDay -SevenDayPercent 'lots')
+            }
+            Get-UsagePulse | Should -Be '3% session / week unreadable (office) - 1 running: kh working'
+        }
+
+        It 'says a session whose figure is not a number is unreadable, still first' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 'lots' -WithSevenDay -SevenDayPercent 5)
+            }
+            Get-UsagePulse | Should -Be 'session unreadable / 5% week (office) - 1 running: kh working'
+        }
+
+        It 'says a week that has already rolled is unreadable rather than showing its old figure' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 3 -WithSevenDay -SevenDayPercent 80 `
+                               -SevenDayResets ([datetimeoffset]::UtcNow.AddHours(-1).ToString('o')))
+            }
+            $line = Get-UsagePulse
+            $line | Should -Be '3% session / week unreadable (office) - 1 running: kh working'
+            $line | Should -Not -BeLike '*80*'
+        }
+    }
+
+    It 'says usage unknown, unchanged, when neither window can be read' {
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeFail }
+        Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiFail }
+        Get-UsagePulse | Should -Be 'usage unknown - 1 running: kh working'
+    }
+
+    # The longer prefix does not change the tail rule: it summarises by count, after three names,
+    # whatever the width - so the widest prefix still gives one line ending in the count.
+    It 'stays on one line with the widest prefix and summarises the tail as a count' {
+        Mock -ModuleName Usage Get-ActiveAccountName { 'a-long-account-name' }
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.88 -SevenDay 0.47) }
+        Mock -ModuleName Usage Get-UsageFleet {
+            @(1..6 | ForEach-Object { New-FleetRow -Ticket "task-$_" -Stage 'gating' })
+        }
+        $line = Get-UsagePulse
+        $line.Contains("`n") | Should -BeFalse
+        $line | Should -BeLike '88% session / 47% week (a-long-account-name) - 6 running: *'
+        $line | Should -BeLike '*task-3 running checks, +3 more'
+    }
+
+    It 'still speaks again when the account changes with the same two figures' {
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.03 -SevenDay 0.05) }
+        Get-UsagePulse | Should -BeLike '*(office)*'
+        Get-UsagePulse | Should -BeNullOrEmpty
+
+        Mock -ModuleName Usage Get-ActiveAccountName { 'personal' }
+        Get-UsagePulse | Should -Be '3% session / 5% week (personal) - 1 running: kh working'
+    }
+
+    It 'leaves the driving window, and only that one, as the figure anything acts on' {
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.03 -SevenDay 0.05) }
+        $r = Get-UsageWindow
+        $r.percent | Should -Be 5
+        $r.window  | Should -Be 'seven_day'
+        $r.detail  | Should -BeLike '5 percent of the weekly window is spent.*'
+        @($r.windows).Count | Should -Be 2
     }
 }
 
@@ -1965,7 +2077,7 @@ Describe 'The pulse on a timer' {
                                   -WarningAction SilentlyContinue)
         $global:UsageTickCount | Should -Be 2 -Because 'the second tick has to happen at all'
         $out.Count | Should -Be 1
-        $out[0]    | Should -Be '5% used (session) - 1 running: kh working'
+        $out[0]    | Should -Be '5% session - 1 running: kh working'
         Remove-Variable -Name UsageTickCount -Scope Global -ErrorAction SilentlyContinue
     }
 

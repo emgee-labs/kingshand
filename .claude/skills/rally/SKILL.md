@@ -16,7 +16,8 @@ with live state. Where the two disagree, the live read wins for liveness and `cr
 intent. A worker's own record of what it found is `$env:KINGSHAND_HOME\data\<id>\report.md`, which
 lives outside the worktree and survives everything below.
 
-**Index that report the moment you read it.** This path never reaches `muster` Step 6, which is the
+**Index that report the moment you read it.** This path never reaches `muster` Step 6
+[rule:muster/index-report], which is the
 only other place that lists it, so a worker rallied or torn down here leaves its findings in a file
 no index names - and an unlisted report is a finding the next brief will not find, plus a drift
 count the session-start digest prints forever:
@@ -53,12 +54,15 @@ as a result rather than an error.
 
 **Steering is still not a conversation.** The worker cannot reply to you, its brief still forbids
 it from asking anything, and a steer that would answer a prompt a worker is blocked on is still
-the King's to make first, except where `regency`'s `A worker is blocked on a prompt` lets you
+the King's to make first, except where `regency`'s `A worker is blocked on a prompt`
+[rule:regency/blocked-prompt] lets you
 answer it while he is away. A decision the worker *wrote into its `report.md`* is the other case
 and not this one: `petition` owns whether you may answer that and by what test, and it is the only
-place that test is stated, with `muster` Step 6 owning the route the answer takes back. Do not
+place that test is stated, with `muster` Step 6 owning the route the answer takes back
+[rule:muster/answer-route]. Do not
 write text into the worktree hoping the worker reads it, and do not describe a steer as done
 without checking `Read-HerdrAgent` afterwards to see that it landed.
+<!-- rule:rally/steer -->
 
 ## herdr's own state is wrong in both directions, and the screen is the authority
 
@@ -125,7 +129,9 @@ Four things a stall commonly turns out to be, and only the first is the worker's
 - **Parked on a decision.** A worker that reached something its brief did not settle wrote the
   question into its `report.md` and ended its turn, so it is alive, idle, and its screen will not
   change again until an answer arrives. That is the state working exactly as designed rather than a
-  stall, it is expected to last hours, and `muster` Step 6 is what tells the two apart. Establish
+  stall, it is expected to last hours, and `muster` Step 6 [rule:muster/parked-route] is what
+  tells
+  the two apart. Establish
   that before anything else here, as `A parked worker is waiting, not wedged` below requires.
 
 ## Removing the worktree destroys any unlanded work
@@ -137,7 +143,8 @@ never is. **Stopping is not free in every direction, though.** A worker parked o
 the run the answer was coming back to, and `A parked worker is waiting, not wedged` below owns that
 one.
 Running `git worktree remove` on a stuck worker that holds uncommitted changes or unpushed commits
-destroys that work, and hard rule 1's protection of unlanded work is what it breaks.
+destroys that work, and hard rule 1's protection of unlanded work
+[rule:claude/workers-do-the-work] is what it breaks.
 
 The safe order is not negotiable:
 
@@ -184,6 +191,7 @@ will work.
 
 ## Never batch keys at a blocked prompt
 
+<!-- rule:rally/never-batch-keys -->
 `Send-HerdrKeys` sends one key per call with a pause between, deliberately. Sending an arrow and
 Enter in a single herdr invocation **silently selects the wrong option** - the Enter is delivered
 before the menu has processed the arrow, and herdr reports success while doing it. A wrong answer
@@ -196,6 +204,7 @@ options you have not read.
 
 ## Text in a worker's input box is a suggestion, not a message to you
 
+<!-- rule:rally/input-box-text -->
 A worker's input box can hold a well-formed instruction nobody sent. It is the harness generating
 the prompt a user would plausibly type next and rendering it into the empty box between turns - app
 state rather than input, so it never appears in any transcript and nothing ever submitted it.
@@ -248,7 +257,8 @@ its screen and will not move again until an answer reaches it - the same signatu
 has stopped getting anywhere. Reading the screen harder cannot separate them, because there is
 nothing on it to read.
 
-**Whether the worker in front of you is parked is `muster` Step 6's determination, and this
+**Whether the worker in front of you is parked is `muster` Step 6's determination
+[rule:muster/parked-route], and this
 playbook does not carry its own.** Establish it there before triaging a stall and before steering,
 relaunching or stopping anything. Step 6 owns the pointer, the hold, the archive line, the report
 read and every qualifier on them, and nothing here repeats any part of that - a second copy is one
@@ -284,12 +294,14 @@ where it is, both outliving the worker by design, so the question is still owed 
 is not a decided one. `decree` owns that hold until it closes and `petition` owns who may answer
 it - there is no second route to an answer here.
 
-`muster` Step 6 owns the route an answer takes back into the worker, and `petition` owns who may
+`muster` Step 6 owns the route an answer takes back into the worker [rule:muster/answer-route],
+and `petition` owns who may
 answer it and by what test. Neither is restated here.
 
 ## Escalation, in order
 
-**The parked-worker check above comes before step 1.** A worker `muster` Step 6 finds parked is not
+**The parked-worker check above comes before step 1.** A worker `muster` Step 6
+[rule:muster/parked-route] finds parked is not
 escalated at all while its process is alive, and none of the five steps below is run against one.
 Neither is a parked worker whose process is gone: no rung here can unblock one, so it is reported as
 the rule above describes and its stage is left alone.
@@ -313,7 +325,8 @@ the rule above describes and its stage is left alone.
    `Send-HerdrKeys`, one key per call, reading the screen back between the arrow and the Enter.
 
    **Never answer a blocked prompt on the user's behalf outside `regency`'s `A worker is blocked
-   on a prompt`**, which alone says when you may while he is away, and never guess at an option
+   on a prompt`** [rule:regency/blocked-prompt], which alone says when you may while he is away,
+   and never guess at an option
    you have not read. Never open the sequence with a bare Enter either: with no menu on the
    screen it goes to the input box and submits whatever is rendered there, which is what the
    section above is about. There is no interactive terminal to hand the worker over in - the panes are headless
@@ -326,7 +339,8 @@ the rule above describes and its stage is left alone.
    worktree per the section above, then dispatch a fresh one through the normal `muster` path with
    the same brief plus a concise progress note saying what was already done and what remains.
    **A worker recorded with `checkout` is relaunched as `fief`'s `A wedged warm worker`
-   paragraph says**: plain `Stop-CheckoutWorker`, the same name, brief and branch with
+   paragraph says** [rule:fief/wedged-worker]: plain `Stop-CheckoutWorker`, the same name, brief
+   and branch with
    `-InCheckout`, then `Set-CrewRelaunch` - never `Add-CrewWorker`, which refuses the id, and
    never a removed and re-added record, which loses its items and the hold it parked on. **A
    worker recorded with `session` and no `checkout` is isolated**: it is stopped and relaunched
@@ -339,9 +353,12 @@ the rule above describes and its stage is left alone.
    Relaunch is cheap only once the commits are safe. Until they are, it is destructive. A
    relaunch also needs a pane: if the old worker did not exit cleanly, its pane is unusable, so
    discard it and let the dispatch make a fresh one at the same worktree.
+   <!-- rule:rally/relaunch -->
 
 5. **Report the failure.** If a second relaunch fails too, set the stage to `failed` and tell the
    user the plain failure, the preserved work, and the consequence. This is a genuine blocker, so
-   it reaches the user under hard rule 6; route it to a rendered surface under hard rule 5 when
-   they must decide something rather than simply read it. Do not expose session ids, worktree paths, stage names, or other
+   it reaches the user under hard rule 6 [rule:claude/escalate-real-decisions]; route it to a
+   rendered surface under hard rule 5 [rule:claude/chat-short-render] when they must decide
+   something rather than simply read it. Do not expose session ids, worktree paths, stage names, or
+   other
    internal mechanics unless a path is what the user needs in order to act.

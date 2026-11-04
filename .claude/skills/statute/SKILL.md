@@ -1,6 +1,6 @@
 ---
 name: statute
-description: Reference for changing kingshand's own tracked material - `CLAUDE.md`, `bin\`, `.claude\skills\`, `tests\`, `docs\`. Load it before editing any of that material, whether working as the Hand directly or as a worker briefed on a kingshand-repo task. Covers the knowledge-placement decision tree, the one-owner rule for contracts, the inline-stub pattern for content moved into a skill, size discipline for the always-loaded file, trigger hygiene for new skills, the rule that a prose rule needs a test, matching a new rule's form to the failure it is for, the dependency pins and their weekly refresh, and kingshand's style rules. Also load it to run that weekly refresh.
+description: Reference for changing kingshand's own tracked material - `CLAUDE.md`, `bin\`, `.claude\skills\`, `tests\`, `docs\`. Load it before editing any of that material, whether working as the Hand directly or as a worker briefed on a kingshand-repo task. Covers the knowledge-placement decision tree, the one-owner rule for contracts, the rule ids that make a pointer to a rule checkable, the inline-stub pattern for content moved into a skill, size discipline for the always-loaded file, trigger hygiene for new skills, the rule that a prose rule needs a test, matching a new rule's form to the failure it is for, the dependency pins and their weekly refresh, and kingshand's style rules. Also load it to run that weekly refresh.
 version: 1.0.0
 ---
 
@@ -28,7 +28,7 @@ Before writing a new fact anywhere in this repo, ask where it belongs, in this o
 2. Does the Hand or a worker need it only in a nameable situation - an intake, a gate, a
    dispatch, a landing, a teardown, a specific lifecycle step, a reported bug?
    If yes: a skill under `.claude\skills\`, plus a one-line trigger pointer left inline in
-   `CLAUDE.md`'s Skills section.
+   `CLAUDE.md`'s Skills section [rule:claude/skill-triggers].
 3. Is it design rationale - why kingshand is shaped the way it is, what was considered and
    rejected, what a future change must not undo?
    If yes: `docs\`, as a dated design note.
@@ -72,6 +72,40 @@ only when no existing one can carry it. "A separate flag is smaller and touches 
 the reasoning this catches: it moves the cost onto every reader, who now has two places to look.
 One proposed flag was withdrawn on exactly this (the `kh-two-discipline-rules` work item).
 
+## Rule ids
+
+**An owned rule that anything else points at carries a rule id where it is owned, and every
+pointer to it cites that id.** The one-owner rule is enforced by reading, and when a rule moves
+nothing else enumerates the places that pointed at it; a rule id turns those places into a list the
+suite hands you. Of fifteen review findings against one change, thirteen were a pointer left aimed
+at a rule's old position (`data\kh-outward-gating\report.md`).
+
+The grammar is closed and matched literally, never parsed:
+
+- **A declaration** is `<!-- rule:<owner>/<name> -->`, exactly so - one space inside each end of
+  the comment. It is an HTML comment, so it renders as nothing. Put it on a line of its own, under
+  the owning heading or as the last line of the owning paragraph or bullet, indented to match -
+  never in the middle of a paragraph, which it would split in two, and never on a heading line,
+  which a test may read word for word.
+- **A citation** is `[rule:<owner>/<name>]`, written where the pointer is, and it renders as that
+  text. Never follow it directly with `(` or `[`, which would make Markdown read it as a link.
+- **The id** is lower-case letters, digits and `-`, either side of one `/`. The owner names the one
+  file a declaration may sit in: `claude` is `CLAUDE.md`, a skill's name is its `SKILL.md`, and a
+  design note's dated name is that note under `docs\`. The name says what the rule is, never where
+  it sits - not a step number and not a position.
+
+A pointer keeps the words a reader navigates by - "`muster` Step 7 owns the rule" - and adds the
+citation; where it restated the rule it becomes the citation plus at most one short clause of
+context. A rule pointed at only from inside its own file needs no id, and a pointer at a whole
+skill rather than a rule inside it cites nothing. **Moving a rule to another owner renames its id**,
+which is the point: every citation of the old one then fails.
+
+`tests\RuleIds.Tests.ps1` reads every tracked Markdown file and fails, naming the file and the
+line, on a citation nobody declares, an id declared twice or outside its owner's file, a declared
+id nothing outside its own file cites, and anything that opens like an id and is not a whole one.
+A rule owned but not cited yet, or text that opens like an id on purpose, is a literal exception in
+`tests\rule-ids.psd1` with its reason - never a change to the test.
+
 ## Inline-stub pattern
 
 When content moves out of `CLAUDE.md` into a skill, decide what stays behind by asking one
@@ -82,7 +116,8 @@ Everything else - the procedure, the mechanism, the surrounding detail - moves o
 Do not leave a partial restatement behind "just in case". A partial copy is exactly the duplication
 the one-owner rule forbids.
 
-The model to copy is `CLAUDE.md`'s Skills section: it keeps only when to invoke `muster`,
+The model to copy is `CLAUDE.md`'s Skills section [rule:claude/skill-triggers]: it keeps only when
+to invoke `muster`,
 `annex`, and `survey`, plus the standing reminder that reading `CLAUDE.md` is not a
 substitute for loading the skill, and points everything else at the skill itself.
 
@@ -99,8 +134,10 @@ patching that owner's existing language, and add only the one-line trigger to `C
 
 ## Trigger hygiene
 
+<!-- rule:statute/trigger-hygiene -->
 A new skill is dead weight if nothing loads it. Every new skill needs its load trigger declared
-inline in `CLAUDE.md`'s Skills section, in one line. State the trigger as a condition ("load before
+inline in `CLAUDE.md`'s Skills section [rule:claude/skill-triggers], in one line. State the
+trigger as a condition ("load before
 X", "load when Y is reported"), never as a vague pointer. The skill's own `description` must fire
 on the situation as well, not only on a slash command, because a reference procedure is reached by
 recognising the situation rather than by the user typing its name.
@@ -171,6 +208,7 @@ reopening one already in force.
 
 ## Dependency pins
 
+<!-- rule:statute/dependency-pins -->
 `dependencies.json` at the repo root records the exact version of every dependency a release was
 verified with - herdr with each platform's SHA-256, the review gate, and the npm tools - and a
 minimum for Claude Code, which updates itself. `install.ps1 -SyncPins` moves a user to those pins
@@ -204,7 +242,8 @@ the file turns it off. The refresh:
   word or add an exception in that list, never in the test, and keep every exception a literal
   file or phrase rather than a rule about context.
 - Never mention Claude, AI, an assistant, or a model in anything that reaches a git remote or Azure
-  DevOps: ticket text, commit messages, PR bodies. This is hard rule 3 and it does not bend.
+  DevOps: ticket text, commit messages, PR bodies. This is hard rule 3
+  [rule:claude/no-tool-names-outward] and it does not bend.
 - Never add an agent name as a commit co-author.
 - Wrap tracked Markdown to match the existing skills, at roughly 95 columns, and keep paragraphs
   as paragraphs rather than one sentence per line.

@@ -25,8 +25,9 @@ trigger in the description above would be dead.
 **That is a resolution of a contradiction, not an oversight, and it is written down here so
 nobody quietly reverses it.** Kingshand's own audit of an external plugin examined a brainstorming
 skill built on one-question-at-a-time dialogue and concluded **not for us**, for three independent
-reasons: hard rule 1 says the Hand routes and does not do; `CLAUDE.md`'s Intake judgement says
-never to both present a likely-enough solution and launch a parallel design exercise that is not
+reasons: hard rule 1 [rule:claude/workers-do-the-work] says the Hand routes and does not do;
+`CLAUDE.md`'s Intake judgement [rule:claude/intake-judgement] says never to both present a
+likely-enough solution and launch a parallel design exercise that is not
 expected to change it; and workers never address the user, so that dialogue cannot happen inside a
 dispatch at all.
 
@@ -39,7 +40,8 @@ not resolved, and is designed around instead - that is the next section.
 `docs\2026-09-04-story-analysis-split.md` holds the full record and what a future change must not
 undo.
 
-**An analysis authorises nothing.** `CLAUDE.md`'s Intake judgement already says a diagnostic
+**An analysis authorises nothing.** `CLAUDE.md`'s Intake judgement [rule:claude/intake-judgement]
+already says a diagnostic
 request, a report, a recommendation or an implementation-ready finding is evidence and not
 authorization to change code, and that implementation is a separate dispatch through its own gate.
 That applies to every word this skill produces.
@@ -63,7 +65,8 @@ Two rules, and they are ranked:
 says how and why.** An analysis dispatch has nothing to land and `muster` has no read-only path,
 so rather than invent one this skill stops at the report and puts the close-out to the King. That
 holds on a `+yolo` project too, because it is the safe direction: nothing is torn down that
-nothing authorised, and hard rule 2 keeps destructive steps with the King whatever the posture.
+nothing authorised, and hard rule 2 [rule:claude/landing-authority] keeps destructive steps with
+the King whatever the posture.
 
 ## Two halves, and every step says which one it is in
 
@@ -73,10 +76,11 @@ core of the design rather than a detail of it.
 | The job | Whose it is | Why it cannot be the other's |
 |---|---|---|
 | Narrowing the problem, asking what is ambiguous, agreeing the division | the Hand, with the King | A worker never addresses the user, so it can ask him nothing |
-| Opening the stories, the tickets and the code, finding what overlaps | a worker | Hard rule 1: the Hand routes, and never reads a project's source |
+| Opening the stories, the tickets and the code, finding what overlaps | a worker | Hard rule 1 [rule:claude/workers-do-the-work]: the Hand routes, and never reads a project's source |
 | Reading the written map, putting the decision to the King, recording his answer | the Hand, with the King | The decision is the King's, and only the Hand can reach him |
 
-Hard rule 1 is not relaxed anywhere here. **A pass that has the Hand open the repository to see
+Hard rule 1 [rule:claude/workers-do-the-work] is not relaxed anywhere here. **A pass that has the
+Hand open the repository to see
 how the stories divide has broken it**, however small the peek looked, and the fix is a worker
 rather than one quick file.
 
@@ -89,13 +93,14 @@ when the next answer would not. Three answers are wanted before anything is disp
 project divides into front end, back end and database; the next into a device, a gateway and a
 report; a third divides by service and does not think in layers at all. Read what the project
 itself says - its own memory file carries its conventions, which `CLAUDE.md`'s Intake judgement
-owns - and where nothing says, ask the King. **Where the project states no layer set and the King
+owns [rule:claude/intake-judgement] - and where nothing says, ask the King. **Where the project
+states no layer set and the King
 is not there to answer, say the layer set is unstated and stop. Never fill it in from another
 project, and never let a guessed set reach a brief.** A decomposition divided along layers this
 project does not have is several wrong tasks wearing a tidy shape. Where the King states the
 layers as a standing fact rather than an answer for today, that belongs in the project's own
 memory file, which a worker writes through its delivery path and the Hand never writes -
-Knowledge routing owns that.
+Knowledge routing owns that [rule:claude/knowledge-routing].
 
 **Where the edge of the work is.** What is deliberately not in this story. A boundary nobody
 stated is the quiet widening this skill exists to prevent, and it cannot be recovered later from
@@ -103,7 +108,8 @@ the story text, because the story does not say what it is not.
 
 **Where the decomposition is going.** The destination section below owns the answers.
 
-`muster` Step 1 files the analysis as a work item, once, under the id the brief and the durable
+`muster` Step 1 [rule:muster/backlog-before-brief] files the analysis as a work item, once, under
+the id the brief and the durable
 record share, so nothing here files it a second time. The King's answers belong in that item and
 in the analysis brief rather than in chat, which does not survive a session.
 
@@ -128,7 +134,8 @@ Two things the brief must also say, because an analysis dispatch is unlike an im
   dispatch writes its own `report.md` and no other file. **Then say in one line which instruction
   wins: where the read-only scope and the pasted Done-means block disagree, the read-only scope
   wins - over committing on the branch, running the review gate, pushing, opening a pull request
-  and merging alike.** `CLAUDE.md`'s Knowledge routing puts that call in the brief, and a worker
+  and merging alike.** `CLAUDE.md`'s Knowledge routing [rule:claude/knowledge-routing] puts that
+  call in the brief, and a worker
   left to choose between reading only and delivering picks wrong half the time. An analysis that
   comes back with a commit, a pushed branch or a pull request has exceeded its brief.
 - **Where two shapes are live, compare them.** Two or three approaches, their trade-offs, and a
@@ -136,7 +143,8 @@ Two things the brief must also say, because an analysis dispatch is unlike an im
 
 ### How an analysis dispatch ends, and what `muster` still lacks
 
-Completion is `muster` Step 6's three-fact test, unchanged. The third fact - `report.md` exists -
+Completion is `muster` Step 6's three-fact test [rule:muster/completion-test], unchanged. The
+third fact - `report.md` exists -
 is the deliverable itself here rather than corroboration for a diff, so a settled worker with no
 report is exactly the case that step already refuses to advance.
 
@@ -154,7 +162,8 @@ define, do not tear the worker down on this skill's authority, and do not skip `
 verification in order to justify one.**
 
 `muster` now has a terminal stage for such a dispatch, `reported`, and a teardown rule keyed on
-the report living outside the worktree - its Step 7 read-only investigation close-out owns both.
+the report living outside the worktree - its Step 7 read-only investigation close-out owns both
+[rule:muster/read-only-investigation-closeout].
 What it still lacks is a Done-means block for a dispatch that produces no commits. That is a change
 to `muster`, not to this skill, and `docs\2026-09-04-story-analysis-split.md` records why.
 
@@ -210,7 +219,7 @@ and the story side by side.
 
 The King named brainstorming beside breakdown and analysis, and it is folded into this one skill
 on purpose: two skills with overlapping descriptions means the wrong one loads, which `statute`'s
-trigger hygiene owns.
+trigger hygiene owns [rule:statute/trigger-hygiene].
 
 Where the shape of the work is not settled, the analysis proposes two or three approaches with
 their trade-offs and a recommendation, and the King chooses. That is a worker's written output,
@@ -231,7 +240,8 @@ and putting it there is its own change to `muster` rather than part of this skil
 Two facts put it there rather than here. The test has to fire when the King asks for implementation
 work, which is a situation this skill is never loaded for - it is loaded when he asks for an
 analysis. And one of the things it has to weigh, whether a story can be divided without reading
-code nobody has read yet, is something hard rule 1 forbids the Hand from checking, so it belongs
+code nobody has read yet, is something hard rule 1 [rule:claude/workers-do-the-work] forbids the
+Hand from checking, so it belongs
 where a worker can be briefed to answer it.
 
 None of it reaches a reported bug in any case: `inquest` owns the diagnosis procedure, and
@@ -254,31 +264,36 @@ it where a machine has one at all.
 The output is a decomposition. Where it goes is a separate question, and the default answer needs
 nothing installed: each accepted task becomes a work item through `tasks-axi`, and the analysis
 itself stays in the worker's `report.md`, which survives teardown. `CLAUDE.md`'s Backlog contract
-owns the queue.
+owns the queue [rule:claude/backlog-contract].
 
 **A ticket system is not assumed.** Azure DevOps is an optional integration and absent by
-default; `muster` Step 1 owns what happens when it is not there, and this skill adds nothing to
+default; `muster` Step 1 owns what happens when it is not there [rule:muster/adhoc-intake], and
+this skill adds nothing to
 that.
 
 **With `yolo` off, a work item that goes to a server waits for the King's word.** `tasks-axi` is
 local and needs nothing, but creating or updating an Azure DevOps work item reaches outside this
-machine, so hard rule 2's stop applies to it exactly as it applies to a push. Being a ticket
+machine, so hard rule 2's stop [rule:claude/landing-authority] applies to it exactly as it applies
+to a push. Being a ticket
 rather than code is not an exemption, and neither is producing twelve of them at once - ask once,
 naming what would be created, and create nothing until the answer comes back.
 
-Whatever the destination, hard rule 3 holds for every word that reaches it: nothing landing in a
+Whatever the destination, hard rule 3 [rule:claude/no-tool-names-outward] holds for every word
+that reaches it: nothing landing in a
 ticket, a commit message or a pull request names an agent or its tooling. Write the decomposition
 in the words the reader would use for their own work.
 
 ## Step 4 - Then render it, and stop there
 
 A decomposition is something the King scans, compares and decides on, so it renders rather than
-growing a chat message - hard rule 5, and `bin\Render-Review.ps1` is the renderer `muster`'s
+growing a chat message - hard rule 5 [rule:claude/chat-short-render], and `bin\Render-Review.ps1`
+is the renderer `muster`'s
 gates already invoke. Chat carries one line and the link. Where lavish is unreachable, ask which
 surface he wants rather than rendering to one he cannot open.
 
 Opening that surface, answering in it and re-arming the poll the moment a result is read is
-`muster`'s `## The review surface` section, which owns all of it - load it before you wait here.
+`muster`'s `## The review surface` section [rule:muster/review-surface], which owns all of it -
+load it before you wait here.
 
 **Nothing is dispatched by having been read.** Each task in an accepted decomposition is its own
 unit of work through `muster`, with its own dispatch gate and the project's own posture deciding

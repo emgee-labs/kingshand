@@ -53,9 +53,15 @@ BeforeAll {
     # re-wrapped across lines or set as a blockquote, and stays lost when its words are actually
     # removed. Blockquote markers go first: a `> ` at a wrapped line's head would otherwise land
     # in the middle of the sentence.
+    #
+    # A rule id is dropped too - a declaration and the space after it, a citation and the space
+    # before it - so citing a rule from inside a pinned sentence leaves the pin matching, and the
+    # pin keeps guarding the rule's words while tests\RuleIds.Tests.ps1 guards the ids. Both forms
+    # are statute's closed grammar, matched exactly.
     function ConvertTo-NormalisedText {
         param([Parameter(Mandatory)][string]$Text)
-        (($Text -replace '(?m)^[ \t]*>[ \t]?', '') -replace '\s+', ' ')
+        $flat = (($Text -replace '(?m)^[ \t]*>[ \t]?', '') -replace '\s+', ' ')
+        ($flat -replace '<!-- rule:[a-z0-9-]+/[a-z0-9-]+ --> ?', '') -replace ' ?\[rule:[a-z0-9-]+/[a-z0-9-]+\]', ''
     }
 
     function Get-DocText {
@@ -1790,6 +1796,31 @@ Describe 'the ported reference skills are loadable and keep their load-bearing r
                      'setting only when no existing one can carry it.')
     }
 
+    # A pointer at a rule owned elsewhere was prose, so a rule that moved left every pointer aimed
+    # at its old place and nothing noticed. The rule and its grammar are pinned here; the check that
+    # the ids resolve is tests\RuleIds.Tests.ps1, through the code.
+    It 'statute requires a rule id on an owned rule that is pointed at, and a citation on the pointer' {
+        $parts   = (Get-Content -Path $script:GuidelinesMd -Raw) -split '(?m)^## '
+        $section = ConvertTo-NormalisedText (@($parts |
+            Where-Object { $_.StartsWith('Rule ids') })[0])
+        Assert-Phrase -Text $section -Where 'statute, Rule ids' `
+            -Phrase ('**An owned rule that anything else points at carries a rule id where it is ' +
+                     'owned, and every pointer to it cites that id.**')
+        Assert-Phrase -Text $section -Where 'statute, Rule ids' `
+            -Phrase '**A declaration** is `<!-- rule:<owner>/<name> -->`, exactly so'
+        Assert-Phrase -Text $section -Where 'statute, Rule ids' `
+            -Phrase '**A citation** is `[rule:<owner>/<name>]`'
+        Assert-Phrase -Text $section -Where 'statute, Rule ids' `
+            -Phrase '**The id** is lower-case letters, digits and `-`, either side of one `/`.'
+        Assert-Phrase -Text $section -Where 'statute, Rule ids' `
+            -Phrase 'The name says what the rule is, never where it sits'
+        Assert-Phrase -Text $section -Where 'statute, Rule ids' `
+            -Phrase ('where it restated the rule it becomes the citation plus at most one short ' +
+                     'clause of context.')
+        Assert-Phrase -Text $section -Where 'statute, Rule ids' `
+            -Phrase '**Moving a rule to another owner renames its id**'
+    }
+
     # statute's description enumerates what the file covers, and that enumeration went stale: it
     # named seven subjects while the file had eight sections, so `Match the form to the failure`
     # was a subject nothing would ever load the skill for. The table below is the closed form that
@@ -1800,6 +1831,8 @@ Describe 'the ported reference skills are loadable and keep their load-bearing r
                Phrase  = 'the knowledge-placement decision tree' }
             @{ Heading = 'One-owner rule'
                Phrase  = 'the one-owner rule for contracts' }
+            @{ Heading = 'Rule ids'
+               Phrase  = 'the rule ids that make a pointer to a rule checkable' }
             @{ Heading = 'Inline-stub pattern'
                Phrase  = 'the inline-stub pattern for content moved into a skill' }
             @{ Heading = 'Size discipline'
@@ -5014,7 +5047,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
 
         It 'sends a decision written into a report to petition and states the test nowhere itself' {
             $script:Regency | Should -Match 'A decision\s+a worker \*wrote into its `report\.md`\* is a different case and no longer this one'
-            $script:Regency | Should -Match '`petition`\s+owns whether you may answer that and by what test, and it is the only place the test is\s+stated'
+            (ConvertTo-NormalisedText $script:Regency) | Should -Match '`petition`\s+owns whether you may answer that and by what test, and it is the only place the test is\s+stated'
             # The one-owner rule, asserted as absence: regency must not carry a second copy of the
             # test. A restatement here is exactly the drift statute forbids, and it would read as
             # authoritative to anyone who loaded regency without petition.
@@ -5052,7 +5085,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Regency | Should -Match 'Every posture parks that way, so this is not only the gated ones'
             # Either way, matching petition and muster Step 6: a call that failed the test is
             # registered too, or the question survives only in the session that read it.
-            $script:Regency | Should -Match 'Register it under `decree` either way - what you decided, or the question the\s+test left standing with him'
+            (ConvertTo-NormalisedText $script:Regency) | Should -Match 'Register it under `decree` either way - what you decided, or the question the\s+test left standing with him'
         }
 
         # The digest used to be composed in-session and a restart before he returned took it, which
@@ -5239,7 +5272,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         # be a claim rather than a fact. These two pin both halves.
         It 'says the shape is already on without the skill being loaded' {
             $script:Herald | Should -Match '\*\*This shape is the default\. It is already on'
-            $script:Herald | Should -Match 'a rule that only exists in an unloaded skill is not in force'
+            (ConvertTo-NormalisedText $script:Herald) | Should -Match 'a rule that only exists in an unloaded skill is not in force'
         }
 
         It 'the rules that must apply unloaded are actually in CLAUDE.md' {
@@ -5289,7 +5322,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
 
         It 'says the pulse is already on without the skill being loaded' {
             $script:Vigil | Should -Match '\*\*The pulse is the default\. It is already on'
-            $script:Vigil | Should -Match 'a rule that only exists in an unloaded skill is not in force'
+            (ConvertTo-NormalisedText $script:Vigil) | Should -Match 'a rule that only exists in an unloaded skill is not in force'
         }
 
         It 'the rule that must apply unloaded is actually in CLAUDE.md' {
@@ -5439,9 +5472,24 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         # The two facts a percentage is meaningless without: which window it is about, and which
         # account's pool it measures. Both were learned the hard way and both belong in the line.
         It 'names the driving window and the account, and says why each is there' {
-            $script:Vigil | Should -Match '\*\*Two windows are watched, not one'
+            $script:Vigil | Should -Match ('\*\*Two windows are watched, not one, and the line shows ' +
+                                           'both, session first\.\*\*')
+            $script:Vigil | Should -Match ('The\s+dispatch refusal still acts on, and names, only the one ' +
+                                           'nearer its limit\.')
             $script:Vigil | Should -Match '\*\*The account is named because the reading silently follows it\.\*\*'
             $script:Vigil | Should -Match 'Two readings either side of a switch are never\s+compared'
+        }
+
+        # The line's three shapes for a current reading. Usage.Tests.ps1 drives each through the
+        # reader; these pin what the King is told the line looks like, so the two cannot part.
+        It 'shows equal windows once and an unreadable window as unreadable, never omitted' {
+            $script:Vigil | Should -Match '3% session / 62% week \(personal\) - 2 running:'
+            $script:Vigil | Should -Match '\*\*Two windows at the same figure are said once, naming both\*\*'
+            $script:Vigil | Should -Match '`5% session and week \(personal\)`'
+            $script:Vigil | Should -Match '\*\*A window that cannot be read stays in the line as unreadable\*\*'
+            $script:Vigil | Should -Match '`3% session / week unreadable\s+\(personal\)`'
+            $script:Vigil | Should -Match 'It is never left out, because a line missing one window'
+            $script:Vigil | Should -Match '\*\*A\s+floor names only the window it bounds\*\*'
         }
 
         # THE FAILURE THAT PUT A FOUR-TIMES-UNDERSTATED NUMBER IN FRONT OF THE KING. A cached

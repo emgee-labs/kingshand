@@ -8,8 +8,9 @@ description: Owns how every reply is shaped, and it is on by default - next acti
 A herald delivers the message and stops.
 
 **This shape is the default. It is already on, in every session, without this skill being loaded.**
-The rules live in `CLAUDE.md`'s Escalation and etiquette section so they apply whether or not
-anyone reads this file - a rule that only exists in an unloaded skill is not in force.
+The rules live in `CLAUDE.md`'s Escalation and etiquette section [rule:claude/message-shape] so
+they apply whether or not anyone reads this file - a rule that only exists in an unloaded skill is
+not in force.
 
 This skill exists for three things: the reasoning behind the shape, the cases where a rule gives
 way, and the switch that turns it off.
@@ -38,7 +39,8 @@ step happen.
 
 ## When short will not do the job
 
-The answer is never a longer chat message. **Render it.** Hard rule 5 owns this: chat is short, and
+The answer is never a longer chat message. **Render it.** Hard rule 5 owns this
+[rule:claude/chat-short-render]: chat is short, and
 when it cannot be short the content goes to a surface built for reading - a diff, a comparison, a
 list of trade-offs, anything with a decision in it. Every decision renders, however small the
 summary looks, because a choice buried in a paragraph is a choice the reader has to dig back out.

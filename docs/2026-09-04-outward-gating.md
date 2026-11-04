@@ -57,7 +57,9 @@ must never carry `+merge`.
 
 ### The contradiction this created, and how it was resolved
 
-`CLAUDE.md`'s Instruction precedence section lists merge among the actions that still require the
+`CLAUDE.md`'s Instruction precedence section [rule:claude/instruction-precedence] lists merge
+among
+the actions that still require the
 user to state the concrete action explicitly, and says a registered `+yolo` posture is never a
 substitute for that. A standing `+merge` permission contradicts it head on.
 
@@ -155,7 +157,8 @@ So the prohibition is narrowed rather than dropped: this change added the first 
 `yolo` off, where the flags are the stop itself. On a `+yolo` project they never appear. Adding them
 to shorten a run, to get past a slow step, or because CI looks unlikely to report is still the
 misuse the original line existed to prevent, and it is still named. `muster` Step 2 owns the
-current list of sanctioned uses - the CI preflight has since added `--skip ci` on a `no-ci` gate
+current list of sanctioned uses [rule:muster/skip-uses] - the CI preflight has since added `--skip
+ci` on a `no-ci` gate
 line - and nothing widens one use's justification onto the other's step.
 
 The cost is a second gate run on the resumed worker, which re-runs the local steps against commits
