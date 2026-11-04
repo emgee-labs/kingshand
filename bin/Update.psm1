@@ -74,44 +74,23 @@ function Get-ReleaseBranchName {
 # guard that must not update `bin\` and the skills underneath a working worker needs the second
 # one. A worker recorded as torn down but still alive is exactly the case this catches.
 #
-# ONLY ONE STATE MEANS "NOBODY IS WORKING", AND EVERY OTHER FAILURE THROWS:
-#
-#   no herdr at all       - liveness is UNKNOWN. Throws, so the update refuses. An installation
-#                           with no herdr may still have been dispatching from a herdr that was
-#                           uninstalled or moved out from under it, and this cannot tell.
-#   server state unknown  - the status read failed. Throws. This is the one that looks safe and
-#                           is not: a herdr upgrade that changes the reply, a non-zero exit or a
-#                           transient error all arrive here, and every one of them would read as
-#                           an empty fleet if it were allowed to fall through.
-#   server stopped        - no live workers, as a FACT rather than a guess. A herdr pane dies with
-#                           its server, so a server that is not running has no worker in it;
-#                           `bin\Get-CrewStatus.ps1` states the same thing.
-#   server running        - ask, and throw if the answer could not be read.
-#
-# So both reads go through the three-answer reader rather than the two-answer one.
-# `Get-HerdrServerState` distinguishes a stopped server from a status read that failed, where
-# `Test-HerdrServer` cannot; `Get-HerdrAgentInventory` keeps herdr's own error where
-# `Get-HerdrAgents` deliberately answers an unreachable herdr with an empty list. Either boolean
-# would read as "nobody is working" and let the update fast-forward `bin\` and the skills out from
-# under a live worker. `bin\Herdr.psm1` owns the command line for all of them.
+# Read through Get-HerdrLiveness, whose header owns which answers mean none: unknown throws its
+# evidence, so the update refuses rather than reading "could not tell" as an empty fleet. An agent
+# herdr lists with no name is still a live worker and is counted by its pane.
 function Get-LiveWorkerNames {
     [CmdletBinding()]
     param()
 
-    if (-not (Get-HerdrCommandPath)) { throw (Get-HerdrCommandHint) }
+    $liveness = Get-HerdrLiveness
+    if ($liveness.state -eq 'unknown') { throw $liveness.evidence }
 
-    $server = Get-HerdrServerState
-    if ($server.state -eq 'unknown') {
-        throw "whether herdr's server is running could not be read - $($server.detail)"
-    }
-    if ($server.state -eq 'stopped') { return @() }
-
-    $inventory = Get-HerdrAgentInventory
-    if (-not $inventory.ok) { throw $inventory.error }
-
-    @($inventory.agents |
-      Where-Object { $_ -and $_.PSObject.Properties.Name -contains 'name' -and $_.name } |
-      ForEach-Object { "$($_.name)" })
+    @($liveness.workers | ForEach-Object {
+        $name = if ($_.PSObject.Properties.Name -contains 'name') { "$($_.name)" } else { '' }
+        if ($name) { $name } else {
+            $pane = if ($_.PSObject.Properties.Name -contains 'pane_id') { "$($_.pane_id)" } else { '' }
+            "an unnamed worker$(if ($pane) { " in pane $pane" })"
+        }
+    })
 }
 
 # The tracked paths git reports as modified, staged, deleted or untracked. Empty means clean.
