@@ -1310,7 +1310,7 @@ holding on a worker idle on its own background shells, because herdr's wait retu
   interactive prompt it cannot get past on its own, and it needs the user - surface it immediately
   and load `rally`. This is the failure that cost five hours of silence, and catching it is the
   main thing herdr bought. The line says `BLOCKED` off the worker's own screen, whatever its state
-  word says.
+  word says, and only for a prompt still up after a confirmation window `bin\Herdr.psm1` owns.
 - **`STALLED` is a wake reason too, and it is not a completion.** It means nothing on that worker's
   screen has changed for the minutes the line names, against a threshold of twenty, which is long
   enough that a slow step is not it - a review pass on kingshand has legitimately taken 38 minutes
