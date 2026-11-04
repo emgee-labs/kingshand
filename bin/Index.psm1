@@ -148,7 +148,7 @@ function Get-AllIndexPaths {
     [CmdletBinding()]
     param([string]$DataPath = (Get-DefaultIndexDataPath))
 
-    $paths = [System.Collections.Generic.List[string]]::new()
+    $paths = [System.Collections.Generic.List[object]]::new()
     $root  = Join-Path $DataPath 'index.md'
     if (Test-Path -LiteralPath $root -PathType Leaf) { $paths.Add($root) }
 
@@ -158,11 +158,10 @@ function Get-AllIndexPaths {
             $paths.Add($f.FullName)
         }
     }
-    # Returned WITHOUT the leading-comma idiom, deliberately, and every list function below agrees.
-    # That idiom hands the caller the whole array as ONE object, so an `@(...)` at the call site
-    # wraps it a second time and `.Count` reports 1 - which is exactly how the first draft of
-    # Get-IndexDrift counted three indexed files as one. Call sites wrap in @() instead.
-    $paths.ToArray()
+    # Returned whole under statute's collection-return rule, as every list function below is, so
+    # a caller assigns it. An `@(...)` at the call site would wrap it a second time and `.Count`
+    # would report 1 - which is how the first draft of Get-IndexDrift counted three files as one.
+    return , $paths
 }
 
 # Whatever a caller had to hand - an absolute path, or one already relative - reduced to the single
@@ -235,8 +234,8 @@ function Read-IndexFile {
         [Parameter(Mandatory)][string]$DataPath
     )
 
-    $entries = [System.Collections.Generic.List[hashtable]]::new()
-    if (-not (Test-Path -LiteralPath $IndexPath -PathType Leaf)) { return $entries.ToArray() }
+    $entries = [System.Collections.Generic.List[object]]::new()
+    if (-not (Test-Path -LiteralPath $IndexPath -PathType Leaf)) { return , $entries }
 
     $project = ''
     if ((Split-Path $IndexPath -Leaf) -ne 'index.md') {
@@ -274,7 +273,7 @@ function Read-IndexFile {
         })
     }
 
-    $entries.ToArray()
+    return , $entries
 }
 
 # One index read, or every index at once when no project is named and -All is passed.
@@ -287,11 +286,11 @@ function Get-IndexEntries {
     )
 
     if ($All) {
-        $entries = [System.Collections.Generic.List[hashtable]]::new()
-        foreach ($p in @(Get-AllIndexPaths -DataPath $DataPath)) {
-            foreach ($e in @(Read-IndexFile -IndexPath $p -DataPath $DataPath)) { $entries.Add($e) }
+        $entries = [System.Collections.Generic.List[object]]::new()
+        foreach ($p in (Get-AllIndexPaths -DataPath $DataPath)) {
+            foreach ($e in (Read-IndexFile -IndexPath $p -DataPath $DataPath)) { $entries.Add($e) }
         }
-        return $entries.ToArray()
+        return , $entries
     }
 
     Read-IndexFile -IndexPath (Get-IndexPath -Project $Project -DataPath $DataPath) -DataPath $DataPath
@@ -411,10 +410,11 @@ function Remove-IndexEntry {
         }
     }
 
-    $targets = if ($byPath -or $All) {
-        @(Get-AllIndexPaths -DataPath $DataPath)
+    # Assigned inside each branch rather than from the `if`, which would unroll the list.
+    if ($byPath -or $All) {
+        $targets = Get-AllIndexPaths -DataPath $DataPath
     } else {
-        @(Get-IndexPath -Project $Project -DataPath $DataPath)
+        $targets = @(Get-IndexPath -Project $Project -DataPath $DataPath)
     }
 
     $removed = [System.Collections.Generic.List[string]]::new()
@@ -500,7 +500,8 @@ function Get-IndexableFiles {
     [CmdletBinding()]
     param([string]$DataPath = (Get-DefaultIndexDataPath))
 
-    if (-not (Test-Path -LiteralPath $DataPath -PathType Container)) { return @() }
+    $out = [System.Collections.Generic.List[object]]::new()
+    if (-not (Test-Path -LiteralPath $DataPath -PathType Container)) { return , $out }
 
     # Normalised the way ConvertTo-IndexRelativePath normalises, because the two are compared
     # against each other. Get-ChildItem always reports an absolute FullName, so a relative
@@ -525,7 +526,8 @@ function Get-IndexableFiles {
         $f.FullName
     }
 
-    @(@($files) | Sort-Object)
+    foreach ($f in @(@($files) | Sort-Object)) { $out.Add($f) }
+    return , $out
 }
 
 # What the index covers and what it has lost track of. The count is the point: a file in data\ that
@@ -534,14 +536,14 @@ function Get-IndexDrift {
     [CmdletBinding()]
     param([string]$DataPath = (Get-DefaultIndexDataPath))
 
-    $indexes = @(Get-AllIndexPaths -DataPath $DataPath)
-    $entries = @(Get-IndexEntries -All -DataPath $DataPath)
+    $indexes = Get-AllIndexPaths -DataPath $DataPath
+    $entries = Get-IndexEntries -All -DataPath $DataPath
 
     $listed = [System.Collections.Generic.HashSet[string]]::new((Get-PathComparer))
     foreach ($e in $entries) { $null = $listed.Add($e.path) }
 
     $unindexed = [System.Collections.Generic.List[string]]::new()
-    foreach ($full in @(Get-IndexableFiles -DataPath $DataPath)) {
+    foreach ($full in (Get-IndexableFiles -DataPath $DataPath)) {
         $rel = ConvertTo-IndexRelativePath -Path $full -DataPath $DataPath
         if (-not $listed.Contains($rel)) { $unindexed.Add($rel) }
     }

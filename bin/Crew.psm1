@@ -200,7 +200,6 @@ function Add-CrewItem {
         throw ("Worker '$WorkerId' is not a session worker, so it carries one ticket and nothing " +
                "joins it. Dispatch the new work on its own, or record the session worker with -Session.")
     }
-    # Assigned rather than wrapped: Get-CrewItems returns its list through the leading-comma idiom.
     $items = Get-CrewItems -State $State -WorkerId $WorkerId
     if (@($items | Where-Object { $_.id -eq $Item }).Count -gt 0) {
         throw "Item '$Item' is already on worker '$WorkerId''s branch."
@@ -221,22 +220,24 @@ function Get-CrewItems {
 
     if (-not $State.workers.ContainsKey($WorkerId)) { throw "Worker '$WorkerId' not found." }
     $rec = $State.workers[$WorkerId]
+    $out = [System.Collections.Generic.List[object]]::new()
     if (-not ($rec -is [System.Collections.IDictionary] -and $rec.Contains('items'))) {
-        return , @([pscustomobject]@{ id = "$($rec.ticket)"; kind = "$($rec.kind)" })
+        $out.Add([pscustomobject]@{ id = "$($rec.ticket)"; kind = "$($rec.kind)" })
+        return , $out
     }
-    $out = foreach ($it in @($rec.items)) {
+    foreach ($it in @($rec.items)) {
         if (-not ($it -is [System.Collections.IDictionary]) -or -not $it.Contains('id') -or
             -not $it.Contains('kind') -or "$($it.id)" -notmatch $script:HoldKeyPattern -or
             "$($it.kind)" -notin $script:ValidKinds) {
             throw ("Worker '$WorkerId' records an item list that cannot be read: every entry must " +
                    "carry an id and a kind of $($script:ValidKinds -join ' or ').")
         }
-        [pscustomobject]@{ id = "$($it.id)"; kind = "$($it.kind)" }
+        $out.Add([pscustomobject]@{ id = "$($it.id)"; kind = "$($it.kind)" })
     }
-    if (@($out).Count -eq 0) {
+    if ($out.Count -eq 0) {
         throw "Worker '$WorkerId' records an empty item list, so nothing says what rides its branch."
     }
-    , @($out)
+    return , $out
 }
 
 # Re-records an existing worker after a relaunch or any other re-dispatch under the same id: where
@@ -350,17 +351,17 @@ function Get-CrewByStage {
         [Parameter(Mandatory)][hashtable]$State,
         [Parameter(Mandatory)][string]$Stage
     )
-    $out = foreach ($id in $State.workers.Keys) {
+    # Returned whole under statute's collection-return rule: a bare return would hand back the
+    # one hashtable alone, and .Count would report its key count instead of 1.
+    $out = [System.Collections.Generic.List[object]]::new()
+    foreach ($id in $State.workers.Keys) {
         if ($State.workers[$id].stage -eq $Stage) {
             $w = $State.workers[$id].Clone()
             $w['id'] = $id
-            $w
+            $out.Add($w)
         }
     }
-    # The leading comma is load-bearing. PowerShell unwraps a single-element array on return,
-    # so `@($out)` alone would hand back the bare hashtable and .Count would report its key
-    # count instead of 1. Wrapping in an outer array survives the unwrap.
-    , @($out)
+    return , $out
 }
 
 function Save-CrewState {

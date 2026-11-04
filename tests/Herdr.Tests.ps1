@@ -475,6 +475,27 @@ Describe 'Get-HerdrServerState tells a stopped server apart from a status read t
     }
 }
 
+Describe 'Get-HerdrAgents returns its list whole' {
+    # Statute's collection-return rule: the list itself on assignment, at every size and on failure.
+    It 'returns a list of <n> agents on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        $script:ListedAgents = @(1..3 | Select-Object -First $n |
+            ForEach-Object { [pscustomobject]@{ name = "t-900$_"; state = 'idle' } })
+        Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = $script:ListedAgents } }
+
+        $agents = Get-HerdrAgents
+        $agents -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $agents.Count | Should -Be $n
+    }
+
+    It 'returns an empty list when herdr answers with an error' {
+        Mock -ModuleName Herdr Invoke-Herdr { New-HerdrError -Code 'server_unavailable' -Message 'no server' }
+
+        $agents = Get-HerdrAgents
+        $agents -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $agents.Count | Should -Be 0
+    }
+}
+
 Describe 'Get-HerdrAgentInventory keeps the failure that Get-HerdrAgents throws away' {
     # Two readers of the same `agent list` on purpose. Get-HerdrAgents answers an unreachable herdr
     # with an empty list, which is what a status view wants; this one says it could not read the

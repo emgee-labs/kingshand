@@ -50,7 +50,7 @@ $script:Outcomes = @('verified', 'failed', 'not checked')
 function Get-BrowserRequiredTools {
     [CmdletBinding()]
     param()
-    , @($script:RequiredTools)
+    return , [System.Collections.Generic.List[object]]::new([object[]]$script:RequiredTools)
 }
 
 # Whether the browser can be driven, from the tool names the agent actually saw come back.

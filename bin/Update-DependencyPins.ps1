@@ -161,7 +161,7 @@ if (Test-Path -LiteralPath $RecordPath) {
 }
 
 # Collected whole before anything is written: a report that throws partway has not run.
-$rows = @(Get-DependencyPinReport -Root $Root)
+$rows = Get-DependencyPinReport -Root $Root
 
 $dir = Split-Path -Path $RecordPath -Parent
 if ($dir -and -not (Test-Path -LiteralPath $dir -PathType Container)) {
@@ -177,4 +177,4 @@ try {
     if ($temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
 }
 
-$rows
+return , $rows

@@ -322,16 +322,16 @@ Describe 'What counts as the run changing' {
         $script:HeadMoved.head | Should -Not -Be $script:Running.head -Because 'the fixture must
             actually differ, or this proves nothing'
 
-        $diff = @(Compare-GateRunSignature -From (Get-GateRunSignature -State $script:Running) `
-                                           -To   (Get-GateRunSignature -State $script:HeadMoved))
+        $diff = Compare-GateRunSignature -From (Get-GateRunSignature -State $script:Running) `
+                                         -To   (Get-GateRunSignature -State $script:HeadMoved)
         $diff.Count | Should -Be 0
     }
 
     It 'takes a residual finding summary that moved as the same state' {
         $script:SummaryMoved.findingsSummary | Should -Not -Be $script:Running.findingsSummary
 
-        $diff = @(Compare-GateRunSignature -From (Get-GateRunSignature -State $script:Running) `
-                                           -To   (Get-GateRunSignature -State $script:SummaryMoved))
+        $diff = Compare-GateRunSignature -From (Get-GateRunSignature -State $script:Running) `
+                                         -To   (Get-GateRunSignature -State $script:SummaryMoved)
         $diff.Count | Should -Be 0
     }
 
@@ -343,8 +343,8 @@ Describe 'What counts as the run changing' {
         $script:ParkedLater.awaitingAgent | Should -Not -Be $script:Parked.awaitingAgent -Because '
             the fixtures must actually differ, or this proves nothing'
 
-        $diff = @(Compare-GateRunSignature -From (Get-GateRunSignature -State $script:Parked) `
-                                           -To   (Get-GateRunSignature -State $script:ParkedLater))
+        $diff = Compare-GateRunSignature -From (Get-GateRunSignature -State $script:Parked) `
+                                         -To   (Get-GateRunSignature -State $script:ParkedLater)
         $diff.Count | Should -Be 0
     }
 
@@ -354,8 +354,8 @@ Describe 'What counts as the run changing' {
         (Get-GateRunSignature -State $script:ParkedLater)['awaiting agent'] |
             Should -Be 'parked'
 
-        $diff = @(Compare-GateRunSignature -From (Get-GateRunSignature -State $script:ParkedLater) `
-                                           -To (Get-GateRunSignature -State $script:ParkedReworded))
+        $diff = Compare-GateRunSignature -From (Get-GateRunSignature -State $script:ParkedLater) `
+                                         -To (Get-GateRunSignature -State $script:ParkedReworded)
         @($diff | ForEach-Object { $_.key }) | Should -Contain 'awaiting agent'
         @($diff | ForEach-Object { $_.text }) |
             Should -Contain 'awaiting agent: parked -> awaiting review decision'
@@ -370,17 +370,30 @@ Describe 'What counts as the run changing' {
     }
 
     It 'says which field moved and what it moved from' {
-        $diff = @(Compare-GateRunSignature -From (Get-GateRunSignature -State $script:Running) `
-                                           -To   (Get-GateRunSignature -State $script:ReviewMoved))
+        $diff = Compare-GateRunSignature -From (Get-GateRunSignature -State $script:Running) `
+                                         -To   (Get-GateRunSignature -State $script:ReviewMoved)
 
         @($diff | ForEach-Object { $_.key }) | Should -Contain 'step review'
         @($diff | ForEach-Object { $_.text }) |
             Should -Contain 'step review: running -> completed'
     }
 
+    # Statute's collection-return rule: the list itself on assignment, at every size.
+    It 'returns <n> moved fields as a list on assignment' -TestCases @(
+        @{ n = 0 }, @{ n = 1 }, @{ n = 3 }
+    ) {
+        $from = [ordered]@{ a = '1'; b = '2'; c = '3' }
+        $to   = [ordered]@{ a = '1'; b = '2'; c = '3' }
+        foreach ($key in @('a', 'b', 'c') | Select-Object -First $n) { $to[$key] = 'moved' }
+
+        $diff = Compare-GateRunSignature -From $from -To $to
+        $diff -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $diff.Count | Should -Be $n
+    }
+
     It 'renders an empty side as (none) rather than as a gap' {
-        $diff = @(Compare-GateRunSignature -From (Get-GateRunSignature -State $script:Running) `
-                                           -To   (Get-GateRunSignature -State $script:Passed))
+        $diff = Compare-GateRunSignature -From (Get-GateRunSignature -State $script:Running) `
+                                         -To   (Get-GateRunSignature -State $script:Passed)
 
         @($diff | ForEach-Object { $_.text }) | Should -Contain 'outcome: (none) -> passed'
     }

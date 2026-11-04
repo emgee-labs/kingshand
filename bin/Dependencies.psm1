@@ -78,7 +78,8 @@ function Read-DependencyPins {
         throw "$Path holds no object of pins."
     }
 
-    $pins = foreach ($p in $doc.PSObject.Properties) {
+    $pins = [System.Collections.Generic.List[object]]::new()
+    foreach ($p in $doc.PSObject.Properties) {
         $name  = $p.Name
         $entry = $p.Value
         $where = "$($script:ManifestName) entry '$name'"
@@ -120,7 +121,7 @@ function Read-DependencyPins {
             $sha256 = $digests
         }
 
-        [pscustomobject]@{
+        $pins.Add([pscustomobject]@{
             name       = $name
             source     = $source
             version    = if ($version) { "$version" } else { $null }
@@ -129,9 +130,9 @@ function Read-DependencyPins {
             repository = $repository
             protocol   = $protocol
             sha256     = $sha256
-        }
+        })
     }
-    , @($pins)
+    return , $pins
 }
 
 # The SHA-256 a herdr pin carries for this platform, lower-cased.
@@ -386,6 +387,7 @@ function Get-DependencyPinStatus {
     param([string]$Root = (Get-KingshandHome))
 
     $pins = Read-DependencyPins -Path (Get-DependencyManifestPath -Root $Root)
+    $rows = [System.Collections.Generic.List[object]]::new()
 
     foreach ($pin in $pins) {
         $have  = Get-InstalledDependencyVersion -Pin $pin -Root $Root
@@ -402,7 +404,7 @@ function Get-DependencyPinStatus {
             else { 'ahead' }
         }
 
-        [pscustomobject]@{
+        $rows.Add([pscustomobject]@{
             name      = $pin.name
             source    = $pin.source
             pinned    = $pin.version
@@ -413,8 +415,9 @@ function Get-DependencyPinStatus {
             bundled   = $have.bundled
             command   = Get-DependencySyncCommand -Pin $pin
             detail    = $have.detail
-        }
+        })
     }
+    return , $rows
 }
 
 # The latest version the publisher offers for one pin, with herdr's protocol where it has one.
@@ -466,6 +469,7 @@ function Get-DependencyPinReport {
     param([string]$Root = (Get-KingshandHome))
 
     $pins = Read-DependencyPins -Path (Get-DependencyManifestPath -Root $Root)
+    $rows = [System.Collections.Generic.List[object]]::new()
 
     foreach ($pin in $pins) {
         $want = if ($pin.version) { $pin.version } else { $pin.minimum }
@@ -480,7 +484,7 @@ function Get-DependencyPinReport {
                             -FromProtocol $pin.protocol -ToProtocol $pub.protocol
         }
 
-        [pscustomobject]@{
+        $rows.Add([pscustomobject]@{
             name           = $pin.name
             pinned         = $want
             latest         = $pub.version
@@ -489,8 +493,9 @@ function Get-DependencyPinReport {
             move           = $move
             breaking       = $breaking
             detail         = $pub.detail
-        }
+        })
     }
+    return , $rows
 }
 
 Export-ModuleMember -Function Get-DependencyManifestPath, Read-DependencyPins, Get-HerdrPinnedDigest,

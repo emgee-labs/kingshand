@@ -12,6 +12,17 @@ BeforeAll {
     $script:AllTools = Get-BrowserRequiredTools
 }
 
+# Statute's collection-return rule. The required set is fixed, so its one size is the only one.
+Describe 'the required tools come back whole' {
+    It 'returns them as one list on assignment, and a copy each time' {
+        $tools = Get-BrowserRequiredTools
+        $tools -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $tools.Count | Should -BeGreaterThan 1
+        $tools.Clear()
+        (Get-BrowserRequiredTools).Count | Should -Be $script:AllTools.Count
+    }
+}
+
 Describe 'the browser tools are reported present only when they are all present' {
     It 'reports available with the full set' {
         $status = Get-BrowserToolStatus -Loaded $script:AllTools

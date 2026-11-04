@@ -1330,7 +1330,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         }
 
         It 'indexes the record it wrote, like every durable file under data' {
-            @(Get-IndexEntries -All -DataPath $script:Co.DataPath | ForEach-Object { $_.path }) |
+            @((Get-IndexEntries -All -DataPath $script:Co.DataPath) | ForEach-Object { $_.path }) |
                 Should -Contain 'data\brief\checkout-settings.json'
         }
 
@@ -1436,7 +1436,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Set-IndexCheckedBrief -Fixture $f
             Set-Content -Path (Join-Path $f.Repo 'wip.txt') -Value 'the owner''s' -Encoding utf8
             $r = Invoke-CheckoutDispatch -Fixture $f
-            @(Get-IndexEntries -All -DataPath $f.DataPath | ForEach-Object { $_.path }) |
+            @((Get-IndexEntries -All -DataPath $f.DataPath) | ForEach-Object { $_.path }) |
                 Should -Contain 'data\brief\checkout-baseline.json'
             $null = Restore-CheckoutWorkerSettings -RecordPath $r.settingsRecord
             $null = Remove-IndexEntry -Path $r.settingsRecord -DataPath $f.DataPath

@@ -52,6 +52,26 @@ BeforeAll {
     }
 }
 
+# Statute's collection-return rule, for the journal's one line reader: the list itself on
+# assignment at every size, blank lines left out. It is the module's own reader, so it is driven
+# inside the module.
+Describe 'the journal''s lines come back whole' {
+    It 'returns <n> lines as a list on assignment' -TestCases @(
+        @{ n = 0; text = "`r`n`n" }
+        @{ n = 1; text = "{""a"":1}`r`n" }
+        @{ n = 3; text = "{""a"":1}`n`n{""a"":2}`r`n{""a"":3}" }
+    ) {
+        $path = Join-Path $TestDrive "lines-$n.jsonl"
+        [System.IO.File]::WriteAllText($path, $text)
+        $lines = InModuleScope AwayJournal -Parameters @{ Path = $path } {
+            param($Path)
+            , (Read-JournalLines -Path $Path)
+        }
+        $lines -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $lines.Count | Should -Be $n
+    }
+}
+
 Describe 'Get-AwayFlag reports the flag without ever throwing' {
     It 'reports no regency when the flag is absent, and calls that a state rather than a fault' {
         $f = New-AwayFixture -NoFlag

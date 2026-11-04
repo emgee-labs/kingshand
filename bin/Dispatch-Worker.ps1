@@ -595,9 +595,7 @@ $registered   = @()
 $registryPath = Join-Path $DataPath 'projects.md'
 if (Test-Path -LiteralPath $registryPath -PathType Leaf) {
     try {
-        # Get-AllProjects returns the whole array as ONE pipeline object - Projects.psm1's
-        # leading-comma idiom - so the loop below runs over the assigned value rather than an @()
-        # wrap, which would nest it a second time and iterate once over the array itself.
+        # Assigned, never wrapped in @() - statute's collection-return rule.
         $registered = Get-AllProjects -RegistryPath $registryPath -WarningAction SilentlyContinue
     } catch {
         Write-Warning ("The project registry at $registryPath could not be read " +
@@ -929,7 +927,7 @@ if ($hasBrowser) {
 # the gate unable to fire at all.
 $gates = [System.Collections.Generic.List[hashtable]]::new()
 
-$rootEntries = @(Get-IndexEntries -DataPath $DataPath)
+$rootEntries = Get-IndexEntries -DataPath $DataPath
 if ($rootEntries.Count -gt 0) {
     $gates.Add(@{
         label = 'the root index'
@@ -939,7 +937,7 @@ if ($rootEntries.Count -gt 0) {
 }
 
 if ($project) {
-    $projectEntries = @(Get-IndexEntries -Project $project -DataPath $DataPath)
+    $projectEntries = Get-IndexEntries -Project $project -DataPath $DataPath
     if ($projectEntries.Count -gt 0) {
         $gates.Add(@{
             label = "project $project's index"

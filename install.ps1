@@ -836,7 +836,7 @@ $syncing  = $SyncPins -or $InstallMissing
 $offPin   = [System.Collections.Generic.List[string]]::new()
 $reportedAbove = @($tools | ForEach-Object { $_.Name }) + @('claude-code', 'herdr', 'no-mistakes')
 
-foreach ($s in @(Get-DependencyPinStatus -Root $Root)) {
+foreach ($s in (Get-DependencyPinStatus -Root $Root)) {
     $label = "{0,-12}" -f $s.name
     if ($s.state -eq 'current') { Write-Ok "$label $($s.installed), as pinned"; continue }
     if ($s.state -eq 'satisfied') {

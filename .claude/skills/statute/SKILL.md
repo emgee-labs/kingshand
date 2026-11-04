@@ -214,6 +214,16 @@ the file turns it off. The refresh:
   `Index.psm1`, `Memory.psm1` and `Projects.psm1` point their import line back here, and
   `tests\Index.Tests.ps1`, `tests\Memory.Tests.ps1` and `tests\Projects.Tests.ps1` pin the
   Index, Memory and Projects edges.
+- **A helper under `bin\` that returns a collection returns one
+  `[System.Collections.Generic.List[object]]`, whole: `return , $list`.** The caller assigns it -
+  `$x = Get-Thing` - and counts, indexes, loops or pipes `$x`; a call used in place is
+  parenthesised, as `(Get-Thing).Count` or `(Get-Thing) | ...`. Never `@(Get-Thing)`,
+  `Get-Thing | ...` or `foreach ($i in Get-Thing)`: each sees the list as one item. A bare
+  `return $list` is not the rule, because PowerShell enumerates a List on return exactly as it does
+  an array and the caller gets `$null`, one item or an array by count. A helper relaying another's
+  list returns the call itself or `return , $x`, never `return $x`.
+  `tests\CollectionReturn.Tests.ps1` holds the measurement, and each such helper has a test of its
+  shape at zero, one and many items.
 - `yolo` is the string `'on'` or `'off'`, never a boolean. Test it as `-eq 'on'`; `if ($proj.yolo)`
   is true for `'off'` because every non-empty string is truthy in PowerShell.
 - Tests live in `tests\` as Pester, named `<Subject>.Tests.ps1`. Extend an existing file rather

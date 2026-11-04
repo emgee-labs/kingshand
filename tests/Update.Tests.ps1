@@ -183,7 +183,7 @@ Describe 'liveness comes from herdr, and unknown is not none' {
 
     It 'reports no workers when herdr knows of none' {
         Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } }
-        @(Get-LiveWorkerNames).Count | Should -Be 0
+        (Get-LiveWorkerNames).Count | Should -Be 0
     }
 
     It 'names every worker herdr knows about' {
@@ -193,7 +193,7 @@ Describe 'liveness comes from herdr, and unknown is not none' {
                 [pscustomobject]@{ name = 't-9002'; state = 'idle' }
             ) }
         }
-        @(Get-LiveWorkerNames) | Should -Be @('t-9001', 't-9002')
+        (Get-LiveWorkerNames) | Should -Be @('t-9001', 't-9002')
     }
 
     It 'throws rather than reporting none when herdr is not installed at all' {
@@ -207,7 +207,7 @@ Describe 'liveness comes from herdr, and unknown is not none' {
         }
         Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached with the server down' }
 
-        @(Get-LiveWorkerNames).Count |
+        (Get-LiveWorkerNames).Count |
             Should -Be 0 -Because 'a pane dies with its server, so a server that is down holds no worker'
     }
 
@@ -241,11 +241,22 @@ Describe 'liveness comes from herdr, and unknown is not none' {
         { Get-LiveWorkerNames } | Should -Throw -ExpectedMessage '*protocol_mismatch*'
     }
 
+    # Statute's collection-return rule: the list itself on assignment, at every size.
+    It 'returns <n> worker names as a list on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        $script:ListedAgents = @(1..3 | Select-Object -First $n |
+            ForEach-Object { [pscustomobject]@{ name = "t-900$_"; state = 'working' } })
+        Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = $script:ListedAgents } }
+
+        $names = Get-LiveWorkerNames
+        $names -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $names.Count | Should -Be $n
+    }
+
     It 'counts a worker herdr lists with no name, rather than dropping it' {
         Mock -ModuleName Herdr Invoke-Herdr {
             [pscustomobject]@{ agents = @([pscustomobject]@{ pane_id = 'p4'; state = 'working' }) }
         }
-        @(Get-LiveWorkerNames) | Should -Be @('an unnamed worker in pane p4')
+        (Get-LiveWorkerNames) | Should -Be @('an unnamed worker in pane p4')
     }
 }
 
@@ -326,18 +337,27 @@ Describe 'what changed is the commit subjects, with no parsing of anything' {
     }
 
     It 'returns one subject per commit between the two releases' {
-        $changes = @(Get-ReleaseChanges -RepoPath $script:LogRepo -From 'v0.1.0' -To 'v0.2.0')
+        $changes = Get-ReleaseChanges -RepoPath $script:LogRepo -From 'v0.1.0' -To 'v0.2.0'
         $changes | Should -Contain 'Teach the drawer to close'
         $changes | Should -Contain 'Refresh the badge'
     }
 
     It 'leaves out the merge commit, which names a branch rather than a change' {
-        @(Get-ReleaseChanges -RepoPath $script:LogRepo -From 'v0.1.0' -To 'v0.2.0') |
+        (Get-ReleaseChanges -RepoPath $script:LogRepo -From 'v0.1.0' -To 'v0.2.0') |
             Should -Not -Contain 'Merge pull request #1 from side'
     }
 
+    # Statute's collection-return rule: the list itself on assignment, at every size.
+    It 'returns <n> subjects as a list on assignment' -TestCases @(
+        @{ n = 0; from = 'v0.2.0' }, @{ n = 1; from = 'v0.2.0~1' }, @{ n = 2; from = 'v0.1.0' }
+    ) {
+        $changes = Get-ReleaseChanges -RepoPath $script:LogRepo -From $from -To 'v0.2.0'
+        $changes -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $changes.Count | Should -Be $n
+    }
+
     It 'is empty between a release and itself' {
-        @(Get-ReleaseChanges -RepoPath $script:LogRepo -From 'v0.2.0' -To 'v0.2.0').Count | Should -Be 0
+        (Get-ReleaseChanges -RepoPath $script:LogRepo -From 'v0.2.0' -To 'v0.2.0').Count | Should -Be 0
     }
 }
 
@@ -702,10 +722,21 @@ Describe 'every refusal names itself and leaves the installation exactly as it w
 Describe 'the guard readers answer for themselves' {
     It 'reports a clean tree as clean and a dirty one by path' {
         $f = New-Installation -Name 'readers'
-        @(Get-DirtyPaths -RepoPath $f.Path).Count | Should -Be 0
+        (Get-DirtyPaths -RepoPath $f.Path).Count | Should -Be 0
 
         Add-Content -LiteralPath (Join-Path $f.Path 'README.md') -Value 'edit'
-        @(Get-DirtyPaths -RepoPath $f.Path) | Should -Contain 'README.md'
+        (Get-DirtyPaths -RepoPath $f.Path) | Should -Contain 'README.md'
+    }
+
+    # Statute's collection-return rule: the list itself on assignment, at every size.
+    It 'returns <n> dirty paths as a list on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        $f = New-Installation -Name "dirty-$n"
+        foreach ($name in @('a.txt', 'b.txt', 'c.txt') | Select-Object -First $n) {
+            Set-Content -LiteralPath (Join-Path $f.Path $name) -Value 'new'
+        }
+        $dirty = Get-DirtyPaths -RepoPath $f.Path
+        $dirty -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $dirty.Count | Should -Be $n
     }
 
     It 'reports the checked-out branch, and an empty string on a detached HEAD' {

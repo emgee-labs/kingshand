@@ -179,7 +179,9 @@ function Read-JournalLines {
     param([Parameter(Mandatory)][string]$Path)
 
     $text = [System.IO.File]::ReadAllText($Path) -replace "`r`n", "`n"
-    @($text.Split("`n") | Where-Object { $_.Trim() })
+    $out  = [System.Collections.Generic.List[object]]::new()
+    foreach ($line in $text.Split("`n")) { if ($line.Trim()) { $out.Add($line) } }
+    return , $out
 }
 
 # One JSON line as a dictionary, or $null when it is not a JSON object at all. Nothing downstream
@@ -223,7 +225,7 @@ function Assert-JournalHeader {
         [Parameter(Mandatory)][string]$Since
     )
 
-    $lines = @(Read-JournalLines -Path $Path)
+    $lines = Read-JournalLines -Path $Path
     if ($lines.Count -eq 0) {
         throw "$Path exists but is empty, so nothing proves it is an away journal. Move it aside; the journal for this period cannot be written over it."
     }
@@ -442,7 +444,7 @@ function Get-AwayDigest {
     }
 
     $lines = @()
-    try { $lines = @(Read-JournalLines -Path $result.path) }
+    try { $lines = Read-JournalLines -Path $result.path }
     catch { return (& $unreadable "$($result.path) could not be read - $($_.Exception.Message)") }
 
     if ($lines.Count -eq 0) {

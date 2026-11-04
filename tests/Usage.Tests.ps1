@@ -1191,6 +1191,36 @@ Describe 'A number that is not one is no number, and never a percentage' {
     }
 }
 
+Describe 'A list comes back as a list, at every size' {
+    # Statute's collection-return rule: the list itself on assignment, never $null or a bare item.
+    It 'returns <n> JSON list entries as a list on assignment' -TestCases @(
+        @{ n = 0 }, @{ n = 1 }, @{ n = 3 }
+    ) {
+        $json = '{ "providers": [' + ((1..3 | Select-Object -First $n |
+                    ForEach-Object { "{ ""provider"": ""p$_"" }" }) -join ',') + '] }'
+        $list = ConvertTo-JsonList ($json | ConvertFrom-Json).providers
+        $list -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $list.Count | Should -Be $n
+    }
+
+    It 'returns a JSON null as an empty list, never one item' {
+        $list = ConvertTo-JsonList $null
+        $list -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $list.Count | Should -Be 0
+    }
+
+    It 'returns <n> recognised account windows as a list on assignment' -TestCases @(
+        @{ n = 0 }, @{ n = 1 }, @{ n = 2 }
+    ) {
+        $later   = [datetimeoffset]::UtcNow.AddHours(2).ToString('o')
+        $windows = @(@('five_hour', 'seven_day') | Select-Object -First $n |
+            ForEach-Object { [pscustomobject]@{ id = $_; percentUsed = 10; resetsAt = $later } })
+        $present = Get-AccountUsageWindows -Windows $windows
+        $present -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $present.Count | Should -Be $n
+    }
+}
+
 Describe 'A timestamp carries its offset, and is never read as local' {
     # THE FAILURE THIS PINS COST A MEASURED RUN ELSEWHERE. Timestamps in this toolchain are UTC, and
     # reading one as if it were local time fails SILENTLY - it does not throw, it just describes a
@@ -1736,6 +1766,39 @@ Describe 'The pulse takes the fleet from the reader that already joins intent to
     # those reads actually executes - the empty-record case above never enters it. herdr is a shim
     # on PATH answering with no agents, the same way CrewStatus.Tests.ps1 stubs it, so the real
     # argument list and JSON parsing are exercised without a server.
+    # Statute's collection-return rule, through the real crew reader: the list itself on assignment.
+    It 'returns the fleet as a list of <n> rows on assignment' -TestCases @(
+        @{ n = 0 }, @{ n = 1 }, @{ n = 3 }
+    ) {
+        $shim = New-TempFixtureDir -Prefix 'herdr-shim-'
+        Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
+        $null = New-TestExecutable -Path (Join-Path $shim 'herdr') `
+            -Cmd @('type "%KINGSHAND_TEST_USAGE_HERDR%"') -Sh @('cat "$KINGSHAND_TEST_USAGE_HERDR"')
+        $reply = Join-Path $shim 'agents.json'
+        '{ "agents": [] }' | Set-Content -LiteralPath $reply -Encoding utf8
+
+        $workers = @{}
+        for ($i = 1; $i -le $n; $i++) {
+            $workers["T-$i"] = @{ ticket = "T-$i"; repo = 'acme-api'; stage = 'implementing' }
+        }
+        $crew = Join-Path (New-TempFixtureDir) 'crew.json'
+        @{ workers = $workers } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $crew -Encoding utf8
+
+        $savedPath = $env:PATH
+        $savedVar  = $env:KINGSHAND_TEST_USAGE_HERDR
+        try {
+            $env:PATH = $shim + [IO.Path]::PathSeparator + $savedPath
+            $env:KINGSHAND_TEST_USAGE_HERDR = $reply
+
+            $fleet = Get-UsageFleet -CrewStatePath $crew
+            $fleet -is [System.Collections.Generic.List[object]] | Should -BeTrue
+            $fleet.Count | Should -Be $n
+        } finally {
+            $env:PATH = $savedPath
+            $env:KINGSHAND_TEST_USAGE_HERDR = $savedVar
+        }
+    }
+
     It 'survives a crew record that is missing a field the reader treats as optional' {
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 5; detail = 'x'

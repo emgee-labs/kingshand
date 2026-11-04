@@ -357,7 +357,7 @@ function Format-DataTidyReport {
 
     $kb  = { param($n) '{0:N0} KB' -f [math]::Ceiling($n / 1KB) }
     $sum = { param($rows) $t = 0L; foreach ($x in @($rows)) { $t += [long]$x.bytes }; $t }
-    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines = [System.Collections.Generic.List[object]]::new()
 
     if (-not $Result.backlog.readable) {
         $lines.Add("NOTHING DELETED: $($Result.backlog.problem)")
@@ -385,7 +385,7 @@ function Format-DataTidyReport {
         $lines.Add("Unindexed - listed in no index: $(@($Result.unindexed).Count)")
         foreach ($u in $Result.unindexed) { $lines.Add("  $u") }
     }
-    $lines.ToArray()
+    return , $lines
 }
 
 Export-ModuleMember -Function Invoke-DataTidy, Format-DataTidyReport, Get-DataTidyRefusal
