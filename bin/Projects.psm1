@@ -496,9 +496,9 @@ $script:ConventionPathspecs = [ordered]@{
 
 # Lists the tracked convention files in one repository: one pipeline object per file, with `kind` (a
 # key of the list above) and `path` (repository-relative, forward slashes), sorted by kind then
-# path - wrap the call in @() to count them. No output means the repository documents none of them. A repository that cannot be listed
-# THROWS, naming why, because an empty list there would read as "documents nothing" when the truth
-# is "could not tell".
+# path - wrap the call in @() to count them. No output means the repository documents none of them.
+# A repository that cannot be listed THROWS, naming why, because an empty list there would read as
+# "documents nothing" when the truth is "could not tell".
 function Find-ProjectConventionFiles {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Path)
