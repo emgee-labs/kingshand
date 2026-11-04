@@ -123,12 +123,13 @@ posture is never inferred, only read. Tell the user the project is not registere
 import it with `/annex`. Do not guess a posture, and do not dispatch without one.
 
 **`$proj.rawMode` is what was registered, and it is the field you route on.** For every flat mode
-(`local-only`, `direct-PR`, `no-mistakes`) `$proj.mode` holds exactly the same value and the two
-are interchangeable. They differ only for the policy: a `no-mistakes-prod-only` project comes back
-with `rawMode` of `no-mistakes-prod-only` and `mode` of `no-mistakes`. That `mode` is the most
-rigorous leg of the policy, a conservative fallback for mechanical callers - it is **not** what
-the work ships as, and taking it at face value sends internal-only work through a review gate the
-repo may not even have, stopping a dispatch at Step 1b that should have shipped `direct-PR`.
+(`local-only`, `direct-PR`, `no-mistakes`, `review-only`) `$proj.mode` holds exactly the same value
+and the two are interchangeable. They differ only for the policy: a `no-mistakes-prod-only`
+project comes back with `rawMode` of `no-mistakes-prod-only` and `mode` of `no-mistakes`. That
+`mode` is the most rigorous leg of the policy, a conservative fallback for mechanical callers - it
+is **not** what the work ships as, and taking it at face value sends internal-only work through a
+review gate the repo may not even have, stopping a dispatch at Step 1b that should have shipped
+`direct-PR`.
 
 So when `rawMode` is `no-mistakes-prod-only`, classify this task's surface now: internal-only
 tooling, automation, contributor or operator process and release work ships `direct-PR`, while
@@ -151,8 +152,8 @@ the flags.
 
 ## Step 1b - Preflight the review gate
 
-This step applies only when the task's resolved mode is `no-mistakes`. A `direct-PR` or
-`local-only` task has no review gate and skips straight to Step 2.
+This step applies only when the task's resolved mode is `no-mistakes`. A `direct-PR`,
+`local-only` or `review-only` task has no review gate and skips straight to Step 2.
 
 For a `no-mistakes` task, check the repo actually has a gate before promising one:
 
@@ -449,7 +450,7 @@ Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
 Add-IndexEntry -Project "<project>" -Path "data\<id>\brief.md" -Summary "<the one-line title>"
 ```
 
-**The Done-means block is generated from the resolved mode.** Use exactly one of these five - and
+**The Done-means block is generated from the resolved mode.** Use exactly one of these six - and
 for a `no-mistakes` task, which of the three `no-mistakes` blocks is chosen by Step 1b's answer, not
 by memory: there is one block per answer and they appear in the order `has-ci`, `no-ci`, `unknown`.
 
@@ -485,6 +486,43 @@ by memory: there is one block per answer and they appear in the order `has-ci`, 
 - Never mention Claude, AI, or an assistant in any commit message or file.
 - If the repo cannot build, stop and say so plainly in your final message rather than
   reporting success.
+```
+
+`review-only` - review and report, land nothing:
+
+```markdown
+- Review what this brief asks you to review, in this worktree, and report it. Nothing else is
+  delivered: do not commit, do not push, do not open a pull request, do not comment anywhere, and
+  do not create or update a work item. Nothing this task produces lands or goes to a server.
+- Leave the worktree as you found it. Revert any change you made to check something before you
+  finish, so the copy holds nothing when it is cleaned up - what it taught you goes in `report.md`.
+- Work the `Standing criteria` section above line by line against what you reviewed and record
+  the result in `report.md`: for each line, `pass` with what you checked, a finding with where it
+  is, or `n/a` with the reason. A criterion you cannot check is a criterion to report, not to
+  skip. Where `Requirements` or `Unchanged` sets a criterion aside, this brief overrides that line:
+  record it `n/a` naming the brief line that set it aside.
+- Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
+  required every time, including when the review found nothing - say so plainly, and say what you
+  looked at, so a clean review cannot be mistaken for one that never happened.
+- Never call `AskUserQuestion`, and never open any interactive prompt, menu or confirmation of
+  any kind. You are a background agent with nobody attached: there is no one to answer, and the
+  run hangs until it is killed.
+- When you reach a decision your brief does not settle, write the question into
+  `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
+  would need in order to choose - then say so in your final message and end your turn. **Write it
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses the question
+  you write here, so there is no heading to match exactly, no slug to keep and no marker to get
+  wrong: the Hand reads what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  The answer comes back to you as an ordinary prompt and you carry on from there, so leave
+  everything where it is: do not undo what you have done, do not pick a different task, and do not
+  report the work as failed. When the answer reaches you, write down what was decided and what you
+  did with it in that same file, and carry on. A second question later is just another question,
+  written the same way.
+- Where you can proceed on a stated assumption instead, do that: record the assumption in
+  `report.md` and continue rather than stopping.
+- Never mention Claude, AI, or an assistant in any file.
+- If you cannot read or run what you were asked to review, stop and say so plainly in your final
+  message rather than reporting a clean review.
 ```
 
 `direct-PR`:
@@ -705,10 +743,11 @@ still get checks from outside it, which is exactly the case a reading-by-eye get
 
 Hard rule 2 says nothing goes to a server until the user says so, and a worker cannot ask - so the
 brief stops it at the last local step, and the Step 7 gate, held before the push rather than after
-it, is where the user answers. **`local-only` is untouched**: no Done-means block above changes,
-because none of them pushes or opens a pull request, so there is nothing here to hold back and no
-separate confirmation exists for it. That is about this project's delivery and not about everything
-it touches - a comment or a work item on a `local-only` project is gated by rule 2 like any other.
+it, is where the user answers. **`local-only` and `review-only` are untouched**: no Done-means
+block above changes, because neither pushes or opens a pull request, so there is nothing here to
+hold back and no separate confirmation exists for it. That is about this project's delivery and not
+about everything it touches - a comment or a work item on a `local-only` project is gated by rule 2
+like any other, and a `review-only` brief forbids both outright.
 
 For a `direct-PR` task, replace the `Push the branch and open a pull request` bullet and the
 `Do not merge it` bullet after it with this one:
@@ -797,7 +836,8 @@ for any other reason - to shorten a run, to get past a slow step, because CI loo
 report - is the misuse this line names. That last one is the near miss worth recognising in your own
 reasoning: `no-ci` is proof and `unknown` is a guess, which is exactly why `unknown` keeps a
 terminating sentence instead of the flag. Never remove the push prohibition from the `local-only`
-variant.
+variant, nor any of the `review-only` variant's prohibitions - no commit, no push, no pull request,
+no comment, no work item.
 
 **Say in `--intent` what this task deliberately sets aside.** You write that string, not the worker:
 it is the `Intent` section of the brief, and the three `no-mistakes` blocks hand it to the gate
@@ -1735,15 +1775,14 @@ true if nobody reads it.
 
 **Fold back what the standing criteria missed.** The worker's self-check block and the gate's
 round-one findings are two readings of the same change, so compare them. **That comparison needs a
-gate, and most projects have none.** On a `local-only` or `direct-PR` project - including a
-`no-mistakes-prod-only` project whose task resolved to `direct-PR` - there is no gate and no round
-to compare against, so this loop does not fire, and a report with no rounds in it is the record
-that brief asked for rather than one to query. **What settles it is whether this task ran a review
-gate, never how the project is registered**, so a task whose brief carried no gate line is in that
-same case in full - it has no round to compare against whatever its entry says, the loop does not
-fire, and its report having no rounds is right rather than a gap. Where this task did run the
-review gate, both
-readings are in `report.md`: the `Repeated findings` section of the brief made the worker record
+gate, and most projects have none.** On a `local-only`, `direct-PR` or `review-only` project -
+including a `no-mistakes-prod-only` project whose task resolved to `direct-PR` - there is no gate
+and no round to compare against, so this loop does not fire, and a report with no rounds in it is
+the record that brief asked for rather than one to query. **What settles it is whether this task
+ran a review gate, never how the project is registered**, so a task whose brief carried no gate
+line is in that same case in full - it has no round to compare against whatever its entry says,
+the loop does not fire, and its report having no rounds is right rather than a gap. Where this task
+did run the review gate, both readings are in `report.md`: the `Repeated findings` section of the brief made the worker record
 every round there as it landed, and the first pass as `round 1: no findings` where it raised none,
 so a report carrying a self-check block and no rounds at all is one to ask about rather than one
 with nothing to fold back. Read the self-check block either way, because a criterion the worker
@@ -1943,7 +1982,7 @@ nothing.** Outside night's watch `+watch-merge` grants nothing at all. Every flo
 still holds, and `Get-WatchMergeVerdict` in `bin\NightsWatch.psm1` checks each one that code can
 hold and binds the merge to the live head; `nights-watch` owns the rest of the run.
 
-**It is not a mode and not a fourth posture.** The four modes decide how work ships and `yolo`
+**It is not a mode and not a posture of its own.** The modes decide how work ships and `yolo`
 decides whether you ask first; this decides one thing only, whether you may merge that
 repository's own green pull request. It is read per repository and never inferred from either of
 the others - a `+yolo` project you may not merge is an ordinary combination, not a contradiction.
@@ -2168,6 +2207,18 @@ skipped by `+yolo`:
 | `direct-PR` | **skip Step 8 entirely** - go to Step 8a, then Step 8b |
 | `no-mistakes` | **skip Step 8 entirely** - go to Step 8a, then Step 8b |
 | `no-mistakes-prod-only` | resolved at Step 1 to `direct-PR` or `no-mistakes` - take that row |
+| `review-only` | **nothing lands** - skip Step 8 and Step 8a; relay the findings, set `ready`, close the backlog item, then Step 8b |
+
+**`review-only` work is delivered when its report is read, and that is the whole of it.** There is
+no branch to merge, no push and no pull request, so this gate has nothing to approve - with `yolo`
+off it is the user reading the findings, and `+yolo` changes nothing but whether you wait for that.
+Step 6 has already read the report, so relay what it found as findings rather than as a completion
+notice, then `Set-CrewStage` to `ready` - the furthest a delivery that lands nothing goes - and
+`tasks-axi done "<id>"`, unless `decree` holds the item open on a decision the report raised. Step
+8b's rule that unlanded work is never torn down is met here by the report: it is the work, and it
+lives outside the isolated copy. `Remove-WorkerCopy` still keeps anything the worker left behind,
+and a review-only copy holding a change is a worker that broke its brief - read it, never force
+past it.
 
 Step 8 is local merging, which push-capable work never does. Sending a `direct-PR` or
 `no-mistakes` worker into Step 8 is a dead end - it disclaims them in its first sentence and the
@@ -2217,8 +2268,8 @@ Then go to Step 8b and tear the worker down.
 **Muster itself never pushes.** Pushing is the user's action or the worker's, never yours. A
 *worker* pushes only when its project's mode is push-capable - `direct-PR`, `no-mistakes`, or a
 `no-mistakes-prod-only` project resolved to one of those - because registering that mode is the
-consent. Never for `local-only`, whose brief forbids it outright, and never for a project that
-is not registered at all.
+consent. Never for `local-only` or `review-only`, whose briefs forbid it outright, and never for a
+project that is not registered at all.
 
 ## Step 8a - Close out push-capable work
 
@@ -2484,8 +2535,11 @@ half-deleted directory and a stale git worktree registration.
 - `direct-PR`, `no-mistakes`, and `no-mistakes-prod-only` resolved to either - after the push is
   confirmed in Step 8a, at stage `ready`. The branch is on the remote, so removing the local
   worktree cannot lose the work. Do not wait for the pull request to be merged.
+- `review-only` - after the findings are relayed in Step 7, at stage `ready`. The report under
+  `data\` is the work, so removing the copy cannot lose it, and the copy must hold no change.
 
-**Work that is neither landed nor pushed is never torn down.** If the merge did not happen and
+**Work that is neither landed nor pushed is never torn down**, unless it is `review-only` work whose
+report has been read - the one delivery that lives outside the copy. If the merge did not happen and
 the branch is not on the remote, the worktree is the only copy of the work and removing it
 destroys it. Confirm one or the other first - teardown removes the worktree, and nothing puts it
 back.

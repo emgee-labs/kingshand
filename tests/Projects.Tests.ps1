@@ -34,6 +34,7 @@ Describe 'Get-ProjectPosture - mode parsing' {
         @{ mode = 'no-mistakes' }
         @{ mode = 'direct-PR' }
         @{ mode = 'local-only' }
+        @{ mode = 'review-only' }
     ) {
         $reg = New-TestRegistry @"
 # Projects
@@ -48,6 +49,7 @@ Describe 'Get-ProjectPosture - mode parsing' {
         @{ mode = 'no-mistakes' }
         @{ mode = 'direct-PR' }
         @{ mode = 'local-only' }
+        @{ mode = 'review-only' }
     ) {
         $reg = New-TestRegistry @"
 # Projects
@@ -64,6 +66,20 @@ Describe 'Get-ProjectPosture - mode parsing' {
       path: $script:RealPath
 "@
         Get-ProjectPosture -Name proj -RegistryPath $reg | Should -Be 'no-mistakes off'
+    }
+}
+
+Describe 'Get-ProjectModes' {
+    It 'names all five modes, review-only last' {
+        Get-ProjectModes |
+            Should -Be @('no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only', 'review-only')
+    }
+
+    It 'hands back a copy, so editing it changes nothing the module accepts' {
+        $modes = @(Get-ProjectModes)
+        $modes[0] = 'tampered'
+        Get-ProjectModes | Should -Contain 'no-mistakes'
+        Get-ProjectModes | Should -Not -Contain 'tampered'
     }
 }
 
@@ -614,6 +630,45 @@ Describe 'Add-ProjectEntry' {
         @(Get-AllProjects -RegistryPath $script:reg | ForEach-Object { $_.name }) | Should -Be @('one')
     }
 
+    # review-only lands nothing at all, so it is held to exactly the refusal local-only is: a token
+    # that could only ever go live after a hand edit raised the mode is refused where it is written.
+    It 'refuses -<switch> on a review-only project, and registers nothing' -ForEach @(
+        @{ switch = 'Merge' }
+        @{ switch = 'WatchMerge' }
+    ) {
+        $flags = @{ $switch = $true }
+        $err = { Add-ProjectEntry -Name proj -Path $script:RealPath -Mode 'review-only' @flags `
+                                  -Description 'd' -RegistryPath $script:reg } | Should -Throw -PassThru
+        $err.Exception.Message | Should -BeLike '*review-only project never pushes*'
+        Test-Path -LiteralPath $script:reg |
+            Should -BeFalse -Because 'a refused combination must leave no entry and no registry behind'
+    }
+
+    It 'writes and round-trips a review-only entry' {
+        Add-ProjectEntry -Name proj -Path $script:RealPath -Mode 'review-only' -Yolo `
+                         -Description 'reviewed, never landed' -RegistryPath $script:reg
+        $today = Get-Date -Format 'yyyy-MM-dd'
+        (Get-EntryBlock -Path $script:reg -Name 'proj')[0] |
+            Should -Be "- proj [review-only +yolo] - reviewed, never landed (added $today)"
+        $e = Get-ProjectEntry -Name proj -RegistryPath $script:reg
+        $e.mode       | Should -Be 'review-only'
+        $e.rawMode    | Should -Be 'review-only'
+        $e.yolo       | Should -Be 'on'
+        $e.merge      | Should -Be 'off'
+        $e.watchMerge | Should -Be 'off'
+        Get-ProjectPosture -Name proj -RegistryPath $script:reg -Raw | Should -Be 'review-only on'
+    }
+
+    It 'accepts and round-trips every mode Get-ProjectModes names' {
+        foreach ($mode in (Get-ProjectModes)) {
+            $p = Join-Path $script:RealPath "modes-$mode"
+            New-Item -ItemType Directory -Force -Path $p | Out-Null
+            Add-ProjectEntry -Name "m-$mode" -Path $p -Mode $mode `
+                             -Description 'd' -RegistryPath $script:reg
+            (Get-ProjectEntry -Name "m-$mode" -RegistryPath $script:reg).rawMode | Should -Be $mode
+        }
+    }
+
     It 'accepts -Merge on every push-capable mode' {
         foreach ($mode in @('no-mistakes', 'direct-PR', 'no-mistakes-prod-only')) {
             $p = Join-Path $script:RealPath $mode
@@ -782,10 +837,26 @@ Describe 'Test-ProjectImportable' {
         $r.reason | Should -BeLike '*not a git repository*'
     }
 
-    It 'accepts a git repository with no remote for local-only' {
-        $r = Test-ProjectImportable -Path (New-TempRepo) -Mode 'local-only'
+    It 'accepts a git repository with no remote for <mode>' -ForEach @(
+        @{ mode = 'local-only' }
+        @{ mode = 'review-only' }
+    ) {
+        $r = Test-ProjectImportable -Path (New-TempRepo) -Mode $mode
         $r.ok        | Should -BeTrue
         $r.hasOrigin | Should -BeFalse
+    }
+
+    It 'accepts review-only on a repository that does have an origin remote' {
+        $r = Test-ProjectImportable -Path (New-TempRepo -WithOrigin) -Mode 'review-only'
+        $r.ok        | Should -BeTrue
+        $r.hasOrigin | Should -BeTrue
+    }
+
+    It 'accepts every mode Get-ProjectModes names, on a repository with an origin' {
+        $repo = New-TempRepo -WithOrigin
+        foreach ($mode in (Get-ProjectModes)) {
+            (Test-ProjectImportable -Path $repo -Mode $mode).ok | Should -BeTrue -Because $mode
+        }
     }
 
     It 'refuses <mode> when there is no origin remote' -ForEach @(
@@ -831,7 +902,8 @@ Describe 'Test-ProjectImportable' {
         $r.ok        | Should -BeFalse
         $r.hasOrigin | Should -BeFalse
         $r.reason    | Should -Be ("Invalid mode 'nonsense-mode'. Must be one of: " +
-                                   'no-mistakes, direct-PR, local-only, no-mistakes-prod-only')
+                                   'no-mistakes, direct-PR, local-only, no-mistakes-prod-only, ' +
+                                   'review-only')
     }
 
     It 'refuses an empty-ish mode rather than treating it as local-only' {
@@ -1139,5 +1211,139 @@ Describe '+watch-merge is its own token, off unless declared' {
         { Add-ProjectEntry -Name proj -Path $script:RealPath -Mode 'local-only' -WatchMerge `
                            -Description 'd' -RegistryPath (Join-Path $dir 'projects.md') } |
             Should -Throw '*local-only with -WatchMerge*'
+    }
+}
+
+# The seed annex offers at import. The list of files is git's answer to a closed list of names, so
+# these force each kind, the tracked-only rule, the root-only rule for config, and the one failure
+# that must never read as "this repository documents nothing".
+Describe 'Find-ProjectConventionFiles' {
+    BeforeAll {
+        $script:ConvRepos = [System.Collections.Generic.List[string]]::new()
+        function New-ConvRepo {
+            $d = Join-Path ([System.IO.Path]::GetTempPath()) ('conv-' + [guid]::NewGuid().ToString('N'))
+            $script:ConvRepos.Add($d)
+            git init -b main $d -q
+            $d
+        }
+        function Add-Tracked {
+            param([string]$Repo, [string[]]$Files)
+            foreach ($f in $Files) {
+                $full = Join-Path $Repo $f
+                New-Item -ItemType Directory -Force -Path (Split-Path -Parent $full) | Out-Null
+                Set-Content -LiteralPath $full -Value 'x'
+                git -C $Repo add -- $f
+            }
+        }
+    }
+
+    AfterAll {
+        foreach ($p in $script:ConvRepos) {
+            if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+    }
+
+    It 'lists each kind of convention file a repository tracks, sorted by kind then path' {
+        $repo = New-ConvRepo
+        Add-Tracked -Repo $repo -Files @(
+            'CONTRIBUTING.md', '.github/CODEOWNERS', 'AGENTS.md', 'web/CLAUDE.md',
+            'docs/coding-conventions.md', '.editorconfig', '.eslintrc.json', '.prettierrc', 'src/app.ts')
+        $r = Find-ProjectConventionFiles -Path $repo
+        @($r | ForEach-Object { "$($_.kind) $($_.path)" }) | Should -Be @(
+            'contributing CONTRIBUTING.md'
+            'codeowners .github/CODEOWNERS'
+            'instructions AGENTS.md'
+            'instructions web/CLAUDE.md'
+            'conventions docs/coding-conventions.md'
+            'lint-format .editorconfig'
+            'lint-format .eslintrc.json'
+            'lint-format .prettierrc')
+    }
+
+    It 'lists only tracked files' {
+        $repo = New-ConvRepo
+        Set-Content -LiteralPath (Join-Path $repo 'CONTRIBUTING.md') -Value 'untracked'
+        @(Find-ProjectConventionFiles -Path $repo).Count | Should -Be 0
+    }
+
+    It 'looks for lint and format config at the root only' {
+        $repo = New-ConvRepo
+        Add-Tracked -Repo $repo -Files @('vendor/pkg/.eslintrc.json')
+        @(Find-ProjectConventionFiles -Path $repo).Count | Should -Be 0
+    }
+
+    It 'returns an empty list for a repository that documents none of them' {
+        $repo = New-ConvRepo
+        Add-Tracked -Repo $repo -Files @('README.md')
+        @(Find-ProjectConventionFiles -Path $repo).Count | Should -Be 0
+    }
+
+    It 'throws, naming git, for a directory that is not a repository - never an empty list' {
+        $d = Join-Path ([System.IO.Path]::GetTempPath()) ('plain-' + [guid]::NewGuid().ToString('N'))
+        $script:ConvRepos.Add($d)
+        New-Item -ItemType Directory -Force -Path $d | Out-Null
+        { Find-ProjectConventionFiles -Path $d } | Should -Throw '*git ls-files exited*'
+        $LASTEXITCODE | Should -Be 0
+    }
+
+    It 'throws for a path that does not exist' {
+        { Find-ProjectConventionFiles -Path 'C:\definitely\not\here' } | Should -Throw '*does not exist*'
+    }
+}
+
+Describe 'New-ProjectCriteriaSeed' {
+    BeforeEach {
+        $script:SeedData = Join-Path ([System.IO.Path]::GetTempPath()) ('seed-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Force -Path $script:SeedData | Out-Null
+    }
+    AfterEach {
+        Remove-Item -LiteralPath $script:SeedData -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'writes data\done-<name>.md and indexes it under the project' {
+        New-ProjectCriteriaSeed -Name acme-web -DataPath $script:SeedData `
+            -Content "- Every public function has a test beside it. Check: run the suite."
+        $file = Join-Path $script:SeedData 'done-acme-web.md'
+        Get-Content -LiteralPath $file -Raw | Should -BeLike '*has a test beside it*'
+        Get-Content -LiteralPath (Join-Path $script:SeedData 'index\acme-web.md') -Raw |
+            Should -BeLike '*done-acme-web.md*'
+    }
+
+    It 'writes each approved line as its own line of the file' {
+        $approvedLines = @('- Every public function has a test beside it.', '- The lint check passes.')
+        New-ProjectCriteriaSeed -Name acme-web -DataPath $script:SeedData -Content $approvedLines
+        $lines = @(Get-Content -LiteralPath (Join-Path $script:SeedData 'done-acme-web.md') |
+            Where-Object { $_ -like '- *' })
+        $lines | Should -Be $approvedLines
+    }
+
+    It 'refuses to overwrite an existing criteria file, and leaves it byte-identical' {
+        $file = Join-Path $script:SeedData 'done-acme-web.md'
+        Set-Content -LiteralPath $file -Value '- a criterion earned from a finding'
+        $before = Get-Content -LiteralPath $file -Raw
+        { New-ProjectCriteriaSeed -Name acme-web -DataPath $script:SeedData -Content '- seeded' } |
+            Should -Throw '*already exists*'
+        Get-Content -LiteralPath $file -Raw | Should -Be $before
+    }
+
+    It 'writes nothing when nothing was approved' {
+        { New-ProjectCriteriaSeed -Name acme-web -DataPath $script:SeedData -Content "  `n" } |
+            Should -Throw '*Nothing approved*'
+        Test-Path -LiteralPath (Join-Path $script:SeedData 'done-acme-web.md') | Should -BeFalse
+    }
+
+    # annex calls it with no -DataPath, so the default is the path every real seed takes. The write
+    # is mocked so the test reaches the default without touching the installation's own data\.
+    It 'writes beside the registry when no data directory is named' {
+        Mock -ModuleName Projects Write-DataFile { $script:SeedWrite = $DataPath }
+        $script:SeedWrite = $null
+        New-ProjectCriteriaSeed -Name ('seedtest-' + [guid]::NewGuid().ToString('N')) -Content '- x'
+        $script:SeedWrite | Should -Be (Split-Path -Parent (Get-DefaultRegistryPath))
+    }
+
+    It 'refuses a name that would escape the data directory' {
+        { New-ProjectCriteriaSeed -Name '..\outside' -DataPath $script:SeedData -Content '- x' } |
+            Should -Throw '*cannot name a criteria file*'
+        Test-Path -LiteralPath (Join-Path (Split-Path $script:SeedData -Parent) 'outside.md') | Should -BeFalse
     }
 }

@@ -37,8 +37,10 @@ reads.
 - **Two gates.** You approve what is dispatched, and you approve what lands. Per project, you can
   turn both off.
 - **Per-project delivery posture.** A project is registered `local-only`, `direct-PR` or
-  `no-mistakes`. Nothing is dispatched into a project that is not registered, and posture is read
-  rather than inferred.
+  `no-mistakes` - or `review-only`, where work is reviewed and reported and nothing lands. At
+  registration it can also offer to draft the project's standing criteria from the convention files
+  the repository already tracks, for you to approve line by line. Nothing is dispatched into a
+  project that is not registered, and posture is read rather than inferred.
 - **A durable queue.** Work items, dependencies and held decisions survive a restart, because a
   decision that lives only in the conversation is a decision you will lose.
 - **A session-start digest.** The version you are on, registered projects, live workers, what the

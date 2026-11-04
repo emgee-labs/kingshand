@@ -164,6 +164,17 @@ Describe 'a merge happens only under every floor' {
         ($v.reasons -join ' ') | Should -BeLike '*never relocated*'
     }
 
+    It 'never merges for a review-only project, whichever side names the mode' -ForEach @(
+        @{ projectMode = 'review-only'; taskMode = 'review-only' }
+        @{ projectMode = 'review-only'; taskMode = 'direct-PR' }
+        @{ projectMode = 'direct-PR';   taskMode = 'review-only' }
+    ) {
+        Set-PrReply (New-PrJson -Checks @((New-GreenRun)))
+        $v = Get-Verdict -Project (New-Project -Mode $projectMode) -Mode $taskMode
+        $v.allowed | Should -BeFalse
+        ($v.reasons -join ' ') | Should -BeLike '*review-only project lands nothing*'
+    }
+
     It 'never merges red' {
         Set-PrReply (New-PrJson -Checks @((New-GreenRun), @{ __typename = 'CheckRun'; status = 'COMPLETED'; conclusion = 'FAILURE' }))
         $v = Get-Verdict

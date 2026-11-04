@@ -233,9 +233,9 @@ Describe 'the push-capable set is stated consistently' {
             -Phrase 'a push-capable mode requiring an `origin` remote'
     }
 
-    It 'local-only is never counted as push-capable' {
+    It 'local-only and review-only are never counted as push-capable' {
         Assert-Phrase -Text (Get-MusterStep 'Step 8 - Land') -Where 'muster Step 8' `
-            -Phrase ("Never for ``local-only``, whose brief forbids it outright, and never " +
+            -Phrase ("Never for ``local-only`` or ``review-only``, whose briefs forbid it outright, and never " +
                      "for a project that is not registered at all")
     }
 }
@@ -309,7 +309,7 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
 
     It 'it is stated as neither a mode nor a posture' {
         Assert-Phrase -Text (Get-MusterStep 'Step 7 - Gate two') -Where 'the landing gate' `
-            -Phrase '**It is not a mode and not a fourth posture.**'
+            -Phrase '**It is not a mode and not a posture of its own.**'
     }
 
     # The permission answers who may merge. What may be merged is unchanged, and a floor quietly
@@ -668,8 +668,8 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
     It 'the import skill does not offer merge on a posture that cannot carry it' {
         $doc = Get-DocText $script:ImportMd
         Assert-Phrase -Text $doc -Where 'the import skill' `
-            -Phrase ('**It belongs to the push-capable postures only, and `local-only` cannot ' +
-                     'carry it.**')
+            -Phrase ('**It belongs to the push-capable postures only, and neither `local-only` ' +
+                     'nor `review-only` can carry it.**')
         Assert-Phrase -Text $doc -Where 'the import skill' `
             -Phrase '`-Merge` is available on the push-capable modes only'
     }
@@ -757,8 +757,8 @@ Describe 'with yolo off, nothing goes to a server until the user says so' {
     It 'local-only is named as needing nothing, scoped to its delivery' {
         Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
             -Where 'muster Step 2' `
-            -Phrase ('**`local-only` is untouched**: no Done-means block above changes, because ' +
-                     'none of them pushes or opens a pull request')
+            -Phrase ('**`local-only` and `review-only` are untouched**: no Done-means block above ' +
+                     'changes, because neither pushes or opens a pull request')
         Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
             -Where 'muster Step 2' `
             -Phrase ('a comment or a work item on a `local-only` project is gated by rule 2 like ' +
@@ -1628,7 +1628,7 @@ Describe 'the ported reference skills are loadable and keep their load-bearing r
 
     It 'petition scopes itself to the no-mistakes gate and nothing wider' {
         Assert-Phrase -Text (Get-DocText $script:AskUserMd) -Where 'petition' `
-            -Phrase ('A project registered `local-only` or `direct-PR` has no review gate, so it ' +
+            -Phrase ('A project registered `local-only`, `direct-PR` or `review-only` has no review gate, so it ' +
                      'never produces an ask-user finding')
     }
 
@@ -5628,7 +5628,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                 -Phrase ('**Where the task resolves to `no-mistakes`, and only there, write the ' +
                          'no-gate marker.**')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase ('**On a task resolved to `direct-PR` or to `local-only`, write no marker at ' +
+                -Phrase ('**On a task resolved to `direct-PR`, `local-only` or `review-only`, write no marker at ' +
                          'all**: those modes run no review gate in normal mode either, so parley ' +
                          'subtracted nothing and a `+merge` the King granted stands exactly as he ' +
                          'granted it.')
@@ -5716,7 +5716,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                          'whatever `+merge` declares** - a gate that would have run did not, so ' +
                          'nothing has established that the run is safe to merge.')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
-                -Phrase ('a dispatch resolved to `direct-PR` or `local-only` carries none, gave up ' +
+                -Phrase ('a dispatch resolved to `direct-PR`, `local-only` or `review-only` carries none, gave up ' +
                          'nothing, and merges exactly as it would outside parley')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase '`muster` Step 7 owns the refusal and states it in full'
@@ -6200,7 +6200,7 @@ Describe 'the review gate is never promised a check that cannot come' {
         Assert-Phrase -Text (Get-MusterRegion -FromHeading 'Step 2 -' -ToHeading 'The review surface') `
             -Where 'muster Step 2' `
             -Phrase ('**The Done-means block is generated from the resolved mode.** Use exactly one ' +
-                     'of these five - and for a `no-mistakes` task, which of the three ' +
+                     'of these six - and for a `no-mistakes` task, which of the three ' +
                      '`no-mistakes` blocks is chosen by Step 1b''s answer, not by memory')
     }
 
@@ -7353,7 +7353,7 @@ Describe 'a project has a standing definition of done, and repeated findings are
     # produce gateless runs the registry alone does not account for.
     It 'the fold-back says it does not fire where there is no gate' {
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
-            -Phrase ('On a `local-only` or `direct-PR` project - including a ' +
+            -Phrase ('On a `local-only`, `direct-PR` or `review-only` project - including a ' +
                      '`no-mistakes-prod-only` project whose task resolved to `direct-PR` - there ' +
                      'is no gate and no round to compare against, so this loop does not fire, and ' +
                      'a report with no rounds in it is the record that brief asked for rather than ' +
@@ -10699,7 +10699,9 @@ Describe 'night''s watch is regency plus queue-working, and merges only under +w
         foreach ($f in @('never merge red;', 'green at the live head, and the merge bound to that head;',
                          'never merge work that materially expands its brief;',
                          'never anything destructive or security-sensitive;',
-                         'a `local-only` landing is never relocated', 'every existing Step 7 floor.')) {
+                         'a `local-only` landing is never relocated',
+                         'a `review-only` project lands nothing - its report is the delivery, and nothing is merged;',
+                         'every existing Step 7 floor.')) {
             $script:Nw.Contains($f) | Should -BeTrue -Because "the floor '$f' must stay in the skill"
         }
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
@@ -10988,6 +10990,123 @@ Describe 'deleting files under data has one owner, and it is not chronicle' {
         Assert-Phrase -Text (Get-DocText $script:ChronicleMd) -Where 'the chronicle skill' `
             -Phrase ('**This pass never deletes a file under `data\`.** Deleting files is ' +
                      '`bin\DataTidy.psm1`''s, run only when the Hand runs it')
+    }
+}
+
+# review-only: the posture that lands nothing, and the criteria seed annex offers at import. The
+# posture is enforced in code by Projects.psm1 and NightsWatch.psm1, whose own tests force it; these
+# pin the prose a reader obeys, and keep every list of the modes in step with the one the code takes.
+Describe 'review-only lands nothing, and annex offers a criteria seed' {
+    BeforeAll {
+        Import-Module (Join-Path $script:Root 'bin\Projects.psm1')
+        $script:Modes = @(Get-ProjectModes)
+
+        function Get-ImportStep {
+            param([Parameter(Mandatory)][string]$Heading)
+            $parts = (Get-Content -Path $script:ImportMd -Raw) -split '(?m)^## '
+            $hit   = @($parts | Where-Object { $_.StartsWith($Heading) })
+            if ($hit.Count -ne 1) { throw "Expected exactly one '## $Heading' section, found $($hit.Count)." }
+            ConvertTo-NormalisedText $hit[0]
+        }
+    }
+
+    It 'annex describes every mode the registry accepts, and counts them right' {
+        $step  = Get-ImportStep 'Step 2 - Propose the posture'
+        $words = @{ 4 = 'four'; 5 = 'five'; 6 = 'six'; 7 = 'seven' }
+        Assert-Phrase -Text $step -Where 'annex Step 2' -Phrase "The $($words[$script:Modes.Count]) modes:"
+        foreach ($m in $script:Modes) {
+            Assert-Phrase -Text $step -Where 'annex Step 2' -Phrase "- ``$m`` - "
+        }
+    }
+
+    It 'muster routes every mode the registry accepts at Step 7' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        foreach ($m in $script:Modes) {
+            Assert-Phrase -Text $step -Where 'the Step 7 routing table' -Phrase "| ``$m`` |"
+        }
+    }
+
+    It 'annex states what review-only is' {
+        Assert-Phrase -Text (Get-ImportStep 'Step 2 - Propose the posture') -Where 'annex Step 2' `
+            -Phrase ('- `review-only` - **review and report, land nothing.** The worker reviews in its ' +
+                     'isolated copy and writes what it found; nothing is committed to a branch that ' +
+                     'lands, nothing is pushed, and no pull request, comment or work item is raised.')
+        Assert-Phrase -Text (Get-ImportStep 'Step 2 - Propose the posture') -Where 'annex Step 2' `
+            -Phrase 'It is never proposed by default'
+    }
+
+    It 'the review-only Done-means block forbids every way out' {
+        $fences = @(Get-CodeFence $script:MusterMd | Where-Object { $_.Contains('Review what this brief asks you to review') })
+        $fences.Count | Should -Be 1
+        $block = ConvertTo-NormalisedText $fences[0]
+        $block.Contains('do not commit, do not push, do not open a pull request, do not comment anywhere, ' +
+                        'and do not create or update a work item') |
+            Should -BeTrue -Because 'the review-only block carries the whole prohibition'
+        $block.Contains('Leave the worktree as you found it.') |
+            Should -BeTrue -Because 'a copy left holding a change is kept at cleanup'
+        Assert-Phrase -Text (Get-DocText $script:MusterMd) -Where 'the muster skill' `
+            -Phrase ('nor any of the `review-only` variant''s prohibitions - no commit, no push, no pull ' +
+                     'request, no comment, no work item')
+    }
+
+    It 'Step 7 says what a review-only delivery is and where it ends' {
+        $step = Get-MusterStep 'Step 7 - Gate two'
+        Assert-Phrase -Text $step -Where 'muster Step 7' `
+            -Phrase '**`review-only` work is delivered when its report is read, and that is the whole of it.**'
+        Assert-Phrase -Text $step -Where 'muster Step 7' `
+            -Phrase '| `review-only` | **nothing lands** - skip Step 8 and Step 8a'
+        Assert-Phrase -Text $step -Where 'muster Step 7' `
+            -Phrase 'a review-only copy holding a change is a worker that broke its brief - read it, never force past it'
+    }
+
+    It 'a fief session on a review-only project commits, pushes and raises nothing' {
+        $fief = Get-DocText (Join-Path $script:Root '.claude\skills\fief\SKILL.md')
+        Assert-Phrase -Text $fief -Where 'fief Delivery' `
+            -Phrase '**A project registered `review-only` gets no commit, no push and no pull request.**'
+        Assert-Phrase -Text $fief -Where 'fief Delivery' `
+            -Phrase ('On any of those three words, say in one line that the project is registered ' +
+                     'review-only, and do nothing - prompt the worker for nothing.')
+        Assert-Phrase -Text $fief -Where 'fief enforcement list' -Phrase '**The review-only refusal** is obeyed by the Hand'
+    }
+
+    It 'CLAUDE.md rule 2 says review-only lands nothing' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md rule 2' `
+            -Phrase '`review-only` lands nothing at all - its delivery is the worker''s report.'
+    }
+
+    It 'annex offers the seed, and only where there is something to seed from' {
+        $step = Get-ImportStep 'Step 4d - Offer to seed the standing criteria'
+        Assert-Phrase -Text $step -Where 'annex Step 4d' `
+            -Phrase ('**So at import, offer to draft `data\done-<name>.md` from the convention files ' +
+                     'the repository tracks.**')
+        Assert-Phrase -Text $step -Where 'annex Step 4d' `
+            -Phrase ('**No files back, or `data\done-<name>.md` already exists - say nothing and offer ' +
+                     'nothing.**')
+        Assert-Phrase -Text $step -Where 'annex Step 4d' `
+            -Phrase '**A throw is a reason to report, not an empty list.**'
+    }
+
+    It 'the seed quotes the files and the King approves it line by line' {
+        $step = Get-ImportStep 'Step 4d - Offer to seed the standing criteria'
+        Assert-Phrase -Text $step -Where 'annex Step 4d' `
+            -Phrase '**On a yes, the draft is a list of quotes, never a set of derived rules.**'
+        Assert-Phrase -Text $step -Where 'annex Step 4d' `
+            -Phrase ('**render the draft with one item per proposed line, so the King approves or ' +
+                     'drops each one on its own**')
+        Assert-Phrase -Text $step -Where 'annex Step 4d' `
+            -Phrase 'Write only the lines he approved, through the one call that refuses to replace an existing file'
+        Assert-Phrase -Text $step -Where 'annex Step 4d' `
+            -Phrase 'never open the source to judge whether a convention holds'
+        Assert-Phrase -Text $step -Where 'annex Step 4d' `
+            -Phrase '**A seed is a starting point, not a finished file.**'
+    }
+
+    It 'the seed is listed and written through the module, never by hand' {
+        $fences = @(Get-CodeFence $script:ImportMd)
+        @($fences | Where-Object { $_.Contains('Find-ProjectConventionFiles -Path $path') }).Count |
+            Should -Be 1
+        @($fences | Where-Object { $_.Contains('New-ProjectCriteriaSeed -Name "<name>"') }).Count |
+            Should -Be 1
     }
 }
 

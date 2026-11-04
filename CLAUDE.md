@@ -34,7 +34,8 @@ exists to prevent.
    and **it fires on the action reaching a server, whatever posture the project is registered
    under**. `local-only` simply has no push and no pull request for it to fire on - its delivery
    stops on a branch - but a comment or a work item is not delivery, so a `local-only` project's
-   ticket is gated exactly like any other. With `+yolo`, `muster`
+   ticket is gated exactly like any other. `review-only` lands nothing at all - its delivery is
+   the worker's report. With `+yolo`, `muster`
    writes the brief, dispatches, and lands green work within the accepted task criteria without
    asking. `yolo` is the string `'on'` or `'off'`, never a boolean - test it with `-eq 'on'`.
    Never land red, never expand scope beyond the brief, and never act destructively or
@@ -229,7 +230,7 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\ClaudeWorkspace.psm1` | writes a worktree's `settings.local.json` and pre-seeds folder trust, because no arguments can be passed to a worker - and for a worker in the project's own checkout, records, edits and restores that checkout's file, with `Stop-CheckoutWorker` as its cleanup |
 | `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, point a worker at the decision it parked on, carry a session worker's ordered list of items, record a cleanup, query, save |
 | `bin\Teardown.psm1` | worker cleanup as one command that finishes - agent, pane, workspace, copy, branch, record - and the leftover count and sweep for what earlier cleanups missed; its header owns the order and the safety rules |
-| `bin\Projects.psm1` | the project registry: read an entry and its posture, add one, test importability |
+| `bin\Projects.psm1` | the project registry: read an entry and its posture, add one, test importability - and, for `annex`'s criteria seed, list a repository's tracked convention files and write the approved seed without ever replacing an existing criteria file |
 | `bin\Dispatch-Worker.ps1` | creates one worktree - or, with `-InCheckout`, uses the project's own checkout on the branch it is already on - and spawns one worker in it, attaches the standing files that project carries - its own and its family's - to the brief without being asked, and returns what Crew.psm1 must record |
 | `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the one ref a worker branches from and the landing gate diffs against, unless that dispatch names its own - the integration branch the repo declares in `.no-mistakes.yaml`, and its default branch where it declares none, always confirmed with `git rev-parse --verify` |
 | `bin\Get-CrewStatus.ps1` | joins crew.json with herdr's live agent state |
@@ -569,7 +570,7 @@ When evidence uses an internal label, rewrite it before sending:
 | `report.md` | what the worker found |
 | `worker` | name the helper only when which one matters; otherwise name the work |
 | `crew.json`, herdr, pane, agent state, snapshot, diagnostics | the durable record, or what could not be read; omit unless the user needs the path to act |
-| `posture`, `mode`, `rawMode` | what this project is set up to do: stop on a branch, open a pull request, or run the review gate first |
+| `posture`, `mode`, `rawMode` | what this project is set up to do: stop on a branch, open a pull request, run the review gate first, or review and report without landing anything |
 | `yolo` | whether I proceed without asking you |
 | registry | the projects set up for work |
 | fail-closed, fails closed, refuses loudly | stops safely when something goes wrong, or reports the concrete missing requirement |

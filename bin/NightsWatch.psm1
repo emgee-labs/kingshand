@@ -228,10 +228,11 @@ function Get-WatchCheckVerdict {
 # Whether night's watch may merge one pull request NOW, and the head the merge must be bound to.
 #
 # Every floor that can be checked mechanically is checked here, and every one refuses on its own:
-# the project's own +watch-merge, this run not having turned merging off, never local-only, the
-# parley marker absent from both files, the pull request open and not a draft, a review gate that
-# completed where the task resolved to it, and every check green at the live head - with no checks
-# at all counting as green only where the repository's CI answer is the settled `no-ci`.
+# the project's own +watch-merge, this run not having turned merging off, never local-only or
+# review-only, the parley marker absent from both files, the pull request open and not a draft, a
+# review gate that completed where the task resolved to it, and every check green at the live head -
+# with no checks at all counting as green only where the repository's CI answer is the settled
+# `no-ci`.
 #
 # Two floors are NOT here and cannot be: whether the work materially expands its brief, and whether
 # it is destructive or security-sensitive. Those are judged by the Hand against the brief before it
@@ -249,7 +250,7 @@ function Get-WatchMergeVerdict {
         [Parameter(Mandatory)][string]$BriefPath,
         [Parameter(Mandatory)][string]$ReportPath,
         # The task's resolved mode, from muster Step 1.
-        [Parameter(Mandatory)][ValidateSet('no-mistakes', 'direct-PR', 'local-only')][string]$Mode,
+        [Parameter(Mandatory)][ValidateSet('no-mistakes', 'direct-PR', 'local-only', 'review-only')][string]$Mode,
         # What the review gate did: completed every step through pr with a clean attribution scan,
         # stopped short of that, or was never run for this mode.
         [Parameter(Mandatory)][ValidateSet('complete', 'incomplete', 'not-run')][string]$GateOutcome,
@@ -268,6 +269,9 @@ function Get-WatchMergeVerdict {
     if ("$($Options.merge)" -ne 'on') { $reasons.Add('Merging was turned off for this run.') }
     if ($Mode -eq 'local-only' -or "$($Project.mode)" -eq 'local-only') {
         $reasons.Add('A local-only project lands on its branch and is never relocated to a forge merge.')
+    }
+    if ($Mode -eq 'review-only' -or "$($Project.mode)" -eq 'review-only') {
+        $reasons.Add('A review-only project lands nothing - its report is the whole delivery.')
     }
     if ($Mode -eq 'no-mistakes' -and $GateOutcome -ne 'complete') {
         $reasons.Add('The review gate did not complete every step through pr with a clean attribution scan.')
