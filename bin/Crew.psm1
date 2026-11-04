@@ -116,8 +116,12 @@ function Add-CrewWorker {
     if ($Kind -notin $script:ValidKinds) {
         throw "Invalid kind '$Kind'. Must be one of: $($script:ValidKinds -join ', ')"
     }
+    # A second dispatch under an id already recorded is a re-dispatch, and Set-CrewRelaunch owns
+    # how one is recorded - so the refusal names it rather than leaving the Hand at a dead end.
     if ($State.workers.ContainsKey($WorkerId)) {
-        throw "Duplicate worker id '$WorkerId'."
+        throw ("Duplicate worker id '$WorkerId'. It is already recorded, so this is a re-dispatch: " +
+               "re-record it with Set-CrewRelaunch, passing -BranchCut from the dispatch result's " +
+               "branchCut, which keeps the recorded base unless that dispatch cut a new branch.")
     }
     if ($InCheckout -and -not $SettingsRecord.Trim()) {
         throw ("A checkout worker needs -SettingsRecord - the record Dispatch-Worker returned as " +
@@ -235,10 +239,20 @@ function Get-CrewItems {
     , @($out)
 }
 
-# Re-records an existing worker after a relaunch: where it now runs, on which branch, from which
-# base, and the new permission-file record for a checkout worker. Its items, its waiting_on and
-# everything else it carried are kept - a relaunch is the same work, and Add-CrewWorker would refuse
-# the id as a duplicate.
+# Re-records an existing worker after a relaunch or any other re-dispatch under the same id: where
+# it now runs, on which branch, in which pane, and the new permission-file record for a checkout
+# worker. Its items, its waiting_on and everything else it carried are kept - a re-dispatch is the
+# same work, and Add-CrewWorker refuses the id as a duplicate and points here.
+#
+# THE RECORDED BASE MUST STAY THE REF THE BRANCH WAS CUT FROM, because the landing gate diffs
+# against it. Dispatch-Worker resolves a base on every dispatch, but cuts a branch from it only when
+# the branch does not exist yet; a re-dispatch that finds the branch - its worktree still registered,
+# or the branch outliving it - checks it out where the earlier dispatch cut it. So the recorded base
+# is replaced only when -BranchCut says this dispatch cut the branch, and then by the -Base it was
+# cut from. Otherwise it is kept, and any -Base passed is not recorded: it was resolved fresh and
+# the branch was not cut from it, so recording it would let the landing diff carry commits nobody
+# in this work wrote. Keeping is the default because a relaunch reuses its branch, so a caller that
+# says nothing gets the true answer.
 function Set-CrewRelaunch {
     [CmdletBinding()]
     param(
@@ -246,8 +260,14 @@ function Set-CrewRelaunch {
         [Parameter(Mandatory)][string]$WorkerId,
         [Parameter(Mandatory)][string]$Worktree,
         [Parameter(Mandatory)][string]$Branch,
-        [Parameter(Mandatory)][string]$Base,
-        [string]$SettingsRecord = ''
+        # The ref the branch was cut from. Recorded only with -BranchCut $true, which requires it.
+        [string]$Base = '',
+        # Dispatch-Worker's branchCut: whether that dispatch cut the branch from -Base.
+        [bool]$BranchCut = $false,
+        [string]$SettingsRecord = '',
+        # The pane the re-dispatch started the worker in, as Dispatch-Worker returned it. Left off,
+        # the pane already recorded is kept.
+        [string]$PaneId = ''
     )
 
     if (-not $State.workers.ContainsKey($WorkerId)) { throw "Worker '$WorkerId' not found." }
@@ -260,13 +280,19 @@ function Set-CrewRelaunch {
     if ($SettingsRecord.Trim() -and -not $checkout) {
         throw "Worker '$WorkerId' is not a checkout worker, so -SettingsRecord has nothing to replace."
     }
+    if ($BranchCut -and -not $Base.Trim()) {
+        throw ("-BranchCut says this dispatch cut a new branch for worker '$WorkerId', so it needs " +
+               "-Base - the ref the branch was cut from, the dispatch result's base. Nothing was " +
+               "changed.")
+    }
 
     $rec.worktree      = $Worktree
     $rec.branch        = $Branch
-    $rec.base          = $Base
+    if ($BranchCut) { $rec.base = $Base.Trim() }
     $rec.stage         = 'dispatched'
     $rec.dispatched_at = (Get-Date).ToUniversalTime().ToString('o')
     if ($checkout) { $rec.settings_record = $SettingsRecord.Trim() }
+    if ($PaneId.Trim()) { $rec.pane_id = $PaneId.Trim() }
 }
 
 function Set-CrewWaitingOn {

@@ -436,15 +436,33 @@ Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
 
         $warnings = @()
         $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
-        ($warnings -join ' ') | Should -BeLike '*never-fetched*'
-        ($warnings -join ' ') | Should -BeLike '*origin/main*'
+        $text = $warnings -join ' '
+        $text | Should -BeLike '*declares never-fetched in pr.base_branch*'
+        $text | Should -BeLike '*neither origin/never-fetched nor never-fetched resolves here*'
+        $text | Should -BeLike '*based on origin/main instead*'
         # This repo has an origin, so fetching is a real possibility - the remoteless case below
-        # is the one where that advice would be wrong outright. It is offered as one of two
-        # states rather than asserted, because origin may have no such branch either and nothing
-        # short of a network round trip can tell which this is.
-        ($warnings -join ' ') | Should -BeLike '*Fetch never-fetched*'
-        ($warnings -join ' ') | Should -BeLike '*if origin has it*'
-        ($warnings -join ' ') | Should -BeLike '*If origin has no never-fetched either*'
+        # is the one where that advice would be wrong outright. Whether origin has the branch is
+        # never asked, so the action names both answers rather than asserting one.
+        $text | Should -BeLike '*fetch never-fetched if origin has it, create it if not*'
+        $text | Should -BeLike '*Check what its pull request targets before it lands*'
+    }
+
+    # What the warning used to say and could not know: whether origin has the branch, and what the
+    # landing diff will carry. It also told the reader to fetch before landing, which moves nothing -
+    # the worktree is already cut, so a fetch can only help the next dispatch.
+    It 'claims nothing about refs it never looked up, and aims its fix at the next dispatch' {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: never-fetched"
+
+        $warnings = @()
+        $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        $text = $warnings -join ' '
+        $text | Should -BeLike '*Before the next dispatch into this repository*'
+        $text | Should -Not -BeLike '*before landing*'
+        $text | Should -Not -BeLike '*landing diff measures*'
+        $text | Should -Not -BeLike '*still proposed against*'
+        $text | Should -Not -BeLike '*If origin has no never-fetched either*'
     }
 
     # The fetch advice is the only actionable sentence in that warning, and on a repository with
@@ -459,10 +477,10 @@ Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
         $base = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
         $base | Should -Be 'main'
         $text = $warnings -join ' '
-        $text | Should -BeLike '*no never-created branch exists here*'
-        $text | Should -BeLike '*no origin to fetch one from*'
-        $text | Should -BeLike '*Create never-created*'
-        $text | Should -Not -BeLike '*Fetch never-created*'
+        $text | Should -BeLike '*no never-created branch resolves here and there is no origin*'
+        $text | Should -BeLike '*based on main instead*'
+        $text | Should -BeLike '*Create never-created, or correct pr.base_branch*'
+        $text | Should -Not -BeLike '*fetch never-created*'
         $text | Should -Not -BeLike '*pull request*'
     }
 
@@ -495,13 +513,30 @@ Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
         $warnings = @()
         $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
         $text = $warnings -join ' '
-        $text | Should -BeLike '*worktree-other*'
-        $text | Should -BeLike '*worker branch*'
-        $text | Should -Not -BeLike '*neither origin/worktree-other nor worktree-other resolves*'
-        $text | Should -Not -BeLike '*Fetch worktree-other*'
+        $text | Should -BeLike '*declares worktree-other in pr.base_branch*'
         $text | Should -BeLike '*refused on its name alone*'
-        $text | Should -Not -BeLike '*It resolves fine*'
-        $text | Should -Not -BeLike '*it belongs to another worker*'
+        $text | Should -BeLike '*a worktree-`* name is never used as a base*'
+        $text | Should -BeLike '*based on origin/main instead*'
+        $text | Should -BeLike '*correct pr.base_branch*'
+        $text | Should -Not -BeLike '*neither origin/worktree-other nor worktree-other resolves*'
+        $text | Should -Not -BeLike '*fetch worktree-other*'
+    }
+
+    # The refusal is decided on the name, so the warning is word for word the same whether the
+    # branch exists or not - and every sentence it used to carry about the ref itself was a guess:
+    # that it resolves, that it belongs to another worker, what basing on it would measure, that
+    # fetching or creating it changes nothing.
+    It 'says nothing about whether a refused worker branch exists or whose it is' {
+        $repo = New-DeclaredWorkerBranchRepo
+
+        $warnings = @()
+        $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        $text = $warnings -join ' '
+        foreach ($claim in @('*resolves*', '*another worker*', '*unlanded work*',
+                             '*whether or not it resolves*', '*fetching nor creating*',
+                             '*still proposed against*')) {
+            $text | Should -Not -BeLike $claim
+        }
     }
 
     # `$declaredIsWorker` is decided on the NAME, so this warning fires whether or not the declared
@@ -521,8 +556,15 @@ Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
         $text = $warnings -join ' '
         $text | Should -BeLike '*worktree-ghost*'
         $text | Should -BeLike '*refused on its name alone*'
-        $text | Should -Not -BeLike '*It resolves fine*'
-        $text | Should -Not -BeLike '*it belongs to another worker*'
+        $text | Should -Not -BeLike '*resolves*'
+        $text | Should -Not -BeLike '*another worker*'
+
+        # Word for word what a worker branch that does exist gets, with only the repo and name changed.
+        $liveRepo = New-DeclaredWorkerBranchRepo
+        $live = @()
+        $null = Resolve-BaseRef -RepoPath $liveRepo -WarningVariable live -WarningAction SilentlyContinue
+        $liveText = (($live -join ' ').Replace($liveRepo, 'REPO')).Replace('worktree-other', 'W')
+        ($text.Replace($repo, 'REPO')).Replace('worktree-ghost', 'W') | Should -Be $liveText
     }
 
     It 'says the same thing in the refusal when a declared worker branch is all there is' {
@@ -567,8 +609,15 @@ Describe 'Resolve-BaseRef - the declared branch honoured only as a local ref' {
         $base = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
         # The declaration is still honoured - this is a caution, not a refusal.
         $base | Should -Be 'dev'
-        ($warnings -join ' ') | Should -BeLike '*origin/dev*'
-        ($warnings -join ' ') | Should -BeLike '*Fetch dev*'
+        $text = $warnings -join ' '
+        $text | Should -BeLike '*origin/dev does not resolve here*'
+        $text | Should -BeLike '*based on the local dev*'
+        $text | Should -BeLike '*fetch dev if origin has it*'
+        # How far behind the local copy is, and what that would put in a landing diff, are both
+        # questions about origin this never asked.
+        $text | Should -Not -BeLike '*upstream commit*'
+        $text | Should -Not -BeLike '*attributed*'
+        $text | Should -Not -BeLike '*before landing*'
     }
 
     # Fetching only closes the gap when origin actually has the branch. This fixture is the other
@@ -588,8 +637,7 @@ Describe 'Resolve-BaseRef - the declared branch honoured only as a local ref' {
         $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
         $text = $warnings -join ' '
         $text | Should -BeLike '*if origin has it*'
-        $text | Should -BeLike '*fetching cannot work*'
-        $text | Should -BeLike '*push the branch*'
+        $text | Should -BeLike '*if not, push it or correct pr.base_branch*'
     }
 
     It 'stays quiet on a remoteless repo, where the local ref is the only ref there is' {
@@ -693,6 +741,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         # fixture's data root - the live $env:KINGSHAND_HOME\data\ is never read or written here.
         Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Index.psm1')    -Force
         Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Projects.psm1') -Force
+        # How muster Step 4 records a dispatch, so a re-dispatch's record is checked end to end.
+        Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Crew.psm1')     -Force
 
         $script:DispatchScript = "$PSScriptRoot\..\bin\Dispatch-Worker.ps1"
         $script:ProcedureFile  = (Resolve-Path (Join-Path (Split-Path $PSScriptRoot -Parent) `
@@ -1091,9 +1141,16 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         # "could not look" are different answers and only one means the worker is healthy.
         # `startPrompt` is what the start-prompt confirmation saw, `taken` on the ordinary path.
         # `paneId` is the fifth crew.json field: cleanup closes that pane after the worker exits.
-        It 'returns the five fields crew.json is built from, plus the readability and start answers' {
+        # `branchCut` says whether `base` is where this dispatch cut the branch, which decides
+        # whether a re-dispatch's record keeps its earlier base.
+        It 'returns the five fields crew.json is built from, plus the branch, readability and start answers' {
             @($script:FirstResult.Keys | Sort-Object) |
-                Should -Be @('base', 'branch', 'id', 'paneId', 'readable', 'startPrompt', 'worktree')
+                Should -Be @('base', 'branch', 'branchCut', 'id', 'paneId', 'readable', 'startPrompt',
+                             'worktree')
+        }
+
+        It 'says a first dispatch cut its branch from the base it returns' {
+            $script:FirstResult.branchCut | Should -BeTrue
         }
 
         It 'returns the pane it created, so the record can close it after the worker has exited' {
@@ -1688,6 +1745,26 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         }
     }
 
+    # The warning the Hand relays is the one dispatch prints, so it is read here through the script
+    # muster calls rather than only through the resolver it dot-sources.
+    Context 'a declared branch it cannot honour' {
+        It 'warns with the declared name, the base used and what to do, and nothing more' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'declared-missing'
+            Set-DeclaredBranch -RepoPath $f.Repo -Yaml "pr:`n  base_branch: never-created"
+
+            $warnings = @()
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-2010' -BriefPath $f.BriefPath `
+                    -DataPath $f.DataPath -WarningVariable warnings -WarningAction SilentlyContinue
+            $r.base | Should -Be 'main'
+            $text = $warnings -join ' '
+            $text | Should -BeLike '*declares never-created in pr.base_branch of .no-mistakes.yaml*'
+            $text | Should -BeLike '*so this worker is based on main instead*'
+            $text | Should -BeLike '*Create never-created, or correct pr.base_branch*'
+            $text | Should -Not -BeLike '*exists here*'
+        }
+    }
+
     Context 're-dispatching the same ticket' {
         # `git worktree add -b` cannot be told twice, and a raw "fatal: a branch named
         # worktree-T-2001 already exists" is not something the Hand can route on. Sending a worker
@@ -1716,6 +1793,63 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             $two = Invoke-Dispatch -Fixture $f -Name 'T-2002'
             (& git -C $two.worktree rev-parse --abbrev-ref HEAD).Trim() | Should -Be 'worktree-T-2002'
+            $two.branchCut | Should -BeFalse -Because 'the branch was checked out, not cut again'
+        }
+
+        It 'says it did not cut the branch when it reused the registered checkout' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'again-cut'
+            $null = Invoke-Dispatch -Fixture $f -Name 'T-2005'
+            (Invoke-Dispatch -Fixture $f -Name 'T-2005').branchCut | Should -BeFalse
+        }
+
+        # THE RECORD STAYS ON THE REAL BRANCH POINT. The repository moves between the two dispatches -
+        # it declares an integration branch - so the second one resolves `dev` while the branch it
+        # finds was cut from `main`. Recorded the way muster Step 4 records a re-dispatch, the base
+        # stays `main`, which is where the branch really starts.
+        It 'keeps the first base in the record when the repository moved between dispatches' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'moved-base'
+            $one = Invoke-Dispatch -Fixture $f -Name 'T-2006'
+            $one.base | Should -Be 'main'
+            $s = New-CrewState
+            Add-CrewWorker -State $s -WorkerId $one.id -Ticket 'T-2006' -Kind 'ticket' -Repo 'r' `
+                           -Worktree $one.worktree -Branch $one.branch -Base $one.base `
+                           -PaneId $one.paneId -Brief $f.BriefPath
+
+            git -C $f.Repo branch dev
+            Set-DeclaredBranch -RepoPath $f.Repo -Yaml "pr:`n  base_branch: dev"
+            $two = Invoke-Dispatch -Fixture $f -Name 'T-2006'
+            $two.base | Should -Be 'dev' -Because 'the base is resolved fresh on every dispatch'
+
+            { Add-CrewWorker -State $s -WorkerId $two.id -Ticket 'T-2006' -Kind 'ticket' -Repo 'r' `
+                             -Worktree $two.worktree -Branch $two.branch -Base $two.base `
+                             -Brief $f.BriefPath } | Should -Throw '*Set-CrewRelaunch*'
+            Set-CrewRelaunch -State $s -WorkerId $two.id -Worktree $two.worktree -Branch $two.branch `
+                             -Base $two.base -BranchCut $two.branchCut -PaneId $two.paneId
+            $s.workers['T-2006'].base | Should -Be 'main'
+        }
+
+        # The other side: the branch is gone, so this dispatch cuts a new one from the fresh base,
+        # and the record has to move with it.
+        It 'records the fresh base when the branch was gone and had to be cut again' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'recut-base'
+            $one = Invoke-Dispatch -Fixture $f -Name 'T-2007'
+            $s = New-CrewState
+            Add-CrewWorker -State $s -WorkerId $one.id -Ticket 'T-2007' -Kind 'ticket' -Repo 'r' `
+                           -Worktree $one.worktree -Branch $one.branch -Base $one.base `
+                           -Brief $f.BriefPath
+            & git -C $f.Repo worktree remove --force $one.worktree 2>&1 | Out-Null
+            & git -C $f.Repo branch -D $one.branch 2>&1 | Out-Null
+
+            git -C $f.Repo branch dev
+            Set-DeclaredBranch -RepoPath $f.Repo -Yaml "pr:`n  base_branch: dev"
+            $two = Invoke-Dispatch -Fixture $f -Name 'T-2007'
+            $two.branchCut | Should -BeTrue
+            Set-CrewRelaunch -State $s -WorkerId $two.id -Worktree $two.worktree -Branch $two.branch `
+                             -Base $two.base -BranchCut $two.branchCut -PaneId $two.paneId
+            $s.workers['T-2007'].base | Should -Be 'dev'
         }
 
         # A directory deleted by hand leaves a record under .git\worktrees, and `git worktree add`
