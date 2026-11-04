@@ -215,8 +215,19 @@ function Read-TeardownHerdrList {
     }
 }
 
+# The live agents cleanup acts on, in Read-TeardownHerdrList's shape. Read through
+# Get-HerdrLiveness, whose header owns which answers mean none; unknown is a failed read carrying
+# its evidence, so step 1 keeps the copy rather than finding nobody to stop.
+function Read-TeardownAgents {
+    try { $l = Get-HerdrLiveness } catch {
+        return [pscustomobject]@{ ok = $false; agents = @(); error = $_.Exception.Message }
+    }
+    if ($l.state -eq 'unknown') { return [pscustomobject]@{ ok = $false; agents = @(); error = $l.evidence } }
+    [pscustomobject]@{ ok = $true; agents = @($l.workers); error = '' }
+}
+
 function Read-TeardownHerdr {
-    $agents = Read-TeardownHerdrList { Get-HerdrAgentInventory } 'agents'
+    $agents = Read-TeardownAgents
     $panes  = Read-TeardownHerdrList { Get-HerdrPaneInventory } 'panes'
     $spaces = Read-TeardownHerdrList { Get-HerdrWorkspaceInventory } 'workspaces'
     $err = @(@($agents, $panes, $spaces) | Where-Object { -not $_.ok } | ForEach-Object { $_.error })
@@ -1063,7 +1074,7 @@ function Suspend-Worker {
     }
 
     # stop
-    $agents = Read-TeardownHerdrList { Get-HerdrAgentInventory } 'agents'
+    $agents = Read-TeardownAgents
     if (-not $agents.ok) { return & $stopAt 'stop' "herdr could not be read, so the worker was not stopped - $($agents.error)" }
     $mine = @($agents.agents | Where-Object { Test-TeardownPathWithin "$(Get-TeardownField $_ 'cwd')" $copy })
     $out.stoppedBy = 'not-running'
@@ -1105,7 +1116,7 @@ function Suspend-Worker {
             return & $stopAt 'stop' "worker $name sits on a dialog and herdr named no pane for it, so it was left running - load rally"
         }
         Remove-HerdrPane -PaneId $pane
-        $again = Read-TeardownHerdrList { Get-HerdrAgentInventory } 'agents'
+        $again = Read-TeardownAgents
         if (-not $again.ok) {
             $out.stoppedBy = ''
             return & $stopAt 'stop' "herdr could not confirm worker $name went after its pane $pane was closed - $($again.error)"

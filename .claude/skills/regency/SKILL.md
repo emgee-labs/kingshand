@@ -90,11 +90,15 @@ batch it and stop.
 
    ```powershell
    Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
-   foreach ($a in (Get-HerdrAgents)) {
+   $live = Get-HerdrLiveness
+   if ($live.state -eq 'unknown') { "whether any worker is live is unknown - $($live.evidence)" }
+   foreach ($a in $live.workers) {
      [pscustomobject]@{ worker = $a.name; readable = (Test-HerdrAgentReadable -Name $a.name) }
    }
    ```
 
+   **An unknown answer means you cannot see any of them**, which is not the same as there being
+   none: say so with the evidence it names, exactly as for an unreadable worker below.
    **Any worker reporting `readable = False` cannot be watched.** Its terminal is too narrow to
    render the text that identifies a prompt, so a stuck worker and a working one look identical.
    Say that plainly before they leave, naming the worker, and let them decide whether to go. Do not

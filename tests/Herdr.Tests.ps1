@@ -531,6 +531,94 @@ Describe 'Get-HerdrAgentInventory keeps the failure that Get-HerdrAgents throws 
     }
 }
 
+Describe 'Get-HerdrLiveness answers live, none or unknown, and unknown is never none' {
+    # The reader every deciding caller uses. Each way of not getting an answer is forced here and
+    # must come back unknown naming the read that failed, with no worker list made up for it.
+    BeforeEach {
+        Mock -ModuleName Herdr Get-HerdrCommandPath { 'C:\not-a-real-place\herdr.exe' }
+        Mock -ModuleName Herdr Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = ''; compatible = $true } }
+    }
+
+    It 'reports live, with the workers herdr listed' {
+        Mock -ModuleName Herdr Invoke-Herdr {
+            [pscustomobject]@{ agents = @(
+                [pscustomobject]@{ name = 't-9001'; pane_id = 'p1' }
+                [pscustomobject]@{ name = 't-9002'; pane_id = 'p2' }
+            ) }
+        }
+        $l = Get-HerdrLiveness
+        $l.state    | Should -Be 'live'
+        @($l.workers | ForEach-Object { $_.name }) | Should -Be @('t-9001', 't-9002')
+        $l.evidence | Should -Be ''
+    }
+
+    It 'reports none when the running server listed nobody' {
+        Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } }
+        $l = Get-HerdrLiveness
+        $l.state | Should -Be 'none'
+        @($l.workers).Count | Should -Be 0
+    }
+
+    It 'reports none when the server is down, without asking for the agent list' {
+        Mock -ModuleName Herdr Get-HerdrServerState { [pscustomobject]@{ state = 'stopped'; detail = 'not running'; compatible = $null } }
+        Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached with the server down' }
+        (Get-HerdrLiveness).state | Should -Be 'none' -Because 'a pane dies with its server'
+    }
+
+    It 'reports unknown naming herdr when there is no herdr to ask' {
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $null }
+        $l = Get-HerdrLiveness
+        $l.state    | Should -Be 'unknown'
+        $l.read     | Should -Be 'herdr'
+        $l.evidence | Should -Match 'herdr was not found'
+        @($l.workers).Count | Should -Be 0
+    }
+
+    It 'reports unknown naming the server when its state could not be read' {
+        Mock -ModuleName Herdr Get-HerdrServerState {
+            [pscustomobject]@{ state = 'unknown'; detail = 'herdr status exited 1 and answered with nothing at all'; compatible = $null }
+        }
+        Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached on an unknown server state' }
+        $l = Get-HerdrLiveness
+        $l.state    | Should -Be 'unknown'
+        $l.read     | Should -Be 'server'
+        $l.evidence | Should -Match 'exited 1'
+    }
+
+    It 'reports unknown naming the server when the status read threw' {
+        Mock -ModuleName Herdr Get-HerdrServerState { throw 'status blew up' }
+        $l = Get-HerdrLiveness
+        $l.state    | Should -Be 'unknown'
+        $l.read     | Should -Be 'server'
+        $l.evidence | Should -Match 'status blew up'
+    }
+
+    It 'reports unknown naming the agent list when herdr answered it with an error' {
+        Mock -ModuleName Herdr Invoke-Herdr { New-HerdrError -Code 'timeout' -Message 'no reply' }
+        $l = Get-HerdrLiveness
+        $l.state    | Should -Be 'unknown'
+        $l.read     | Should -Be 'agents'
+        $l.evidence | Should -Match 'timeout'
+        @($l.workers).Count | Should -Be 0
+    }
+
+    It 'reports unknown naming the agent list when the reply could not be read' {
+        Mock -ModuleName Herdr Invoke-Herdr { $null }
+        $l = Get-HerdrLiveness
+        $l.state    | Should -Be 'unknown'
+        $l.read     | Should -Be 'agents'
+        $l.evidence | Should -Match 'nothing that could be read'
+    }
+
+    It 'reports unknown, rather than throwing, when the binary and server are different versions' {
+        Mock -ModuleName Herdr Invoke-Herdr { throw 'herdr protocol_mismatch: from the fake' }
+        $l = Get-HerdrLiveness
+        $l.state    | Should -Be 'unknown'
+        $l.read     | Should -Be 'agents'
+        $l.evidence | Should -Match 'protocol_mismatch'
+    }
+}
+
 Describe 'The pane and workspace inventories keep a failed read, and the workspace close is one call' {
     # Cleanup deletes a folder only once no pane holds it, so "could not ask herdr" read as "no
     # panes" would delete a folder still open in a pane. Each failure shape is named.

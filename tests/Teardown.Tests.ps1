@@ -97,12 +97,20 @@ BeforeAll {
         if ($script:Herdr.fail) { return [pscustomobject]@{ ok = $false; $Field = @(); error = $script:Herdr.fail } }
         [pscustomobject]@{ ok = $true; $Field = @($script:Herdr[$Field]); error = '' }
     }
+    # The same picture through the three-valued liveness reader cleanup decides on.
+    function Get-FakeLiveness {
+        if ($script:Herdr.fail) {
+            return [pscustomobject]@{ state = 'unknown'; workers = @(); read = 'agents'; evidence = $script:Herdr.fail }
+        }
+        $w = @($script:Herdr.agents)
+        [pscustomobject]@{ state = $(if ($w.Count -gt 0) { 'live' } else { 'none' }); workers = $w; read = ''; evidence = '' }
+    }
 }
 
 Describe 'Remove-WorkerCopy' {
     BeforeEach {
         Reset-FakeHerdr
-        Mock -ModuleName Teardown Get-HerdrAgentInventory { Get-FakeInventory 'agents' }
+        Mock -ModuleName Teardown Get-HerdrLiveness { Get-FakeLiveness }
         Mock -ModuleName Teardown Get-HerdrPaneInventory { Get-FakeInventory 'panes' }
         Mock -ModuleName Teardown Get-HerdrWorkspaceInventory { Get-FakeInventory 'workspaces' }
         Mock -ModuleName Teardown Remove-HerdrPane {
@@ -273,10 +281,25 @@ Describe 'Remove-WorkerCopy' {
     # back as a kept copy naming why, not as an exception half way through a cleanup.
     It 'keeps everything when herdr throws, and names the failure' {
         $copy = New-WorkerCopy $script:F 'w-throw' -Push
-        Mock -ModuleName Teardown Get-HerdrAgentInventory { throw 'herdr protocol_mismatch: from the fake' }
+        Mock -ModuleName Teardown Get-HerdrLiveness { throw 'herdr protocol_mismatch: from the fake' }
         $r = Remove-WorkerCopy -WorkerId 'w-throw' -StatePath $script:F.state
         $r.outcome | Should -Be 'kept'
         $r.kept[0].why | Should -BeLike '*protocol_mismatch*'
+        Test-Path -LiteralPath $copy | Should -BeTrue
+    }
+
+    # Unknown liveness is not "nobody to stop": the copy is kept and the evidence is the reason.
+    It 'keeps everything when whether any worker is live is unknown, and names the evidence' {
+        $copy = New-WorkerCopy $script:F 'w-unknown' -Push
+        Add-FakePane -PaneId 'p13' -Cwd $copy -Workspace 'w13'
+        Mock -ModuleName Teardown Get-HerdrLiveness {
+            [pscustomobject]@{ state = 'unknown'; workers = @(); read = 'server'
+                               evidence = "whether herdr's server is running could not be read - exited 1" }
+        }
+        $r = Remove-WorkerCopy -WorkerId 'w-unknown' -StatePath $script:F.state
+        $r.outcome | Should -Be 'kept'
+        $r.kept[0].why | Should -BeLike '*could not be read*exited 1*'
+        @($script:Herdr.panes).Count | Should -Be 1 -Because 'nothing is closed on an unknown answer'
         Test-Path -LiteralPath $copy | Should -BeTrue
     }
 
@@ -462,7 +485,7 @@ Describe 'Remove-WorkerCopy' {
 Describe 'Get-WorkerLeftovers, Format-WorkerLeftovers and Invoke-WorkerSweep' {
     BeforeEach {
         Reset-FakeHerdr
-        Mock -ModuleName Teardown Get-HerdrAgentInventory { Get-FakeInventory 'agents' }
+        Mock -ModuleName Teardown Get-HerdrLiveness { Get-FakeLiveness }
         Mock -ModuleName Teardown Get-HerdrPaneInventory { Get-FakeInventory 'panes' }
         Mock -ModuleName Teardown Get-HerdrWorkspaceInventory { Get-FakeInventory 'workspaces' }
         Mock -ModuleName Teardown Remove-HerdrPane {
@@ -715,7 +738,7 @@ branch_sync:
         $script:Herdr.stopResult = 'exit'   # exit | box | hang
         $script:Herdr.screen = 'none'
         Mock -ModuleName Herdr Read-HerdrAgentScreen { [pscustomobject]@{ ok = $true; text = $script:Screens[$script:Herdr.screen] } }
-        Mock -ModuleName Teardown Get-HerdrAgentInventory { Get-FakeInventory 'agents' }
+        Mock -ModuleName Teardown Get-HerdrLiveness { Get-FakeLiveness }
         Mock -ModuleName Teardown Get-HerdrPaneInventory { Get-FakeInventory 'panes' }
         Mock -ModuleName Teardown Get-HerdrWorkspaceInventory { Get-FakeInventory 'workspaces' }
         Mock -ModuleName Teardown Remove-HerdrPane {

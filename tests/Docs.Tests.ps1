@@ -4200,6 +4200,23 @@ Describe 'one file owns herdr''s command line, and the record says why' {
             -Phrase '| `bin\Herdr.psm1` | the only place that knows herdr''s command line'
     }
 
+    It 'CLAUDE.md names the one liveness reader a deciding caller uses, and that unknown never proceeds' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
+            -Phrase ('`Get-HerdrLiveness`, the one liveness reader for a caller that decides rather ' +
+                     'than displays: live, none, or unknown with its evidence, and unknown never proceeds')
+    }
+
+    It 'regency checks what it can see through that reader, and reads unknown as unseen' {
+        $path = Join-Path $script:Root '.claude\skills\regency\SKILL.md'
+        $text = Get-DocText $path
+        $fence = @(Get-CodeFence $path | Where-Object { $_.Contains('Test-HerdrAgentReadable') })
+        $fence.Count | Should -Be 1
+        $fence[0].Contains('Get-HerdrLiveness') | Should -BeTrue
+        $fence[0].Contains('Get-HerdrAgents') | Should -BeFalse -Because 'the display reader reads unknown as none'
+        Assert-Phrase -Text $text -Where 'regency' `
+            -Phrase '**An unknown answer means you cannot see any of them**, which is not the same as there being'
+    }
+
     It 'CLAUDE.md lists the workspace module that replaces the missing arguments' {
         Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'the CLAUDE.md Tooling table' `
             -Phrase ('| `bin\ClaudeWorkspace.psm1` | writes a worktree''s `settings.local.json` ' +
@@ -6439,6 +6456,7 @@ Describe 'rally refuses to stop a worker that is only waiting on a decision' {
         foreach ($fragment in @(
             'Get-HerdrServerState',
             'Get-HerdrAgentInventory',
+            'Get-HerdrLiveness',
             'ConvertTo-HerdrAgentName',
             'GONE <worker id>',
             'Carry the open decision into the replacement''s brief'
@@ -6586,7 +6604,7 @@ Describe 'the parked-decision record states what must not be undone' {
         Assert-Phrase -Text $step8b -Where 'muster Step 8b' `
             -Phrase ('**A worker whose pointer names a hold that is still open is never torn down ' +
                      'either, and a confirmed push does not release that.**')
-        foreach ($fragment in @('Get-HerdrAgentInventory', 'Get-HerdrServerState')) {
+        foreach ($fragment in @('Get-HerdrAgentInventory', 'Get-HerdrServerState', 'Get-HerdrLiveness')) {
             $step8b.Contains($fragment) |
                 Should -BeFalse -Because "the teardown floor is keyed on the hold, not on liveness ('$fragment')"
         }
