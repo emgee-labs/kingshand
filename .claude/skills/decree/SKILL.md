@@ -12,7 +12,8 @@ discovered by an investigation or a review. The Hand loads it; nobody invokes it
 A worker never loads it. Its brief already tells it to write any decision the brief did not settle
 into `$env:KINGSHAND_HOME\data\<id>\report.md` and end its turn there, because a background worker
 cannot reach the user. Ending a turn is not the end of the work - `muster` Step 6 owns the route
-that carries the Hand's answer back into a worker still waiting on one. Turning that written
+[rule:muster/answer-route] that carries the Hand's answer back into a worker still waiting on one.
+Turning that written
 question into durable state, so it is still owed after this session ends, is the Hand's job, and
 this skill is how it is done.
 
@@ -38,11 +39,12 @@ carry. A key that changes between retries files the same decision twice; a key s
 decisions loses one of them.
 
 **Where the decision came from a parked worker, the key is stable, privacy-safe and slug-shaped
-like any other, and it is always prefixed with the work id.** `muster` Step 6 writes the key you
+like any other, and it is always prefixed with the work id.** `muster` Step 6
+[rule:muster/parked-route] writes the key you
 registered onto that worker's own record the same turn it registers the decision, so wherever that
 pointer is set a later session looks the key up rather than reconstructing it from what a worker
-happened to write. That is the whole reason the pointer exists; `muster` owns it and this skill
-owns the key itself.
+happened to write. That is the whole reason the pointer exists; `muster` owns it
+[rule:muster/parked-route] and this skill owns the key itself.
 
 **The pointer is the direct lookup, and the work-id prefix is what covers the window where there
 is no pointer yet.** Registering the hold and writing the pointer are two commands, so a session
@@ -66,6 +68,7 @@ against a live decision belonging to another piece of work entirely.
 **That recovery is a queue lookup and never a reading of report prose**: nothing re-derives a key
 from what a worker wrote, and filing a second key for the same decision asks the King the same
 question twice and orphans the first hold.
+<!-- rule:decree/coverage-test -->
 
 After inventorying the whole surface, either every unresolved key is registered, or you state
 plainly that the reviewed surface contains no unresolved decision. **Do not let "I found nothing"
@@ -125,6 +128,7 @@ Seven mechanical facts this depends on, each confirmed against the tool rather t
   `hold` with a fresh reason over an open one destroys the discriminator and freezes a decision
   that was already registered correctly. Replay `add` freely; leave an open hold's reason alone
   unless you are deliberately repairing it.
+  <!-- rule:decree/hold-replay -->
 - **`--reason` may not contain parentheses.** `tasks-axi` reserves them for its own markdown hold
   tags and refuses the whole command with a validation error. Rewrite the reason rather than
   quoting around it.
@@ -141,7 +145,8 @@ Seven mechanical facts this depends on, each confirmed against the tool rather t
   you are answering it in his stead under `petition`'s test and which way. A reason that records
   only the choice leaves a later session unable to tell a question he owes from a pass that was
   interrupted, and it freezes the second as though it were the first. The reason is what a later
-  session reads to tell them apart, and `petition` owns what each one does next: a question that
+  session reads to tell them apart, and `petition` owns what each one does next
+  [rule:petition/king-away]: a question that
   is genuinely with him waits, and an interrupted stead pass is re-entered on that skill's test and
   finished.
 - **A reason that says neither is not a third branch to take - it is a cause not yet established,
@@ -178,7 +183,8 @@ was answered and routed, so it is a convention to follow exactly rather than a s
 **A decision the Hand answered in the King's stead is one of these too, and its note carries three
 things rather than one: the decision, the reasoning, and whether it rested on a recorded position
 or on the Hand's own judgement.** `petition` owns which decisions those are and what a recorded
-position is; this is where the record lands, and it is registered and closed in the same pass
+position is [rule:petition/king-away]; this is where the record lands, and it is registered and
+closed in the same pass
 because nobody is being waited for. **It is an `answered:` note like any other, so the block still
 happens** - the steered worker's own item is the dependent one, exactly as the bullet above says,
 and skipping it leaves a closed note claiming an authorisation the queue never recorded. Nothing
@@ -193,6 +199,7 @@ repairing that costs the user the same question a second time.
 
 ## Operating sequence
 
+<!-- rule:decree/operating-sequence -->
 1. Read the complete result before declaring anything complete: the worker's `report.md` in full,
    and the review or investigation surface it belongs to.
 2. Inventory only the genuine unresolved choices that require the user. Apply the exclusions in
@@ -210,14 +217,16 @@ repairing that costs the user the same question a second time.
    the answer authorised the work.
 7. Close the hold with `done` and the `answered:` or `declined:` note, whichever the answer
    actually was. Where that answer is going back to a parked worker, this close comes before the
-   steer is sent; `muster` Step 6 owns that route and why the order matters.
+   steer is sent; `muster` Step 6 owns that route and why the order matters
+   [rule:muster/answer-route].
 8. Confirm the result in structured state: `tasks-axi ready --include-held` no longer lists the
    closed hold, and any routed work is a real queued item rather than a sentence in a report.
 
 ## No script enforces this gate
 
 Firstmate blocks its teardown on this gate. **Kingshand has nothing equivalent, and this skill will
-not pretend otherwise.** `muster` Step 8b reads two recorded things before teardown - the pointer
+not pretend otherwise.** `muster` Step 8b [rule:muster/teardown-open-hold] reads two recorded
+things before teardown - the pointer
 on the worker's record, and the hold that pointer names - and refuses only where that hold is
 still open. The pointer says which decision, the hold says whether it is still owed, and a closed
 one stops nothing: the pointer is never cleared, so a set field on its own would refuse cleanup of

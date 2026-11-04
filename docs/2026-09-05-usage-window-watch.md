@@ -197,7 +197,8 @@ different pools, and a silence would say they were one quota sitting still.
 
 One line: how much of each window is spent, how many workers are running, and a few words on each.
 It speaks only when the fleet has moved or the percentage has crossed into a new ten-point band. A
-line every interval regardless would be the progress narration hard rule 6 forbids, and the King
+line every interval regardless would be the progress narration hard rule 6
+[rule:claude/escalate-real-decisions] forbids, and the King
 asked for this so he would not have to ask for updates - not so he would get a heartbeat.
 
 One line is a hard cap, however many workers are live. Past three the tail becomes a count, and a
@@ -210,7 +211,8 @@ open-ended scan the standing criteria forbid. A stage that is not recognised is 
 known rather than guessed at.
 
 The pulse is the one thing here allowed a clock. A wait on a worker is an event and must never be a
-loop - `muster` Step 4 owns that - but "nothing has changed for ten minutes" is not an event
+loop - `muster` Step 4 owns that [rule:muster/arm-watch] - but "nothing has changed for ten
+minutes" is not an event
 anything can push, so the pulse polls and rides beside the waits rather than over them.
 
 ## The off switch is a person's word, not a setting

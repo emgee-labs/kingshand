@@ -66,19 +66,21 @@ The five modes:
   writes what it found; nothing is committed to a branch that lands, nothing is pushed, and no pull
   request, comment or work item is raised. The report is the whole delivery. It is never proposed
   by default - register it only where the user asks for a project that is looked at and never
-  changed, such as a repository someone else owns. `muster` owns how it routes.
+  changed, such as a repository someone else owns. `muster` owns how it routes
+  [rule:muster/resolved-mode].
 
 `+yolo` relaxes both of `muster`'s gates for this project: it writes the brief and dispatches
 without approval, and lands green work itself. Default it off and enable it only on the user's
 explicit instruction. With it off, the second gate is also what holds back anything going to a
-server - a push, a pull request, a comment, a work item - per hard rule 2.
+server - a push, a pull request, a comment, a work item - per hard rule 2
+[rule:claude/landing-authority].
 
 `+merge` is a separate token answering a separate question: whether this repository's own green
 pull requests may be merged on the forge. It is off on every project that does not carry it, and
 `+yolo` does not imply it. **Default it off, never propose it, and write it only where the user
 says so in the moment.** A repository whose default branch deploys on merge makes every merge a
 live production release, which is why the default runs this way and why this is never a tidy-up.
-`muster` Step 7 owns what it permits.
+`muster` Step 7 owns what it permits [rule:muster/merge-permission].
 
 **It belongs to the push-capable postures only, and neither `local-only` nor `review-only` can
 carry it.** `Add-ProjectEntry` throws on either pair rather than writing it, because neither mode
@@ -90,7 +92,7 @@ failure at the last step.
 green pull requests may be merged while night's watch is in force. It is held to the same rules -
 **off by default, never proposed, written only where the user says so in the moment**, push-capable
 postures only - and `+merge` neither implies it nor is implied by it. `muster` Step 7 owns what it
-permits.
+permits [rule:muster/watch-merge].
 
 Tell the user what these mean in one line each if they have not seen them before, then confirm
 name, path, mode and yolo together - and merge alongside them **where the chosen mode is
@@ -250,7 +252,8 @@ One line to the user, and never more than one:
 - `has-ci` - **say nothing at all.** It is the ordinary case, and a line about it is noise.
 - `no-ci` - say plainly that nothing reports a check on this repository, so work here is delivered
   as a pull request and stops there rather than waiting for a green that cannot arrive. **Do not
-  offer to add CI.** An absence is a decision somebody made, and `muster` Step 1b owns that rule -
+  offer to add CI.** An absence is a decision somebody made, and `muster` Step 1b owns that rule
+  [rule:muster/ci-preflight] -
   this is the cross-reference to it, not a second statement of it.
 - `unknown` - say which part of the lookup failed, from `$ci.detail`, and that delivery will stop
   at the pull request under that uncertainty. This is the one that pays for itself with a new
@@ -285,6 +288,7 @@ learn it says nothing.
 
 ### What the file holds, and what it must never hold
 
+<!-- rule:annex/rules-file -->
 Free-form Markdown, read whole by a worker. Nothing parses it, so its shape is the King's.
 
 **It holds rules and context, never criteria.** A criterion is something a worker can report `pass`
@@ -317,6 +321,7 @@ so nobody has to remember to pass it, and editing the file is the whole of chang
 
 ## Step 4c - Offer the family, where this repository shares its conventions
 
+<!-- rule:annex/family-file -->
 **A family is a set of repositories that work the same way**: one ticket tagging scheme, one work
 item workflow, one branch convention, one pair of accounts. Its shared rules live in a single
 `data\families\<name>.md`, written exactly like the file above and holding exactly the same kinds of
@@ -343,6 +348,7 @@ through the same call as the file above with the family's path in place of the p
 
 **The family's file is indexed under every project in the family, and who does it depends on
 whether the file exists yet.** This section owns that obligation; every other mention points here.
+<!-- rule:annex/family-index -->
 
 - **Registering a project into a family indexes the file only when it already exists.** Where it
   does, list it for the project just registered:
@@ -438,7 +444,7 @@ header and zero populated rows, so "what is registered" answers blank.
 
 Answer in at most six lines. If there is more to say than that, render it and use lavish - and if
 you then wait on that surface, `muster`'s `## The review surface` section owns answering in it and
-re-arming the poll.
+re-arming the poll [rule:muster/review-surface].
 
 ## Changing a posture later
 

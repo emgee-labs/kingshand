@@ -69,7 +69,8 @@ restricted.
 
 ## What was rejected
 
-**A bounded override of hard rule 1.** The Hand proposed letting it make no-logic changes itself in
+**A bounded override of hard rule 1.** [rule:claude/workers-do-the-work] The Hand proposed letting
+it make no-logic changes itself in
 parley - one file, the diff shown, never pushed - and the King declined it: "we are complicating,
 agent does the code writing, not you, no to hard rule 1 pass.. we will follow it, its just sub agent
 will be quick to do it rather than taking its sweet time." **The reason was simplicity rather than

@@ -13,8 +13,9 @@ brainstorming skill as reference.
 Kingshand had already examined that skill and rejected it. The audit at
 `data\kh-superpowers-audit\report.md` concluded **not for us**, for three independent reasons:
 
-1. Hard rule 1 - the Hand routes and does not do.
-2. `CLAUDE.md`'s Intake judgement - "never both present a likely-enough solution and launch a
+1. Hard rule 1 [rule:claude/workers-do-the-work] - the Hand routes and does not do.
+2. `CLAUDE.md`'s Intake judgement [rule:claude/intake-judgement] - "never both present a
+   likely-enough solution and launch a
    parallel design exercise that is not expected to change it", and "start with the simplest
    direct path".
 3. Workers never address the user, so a one-question-at-a-time dialogue cannot happen inside a
@@ -30,7 +31,7 @@ owner of every rule that came out of it.
 The third reason cannot be argued with. A worker runs detached and cannot ask the King anything,
 so the dialogue a brainstorming skill is built around is not available inside a dispatch. Nor can
 the Hand simply hold that dialogue and do the work itself, because reading a project's stories,
-tickets and code is exactly what hard rule 1 gives to a worker.
+tickets and code is exactly what hard rule 1 [rule:claude/workers-do-the-work] gives to a worker.
 
 That is not a deadlock, it is a split, and it is the design:
 
@@ -41,7 +42,8 @@ That is not a deadlock, it is a split, and it is the design:
   stories, the tickets and the code, and writing back a map the Hand reads.
 
 Every step in the skill says which of the two it is in, for one reason: a pass that has the Hand
-open the repository "just to see how it divides" has broken hard rule 1, and the shape of that
+open the repository "just to see how it divides" has broken hard rule 1
+[rule:claude/workers-do-the-work], and the shape of that
 mistake is a small one nobody notices.
 
 ## Reason 2 is answered by who may ask, not by weakening the rule
@@ -104,7 +106,8 @@ asks for implementation work, and that is a situation `counsel` is never loaded 
 loaded when he asks for an analysis, so wiring the test up meant either contradicting the skill's
 own guard or adding a load instruction to the always-loaded file that read against the bolded
 never-volunteer rule sitting beside it. And one of the test's conditions - whether a story can be
-divided without reading code nobody has read yet - is something hard rule 1 forbids the Hand from
+divided without reading code nobody has read yet - is something hard rule 1
+[rule:claude/workers-do-the-work] forbids the Hand from
 checking, so at intake it can never be ruled out, only failed to be ruled in, which leans every
 story-shaped brief towards a second dispatch. A test the Hand cannot evaluate belongs where a
 worker can be briefed to answer it.

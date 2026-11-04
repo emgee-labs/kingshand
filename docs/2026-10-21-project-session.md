@@ -22,7 +22,7 @@ a worktree. Making it a mode is mostly making those mechanical.
   session file from the rules file: rules hold for every piece of work on the project, the session
   file only for how a session runs.
 - **One warm worker writes all the code.** The first change dispatches it; every later fix
-  reaches it as a prompt. Hard rule 1 is unchanged.
+  reaches it as a prompt. Hard rule 1 [rule:claude/workers-do-the-work] is unchanged.
 - **No worktree by default.** `Dispatch-Worker.ps1 -InCheckout -Branch <name>` runs the worker in
   the checkout. It creates and switches no branch and refuses, before anything exists, a checkout
   that is not already on the named branch. `ClaudeWorkspace.psm1` owns the permission file: it

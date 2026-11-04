@@ -40,12 +40,12 @@ or removes them. None is measured against the startup budget, because none is lo
 start: a worker gets its own copy at dispatch. Treating one as a decaying entry would eventually
 delete a standing instruction he set once and expected to hold for a year, and would do it
 quietly, in a pass nobody was watching. Where this session produced something that belongs in one,
-write it there through the owner - `annex` owns the rules file's format - rather than folding it
-into a memory file.
+write it there through the owner - `annex` owns the rules file's format [rule:annex/rules-file] -
+rather than folding it into a memory file.
 
 This skill writes only inside the Hand's own write boundary - `$env:KINGSHAND_HOME\data\` and
-`$env:KINGSHAND_HOME\state\`. It never touches a project, and hard rule 1 is not suspended for a
-curation pass.
+`$env:KINGSHAND_HOME\state\`. It never touches a project, and hard rule 1
+[rule:claude/workers-do-the-work] is not suspended for a curation pass.
 
 **This pass never deletes a file under `data\`.** Deleting files is `bin\DataTidy.psm1`'s, run only
 when the Hand runs it, so a pass nobody is watching cannot destroy work.
@@ -249,7 +249,8 @@ routine passes never move entries speculatively. Every test must hold for a cand
 
 ### Destinations
 
-`CLAUDE.md`'s Knowledge routing section is the source of truth for where a fact belongs, and nothing
+`CLAUDE.md`'s Knowledge routing section [rule:claude/knowledge-routing] is the source of truth for
+where a fact belongs, and nothing
 here re-derives or duplicates that mapping. Two of its owners bind this pass in particular, and the
 third item below adds no owner at all - it is the form one of them takes:
 
@@ -262,7 +263,8 @@ third item below adds no owner at all - it is the form one of them takes:
 - **Detail that is current and durable but needed only in a nameable context stays kingshand's own
   knowledge, and offloading changes only where it lives** - out of an always-loaded memory file and
   into a topic file of its own, `$env:KINGSHAND_HOME\data\<topic>.md`, indexed on write in the same
-  pass that offloads to it so the index points at it. The routing map already owns that fact, so this
+  pass that offloads to it so the index points at it. The routing map already owns that fact
+  [rule:claude/knowledge-routing], so this
   is a move within one owner rather than a sixth entry in the mapping - which is why nothing has to be
   added to `CLAUDE.md` for it. **This is the destination that is live at the moment it is proposed**,
   and that property is the whole reason it works: it sits inside the Hand's own write boundary, so it
@@ -383,8 +385,9 @@ have absorbed.
 
 1. **Read the whole file and take each entry separately.** An entry is the date, what the Hand did,
    what the King said, and the rule that follows; the rule is the part that has an owner.
-2. **Route each entry to its most specific owner**, using `CLAUDE.md`'s Knowledge routing section,
-   which owns that mapping: `data\king.md` for a preference, `data\learnings.md` for an operational
+2. **Route each entry to its most specific owner**, using `CLAUDE.md`'s Knowledge routing section
+   [rule:claude/knowledge-routing], which owns that mapping: `data\king.md` for a preference,
+   `data\learnings.md` for an operational
    fact, that project's own memory file for a project fact, kingshand's own tracked material under
    `statute` for a rule about how kingshand itself behaves, and `data\memory-archive.md` for an entry
    a later correction already superseded, under the drained-correction provenance shape the cold tier
@@ -401,7 +404,8 @@ have absorbed.
    worker write it through that project's delivery path. **A rule about kingshand itself is the same
    case** - tracked material under `statute` is a deliberate scoped change with its own test
    obligation, and this pass never makes one - so it becomes a work item too, naming the rule and the
-   file it belongs in. Hard rule 1 is not suspended here, and the work item is that entry's routing.
+   file it belongs in. Hard rule 1 [rule:claude/workers-do-the-work] is not suspended here, and
+   the work item is that entry's routing.
 5. **Empty the inbox only once the routing is actually written.** An entry leaves the file after its
    destination holds it, or after its work item exists; anything that could not be written stays in
    the inbox for the next pass, and intending to file a work item is not the same as having filed it.
@@ -416,7 +420,8 @@ have absorbed.
    undone next steps. The target is knowledge that exists only in this conversation and would be
    lost at the next reset.
 2. **Route each finding using `CLAUDE.md`'s Knowledge routing section.** That section owns the
-   mapping; this skill owns the pass. Do not restate the routing rules here.
+   mapping [rule:claude/knowledge-routing]; this skill owns the pass. Do not restate the routing
+   rules here.
 3. **Write within the existing boundaries.** Create `data\learnings.md` only for a genuinely new
    local learning with no stronger owner, and create `data\king.md` only when there is a real
    preference to record. Project-intrinsic knowledge never goes into a project directly - it is

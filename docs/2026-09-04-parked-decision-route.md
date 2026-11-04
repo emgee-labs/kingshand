@@ -9,7 +9,8 @@ A worker that reaches a decision its brief did not settle stops, writes the ques
 `report.md`, and ends its turn. The Hand then decides it or escalates it, and sends the answer back
 into the same live worker so the review-gate run it left parked can carry on.
 
-The route itself is owned by the skills - `muster` Step 6 for the read and the send, `decree` for
+The route itself is owned by the skills - `muster` Step 6 for the read and the send
+[rule:muster/parked-route] [rule:muster/answer-route], `decree` for
 the hold's lifecycle, `petition` for who may answer, `rally` for what a parked worker looks like to
 anyone triaging a stall. This note is not a second copy of any of that. It records why the shape is
 what it is, and what a later change must not quietly undo.
@@ -42,7 +43,7 @@ the stage is left exactly where it was and the pointer is added beside it.
 The cost of that choice is real and was accepted: because the stage does not move, `dispatched` and
 `implementing` are also what a worker steered an hour ago still reads, so nothing downstream may
 infer from the stage whether the parked read has happened. `muster` Step 7 states that as an
-instruction rather than leaving it to be worked out.
+instruction rather than leaving it to be worked out [rule:muster/open-hold-floor].
 
 ### Why there is no clearing verb
 
@@ -97,10 +98,11 @@ a rule that went missing.
 Both refuse an action that cannot be taken back, over a worker whose work is not finished:
 
 - **A worker whose pointer names a hold that is still open is never landed.** It is mid-run
-  whatever its branch shows. `muster` Step 7 owns the rule.
+  whatever its branch shows. `muster` Step 7 owns the rule [rule:muster/open-hold-floor].
 - **A worker whose pointer names a hold that is still open is never torn down**, and a confirmed
   push does not release that. Teardown ends the live process, and that process is what the answer
-  is coming back to. `muster` Step 8b owns the rule, and `rally` carries the same refusal for the
+  is coming back to. `muster` Step 8b owns the rule [rule:muster/teardown-open-hold], and `rally`
+  carries the same refusal for the
   stop-and-relaunch path, because a parked worker's motionless screen is indistinguishable from a
   stalled one until Step 6 has been asked. `rally` refuses; it does not carry its own test for
   whether a worker is parked, and a version of it that grows one is drifting back toward the
@@ -123,7 +125,7 @@ keyed on the hold and never on liveness.** What makes that work still needed is 
 is waiting on has not been answered, which is the hold's state and not the process's. A dead parked
 worker still has unlanded work and an open question, so tearing it down discards the first while
 the second is unresolved - which is why losing the process must not release the floor, and why
-`muster` Step 8b states it with no liveness condition at all.
+`muster` Step 8b states it with no liveness condition at all [rule:muster/teardown-open-hold].
 
 Neither floor has to be weakened to be got past. The decision is answered while the worktree is
 preserved, the hold closes when it is answered, and the floor stops barring teardown at that point
@@ -157,7 +159,8 @@ the failure this route was built to end. Five findings of exactly that shape cam
 Softening the wording in that direction restores the failure while looking like a safety
 improvement, which is why it is quoted here rather than paraphrased.
 
-The floors in that quote are the same floors hard rule 2 already carries. Being away never lowers
+The floors in that quote are the same floors hard rule 2 [rule:claude/landing-authority] already
+carries. Being away never lowers
 them, and a recorded position never authorises an irreversible action.
 
 ### A worker still never opens an interactive prompt
