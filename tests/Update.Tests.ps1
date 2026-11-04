@@ -13,19 +13,18 @@ Set-StrictMode -Version Latest
 # than no guard at all.
 #
 # Liveness is mocked at herdr's own boundary - Invoke-Herdr, the one place that knows its command
-# line - so the real Get-HerdrAgentInventory and the real guard run, with no herdr server, no pane
-# and no worker anywhere. Mocking the guard's own reader instead would prove nothing about the guard.
+# line - so the real Get-HerdrLiveness, the real Get-HerdrAgentInventory and the real guard run,
+# with no herdr server, no pane and no worker anywhere. Mocking the guard's own reader instead
+# would prove nothing about the guard.
 #
-# The two reads the guard makes BEFORE that boundary - is herdr installed, is its server up - run
-# the binary rather than going through Invoke-Herdr, so they are mocked too, and every case that
-# reaches the guard says herdr is installed and its server running unless it is the case about one
-# of those. Without that this suite would pass only on a machine that happens to have herdr
+# The two reads Get-HerdrLiveness makes BEFORE that boundary - is herdr installed, is its server up
+# - run the binary rather than going through Invoke-Herdr, so they are mocked too, and every case
+# that reaches the guard says herdr is installed and its server running unless it is the case about
+# one of those. Without that this suite would pass only on a machine that happens to have herdr
 # installed with its server up, which is exactly the coupling the rest of it avoids.
 #
-# Each of those two is mocked in Update rather than in Herdr, because that is where the call
-# resolves: Get-LiveWorkerNames calls them directly, and Pester replaces a function in the scope
-# doing the calling. Invoke-Herdr is the other way round - Get-HerdrAgentInventory calls it from
-# inside Herdr - so that one is mocked there, which is what lets the real inventory reader run.
+# All three are mocked in Herdr, because that is where the calls resolve: Get-HerdrLiveness makes
+# them from inside Herdr, and Pester replaces a function in the scope doing the calling.
 #
 # The server read is Get-HerdrServerState, not the boolean beside it: a status call that failed and
 # a server that is genuinely down are different answers here, and tests\Herdr.Tests.ps1 is where
@@ -178,8 +177,8 @@ Describe 'liveness comes from herdr, and unknown is not none' {
     # agent list that failed - is not knowing, and an update that proceeds on not knowing is the
     # failure this guard exists to prevent.
     BeforeEach {
-        Mock -ModuleName Update Get-HerdrCommandPath { $script:StubHerdrPath }
-        Mock -ModuleName Update Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = '' } }
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $script:StubHerdrPath }
+        Mock -ModuleName Herdr Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = '' } }
     }
 
     It 'reports no workers when herdr knows of none' {
@@ -198,12 +197,12 @@ Describe 'liveness comes from herdr, and unknown is not none' {
     }
 
     It 'throws rather than reporting none when herdr is not installed at all' {
-        Mock -ModuleName Update Get-HerdrCommandPath { $null }
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $null }
         { Get-LiveWorkerNames } | Should -Throw -ExpectedMessage '*herdr was not found*'
     }
 
     It 'reports no workers when herdr is installed but its server is not running' {
-        Mock -ModuleName Update Get-HerdrServerState {
+        Mock -ModuleName Herdr Get-HerdrServerState {
             [pscustomobject]@{ state = 'stopped'; detail = 'not running' }
         }
         Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached with the server down' }
@@ -213,7 +212,7 @@ Describe 'liveness comes from herdr, and unknown is not none' {
     }
 
     It 'throws rather than reporting none when the server state itself could not be read' {
-        Mock -ModuleName Update Get-HerdrServerState {
+        Mock -ModuleName Herdr Get-HerdrServerState {
             [pscustomobject]@{ state = 'unknown'; detail = 'herdr status exited 1 - could not reach the server' }
         }
         Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached on an unknown server state' }
@@ -235,6 +234,18 @@ Describe 'liveness comes from herdr, and unknown is not none' {
     It 'throws rather than reporting none when the server answered nothing readable' {
         Mock -ModuleName Herdr Invoke-Herdr { $null }
         { Get-LiveWorkerNames } | Should -Throw -ExpectedMessage '*nothing that could be read*'
+    }
+
+    It 'throws rather than reporting none when the binary and its server are different versions' {
+        Mock -ModuleName Herdr Invoke-Herdr { throw 'herdr protocol_mismatch: from the fake' }
+        { Get-LiveWorkerNames } | Should -Throw -ExpectedMessage '*protocol_mismatch*'
+    }
+
+    It 'counts a worker herdr lists with no name, rather than dropping it' {
+        Mock -ModuleName Herdr Invoke-Herdr {
+            [pscustomobject]@{ agents = @([pscustomobject]@{ pane_id = 'p4'; state = 'working' }) }
+        }
+        @(Get-LiveWorkerNames) | Should -Be @('an unnamed worker in pane p4')
     }
 }
 
@@ -363,8 +374,8 @@ Describe 'a session is told to re-read only what an update actually moved' {
 
 Describe 'an update that can happen moves the installation and reports the move' {
     BeforeEach {
-        Mock -ModuleName Update Get-HerdrCommandPath { $script:StubHerdrPath }
-        Mock -ModuleName Update Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = '' } }
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $script:StubHerdrPath }
+        Mock -ModuleName Herdr Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = '' } }
         Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } }
     }
 
@@ -452,8 +463,8 @@ Describe 'an update that can happen moves the installation and reports the move'
 
 Describe 'every refusal names itself and leaves the installation exactly as it was' {
     BeforeEach {
-        Mock -ModuleName Update Get-HerdrCommandPath { $script:StubHerdrPath }
-        Mock -ModuleName Update Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = '' } }
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $script:StubHerdrPath }
+        Mock -ModuleName Herdr Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = '' } }
         Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } }
     }
 
@@ -490,7 +501,7 @@ Describe 'every refusal names itself and leaves the installation exactly as it w
     }
 
     It 'refuses when there is no herdr to ask whether a worker is live' {
-        Mock -ModuleName Update Get-HerdrCommandPath { $null }
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $null }
         $f = New-Installation -Name 'noherdratall'
         Publish-Release -Fixture $f -Version '0.2.0' -Subjects @('Change a thing')
 
@@ -522,7 +533,7 @@ Describe 'every refusal names itself and leaves the installation exactly as it w
     }
 
     It 'updates when herdr is installed but its server is down, which really is no workers' {
-        Mock -ModuleName Update Get-HerdrServerState {
+        Mock -ModuleName Herdr Get-HerdrServerState {
             [pscustomobject]@{ state = 'stopped'; detail = 'not running' }
         }
         Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached with the server down' }
@@ -536,7 +547,7 @@ Describe 'every refusal names itself and leaves the installation exactly as it w
     }
 
     It 'refuses when whether herdr''s server is up could not be read' {
-        Mock -ModuleName Update Get-HerdrServerState {
+        Mock -ModuleName Herdr Get-HerdrServerState {
             [pscustomobject]@{ state = 'unknown'; detail = 'herdr status exited 1 - could not reach the server' }
         }
         Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached on an unknown server state' }

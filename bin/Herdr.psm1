@@ -731,8 +731,8 @@ function Get-HerdrAgents {
 # Get-HerdrAgents above stays exactly as it is, and both are exported. A status view -
 # `bin\Get-CrewStatus.ps1`, `bin\Get-SurveySnapshot.ps1` - wants that collapse, because it still
 # has the durable record to render and an unreachable herdr must not stop it rendering. A guard
-# that refuses an action wants this one instead, because "could not ask" and "nobody is there" are
-# different answers and only one of them is safe to act on.
+# that refuses an action needs "could not ask" and "nobody is there" apart, because only one of
+# them is safe to act on - and reads them through Get-HerdrLiveness below, which is built on this.
 #
 # Neither reader answers a version mismatch: both throw it, because Invoke-Herdr does.
 function Get-HerdrAgentInventory {
@@ -764,6 +764,61 @@ function Get-HerdrAgentInventory {
     }
 
     [pscustomobject]@{ ok = $true; agents = @($r.agents); error = '' }
+}
+
+# Whether any worker is live, for a caller that DECIDES on the answer rather than displaying it:
+#
+#   .state     live | none | unknown - exactly these three
+#   .workers   the agents herdr listed, each as herdr answered it; non-empty only when live
+#   .read      the read that failed - herdr, server or agents - and empty unless unknown
+#   .evidence  what that read said, and empty unless unknown
+#
+# A READER WRITTEN FOR A STATUS DISPLAY IS THE WRONG FOUNDATION FOR A GUARD. A display can turn
+# "could not tell" into "nothing to show" and still look right; a guard that does the same reads as
+# "no worker is live" and acts underneath one. So every caller that refuses or proceeds on liveness
+# - an update, a cleanup - reads this, and treats unknown as do-not-proceed, naming .evidence.
+# Get-HerdrAgents stays the display reader, for status and survey.
+#
+# None has exactly two sources: a server that answered that it is not running, because a herdr
+# pane dies with its server, and a running server whose agent list was read and was empty. Every
+# other way of not getting an answer - no herdr, a status read that failed, an agent list that
+# failed or threw, a version mismatch - is unknown, and the list is never filled in for it.
+#
+# Never throws. A throw from either read comes back as unknown naming it, so a caller has one
+# answer to branch on rather than an answer and an exception.
+function Get-HerdrLiveness {
+    [CmdletBinding()]
+    param()
+
+    $unknown = {
+        param([string]$Read, [string]$Evidence)
+        [pscustomobject]@{ state = 'unknown'; workers = @(); read = $Read; evidence = $Evidence }
+    }
+
+    if (-not (Get-HerdrCommandPath)) { return & $unknown 'herdr' (Get-HerdrCommandHint) }
+
+    try { $server = Get-HerdrServerState } catch {
+        return & $unknown 'server' "herdr status threw - $($_.Exception.Message)"
+    }
+    if ($server.state -eq 'stopped') {
+        return [pscustomobject]@{ state = 'none'; workers = @(); read = ''; evidence = '' }
+    }
+    if ($server.state -ne 'running') {
+        return & $unknown 'server' "whether herdr's server is running could not be read - $($server.detail)"
+    }
+
+    try { $inventory = Get-HerdrAgentInventory } catch {
+        return & $unknown 'agents' "herdr agent list threw - $($_.Exception.Message)"
+    }
+    if (-not $inventory.ok) { return & $unknown 'agents' $inventory.error }
+
+    $workers = @($inventory.agents | Where-Object { $null -ne $_ })
+    [pscustomobject]@{
+        state    = if ($workers.Count -gt 0) { 'live' } else { 'none' }
+        workers  = $workers
+        read     = ''
+        evidence = ''
+    }
 }
 
 # Submits a prompt. With -Wait it returns only once the agent has settled, which is what makes
@@ -1553,7 +1608,8 @@ Export-ModuleMember -Function Get-HerdrCommandPath, Get-HerdrCommandHint, Conver
                               Invoke-Herdr, Test-HerdrServer, Get-HerdrServerState, Get-HerdrVersion,
                               Start-HerdrServer, New-HerdrPane,
                               Start-HerdrAgent, Get-HerdrAgent, Get-HerdrAgents,
-                              Get-HerdrAgentInventory, Send-HerdrPrompt, Confirm-HerdrPromptTaken,
+                              Get-HerdrAgentInventory, Get-HerdrLiveness,
+                              Send-HerdrPrompt, Confirm-HerdrPromptTaken,
                               Wait-HerdrAgent, Read-HerdrAgent, Send-HerdrKeys, Stop-HerdrAgent,
                               Remove-HerdrPane, Remove-HerdrWorkspace, Get-HerdrPaneInventory,
                               Get-HerdrWorkspaceInventory,
