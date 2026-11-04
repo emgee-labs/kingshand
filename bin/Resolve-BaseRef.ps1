@@ -33,31 +33,26 @@
   is precisely the disagreement with the gate this whole mechanism exists to prevent.
 
   A declaration goes unhonoured for exactly two reasons and the warning names the one that
-  applies, because the wrong reason sends the reader after the wrong fix. Either the ref does not
-  exist here, and fetching it is the answer - though only where there is an `origin` to fetch from,
-  so on a remoteless repository the warning says the branch does not exist and asks for it rather
-  than sending the reader after an upstream that is not there either; or it names a `worktree-*`
-  branch, which is refused on its name alone whether or not it resolves, so telling that reader to
-  fetch it points at the wrong thing entirely - fetching cannot help a branch that would be
-  refused after it arrived - while the real fault, a declaration pointing into another worker's
-  branch namespace, goes unsaid. That the name is what decides it is why this warning says
-  nothing about whether the ref exists: it fires identically for another worker's live branch and
-  for a `worktree-*` name nobody ever created.
+  applies, because the wrong reason sends the reader after the wrong fix: neither form of the ref
+  resolves here, or it names a `worktree-*` branch, which is refused on its name alone. Honouring
+  the declaration only in its LOCAL form, on a repository that has an `origin`, is warned about
+  too: `origin/dev` comes first because a local `dev` is often behind it, so the base is still the
+  declared branch and this is a caution rather than a refusal. A repository with no remote has no
+  `origin/dev` to prefer and no warning.
 
-  Honouring the declaration in its LOCAL form is warned about too. `origin/dev` comes first
-  precisely because a local `dev` is often behind it, so falling through to the local copy on a
-  repository that has an `origin` means the declared branch was never fetched: the worktree is cut
-  from - and the landing diff measured against - whatever that stale copy holds, and every
-  upstream commit in the gap is attributed to the worker. The base is still the declared branch,
-  so this is a caution and not a refusal, and a repository with no remote at all has no gap to
-  warn about.
-
-  Where there IS a remote, though, "fetch it" is a guess dressed as an instruction. A missing
-  `origin/dev` means either that origin has `dev` and this clone never fetched it - the gap is
-  real and fetching closes it - or that origin has no `dev` at all, the integration branch existing
-  only here, where there is no gap and `git fetch origin dev` answers `couldn't find remote ref`.
-  Telling them apart needs a network round trip on a path that must not hang a dispatch, so both
-  warnings name both states and the action each one takes rather than asserting the likelier one.
+  EACH WARNING SAYS WHAT WAS DECIDED AND WHAT TO DO, AND NOTHING ELSE: the declared name, the ref
+  this worker is based on, the one fact that decided it, and the action. Every fact it states is one
+  this function established - a ref it probed, or a name it refused. It says nothing about a ref it
+  never looked up - whether a refused `worktree-*` name exists or whose it is, whether origin has
+  the declared branch, how far a local copy is behind, which commits a landing diff will carry -
+  because each such sentence was a guess, and the guesses kept turning out false: one said a
+  never-created branch "resolves fine", another that it belonged to another worker. Where the right
+  action depends on something not asked, such as whether origin has the branch - a network round
+  trip on a path that must not hang a dispatch - the action names each answer instead of assuming
+  one. Making the declaration resolvable is advice for the next dispatch, never for this worker,
+  because nothing done after the worktree is cut moves the base it was cut from; for this worker,
+  where the base is not the declared branch, the action is to check what its pull request targets
+  before it lands.
 
   The reader below is deliberately NARROW: a top-level `pr:` block mapping, and a `base_branch:`
   key among its immediate children. It is not a YAML parser and must not grow into one - the
@@ -348,58 +343,36 @@ function Resolve-BaseRef {
             # form of it. The worker is about to be cut from one branch while its pull request is
             # proposed against another, which is the failure this reader was added to close - so
             # it is reported rather than left for whoever reads the landing diff.
+            # Each warning says what was decided - the ref this worker is based on and why - and
+            # what to do, and nothing else. The header says why it may claim no more than that.
+            $said = "$RepoPath declares $declared in pr.base_branch of .no-mistakes.yaml"
             if ($declared -and $c -ne $declared -and $c -ne "origin/$declared") {
                 if ($declaredIsWorker) {
-                    Write-Warning ("$RepoPath declares $declared as the branch its work " +
-                                   "integrates into, but that name is in kingshand's worker " +
-                                   "branch namespace and a worktree-* ref is never a base - a " +
-                                   "branch there would belong to another worker, so basing on " +
-                                   "it would measure this worker's diff and attribution scan " +
-                                   "against unlanded work. It is refused " +
-                                   "on its name alone, whether or not it resolves here, so " +
-                                   "neither fetching nor creating it changes anything: this " +
-                                   "worker is based on $c instead, while its pull request is " +
-                                   "still proposed against $declared. Correct " +
-                                   "pr.base_branch in .no-mistakes.yaml.")
+                    Write-Warning ("$said, and that name was refused on its name alone - a " +
+                                   "worktree-* name is never used as a base - so this worker " +
+                                   "is based on $c instead. Check what its pull request " +
+                                   "targets before it lands, and correct pr.base_branch.")
                 } elseif (Test-OriginRemote) {
-                    # Two states look identical from here without asking the remote, and the
-                    # answer to one is not the answer to the other: origin has the branch and
-                    # this clone never fetched it, or origin has no such branch at all and
-                    # fetching cannot work. Both are named rather than one asserted.
-                    Write-Warning ("$RepoPath declares $declared as the branch its work " +
-                                   "integrates into, but neither origin/$declared nor " +
-                                   "$declared resolves here, so this worker is based on $c " +
-                                   "instead - while its pull request is still proposed against " +
-                                   "$declared. Fetch $declared before landing if origin has it, " +
-                                   "or the landing diff measures the wrong branch. If origin has " +
-                                   "no $declared either, create it or correct pr.base_branch in " +
-                                   ".no-mistakes.yaml.")
+                    # Whether origin has the branch is not asked - that is a network round trip
+                    # on a path that must not hang a dispatch - so the action covers both answers.
+                    Write-Warning ("$said, but neither origin/$declared nor $declared resolves " +
+                                   "here, so this worker is based on $c instead. Check what its " +
+                                   "pull request targets before it lands. Before the next " +
+                                   "dispatch into this repository, fetch $declared if origin " +
+                                   "has it, create it if not, or correct pr.base_branch.")
                 } else {
-                    # No origin, so there is nothing to fetch from and no pull request to
-                    # misdirect: the declaration names a branch this repository simply does not
-                    # have. "Fetch it" is the one actionable sentence in the message, and here it
-                    # sends the reader after an upstream that does not exist.
-                    Write-Warning ("$RepoPath declares $declared as the branch its work " +
-                                   "integrates into, but no $declared branch exists here and " +
-                                   "there is no origin to fetch one from, so this worker is " +
-                                   "based on $c instead and the landing diff is measured " +
-                                   "against that. Create $declared, or correct pr.base_branch " +
-                                   "in .no-mistakes.yaml.")
+                    # No origin, so there is nothing to fetch from and no pull request to target.
+                    Write-Warning ("$said, but no $declared branch resolves here and there is " +
+                                   "no origin, so this worker is based on $c instead. Create " +
+                                   "$declared, or correct pr.base_branch, before the next " +
+                                   "dispatch into this repository.")
                 }
             } elseif ($declared -and $c -eq $declared -and (Test-OriginRemote)) {
-                # The declared branch was honoured, but only as a local ref on a repo that has a
-                # remote - so origin/$declared was never fetched and nothing has confirmed the
-                # local copy is current. Which of the two states this is cannot be told apart
-                # from here: origin may hold the branch, or the integration branch may exist
-                # only in this clone, in which case there is no gap and nothing to fetch.
-                Write-Warning ("$RepoPath declares $declared as the branch its work integrates " +
-                               "into, and only the local $declared resolves - origin/$declared " +
-                               "does not, so this worker is based on a local copy nothing has " +
-                               "confirmed is up to date. Fetch $declared before landing if " +
-                               "origin has it, or every upstream commit the local copy is " +
-                               "missing is attributed to this worker. If origin has no " +
-                               "$declared at all, fetching cannot work: push the branch, or " +
-                               "correct pr.base_branch in .no-mistakes.yaml.")
+                Write-Warning ("$said, and origin/$declared does not resolve here, so this " +
+                               "worker is based on the local $declared. Nothing here compared " +
+                               "it with origin. Before the next dispatch into this repository, " +
+                               "fetch $declared if origin has it; if not, push it or correct " +
+                               "pr.base_branch.")
             }
             # Last, because the probes above are probes too: Test-OriginRemote leaves a non-zero
             # exit code behind on a repository that has no origin, and the caller runs under

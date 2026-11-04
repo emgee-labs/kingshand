@@ -4015,14 +4015,13 @@ Describe 'every durable file is indexed, and the brief names the ones its task t
                      'around the resolver must not go around its guard')
     }
 
-    # The Hand reads a widened diff at the landing gate and has to know what can produce one. A base
-    # named by hand is a second trigger for the disagreement the paragraph already describes, and one
-    # that needs no repository change at all - so a Hand who ruled out a moved default branch would
-    # otherwise conclude the extra commits are the worker's.
+    # A base named by hand on the second dispatch is a second trigger for the disagreement between
+    # the dispatcher's base and the branch point, and one that needs no repository change at all.
+    # The record keeps the branch point either way, and Step 4 says so for both triggers.
     It 'muster names a hand-passed base as another way the two can disagree' {
         Assert-Phrase -Text (Get-MusterStep 'Step 4 - Dispatch') -Where 'muster Step 4' `
-            -Phrase ('Passing a different `-Base` the second time does the same with no repository ' +
-                     'change at all.')
+            -Phrase ('even after the repository has declared an integration branch or a different ' +
+                     '`-Base` was passed the second time.')
     }
 
     # The whole requirement, in the artefact the Hand reads at the moment it dispatches: the
@@ -7477,18 +7476,29 @@ Describe 'the default branch and the integration branch are two things' {
                      'or from that default')
     }
 
-    # The recorded base and the branch point are one ref only where the dispatch actually branched.
-    # Re-dispatching a ticket whose branch survived does not branch again, so a repository that has
-    # declared an integration branch since - which is what this change makes likely - leaves the
-    # base naming one tree and the branch cut from another. The Hand reads step 7's diff, so it is
-    # the reader that has to know: without this, a widened diff looks like the worker's doing.
-    It 'muster warns that a re-dispatched ticket can be diffed against the wrong base' {
+    # The dispatcher's base and the branch point are one ref only where the dispatch actually
+    # branched. Re-dispatching a ticket whose branch survived does not branch again, and muster used
+    # to say the record then went stale while Add-CrewWorker refused the id outright - two accounts
+    # of one event. Step 4 now records a re-dispatch through Set-CrewRelaunch, which keeps the branch
+    # point, so the diff no longer widens.
+    It 'muster re-records a re-dispatch with Set-CrewRelaunch, keeping the branch point' {
         $step = Get-MusterStep 'Step 4 - Dispatch'
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase ('**On a re-dispatch the two can disagree, so read step 7''s diff knowing ' +
-                     'that.**')
+            -Phrase ('**A re-dispatch of a worker id already recorded is re-recorded with ' +
+                     '`Set-CrewRelaunch`, never added**')
         Assert-Phrase -Text $step -Where 'muster Step 4' `
-            -Phrase 'A widened diff on a re-dispatched ticket is that, not the worker''s doing.'
+            -Phrase ('-Base $r.base -BranchCut $r.branchCut -PaneId $r.paneId')
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('**On a re-dispatch the dispatcher''s base and the branch point can disagree, ' +
+                     'and the record keeps the branch point.**')
+    }
+
+    # The warning's content has one owner, the resolver's header, so Step 4 points there rather
+    # than restating what a warning means - its old restatement claimed more than any warning knew.
+    It 'muster Step 4 points at the resolver header for what a base warning may claim' {
+        $step = Get-MusterStep 'Step 4 - Dispatch'
+        Assert-Phrase -Text $step -Where 'muster Step 4' `
+            -Phrase ('`bin\Resolve-BaseRef.ps1`''s header owns what it may claim.')
     }
 
     # Step 7 is where that widened diff is actually read, and it used to say the opposite of
@@ -11087,5 +11097,28 @@ Describe 'review-only lands nothing, and annex offers a criteria seed' {
             Should -Be 1
         @($fences | Where-Object { $_.Contains('New-ProjectCriteriaSeed -Name "<name>"') }).Count |
             Should -Be 1
+    }
+}
+
+# The README's Tests badge once carried the suite's exact count. Every branch that added a test
+# edited that one line, so any two parallel branches conflicted on it and the merged number was
+# neither side's. The badge names the framework instead, which no ordinary branch changes.
+Describe 'the README Tests badge carries no test count' {
+    It 'has no digit in the badge text' {
+        $line = Get-Content -Path (Join-Path $script:Root 'README.md') |
+            Where-Object { $_.StartsWith('[![Tests]') } | Select-Object -First 1
+        $line | Should -Not -BeNullOrEmpty -Because 'the README badge row carries a Tests badge'
+        $prefix = 'img.shields.io/badge/'
+        $start = $line.IndexOf($prefix)
+        $start | Should -BeGreaterOrEqual 0 -Because 'the Tests badge is a shields.io static badge'
+        $start += $prefix.Length
+        $end = $line.IndexOf(')', $start)
+        $end | Should -BeGreaterThan $start -Because 'the badge path closes its link'
+        $path = $line.Substring($start, $end - $start)
+        $colour = $path.LastIndexOf('-')
+        $colour | Should -BeGreaterThan 0 -Because 'the badge path ends in -<colour>'
+        $text = [uri]::UnescapeDataString($path.Substring(0, $colour))
+        @($text.ToCharArray() | Where-Object { [char]::IsDigit($_) }) |
+            Should -BeNullOrEmpty -Because "a count in '$text' is the line every branch collides on"
     }
 }

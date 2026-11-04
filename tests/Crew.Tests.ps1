@@ -54,6 +54,64 @@ Describe 'Add-CrewWorker' {
         { Add-CrewWorker -State $script:s -WorkerId 'a1' -Ticket 'y' -Kind 'adhoc' -Repo 'r' -Worktree 'w' -Branch 'b' -Brief 'f' } |
             Should -Throw '*uplicate*'
     }
+
+    # A duplicate is a re-dispatch, and a refusal that only says "duplicate" leaves the Hand nowhere
+    # to go - which is how muster said a re-dispatch re-records the base while this threw instead.
+    It 'names the way through when the id is a re-dispatch, and leaves the record as it was' {
+        Add-CrewWorker -State $script:s -WorkerId 'a1' -Ticket 'x' -Kind 'adhoc' -Repo 'r' `
+                       -Worktree 'w' -Branch 'b' -Brief 'f' -Base 'origin/main'
+        { Add-CrewWorker -State $script:s -WorkerId 'a1' -Ticket 'x' -Kind 'adhoc' -Repo 'r' `
+                         -Worktree 'w' -Branch 'b' -Brief 'f' -Base 'origin/dev' } |
+            Should -Throw '*re-dispatch*Set-CrewRelaunch*-BranchCut*'
+        $script:s.workers['a1'].base | Should -Be 'origin/main'
+    }
+}
+
+Describe 'Set-CrewRelaunch - the recorded base on a re-dispatch' {
+    # The landing gate diffs against the recorded base, so it has to stay the ref the branch was cut
+    # from. A re-dispatch that finds its branch does not cut it again, and the base that dispatch
+    # resolved fresh names whatever the repository points at now.
+    BeforeEach {
+        $script:s = New-CrewState
+        Add-CrewWorker -State $script:s -WorkerId 'T-2002' -Ticket 'T-2002' -Kind 'ticket' `
+                       -Repo 'acme-api' -Worktree 'C:/wt/T-2002' -Branch 'worktree-T-2002' `
+                       -Brief 'f' -Base 'origin/main' -PaneId 'p-1'
+        Set-CrewStage -State $script:s -WorkerId 'T-2002' -Stage 'implementing'
+    }
+
+    It 'keeps the recorded base when the dispatch reused the branch' {
+        Set-CrewRelaunch -State $script:s -WorkerId 'T-2002' -Worktree 'C:/wt/T-2002' `
+            -Branch 'worktree-T-2002' -Base 'origin/dev' -BranchCut $false -PaneId 'p-2'
+        $rec = $script:s.workers['T-2002']
+        $rec.base    | Should -Be 'origin/main' -Because 'the branch was cut from main, not dev'
+        $rec.pane_id | Should -Be 'p-2'
+        $rec.stage   | Should -Be 'dispatched'
+    }
+
+    It 'records the new base when the dispatch cut a new branch from it' {
+        Set-CrewRelaunch -State $script:s -WorkerId 'T-2002' -Worktree 'C:/wt/T-2002' `
+            -Branch 'worktree-T-2002' -Base 'origin/dev' -BranchCut $true
+        $script:s.workers['T-2002'].base | Should -Be 'origin/dev'
+    }
+
+    # The default is the relaunch callers that name no -BranchCut: a paused worker's resume command,
+    # and a relaunch in rally or fief. Each reuses its branch, so keeping is the true answer.
+    It 'keeps the recorded base and pane when -BranchCut and -PaneId are left off' {
+        Set-CrewRelaunch -State $script:s -WorkerId 'T-2002' -Worktree 'C:/wt/T-2002' `
+            -Branch 'worktree-T-2002' -Base 'origin/dev'
+        $rec = $script:s.workers['T-2002']
+        $rec.base    | Should -Be 'origin/main'
+        $rec.pane_id | Should -Be 'p-1'
+    }
+
+    It 'refuses a cut branch with no base to record, and changes nothing' {
+        { Set-CrewRelaunch -State $script:s -WorkerId 'T-2002' -Worktree 'C:/wt/other' `
+              -Branch 'worktree-T-2002' -BranchCut $true } | Should -Throw '*needs -Base*'
+        $rec = $script:s.workers['T-2002']
+        $rec.base     | Should -Be 'origin/main'
+        $rec.worktree | Should -Be 'C:/wt/T-2002'
+        $rec.stage    | Should -Be 'implementing'
+    }
 }
 
 Describe 'Set-CrewStage' {

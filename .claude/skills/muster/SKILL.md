@@ -1181,6 +1181,15 @@ Add-CrewWorker -State $s -WorkerId $r.id -Ticket "<id>" -Kind "<ticket|adhoc>" `
 Save-CrewState -State $s -Path $env:KINGSHAND_HOME\state\crew.json
 ```
 
+**A re-dispatch of a worker id already recorded is re-recorded with `Set-CrewRelaunch`, never
+added** - `Add-CrewWorker` refuses the id and says so, and `bin\Crew.psm1` owns which base the
+record keeps:
+
+```powershell
+Set-CrewRelaunch -State $s -WorkerId $r.id -Worktree $r.worktree -Branch $r.branch `
+                 -Base $r.base -BranchCut $r.branchCut -PaneId $r.paneId
+```
+
 Then mark the backlog item started, so the queue and the workers agree on what is under way:
 
 ```powershell
@@ -1210,19 +1219,18 @@ anything is created and refuses two ways - a `worktree-*` name, on its name alon
 around the resolver must not go around its guard, and a ref `git rev-parse --verify` cannot confirm.
 Neither creates anything, and both name the ref.
 
-**On a re-dispatch the two can disagree, so read step 7's diff knowing that.** Re-dispatching a
-ticket whose branch survived does not branch again - the branch point is whatever the earlier
-dispatch chose - while the base is resolved fresh. If the repository has moved since, by declaring
-an integration branch or changing its default, the recorded base names one tree and the branch was
-cut from another, and step 7's `git log "$base..HEAD"` then lists commits nobody in this ticket
-wrote. Passing a different `-Base` the second time does the same with no repository change at all.
-A widened diff on a re-dispatched ticket is that, not the worker's doing.
+**On a re-dispatch the dispatcher's base and the branch point can disagree, and the record keeps
+the branch point.** Re-dispatching a ticket whose branch survived does not branch again - the
+branch point is whatever the earlier dispatch chose - while the base is resolved fresh, so
+`$r.branchCut` comes back false and `Set-CrewRelaunch` keeps the base already recorded. Step 7's
+`$w.base` is therefore the ref the branch was cut from, even after the repository has declared an
+integration branch or a different `-Base` was passed the second time.
 
 **Relay any warning that call prints.** Base resolution warns when it could not honour a
-repository's declared integration branch, or honoured it only as a local copy nothing has
-confirmed is current - and either one means the landing diff in step 7 is measured against the
-wrong tree. On a `+yolo` project nothing else stops to show it, so an unrelayed warning is work
-landed against a stale base. One line to the user naming the branch and what was used instead.
+repository's declared integration branch, or honoured it only as a local copy, and each warning
+says which ref the worker was based on and what to do - `bin\Resolve-BaseRef.ps1`'s header owns
+what it may claim. On a `+yolo` project nothing else stops to show it, so an unrelayed warning is
+work landed against a stale base. One line to the user naming the branch and what was used instead.
 
 **A dispatch that names its own base warns every time, and that one is not about resolution at
 all.** Naming a base skips the resolver, and with it the only thing that says out loud when the
