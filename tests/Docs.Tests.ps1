@@ -134,6 +134,64 @@ BeforeAll {
         )
         $Text.Contains($Phrase) | Should -BeTrue -Because "$Where must still say: $Phrase"
     }
+
+    # A skill whose description lists its sections one-for-one can drift from them two ways: a
+    # section added that the description never names, and a section deleted that the description
+    # still advertises. This holds both, from one table of literals per skill - each row one `## `
+    # heading and the exact words the description carries for it. Nothing derives one side from
+    # the other, and nothing splits the description into a list.
+    #
+    # Added: the file's `## ` lines must equal the table's headings, which forces a row, and every
+    # row's phrase must be in the description. Deleted: the heading comparison forces the row out,
+    # and then the clause after -LeadIn, with every table phrase taken out of it, must leave
+    # nothing but commas, spaces and `and` - so a phrase left behind for a section that is gone is
+    # residue, and fails. The clause ends at the first full stop, which holds only while no phrase
+    # carries one, and the helper says so rather than assuming it. Only list punctuation is
+    # tolerated, never the words or their order, so a description reworded around its list stays
+    # free to change; the whole sentence was weighed as one literal and rejected for exactly that
+    # (the `kh-statute-description-stale` work item).
+    #
+    # The `## ` lines are headings only outside a fence, so the file must carry none, and the
+    # helper holds it to that instead of quietly mis-reading one.
+    function Assert-DescriptionCoversSections {
+        param(
+            [Parameter(Mandatory)][string]$Path,
+            [Parameter(Mandatory)][hashtable[]]$Coverage,
+            [Parameter(Mandatory)][string]$LeadIn
+        )
+        $skill = Split-Path (Split-Path $Path -Parent) -Leaf
+
+        @(Get-CodeFence $Path).Count |
+            Should -Be 0 -Because "this check reads $skill's ``## `` lines as headings, which holds only while the file carries no fence"
+
+        $headings = @(Get-Content -Path $Path |
+            Where-Object { $_.StartsWith('## ') } |
+            ForEach-Object { $_.Substring(3).Trim() })
+        ($headings -join ' | ') |
+            Should -Be (@($Coverage.Heading) -join ' | ') `
+            -Because 'a section added, renamed, removed or reordered must move the table in this test with it'
+
+        $description = (Get-Frontmatter $Path)['description']
+        foreach ($row in $Coverage) {
+            $description.Contains($row.Phrase) |
+                Should -BeTrue -Because "the description must name the '$($row.Heading)' section as '$($row.Phrase)'"
+            $row.Phrase.Contains('.') |
+                Should -BeFalse -Because "the clause ends at its first full stop, so '$($row.Phrase)' must not carry one"
+        }
+
+        $start = $description.IndexOf($LeadIn)
+        $start | Should -BeGreaterOrEqual 0 -Because "$skill's description must still introduce its sections with '$LeadIn'"
+        $description.IndexOf($LeadIn, $start + 1) |
+            Should -Be -1 -Because "'$LeadIn' must open exactly one clause in $skill's description"
+        $from = $start + $LeadIn.Length
+        $end  = $description.IndexOf('.', $from)
+        $end | Should -BeGreaterThan $from -Because "the '$LeadIn' clause in $skill's description must end with a full stop"
+
+        $residue = $description.Substring($from, $end - $from)
+        foreach ($row in $Coverage) { $residue = $residue.Replace($row.Phrase, '') }
+        ($residue -replace '\band\b|[\s,]', '') |
+            Should -BeNullOrEmpty -Because "every subject the '$LeadIn' clause names must still have its section in $skill, and this is left over: '$($residue.Trim())'"
+    }
 }
 
 Describe 'yolo is tested as a string, never for truthiness' {
@@ -1720,15 +1778,7 @@ Describe 'the ported reference skills are loadable and keep their load-bearing r
     # statute's description enumerates what the file covers, and that enumeration went stale: it
     # named seven subjects while the file had eight sections, so `Match the form to the failure`
     # was a subject nothing would ever load the skill for. The table below is the closed form that
-    # keeps the two together. Each row is one `## ` section and the exact words the description
-    # must carry for it, both written out here as literals - nothing derives one from the other,
-    # and nothing reads the description as a list. Add a ninth section and the heading comparison
-    # fails, which forces a row, which forces its phrase into the description.
-    #
-    # The only text this reads is one file's `## ` lines against a fixed expected list. That is
-    # bounded rather than Markdown in general because a `## ` line can mean something other than a
-    # heading only inside a fence, and statute carries none - the first assertion holds it that
-    # way, so the day someone adds a fence this check says so instead of quietly mis-reading it.
+    # keeps the two together, in both directions; Assert-DescriptionCoversSections owns how.
     It 'statute''s description enumerates every section the file actually has' {
         $coverage = @(
             @{ Heading = 'Knowledge-placement decision tree'
@@ -1751,21 +1801,7 @@ Describe 'the ported reference skills are loadable and keep their load-bearing r
                Phrase  = 'kingshand''s style rules' }
         )
 
-        @(Get-CodeFence $script:GuidelinesMd).Count |
-            Should -Be 0 -Because 'this check reads statute''s `## ` lines as headings, which holds only while the file carries no fence'
-
-        $headings = @(Get-Content -Path $script:GuidelinesMd |
-            Where-Object { $_.StartsWith('## ') } |
-            ForEach-Object { $_.Substring(3).Trim() })
-        ($headings -join ' | ') |
-            Should -Be (@($coverage.Heading) -join ' | ') `
-            -Because 'a section added, renamed, removed or reordered must move the table in this test with it'
-
-        $description = (Get-Frontmatter $script:GuidelinesMd)['description']
-        foreach ($row in $coverage) {
-            $description.Contains($row.Phrase) |
-                Should -BeTrue -Because "the description must name the '$($row.Heading)' section as '$($row.Phrase)'"
-        }
+        Assert-DescriptionCoversSections -Path $script:GuidelinesMd -Coverage $coverage -LeadIn 'Covers '
     }
 }
 
