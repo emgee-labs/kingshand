@@ -205,7 +205,7 @@ One line is a hard cap, however many workers are live. Past three the tail becom
 newline arriving through a worker's own name is stripped, because a pulse that wraps is one he has
 to read twice.
 
-A worker's phase comes from its recorded stage, which is a closed set of six words, and never from
+A worker's phase comes from its recorded stage, which is a closed set of words `bin\Crew.psm1` owns, and never from
 its screen. A pane title is free text nobody wrote to a schema, and reading a phase out of it is the
 open-ended scan the standing criteria forbid. A stage that is not recognised is reported as not
 known rather than guessed at.
