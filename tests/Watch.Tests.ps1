@@ -502,6 +502,25 @@ Describe 'A worker watch confirms a prompt is still up before it reports BLOCKED
         (Watch-Worker -Name 'T-1' -TimeoutMinutes 5) | Should -BeLike 'SETTLED T-1*'
     }
 
+    # herdr's own state word says blocked on a prompt no screen signature matches, so no screen read
+    # could see it clear; before the window existed it was reported at once, and still is.
+    It 'reports a prompt only herdr''s state word sees at once, without reading the screen' {
+        Mock -ModuleName Watch Wait-HerdrAgentProgress { New-Wake -State 'blocked' -Awaiting $false }
+        Mock -ModuleName Watch Read-HerdrAgentScreen { throw 'should not read' }
+        (Watch-Worker -Name 'T-1' -TimeoutMinutes 5) | Should -BeLike 'BLOCKED T-1*'
+        Should -Invoke -ModuleName Watch Wait-HerdrAgentProgress -Times 1 -Exactly
+        Should -Invoke -ModuleName Watch Start-Sleep -Times 0 -Exactly
+    }
+
+    It 'never waits past its own timeout on a prompt that keeps coming back' {
+        Mock -ModuleName Watch Wait-HerdrAgentProgress { New-Wake -State 'blocked' -Awaiting $true }
+        Mock -ModuleName Watch Read-HerdrAgentScreen {
+            [pscustomobject]@{ ok = $true; text = $script:ClearScreen }
+        }
+        (Watch-Worker -Name 'T-1' -TimeoutMinutes 1) | Should -BeLike 'BLOCKED T-1*'
+        $script:slept | Should -BeLessOrEqual 70
+    }
+
     It 'reports a prompt the moment it is seen when the window is 0' {
         Mock -ModuleName Watch Read-HerdrAgentScreen { throw 'should not read' }
         (Watch-Worker -Name 'T-1' -TimeoutMinutes 5 -PromptConfirmSeconds 0) |

@@ -295,13 +295,13 @@ function Wait-WorkerShells {
     'deadline'
 }
 
-# Whether a wake is one Format-WorkerWake reports as BLOCKED - the same two conditions it checks.
-function Test-WorkerWakeBlocked {
+# Whether a wake is one Format-WorkerWake reports as BLOCKED off a prompt the worker's screen shows.
+# A wake blocked by herdr's state word alone is not: no screen signature matched it, so no screen
+# read could ever see it clear, and it is reported at once as before.
+function Test-WorkerWakeOnPrompt {
     param($Wake)
-    $reason   = "$(Get-WatchField $Wake 'reason')"
-    $awaiting = (Get-WatchField $Wake 'awaitingInput') -eq $true
-    ($reason -eq 'settled' -and ($awaiting -or "$(Get-WatchField $Wake 'state')" -eq 'blocked')) -or
-        ($reason -eq 'stalled' -and $awaiting)
+    $reason = "$(Get-WatchField $Wake 'reason')"
+    (Get-WatchField $Wake 'awaitingInput') -eq $true -and ($reason -eq 'settled' -or $reason -eq 'stalled')
 }
 
 # Watches a worker seen on a prompt for up to -Seconds, reading its screen every few seconds, and
@@ -354,9 +354,9 @@ function Invoke-WorkerWatch {
     $ms = $TimeoutMinutes * 60000
     while ($true) {
         $worker = Invoke-WorkerWait -Name $Name -TimeoutMs $ms -StallMinutes $StallMinutes
-        if (Test-WorkerWakeBlocked $worker.wake) {
+        if (Test-WorkerWakeOnPrompt $worker.wake) {
             $seen = Confirm-WorkerPrompt -Name $Name -Seconds $PromptConfirmSeconds
-            if ($seen.cleared) {
+            if ($seen.cleared -and (Get-Date) -lt $deadline) {
                 $ms = [int][Math]::Max(1000, ($deadline - (Get-Date)).TotalMilliseconds)
                 continue
             }
