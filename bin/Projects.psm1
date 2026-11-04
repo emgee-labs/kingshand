@@ -532,8 +532,8 @@ function Find-ProjectConventionFiles {
 }
 
 # Writes the seed of one project's standing criteria, data\done-<Name>.md, and indexes it, in one
-# call. The content is what the King approved, line by line, assembled by the Hand - nothing here
-# composes or checks it. `muster` owns the file's form and grows it from then on.
+# call. The content is what the King approved, one line per criterion, written one per line -
+# nothing here composes or checks it. `muster` owns the file's form and grows it from then on.
 #
 # THE ONE CONSTRAINT ON THE PATH: it is always data\done-<Name>.md, and that file must not already
 # exist. A seed is only ever the first content of the file; once one exists, muster's close-out owns
@@ -543,12 +543,13 @@ function New-ProjectCriteriaSeed {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Name,
-        [Parameter(Mandatory)][AllowEmptyString()][string]$Content,
+        [Parameter(Mandatory)][AllowEmptyString()][AllowEmptyCollection()][string[]]$Content,
         # The registry's own directory, which is where annex's call writes - it passes no -DataPath.
         [string]$DataPath = (Split-Path -Parent (Get-DefaultRegistryPath))
     )
 
-    if (-not $Content.Trim()) {
+    $text = ($Content -join "`n").Trim()
+    if (-not $text) {
         throw ("Nothing approved for $Name, so no criteria file was written. A declined seed " +
                'writes nothing - absence is the ordinary state.')
     }
@@ -562,7 +563,7 @@ function New-ProjectCriteriaSeed {
                'first criteria; an existing file is grown by muster, never replaced.')
     }
 
-    Write-DataFile -Project $Name -Path $target -Content $Content -DataPath $DataPath `
+    Write-DataFile -Project $Name -Path $target -Content $text -DataPath $DataPath `
         -Summary "standing criteria for ${Name}: seeded at import from its own convention files"
 }
 

@@ -1309,6 +1309,14 @@ Describe 'New-ProjectCriteriaSeed' {
             Should -BeLike '*done-acme-web.md*'
     }
 
+    It 'writes each approved line as its own line of the file' {
+        $approvedLines = @('- Every public function has a test beside it.', '- The lint check passes.')
+        New-ProjectCriteriaSeed -Name acme-web -DataPath $script:SeedData -Content $approvedLines
+        $lines = @(Get-Content -LiteralPath (Join-Path $script:SeedData 'done-acme-web.md') |
+            Where-Object { $_ -like '- *' })
+        $lines | Should -Be $approvedLines
+    }
+
     It 'refuses to overwrite an existing criteria file, and leaves it byte-identical' {
         $file = Join-Path $script:SeedData 'done-acme-web.md'
         Set-Content -LiteralPath $file -Value '- a criterion earned from a finding'

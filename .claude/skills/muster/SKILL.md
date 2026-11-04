@@ -1767,15 +1767,14 @@ true if nobody reads it.
 
 **Fold back what the standing criteria missed.** The worker's self-check block and the gate's
 round-one findings are two readings of the same change, so compare them. **That comparison needs a
-gate, and most projects have none.** On a `local-only` or `direct-PR` project - including a
-`no-mistakes-prod-only` project whose task resolved to `direct-PR` - there is no gate and no round
-to compare against, so this loop does not fire, and a report with no rounds in it is the record
-that brief asked for rather than one to query. **What settles it is whether this task ran a review
-gate, never how the project is registered**, so a task whose brief carried no gate line is in that
-same case in full - it has no round to compare against whatever its entry says, the loop does not
-fire, and its report having no rounds is right rather than a gap. Where this task did run the
-review gate, both
-readings are in `report.md`: the `Repeated findings` section of the brief made the worker record
+gate, and most projects have none.** On a `local-only`, `direct-PR` or `review-only` project -
+including a `no-mistakes-prod-only` project whose task resolved to `direct-PR` - there is no gate
+and no round to compare against, so this loop does not fire, and a report with no rounds in it is
+the record that brief asked for rather than one to query. **What settles it is whether this task
+ran a review gate, never how the project is registered**, so a task whose brief carried no gate
+line is in that same case in full - it has no round to compare against whatever its entry says,
+the loop does not fire, and its report having no rounds is right rather than a gap. Where this task
+did run the review gate, both readings are in `report.md`: the `Repeated findings` section of the brief made the worker record
 every round there as it landed, and the first pass as `round 1: no findings` where it raised none,
 so a report carrying a self-check block and no rounds at all is one to ask about rather than one
 with nothing to fold back. Read the self-check block either way, because a criterion the worker
@@ -2261,8 +2260,8 @@ Then go to Step 8b and tear the worker down.
 **Muster itself never pushes.** Pushing is the user's action or the worker's, never yours. A
 *worker* pushes only when its project's mode is push-capable - `direct-PR`, `no-mistakes`, or a
 `no-mistakes-prod-only` project resolved to one of those - because registering that mode is the
-consent. Never for `local-only`, whose brief forbids it outright, and never for a project that
-is not registered at all.
+consent. Never for `local-only` or `review-only`, whose briefs forbid it outright, and never for a
+project that is not registered at all.
 
 ## Step 8a - Close out push-capable work
 
@@ -2528,8 +2527,11 @@ half-deleted directory and a stale git worktree registration.
 - `direct-PR`, `no-mistakes`, and `no-mistakes-prod-only` resolved to either - after the push is
   confirmed in Step 8a, at stage `ready`. The branch is on the remote, so removing the local
   worktree cannot lose the work. Do not wait for the pull request to be merged.
+- `review-only` - after the findings are relayed in Step 7, at stage `ready`. The report under
+  `data\` is the work, so removing the copy cannot lose it, and the copy must hold no change.
 
-**Work that is neither landed nor pushed is never torn down.** If the merge did not happen and
+**Work that is neither landed nor pushed is never torn down**, unless it is `review-only` work whose
+report has been read - the one delivery that lives outside the copy. If the merge did not happen and
 the branch is not on the remote, the worktree is the only copy of the work and removing it
 destroys it. Confirm one or the other first - teardown removes the worktree, and nothing puts it
 back.

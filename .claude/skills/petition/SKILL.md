@@ -13,9 +13,9 @@ standing authority boundary remains always loaded as hard rule 2 in `$env:KINGSH
 
 An ask-user finding is produced by the `no-mistakes` review gate and by nothing else. It reaches
 you only on a project registered `no-mistakes`, or on a `no-mistakes-prod-only` project whose task
-was resolved to `no-mistakes` at intake. A project registered `local-only` or `direct-PR` has no
-review gate, so it never produces an ask-user finding, and what is written here for that finding -
-its classification, and the gate procedure around it - never fires for one of those projects.
+was resolved to `no-mistakes` at intake. A project registered `local-only`, `direct-PR` or
+`review-only` has no review gate, so it never produces an ask-user finding, and what is written
+here for that finding - its classification, and the gate procedure around it - never fires for one of those projects.
 
 **The rest of this skill fires on any posture.** A worker parks on a decision its brief did not
 settle whatever it was dispatched into, and `muster` Step 6 and `regency` both send you here for

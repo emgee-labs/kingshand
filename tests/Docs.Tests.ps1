@@ -233,9 +233,9 @@ Describe 'the push-capable set is stated consistently' {
             -Phrase 'a push-capable mode requiring an `origin` remote'
     }
 
-    It 'local-only is never counted as push-capable' {
+    It 'local-only and review-only are never counted as push-capable' {
         Assert-Phrase -Text (Get-MusterStep 'Step 8 - Land') -Where 'muster Step 8' `
-            -Phrase ("Never for ``local-only``, whose brief forbids it outright, and never " +
+            -Phrase ("Never for ``local-only`` or ``review-only``, whose briefs forbid it outright, and never " +
                      "for a project that is not registered at all")
     }
 }
@@ -1628,7 +1628,7 @@ Describe 'the ported reference skills are loadable and keep their load-bearing r
 
     It 'petition scopes itself to the no-mistakes gate and nothing wider' {
         Assert-Phrase -Text (Get-DocText $script:AskUserMd) -Where 'petition' `
-            -Phrase ('A project registered `local-only` or `direct-PR` has no review gate, so it ' +
+            -Phrase ('A project registered `local-only`, `direct-PR` or `review-only` has no review gate, so it ' +
                      'never produces an ask-user finding')
     }
 
@@ -7321,7 +7321,7 @@ Describe 'a project has a standing definition of done, and repeated findings are
     # produce gateless runs the registry alone does not account for.
     It 'the fold-back says it does not fire where there is no gate' {
         Assert-Phrase -Text $script:CritStep6 -Where 'muster Step 6' `
-            -Phrase ('On a `local-only` or `direct-PR` project - including a ' +
+            -Phrase ('On a `local-only`, `direct-PR` or `review-only` project - including a ' +
                      '`no-mistakes-prod-only` project whose task resolved to `direct-PR` - there ' +
                      'is no gate and no round to compare against, so this loop does not fire, and ' +
                      'a report with no rounds in it is the record that brief asked for rather than ' +
