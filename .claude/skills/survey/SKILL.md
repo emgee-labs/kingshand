@@ -191,6 +191,8 @@ Map the snapshot onto the four buckets like this, and nowhere else:
 
 - A worker at stage `landed`. Name its report path when `hasReport` is `$true`; the pointer is a
   pointer, not an action.
+- A worker at stage `reported` - reviewed, findings delivered, nothing to land. It is over like
+  `landed` and never renders in King's Call. Name its report path the same way.
 
 **Underway**
 

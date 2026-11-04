@@ -31,6 +31,9 @@
   Liveness cannot answer either half, since a parked worker and a finished one both read `idle`.
   It is intent, so it comes from crew.json and never from herdr.
 
+  `.crew.workers[].over` is $true where the stage is over - `landed`, `failed` or `reported` - and
+  $false for every other stage, an unknown one included. Crew.psm1's Test-CrewStageOver owns it.
+
   `.crew.workers[].session`, `.items`, `.itemsError`, `.branch` and `.checkout` describe a `fief`
   session's warm worker: one row carrying every ticket or fix id on its branch in order, read
   through Crew.psm1's Get-CrewItems. An ordinary worker reads `session` false with its one ticket.
@@ -255,6 +258,9 @@ if ($crewReadable -and $crewIds.Count -gt 0) {
             ticket      = (Get-Field $w 'ticket' '-')
             repo        = (Get-Field $w 'repo' '-')
             stage       = (Get-Field $w 'stage' '-')
+            # Whether the stage is over - nothing running and nothing waiting on the King.
+            # Crew.psm1's Test-CrewStageOver owns which stages those are.
+            over        = (Test-CrewStageOver -Stage (Get-Field $w 'stage'))
             live        = $live
             agentState  = (Get-Field $row 'agentState')
             agentStatus = (Get-Field $row 'agentStatus')

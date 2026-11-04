@@ -136,12 +136,42 @@ Describe 'Set-CrewStage' {
         $script:s.workers['a1'].landed | Should -BeFalse
     }
 
+    # A review-only job or a read-only investigation delivers a report and lands nothing, so the
+    # landed flag would claim a merge that never happened.
+    It 'sets reported, and never sets the landed flag for it' {
+        Set-CrewStage -State $script:s -WorkerId 'a1' -Stage 'reported'
+        $script:s.workers['a1'].stage  | Should -Be 'reported'
+        $script:s.workers['a1'].landed | Should -BeFalse
+    }
+
     It 'rejects an invalid stage' {
         { Set-CrewStage -State $script:s -WorkerId 'a1' -Stage 'sideways' } | Should -Throw '*stage*'
     }
 
     It 'rejects an unknown worker id' {
         { Set-CrewStage -State $script:s -WorkerId 'nope' -Stage 'ready' } | Should -Throw '*not found*'
+    }
+}
+
+Describe 'Test-CrewStageOver' {
+    It 'counts <stage> as over' -ForEach @(
+        @{ stage = 'landed' }, @{ stage = 'failed' }, @{ stage = 'reported' }
+    ) {
+        Test-CrewStageOver -Stage $stage | Should -BeTrue
+    }
+
+    It 'counts <stage> as not over' -ForEach @(
+        @{ stage = 'dispatched' }, @{ stage = 'implementing' }, @{ stage = 'gating' },
+        @{ stage = 'ready' }, @{ stage = 'paused' }
+    ) {
+        Test-CrewStageOver -Stage $stage | Should -BeFalse
+    }
+
+    # A record with no stage, or one this module never wrote, is listed rather than hidden.
+    It 'counts a missing or unknown stage as not over' {
+        Test-CrewStageOver -Stage ''        | Should -BeFalse
+        Test-CrewStageOver -Stage $null     | Should -BeFalse
+        Test-CrewStageOver -Stage 'sideways' | Should -BeFalse
     }
 }
 

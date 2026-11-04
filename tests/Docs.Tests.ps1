@@ -2070,19 +2070,46 @@ Describe 'rally states what steering can and cannot do, and protects unlanded wo
                      'work is gone.')
     }
 
-    It 'names the seven valid stages and sets failed through Set-CrewStage' {
+    It 'names the eight valid stages and sets failed through Set-CrewStage' {
         Assert-Phrase -Text (Get-DocText $script:StuckMd) -Where 'rally' `
             -Phrase ("Set-CrewStage -Stage 'failed'``; the valid stages are exactly " +
                      "``dispatched``, ``implementing``, ``gating``, ``ready``, ``landed``, ``failed``, " +
-                     "``paused``, and ``Set-CrewStage`` throws on anything else.")
+                     "``paused``, ``reported``, and ``Set-CrewStage`` throws on anything else.")
         Assert-Phrase -Text (Get-DocText $script:StuckMd) -Where 'rally' `
             -Phrase '`paused` is set by `Suspend-Worker` alone.'
     }
 
-    It 'names the same seven stages in muster''s close-out' {
+    It 'names the same eight stages in muster''s close-out' {
         Assert-Phrase -Text (Get-DocText $script:MusterMd) -Where 'muster' `
             -Phrase ('The stages are exactly `dispatched`, `implementing`, `gating`, `ready`, ' +
-                     '`landed`, `failed`, `paused` - `Set-CrewStage` throws on anything else')
+                     '`landed`, `failed`, `paused`, `reported` - `Set-CrewStage` throws on anything else')
+    }
+
+    It 'closes out work that delivers only a report at reported, never ready or landed' {
+        $text = Get-DocText $script:MusterMd
+        Assert-Phrase -Text $text -Where 'muster Step 7' `
+            -Phrase ('relay the findings, set `reported`, close the backlog item, then Step 8b')
+        Assert-Phrase -Text $text -Where 'muster Step 7' `
+            -Phrase ('then `Set-CrewStage` to `reported` - delivered a report, nothing to land, ' +
+                     'and over like `landed` without ever setting the landed flag')
+        Assert-Phrase -Text $text -Where 'muster Step 7' `
+            -Phrase ('**A read-only investigation closes out the same way, on any posture.** A ' +
+                     'dispatch whose brief delivers only a report and no commits')
+        Assert-Phrase -Text $text -Where 'muster Step 7' `
+            -Phrase 'Never set `landed` for one - nothing was merged.'
+        Assert-Phrase -Text $text -Where 'muster Step 8a' `
+            -Phrase '**`ready`, `landed` or `reported` is the only hard stop.**'
+        Assert-Phrase -Text $text -Where 'muster Step 8b' `
+            -Phrase ('- `review-only`, and a read-only investigation on any posture - after the ' +
+                     'findings are relayed in Step 7, at stage `reported`.')
+    }
+
+    It 'translates reported into plain words and survey counts it as over' {
+        Assert-Phrase -Text (Get-DocText $script:HandMd) -Where 'CLAUDE.md' `
+            -Phrase '| `reported` | reviewed, findings delivered |'
+        Assert-Phrase -Text (Get-DocText $script:SurveyMd) -Where 'survey' `
+            -Phrase ('- A worker at stage `reported` - reviewed, findings delivered, nothing to ' +
+                     'land. It is over like `landed` and never renders in King''s Call.')
     }
 }
 
@@ -2721,7 +2748,7 @@ Describe 'muster keeps the backlog current across the whole lifecycle' {
             -Phrase '**Record the outcome on the backlog item**, pointing at the report rather than restating it'
         Assert-Phrase -Text $step -Where 'muster Step 6' `
             -Phrase ('Do not mark it done here. The item closes at Step 8 or Step 8a, when the ' +
-                     'work has actually landed.')
+                     'work has actually landed, or at Step 7 for work that delivers only a report.')
     }
 
     It 'Step 8 closes the item once the local merge has landed' {
@@ -8065,9 +8092,11 @@ Describe 'counsel splits the dialogue from the reading, and only the King starts
                      'skill''s authority, and do not skip `muster`''s base-ref verification in order to ' +
                      'justify one.**')
         Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
-            -Phrase ('Closing this properly needs three things `muster` does not have yet: a Done-means ' +
-                     'block for a dispatch that produces no commits, a terminal stage for one, and a ' +
-                     'teardown rule keyed on the deliverable living outside the worktree')
+            -Phrase ('`muster` now has a terminal stage for such a dispatch, `reported`, and a ' +
+                     'teardown rule keyed on the report living outside the worktree')
+        Assert-Phrase -Text $script:CounselText -Where 'the counsel skill' `
+            -Phrase ('What it still lacks is a Done-means block for a dispatch that produces no ' +
+                     'commits.')
         Assert-Phrase -Text $script:CounselDoc -Where 'the story-analysis record' `
             -Phrase '## The read-only close-out is deliberately left open'
     }

@@ -40,6 +40,9 @@
   Get-CrewItems. A `fief` session's warm worker is one row with every id in order; any other worker
   is `session` false with its one ticket. A list that cannot be read leaves `items` empty and says
   why in `itemsError`, so an unreadable record is never shown as a worker with nothing on it.
+
+  `over` is $true where the stage is over - `landed`, `failed` or `reported` - read through
+  Crew.psm1's Test-CrewStageOver, which owns that list. Every other stage reads $false.
 #>
 [CmdletBinding()]
 param([string]$StatePath)
@@ -134,6 +137,9 @@ foreach ($id in $state.workers.Keys) {
         # Why the list could not be read, or the empty string. A list that cannot be read is said
         # to be unreadable rather than shown as empty, which would read as nothing on the branch.
         itemsError  = $itemsError
+        # Whether the stage is over - `landed`, `failed` or `reported`. Crew.psm1's
+        # Test-CrewStageOver owns the list; appended last so no existing field moves.
+        over        = (Test-CrewStageOver -Stage "$($w.stage)")
     })
 }
 

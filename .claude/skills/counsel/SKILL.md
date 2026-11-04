@@ -153,9 +153,9 @@ plain fact that the worker has nothing to land. Explicitly - **do not set a stag
 define, do not tear the worker down on this skill's authority, and do not skip `muster`'s base-ref
 verification in order to justify one.**
 
-Closing this properly needs three things `muster` does not have yet: a Done-means block for a
-dispatch that produces no commits, a terminal stage for one, and a teardown rule keyed on the
-deliverable living outside the worktree rather than on a landing or a push. All three are a change
+`muster` now has a terminal stage for such a dispatch, `reported`, and a teardown rule keyed on
+the report living outside the worktree - its Step 7 read-only investigation close-out owns both.
+What it still lacks is a Done-means block for a dispatch that produces no commits. That is a change
 to `muster`, not to this skill, and `docs\2026-09-04-story-analysis-split.md` records why.
 
 ## Step 3 - The overlap map, and why the obvious shape fails

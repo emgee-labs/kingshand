@@ -1375,6 +1375,7 @@ function Get-WorkerPhrase {
         'landed'       { return 'merged' }
         'failed'       { return 'stopped after a failure' }
         'paused'       { return 'paused, its work kept' }
+        'reported'     { return 'findings delivered' }
     }
     'phase not known'
 }

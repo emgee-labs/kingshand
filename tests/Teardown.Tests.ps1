@@ -393,6 +393,18 @@ Describe 'Remove-WorkerCopy' {
         Test-Path -LiteralPath $copy | Should -BeFalse
     }
 
+    It 'removes a reported worker''s folder git dropped when its branch is all on a remote' {
+        $copy = New-WorkerCopy $script:F 'w-rep-dropped' -Stage 'reported' -Push
+        Invoke-Git $script:F.repo worktree remove $copy | Out-Null
+        $null = New-Item -ItemType Directory -Force -Path $copy
+        Set-Content -LiteralPath (Join-Path $copy 'notes.txt') -Value 'x'
+
+        $r = Remove-WorkerCopy -WorkerId 'w-rep-dropped' -StatePath $script:F.state
+
+        $r.outcome | Should -Be 'removed'
+        Test-Path -LiteralPath $copy | Should -BeFalse
+    }
+
     It 'removes a local-only landed worker merged into its base branch and never pushed, branch and all' {
         $copy = New-WorkerCopy $script:F 'w-merged' -Stage 'landed'
         Invoke-Git $script:F.repo merge -q --ff-only 'worktree-w-merged' | Out-Null
@@ -525,6 +537,17 @@ Describe 'Get-WorkerLeftovers, Format-WorkerLeftovers and Invoke-WorkerSweep' {
         @($l.emptyWorkspaces | ForEach-Object workspace_id | Sort-Object) | Should -Be @('w1', 'w2')
         Format-WorkerLeftovers -Leftovers $l |
             Should -Be 'LEFTOVERS: 2 dead panes, 2 empty workspaces, 2 leftover copies - Invoke-WorkerSweep (bin\Teardown.psm1) clears them.'
+    }
+
+    # A finished review or read-only investigation is over like a landed one, so a copy its
+    # cleanup missed is a leftover rather than work in hand.
+    It 'counts a reported worker''s copy as a leftover, the same as a landed one' {
+        $done = New-WorkerCopy $script:F 'w-reported' -Stage 'reported' -Push
+
+        $l = Get-WorkerLeftovers @script:Paths
+
+        @($l.copies | ForEach-Object name) | Should -Be @('w-reported')
+        $l.copies[0].reason | Should -Be 'its worker is recorded reported'
     }
 
     It 'never counts or touches a folder kingshand did not dispatch (R8)' {

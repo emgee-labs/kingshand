@@ -1857,7 +1857,8 @@ A report is indexed whenever it is first read, not only here. A worker that fail
 unresponsive never reaches this step - the Hand loads `rally` instead - and that path indexes it
 too, so a torn-down worker's findings are never left listed nowhere.
 
-Do not mark it done here. The item closes at Step 8 or Step 8a, when the work has actually landed.
+Do not mark it done here. The item closes at Step 8 or Step 8a, when the work has actually landed,
+or at Step 7 for work that delivers only a report.
 
 Read the worker's own final message before summarising. If it reported that it could not build
 or could not run the gate, say that plainly. Never translate a failure into a success - and set
@@ -2207,18 +2208,29 @@ skipped by `+yolo`:
 | `direct-PR` | **skip Step 8 entirely** - go to Step 8a, then Step 8b |
 | `no-mistakes` | **skip Step 8 entirely** - go to Step 8a, then Step 8b |
 | `no-mistakes-prod-only` | resolved at Step 1 to `direct-PR` or `no-mistakes` - take that row |
-| `review-only` | **nothing lands** - skip Step 8 and Step 8a; relay the findings, set `ready`, close the backlog item, then Step 8b |
+| `review-only` | **nothing lands** - skip Step 8 and Step 8a; relay the findings, set `reported`, close the backlog item, then Step 8b |
 
 **`review-only` work is delivered when its report is read, and that is the whole of it.** There is
 no branch to merge, no push and no pull request, so this gate has nothing to approve - with `yolo`
 off it is the user reading the findings, and `+yolo` changes nothing but whether you wait for that.
 Step 6 has already read the report, so relay what it found as findings rather than as a completion
-notice, then `Set-CrewStage` to `ready` - the furthest a delivery that lands nothing goes - and
-`tasks-axi done "<id>"`, unless `decree` holds the item open on a decision the report raised. Step
-8b's rule that unlanded work is never torn down is met here by the report: it is the work, and it
-lives outside the isolated copy. `Remove-WorkerCopy` still keeps anything the worker left behind,
-and a review-only copy holding a change is a worker that broke its brief - read it, never force
-past it.
+notice, then `Set-CrewStage` to `reported` - delivered a report, nothing to land, and over like
+`landed` without ever setting the landed flag - and `tasks-axi done "<id>"`, unless `decree` holds
+the item open on a decision the report raised. Step 8b's rule that unlanded work is never torn
+down is met here by the report: it is the work, and it lives outside the isolated copy.
+`Remove-WorkerCopy` still keeps anything the worker left behind, and a review-only copy holding a
+change is a worker that broke its brief - read it, never force past it.
+
+```powershell
+Set-CrewStage -State $s -WorkerId "<id>" -Stage 'reported'
+Save-CrewState -State $s -Path $env:KINGSHAND_HOME\state\crew.json
+```
+
+**A read-only investigation closes out the same way, on any posture.** A dispatch whose brief
+delivers only a report and no commits - an investigation, a diagnosis, an analysis - has nothing to
+land either, so it takes the `review-only` row above rather than its project's own: relay the
+findings, set `reported`, close the backlog item unless `decree` holds it, then Step 8b. Never set
+`landed` for one - nothing was merged.
 
 Step 8 is local merging, which push-capable work never does. Sending a `direct-PR` or
 `no-mistakes` worker into Step 8 is a dead end - it disclaims them in its first sentence and the
@@ -2292,8 +2304,9 @@ $w = Get-CrewWorker -State $s -WorkerId "<id>"
 $w.stage
 ```
 
-**`ready` or `landed` is the only hard stop.** It means Step 8a has already run and Step 8b has
-already torn the worker down. The worktree is gone with the session, so `git -C $w.worktree
+**`ready`, `landed` or `reported` is the only hard stop.** It means the work has already closed
+out - here, or at Step 7 for work that delivers only a report - and Step 8b has already torn the
+worker down. The worktree is gone with the session, so `git -C $w.worktree
 ls-remote` below would run against a deleted directory and fail for a reason that has nothing to
 do with the push. Report the stage it is already at and stop - there is nothing left to close out.
 
@@ -2516,8 +2529,8 @@ about deciding a merge has happened, never about reading a repository's own sett
 strategy probe above is a read of configuration, not a judgement about forge state, and the two do
 not collide. A merge under `+merge` is one the block above performed against Step 7's floors and
 reported; a stage waiting to advance is never the reason for one. The stages are exactly `dispatched`, `implementing`,
-`gating`, `ready`, `landed`, `failed`, `paused` - `Set-CrewStage` throws on anything else, so do not
-invent one for this path.
+`gating`, `ready`, `landed`, `failed`, `paused`, `reported` - `Set-CrewStage` throws on anything
+else, so do not invent one for this path.
 
 Then go to Step 8b. The confirmed push is what makes teardown safe here - waiting for the merge
 would leave the worktree and the live worker process sitting around until the user gets to it.
@@ -2535,11 +2548,13 @@ half-deleted directory and a stale git worktree registration.
 - `direct-PR`, `no-mistakes`, and `no-mistakes-prod-only` resolved to either - after the push is
   confirmed in Step 8a, at stage `ready`. The branch is on the remote, so removing the local
   worktree cannot lose the work. Do not wait for the pull request to be merged.
-- `review-only` - after the findings are relayed in Step 7, at stage `ready`. The report under
-  `data\` is the work, so removing the copy cannot lose it, and the copy must hold no change.
+- `review-only`, and a read-only investigation on any posture - after the findings are relayed in
+  Step 7, at stage `reported`. The report under `data\` is the work, so removing the copy cannot
+  lose it, and the copy must hold no change.
 
-**Work that is neither landed nor pushed is never torn down**, unless it is `review-only` work whose
-report has been read - the one delivery that lives outside the copy. If the merge did not happen and
+**Work that is neither landed nor pushed is never torn down**, unless it delivers only a report -
+`review-only` work or a read-only investigation - and that report has been read: the one delivery
+that lives outside the copy. If the merge did not happen and
 the branch is not on the remote, the worktree is the only copy of the work and removing it
 destroys it. Confirm one or the other first - teardown removes the worktree, and nothing puts it
 back.

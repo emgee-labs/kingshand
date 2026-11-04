@@ -137,6 +137,10 @@ makes about work that lands. So `counsel` states the gap, forbids working around
 an analysis runs as an ordinary dispatch, ends at the report, and the King is told the worker has
 nothing to land. Closing it is a change to `muster`.
 
+**Since 2026-11-05 two of the three exist.** `muster` Step 7 closes a read-only investigation at
+the stage `reported` and Step 8b tears it down on the report, so only the Done-means block is
+still missing.
+
 ## Deliberately not built
 
 **No story parser.** A story is free-form prose and its case space is not closed. This repository

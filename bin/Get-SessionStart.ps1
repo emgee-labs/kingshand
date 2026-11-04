@@ -564,12 +564,15 @@ try {
     # A worker is live or waiting when herdr reads it live, or when its stage is not over - whatever
     # its liveness, so unknown is never read as dead: `dispatched` and `implementing` are recorded as
     # working, which a
-    # worker that is not live needs `rally` for, and `gating`, `ready` and `paused` wait on the King. Only
-    # `landed` and `failed` are over. Live ones come first, then the ones recorded as working, then
-    # the ones waiting on approval, so the cap below cuts the least urgent.
+    # worker that is not live needs `rally` for, and `gating`, `ready` and `paused` wait on the King.
+    # Test-CrewStageOver in bin\Crew.psm1 owns which stages are over - `landed`, `failed` and
+    # `reported` - and the snapshot carries its answer on each worker as `over`. Live ones come
+    # first, then the ones recorded as working, then the ones waiting on approval, so the cap below
+    # cuts the least urgent. A worker with no `over` answer is not over, so it is listed rather than
+    # hidden.
     $workers  = @($snap.crew.workers)
     $isLive   = { param($w) $w.live -eq $true }
-    $isOver   = { param($w) "$($w.stage)" -in @('landed', 'failed') }
+    $isOver   = { param($w) (Get-Field $w 'over') -eq 'True' }
     $rank     = { param($w)
         if (& $isLive $w) { 0 } elseif ("$($w.stage)" -in @('dispatched', 'implementing')) { 1 } else { 2 } }
     $active   = @($workers | Where-Object { (& $isLive $_) -or -not (& $isOver $_) } |
@@ -648,10 +651,12 @@ try {
         Add-Line '  Workers: none recorded.'
     } else {
         $over = @($workers | Where-Object { -not (& $isLive $_) -and (& $isOver $_) })
-        $landed = @($over | Where-Object { "$($_.stage)" -eq 'landed' }).Count
-        $failed = $over.Count - $landed
+        $landed   = @($over | Where-Object { "$($_.stage)" -eq 'landed' }).Count
+        $reported = @($over | Where-Object { "$($_.stage)" -eq 'reported' }).Count
+        $failed   = $over.Count - $landed - $reported
         Add-Line ("  Workers: $($workers.Count) recorded - $($active.Count) live or not finished, " +
-                  "$landed landed and $failed failed, none of them read live. Get-CrewStatus lists them all.")
+                  "$landed landed, $reported reported and $failed failed, none of them read live. " +
+                  "Get-CrewStatus lists them all.")
         $script:ListCap = [Math]::Max($script:WorkerCap, @($active | Where-Object { & $isLive $_ }).Count)
         Add-BoundedList -Items @($active | ForEach-Object {
             $liveText = if ($null -eq $_.live) { 'liveness unknown' } elseif ($_.live) { 'live' } else { 'not live' }

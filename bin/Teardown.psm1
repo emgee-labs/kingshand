@@ -39,8 +39,9 @@ Set-StrictMode -Version Latest
 #      handle still open on it - delete the folder once no pane holds it, long paths included. A
 #      folder git no longer lists is deleted only when it has no `.git` entry of any kind and its
 #      top-level entries are all build output (node_modules, bin, obj, .angular, dist, build, out,
-#      target, .next, .nuxt, coverage, .turbo, .cache), or when its worker is recorded landed or
-#      failed and every commit on its branch is safe, by the same test as step 2. git
+#      target, .next, .nuxt, coverage, .turbo, .cache), or when its worker is recorded at a stage
+#      Test-CrewStageOver counts as over and every commit on its branch is safe, by the same test
+#      as step 2. git
 #      cannot vouch for such a folder - a moved project makes every copy read as unlisted - so any
 #      other is kept with the reason `unlisted folder still holds files - check it by hand`, and
 #      that is decided in step 2, before anything is touched. A folder that still cannot be deleted
@@ -191,7 +192,7 @@ function Test-UnlistedCopyRemovable {
 
     try { $entries = @(Get-ChildItem -LiteralPath $CopyPath -Force -ErrorAction Stop) } catch { return $false }
     if (@($entries | Where-Object { $script:BuildOutput -notcontains $_.Name }).Count -eq 0) { return $true }
-    if ($Stage -notin @('landed', 'failed') -or -not $Branch) { return $false }
+    if (-not (Test-CrewStageOver -Stage $Stage) -or -not $Branch) { return $false }
     0 -eq (Get-UnpushedCount -Directory $RepoPath -Rev "refs/heads/$Branch" -Base $Base)
 }
 
@@ -500,7 +501,8 @@ function Remove-WorkerCopy {
 #   .deadPanes        panes with no live agent, in a kingshand copy or a kingshand workspace
 #   .emptyWorkspaces  kingshand workspaces with no pane, or with only dead ones
 #   .copies           dispatched folders git no longer lists, and copies git still lists for a
-#                     worker recorded landed or failed - each with .path, .name, .workerId, .reason
+#                     worker recorded landed, failed or reported - each with .path, .name,
+#                     .workerId, .reason
 #   .problems         every read that failed, in words
 function Get-WorkerLeftovers {
     [CmdletBinding()]
@@ -542,7 +544,7 @@ function Get-WorkerLeftovers {
                     $copies.Add([pscustomobject]@{ path = $full; name = $d.Name; workerId = $wid; reason = 'git no longer lists it' })
                     continue
                 }
-                if ($wid -and "$($state.workers[$wid].stage)" -in @('landed', 'failed') -and
+                if ($wid -and (Test-CrewStageOver -Stage "$($state.workers[$wid].stage)") -and
                     (Get-TeardownField $state.workers[$wid] 'checkout') -ne $true) {
                     $copies.Add([pscustomobject]@{ path = $full; name = $d.Name; workerId = $wid; reason = "its worker is recorded $($state.workers[$wid].stage)" })
                 }
