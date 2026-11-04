@@ -166,8 +166,8 @@ function Format-WorkerWake {
     $unread   = Get-WatchField $Wake 'blockedUnreadable'
     $reads    = Get-WatchField $Wake 'blockedReads'
     $confirm  = if ($null -ne $unread -and [int]$unread -gt 0) {
-        " While the prompt was being confirmed, $unread of $reads reads of its screen could not " +
-        'be read, so it was never seen to clear.'
+        " While the prompt was being confirmed, $unread of $reads reads could not be taken, so " +
+        'it was never seen to clear.'
     } else { '' }
 
     switch ("$($Wake.reason)") {

@@ -1277,7 +1277,9 @@ $script:BlockedSampleSeconds  = 10
 
 # Watches a worker the screen showed on a prompt for up to -Seconds, reading its screen every
 # $script:BlockedSampleSeconds, and says whether the prompt was seen to clear. 0 or less reads
-# nothing and confirms it at once.
+# nothing and confirms it at once. With -HerdrState it reads herdr's own state instead, for a
+# worker only herdr calls blocked: that block has no screen signature to watch clear, so it is
+# confirmed by its own signal, and a read that names any other state is the clear.
 #
 # .cleared     a read succeeded and showed no prompt
 # .reads       how many reads were taken
@@ -1286,9 +1288,13 @@ $script:BlockedSampleSeconds  = 10
 # Only a screen read and found free of a prompt is a clear. A read that fails or throws is counted
 # as unreadable and the window goes on, so a blind wait reports the prompt rather than guessing it
 # went away - Test-HerdrAgentAwaitingInput answers $false on an unread screen, which is why it is
-# not asked here.
+# not asked here. A state read that answers nothing, throws, or names no state is unreadable too.
 function Confirm-HerdrAgentBlocked {
-    param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][int]$Seconds)
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][int]$Seconds,
+        [switch]$HerdrState
+    )
 
     $reads  = 0
     $unread = 0
@@ -1297,6 +1303,15 @@ function Confirm-HerdrAgentBlocked {
         $left = [int][Math]::Ceiling(($until - (Get-Date)).TotalSeconds)
         Start-Sleep -Seconds ([Math]::Max(1, [Math]::Min($script:BlockedSampleSeconds, $left)))
         $reads++
+        if ($HerdrState) {
+            $agent = $null
+            try { $agent = Get-HerdrAgent -Name $Name } catch { $agent = $null }
+            if ($null -eq $agent -or -not "$($agent.agent_status)") { $unread++; continue }
+            if ("$($agent.agent_status)" -ne 'blocked') {
+                return [pscustomobject]@{ cleared = $true; reads = $reads; unreadable = $unread }
+            }
+            continue
+        }
         $read = $null
         try { $read = Read-HerdrAgentScreen -Name $Name } catch { $read = $null }
         if ($null -eq $read -or $read.ok -ne $true) { $unread++; continue }
@@ -1328,7 +1343,9 @@ function Confirm-HerdrAgentBlocked {
 # window is reported as before, with .blockedReads and .blockedUnreadable saying how it was
 # confirmed. A window already open when the deadline passes is finished rather than cut short, so
 # the wait can run past its timeout by at most one window. A worker only herdr's own word calls
-# blocked has no screen signature to watch clear, so it is reported at once, as it always was.
+# blocked, with no prompt on its screen, is confirmed the same way over the same window by
+# re-reading herdr's state: it is cleared only by a read naming another state, and reported
+# blocked when herdr still says so at the end.
 function Wait-HerdrAgentProgress {
     [CmdletBinding()]
     param(
@@ -1410,8 +1427,10 @@ function Wait-HerdrAgentProgress {
         $agent = Wait-HerdrAgent -Name $Name -TimeoutMs $remaining
         if ($agent) {
             $awaiting = Test-HerdrAgentAwaitingInput -Name $Name
-            if ($awaiting) {
-                $seen = Confirm-HerdrAgentBlocked -Name $Name -Seconds $BlockedConfirmSeconds
+            $herdrOnly = (-not $awaiting) -and "$($agent.agent_status)" -eq 'blocked'
+            if ($awaiting -or $herdrOnly) {
+                $seen = Confirm-HerdrAgentBlocked -Name $Name -Seconds $BlockedConfirmSeconds `
+                    -HerdrState:$herdrOnly
                 if ($seen.cleared) {
                     # Answered - by the hook, usually - so the worker has moved on. Its screen
                     # changed, and the stall clock starts again from here.
@@ -1503,8 +1522,10 @@ function Wait-HerdrAgentProgress {
             if (($live.PSObject.Properties.Name -contains 'agent_status') -and $live.agent_status) {
                 $stallState = $live.agent_status
             }
-            if ($awaiting) {
-                $seen = Confirm-HerdrAgentBlocked -Name $Name -Seconds $BlockedConfirmSeconds
+            $herdrOnly = (-not $awaiting) -and $stallState -eq 'blocked'
+            if ($awaiting -or $herdrOnly) {
+                $seen = Confirm-HerdrAgentBlocked -Name $Name -Seconds $BlockedConfirmSeconds `
+                    -HerdrState:$herdrOnly
                 if ($seen.cleared) {
                     $lastChange = Get-Date
                     continue

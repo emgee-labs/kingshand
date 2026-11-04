@@ -130,15 +130,15 @@ Describe 'A worker watch reports every outcome as its own line' {
         $l | Should -BeLike 'BLOCKED T-1*'
     }
 
-    It 'says how many reads of a blocked worker''s screen failed while its prompt was confirmed' {
+    It 'says how many reads of a blocked worker failed while its prompt was confirmed' {
         foreach ($r in 'settled', 'stalled') {
             $w = New-Wake -Reason $r -Awaiting $true
             $w | Add-Member blockedReads 6
             $w | Add-Member blockedUnreadable 2
             $l = Format-WorkerWake -Name 'T-1' -Wake $w
             Assert-OneLine $l
-            $l | Should -BeLike ('BLOCKED T-1*While the prompt was being confirmed, 2 of 6 reads of ' +
-                                 'its screen could not be read, so it was never seen to clear.')
+            $l | Should -BeLike ('BLOCKED T-1*While the prompt was being confirmed, 2 of 6 reads ' +
+                                 'could not be taken, so it was never seen to clear.')
             $w.blockedUnreadable = 0
             (Format-WorkerWake -Name 'T-1' -Wake $w) | Should -Not -BeLike '*being confirmed*'
         }
@@ -397,22 +397,26 @@ Describe 'A worker watch confirms a prompt is still up before it reports BLOCKED
         $l = Watch-Worker -Name 'T-1' -TimeoutMinutes 5
         Assert-OneLine $l
         $l | Should -BeLike 'BLOCKED T-1*'
-        $l | Should -BeLike ('*While the prompt was being confirmed, 6 of 6 reads of its screen ' +
-                             'could not be read, so it was never seen to clear.')
+        $l | Should -BeLike ('*While the prompt was being confirmed, 6 of 6 reads could not be ' +
+                             'taken, so it was never seen to clear.')
     }
 
     # herdr's own word says blocked on a prompt no screen signature matches, so no screen read could
-    # see it clear. It was reported at once before the window existed, and still is.
-    It 'reports a worker only herdr calls blocked at once, without a window' {
+    # see it clear. herdr's own state is re-read over the default window instead.
+    It 'reports a worker only herdr calls blocked after the default window when herdr keeps saying so' {
         Mock -ModuleName Herdr Read-HerdrAgentScreen {
             [pscustomobject]@{ ok = $true; text = '  Some dialog nobody taught the guard' }
         }
         Mock -ModuleName Herdr Wait-HerdrAgent {
             [pscustomobject]@{ name = 't-1'; agent_status = 'blocked'; pane_id = 'p1' }
         }
+        Mock -ModuleName Herdr Get-HerdrAgent {
+            [pscustomobject]@{ name = 't-1'; agent_status = 'blocked'; pane_id = 'p1' }
+        }
         (Watch-Worker -Name 'T-1' -TimeoutMinutes 5) | Should -BeLike 'BLOCKED T-1*'
         Should -Invoke -ModuleName Herdr Wait-HerdrAgent -Times 1 -Exactly
-        $script:slept | Should -Be 0
+        Should -Invoke -ModuleName Herdr Get-HerdrAgent -Times 6 -Exactly
+        $script:slept | Should -Be 60
     }
 
     It 'never reports blocked for a prompt seen to clear after the deadline' {

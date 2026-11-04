@@ -2054,6 +2054,102 @@ Describe 'Wait-HerdrAgentProgress confirms a prompt before it reports one, on a 
     }
 }
 
+Describe 'Wait-HerdrAgentProgress confirms a block only herdr reports by re-reading herdr' {
+    # No prompt is ever on the screen, so only herdr's own state says blocked. herdr's wait and
+    # state read are faked on the same clock as above, and the state reads blocked until
+    # $script:blockedUntil.
+    BeforeEach {
+        $script:t0    = Get-Date
+        $script:clock = $script:t0
+        $script:blockedUntil = $script:t0.AddHours(1)
+        $script:failAfter    = $null
+        $script:settles      = $true
+        Mock -ModuleName Herdr Get-Date { $script:clock }
+        Mock -ModuleName Herdr Start-Sleep {
+            param($Seconds, $Milliseconds)
+            $s = if ($Seconds) { $Seconds } else { $Milliseconds / 1000 }
+            $script:clock = $script:clock.AddSeconds($s)
+        }
+        Mock -ModuleName Herdr Wait-HerdrAgent {
+            if ($script:settles -and $script:clock -lt $script:blockedUntil) {
+                return [pscustomobject]@{ name = 't-9001'; agent_status = 'blocked'; pane_id = 'p1' }
+            }
+            $script:clock = $script:clock.AddMilliseconds($TimeoutMs); $null
+        }
+        Mock -ModuleName Herdr Get-HerdrAgent {
+            if ($script:failAfter -and $script:clock -gt $script:failAfter) {
+                if ([int]($script:clock - $script:t0).TotalSeconds % 20 -eq 0) { return $null }
+                throw 'herdr did not answer'
+            }
+            $st = if ($script:clock -lt $script:blockedUntil) { 'blocked' } else { 'working' }
+            [pscustomobject]@{ name = 't-9001'; agent_status = $st; pane_id = 'p1' }
+        }
+        Mock -ModuleName Herdr Read-HerdrAgentScreen {
+            [pscustomobject]@{ ok = $true; text = '  Some dialog nobody taught the guard' }
+        }
+        Mock -ModuleName Herdr Test-HerdrServer { $true }
+    }
+
+    It 'goes on waiting when herdr stops saying blocked inside the window, on a settle' {
+        $script:blockedUntil = $script:t0.AddSeconds(25)
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 120000 -StallMinutes 60
+        $r.reason       | Should -Be 'timeout'
+        $r.state        | Should -BeNullOrEmpty
+        $r.blockedReads | Should -Be 0
+    }
+
+    It 'reports blocked when herdr still says so after the window, on a settle' {
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000
+        $r.reason            | Should -Be 'settled'
+        $r.state             | Should -Be 'blocked'
+        $r.awaitingInput     | Should -BeFalse
+        $r.blockedReads      | Should -Be 6
+        $r.blockedUnreadable | Should -Be 0
+    }
+
+    It 'counts failed state reads as unreadable and never as a clear, on a settle' {
+        $script:failAfter = $script:t0
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000
+        $r.state             | Should -Be 'blocked'
+        $r.blockedReads      | Should -Be 6
+        $r.blockedUnreadable | Should -Be 6
+    }
+
+    It 'goes on watching a stalled worker when herdr stops saying blocked inside the window' {
+        $script:settles      = $false
+        $script:blockedUntil = $script:t0.AddSeconds(75)
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000 -StallMinutes 1
+        $r.reason       | Should -Be 'stalled'
+        $r.state        | Should -Be 'working'
+        $r.blockedReads | Should -Be 0
+    }
+
+    It 'reports a stalled worker blocked when herdr still says so after the window' {
+        $script:settles = $false
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000 -StallMinutes 1
+        $r.reason            | Should -Be 'stalled'
+        $r.state             | Should -Be 'blocked'
+        $r.blockedReads      | Should -Be 6
+        $r.blockedUnreadable | Should -Be 0
+    }
+
+    It 'counts failed state reads as unreadable on a stall too' {
+        $script:settles   = $false
+        $script:failAfter = $script:t0.AddMinutes(1)
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000 -StallMinutes 1
+        $r.reason            | Should -Be 'stalled'
+        $r.state             | Should -Be 'blocked'
+        $r.blockedReads      | Should -Be 6
+        $r.blockedUnreadable | Should -Be 6
+    }
+
+    It 'reports a block only herdr calls at once when the window is 0' {
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000 -BlockedConfirmSeconds 0
+        $r.state        | Should -Be 'blocked'
+        $r.blockedReads | Should -Be 0
+    }
+}
+
 Describe 'the settled wake is unchanged by the progress wait beside it' {
     # The brief for the progress watcher was explicit that this function keeps its behaviour: other
     # callers depend on it and its guarded screen read is correct for what it does. Pinned here so
