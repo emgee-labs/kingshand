@@ -89,6 +89,7 @@ the branch is what the worker's durable record lists, and nothing else.
 
 ## The warm worker
 
+<!-- rule:fief/warm-worker -->
 **The first change in the session starts it, through `muster` as any dispatch is.** Step 2 writes
 its brief [rule:muster/brief-contents] and Step 3 gates it [rule:muster/dispatch-gate]. The brief
 covers the run rather than one fix: its first item, the

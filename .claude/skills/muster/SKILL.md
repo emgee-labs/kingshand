@@ -338,7 +338,8 @@ the file, and a worker left to work out which source wins picks wrong half the t
 
 **The standing rules are not pasted and not passed.** `data\rules-<project>.md` holds
 context and vocabulary - tagging and casing, shorthand, folders never to touch, branch naming,
-where a login is kept - and `annex` owns its format. Dispatch attaches it by itself and names the
+where a login is kept - and `annex` owns its format [rule:annex/rules-file]. Dispatch attaches it
+by itself and names the
 copy in the dispatch file Step 4 describes, so pass no `-ReadPath` for it and write no line for it.
 Do not paste it into the brief and never ask the worker to report against it: it is reference, and
 an `n/a` answered to "our tickets are tagged NG-" dilutes the self-check on the lines that are
@@ -1383,7 +1384,8 @@ holding on a worker idle on its own background shells, because herdr's wait retu
 Tell the user one line per worker that dispatch happened, then stop talking.
 
 **A `fief` session's warm worker is dispatched with `-InCheckout -Branch` and recorded with
-`-Session`**, and every later fix reaches it as a prompt rather than a dispatch - `fief` owns that.
+`-Session`**, and every later fix reaches it as a prompt rather than a dispatch - `fief` owns that
+[rule:fief/warm-worker].
 
 ## Step 5 - Quiet, and status on request
 
@@ -1713,10 +1715,12 @@ Read-HerdrAgent -Name "<worker id>" -Lines 20
 Wait-HerdrAgent -Name "<worker id>" -Until 'working' -TimeoutMs 120000
 ```
 
-`rally` owns the steer itself and says why an unchecked one is not a steer at all. Three things
+`rally` owns the steer itself [rule:rally/steer] and says why an unchecked one is not a steer at
+all. Three things
 about this one in particular. The send is refused outright when that worker's input box already
 holds text this session did not write - the wake reported `promptBox`, so you already know, and
-`rally` owns what to do about it rather than `-AllowNonEmptyBox` being reached for here. And **the
+`rally` owns what to do about it [rule:rally/input-box-text] rather than `-AllowNonEmptyBox` being
+reached for here. And **the
 worker is working again the moment the answer lands, so re-arm the Step 4 wait** - the wait that
 woke you is spent, and a worker resumed with nothing watching it is the silence this whole layer
 exists to prevent.
