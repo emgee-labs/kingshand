@@ -31,6 +31,11 @@ Set-StrictMode -Version Latest
 # to where the worker was - a relaunch starts over - so nothing is lost by it being a stage, and the
 # stage it left is written into its pause record.
 #
+# `reported` means delivered a report, nothing to land: a review-only job or a read-only
+# investigation whose findings have been relayed. It is over, the same as `landed`, and it never
+# sets the `landed` flag, because nothing was merged. Test-CrewStageOver is the one list of the
+# stages that are over, and every reader that decides over-or-waiting asks it.
+#
 # THERE IS NO CLEARING VERB, AND THAT IS THE DESIGN RATHER THAN AN OMISSION. Once a worker parks,
 # the field keeps naming that hold for the rest of the worker's life. Clearing it on the way back
 # out would give one null two opposite meanings - a worker that never parked, and a worker that
@@ -59,7 +64,9 @@ Set-StrictMode -Version Latest
 # kept, and `torn_down_at` says its cleanup finished. bin\Teardown.psm1 reads the first and writes
 # the second.
 
-$script:ValidStages = @('dispatched', 'implementing', 'gating', 'ready', 'landed', 'failed', 'paused')
+$script:ValidStages = @('dispatched', 'implementing', 'gating', 'ready', 'landed', 'failed', 'paused',
+                        'reported')
+$script:OverStages  = @('landed', 'failed', 'reported')
 $script:ValidKinds  = @('ticket', 'adhoc')
 
 # tasks-axi ids are slug-shaped - letters, digits, '.', '_' and '-', with no spaces - and the first
@@ -336,6 +343,16 @@ function Set-CrewStage {
     if ($Stage -eq 'landed') { $State.workers[$WorkerId].landed = $true }
 }
 
+# Whether a stage is over - nothing left running and nothing waiting on the King. Anything else,
+# including a stage this module does not know, is not over, so an unreadable stage is listed
+# rather than hidden.
+function Test-CrewStageOver {
+    [CmdletBinding()]
+    param([AllowEmptyString()][AllowNull()][string]$Stage)
+
+    "$Stage" -in $script:OverStages
+}
+
 function Get-CrewWorker {
     [CmdletBinding()]
     param(
@@ -396,6 +413,6 @@ function Import-CrewState {
     $raw
 }
 
-Export-ModuleMember -Function New-CrewState, Add-CrewWorker, Set-CrewStage, Set-CrewWaitingOn,
+Export-ModuleMember -Function New-CrewState, Add-CrewWorker, Set-CrewStage, Test-CrewStageOver, Set-CrewWaitingOn,
                               Get-CrewWorker, Get-CrewByStage, Save-CrewState, Import-CrewState,
                               Add-CrewItem, Get-CrewItems, Set-CrewRelaunch, Set-CrewTornDown

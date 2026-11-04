@@ -246,7 +246,8 @@ and only then removed under the safe order above.
 If the worktree or the ownership cannot be reconciled safely, leave all state intact and report
 the task failed or blocked with the conflicting evidence. Set the stage with
 `Set-CrewStage -Stage 'failed'`; the valid stages are exactly `dispatched`, `implementing`,
-`gating`, `ready`, `landed`, `failed`, `paused`, and `Set-CrewStage` throws on anything else.
+`gating`, `ready`, `landed`, `failed`, `paused`, `reported`, and `Set-CrewStage` throws on
+anything else.
 `paused` is set by `Suspend-Worker` alone.
 
 ## A parked worker is waiting, not wedged

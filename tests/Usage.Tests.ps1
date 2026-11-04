@@ -1625,6 +1625,14 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
         Get-UsagePulse | Should -BeLike '*kh running checks*'
     }
 
+    # A finished review is over, so the pulse must never put it to the King as his to answer.
+    It 'says a reported worker delivered its findings, never that it waits on the King' {
+        Mock -ModuleName Usage Get-UsageFleet { @(New-FleetRow -Ticket 'kh' -Stage 'reported') }
+        $line = Get-UsagePulse
+        $line | Should -Be '62% session - 1 running: kh findings delivered'
+        $line | Should -Not -BeLike '*waiting on you*'
+    }
+
     It 'stays quiet on a percentage that moves inside its band, and speaks when it crosses one' {
         Get-UsagePulse | Should -Not -BeNullOrEmpty
 

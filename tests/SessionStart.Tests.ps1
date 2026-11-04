@@ -329,6 +329,45 @@ Describe 'a worker parked on a decision is not printed as a worker still working
     }
 }
 
+# A finished review or a read-only investigation is recorded `reported`. Counted with `ready`, it
+# would sit in the live-or-waiting list for good and keep its project named as waiting on the King.
+Describe 'a reported worker is over, the same as a landed one' {
+    BeforeAll {
+        $script:Rep = New-Fixture 'reported'
+        foreach ($n in @('alpha', 'beta')) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $script:Rep.Root "repos\$n") | Out-Null
+        }
+        Add-RegistryEntry $script:Rep '- alpha [review-only] - alpha repo (added 2026-01-01)' (Join-Path $script:Rep.Root 'repos\alpha')
+        Add-RegistryEntry $script:Rep '- beta [direct-PR] - beta repo (added 2026-01-02)' (Join-Path $script:Rep.Root 'repos\beta')
+        @{
+            workers = @{
+                'w-reported' = @{ ticket = 'T-3001'; kind = 'ticket'; repo = 'alpha'; stage = 'reported' }
+                'w-landed'   = @{ ticket = 'T-3002'; kind = 'ticket'; repo = 'beta'; stage = 'landed'; landed = $true }
+                'w-ready'    = @{ ticket = 'T-3003'; kind = 'ticket'; repo = 'beta'; stage = 'ready' }
+            }
+        } | ConvertTo-Json -Depth 10 | Set-Content -Path $script:Rep.State -Encoding utf8
+        $script:RepText = Get-Digest $script:Rep
+    }
+
+    It 'does not list the reported worker as live or not finished' {
+        @($script:RepText -split "`r?`n" | Where-Object { $_ -match '^\s*- w-reported ' }).Count |
+            Should -Be 0
+        @($script:RepText -split "`r?`n" | Where-Object { $_ -match '^\s*- w-ready ' }).Count |
+            Should -Be 1 -Because 'ready still means waiting on the merge'
+    }
+
+    It 'counts it beside the landed and failed ones' {
+        $script:RepText.Contains('1 live or not finished, 1 landed, 1 reported and 0 failed') |
+            Should -BeTrue
+    }
+
+    It 'does not name its project as having something live or waiting' {
+        @($script:RepText -split "`r?`n" | Where-Object { $_ -match '^\s*- alpha \[' }).Count |
+            Should -Be 0
+        $script:RepText.Contains('1 with something live or waiting') | Should -BeTrue
+    }
+}
+
 # The SessionStart hook ships inside the repository, so this digest fires on a fresh clone before
 # anything is installed. The skills load from .claude\skills\ and are readable at once, but the
 # toolchain and local directories every one of them depends on are not there yet. A digest that

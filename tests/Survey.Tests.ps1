@@ -353,6 +353,29 @@ Describe 'a worker is joined with its durable report' {
     It 'does not call a dispatched brief un-dispatched work' {
         $script:FleetSnap.data.undispatchedCount | Should -Be 0
     }
+
+    It 'counts neither ready nor implementing as over' {
+        @($script:FleetSnap.crew.workers | Where-Object { $_.over }).Count | Should -Be 0
+    }
+}
+
+# A finished review or read-only investigation is recorded `reported`. Read as waiting, it would
+# sit in King's Call for good as a decision nobody owes.
+Describe 'a reported worker is over in the snapshot' {
+    It 'marks reported and landed over, and ready not' {
+        $f = New-Fixture 'reported-over'
+        @{
+            workers = @{
+                'w-rep'    = @{ ticket = 'T-2001'; kind = 'ticket'; repo = 'acme-web'; stage = 'reported' }
+                'w-landed' = @{ ticket = 'T-2002'; kind = 'ticket'; repo = 'acme-web'; stage = 'landed' }
+                'w-ready'  = @{ ticket = 'T-2003'; kind = 'ticket'; repo = 'acme-web'; stage = 'ready' }
+            }
+        } | ConvertTo-Json -Depth 10 | Set-Content -Path $f.State -Encoding utf8
+
+        $snap = Get-Snapshot $f
+        $over = @($snap.crew.workers | Where-Object { $_.over } | ForEach-Object id | Sort-Object)
+        $over | Should -Be @('w-landed', 'w-rep')
+    }
 }
 
 Describe 'the snapshot reads the live fleet without changing it' {

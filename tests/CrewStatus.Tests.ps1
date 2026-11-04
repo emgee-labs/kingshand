@@ -298,9 +298,10 @@ Describe 'a worker sitting on a prompt reports blocked, whatever herdr calls it'
 }
 
 Describe 'the output shape other code and the skills format on' {
-    # Eight properties grew to eleven when a session worker learned to carry several items. The
-    # three new ones come last, so every one of the original eight keeps its place and its name.
-    It 'emits exactly the eleven documented properties, the original eight first and unmoved' {
+    # Eight properties grew to eleven when a session worker learned to carry several items, and to
+    # twelve when `over` was added. Each new one comes last, so every earlier one keeps its place
+    # and its name.
+    It 'emits exactly the twelve documented properties, the original eight first and unmoved' {
         Set-HerdrAgents @(@{ name = 't-1001'; agent_status = 'working'; title = 'Running tests' })
         $state = New-CrewFile -Name 'shape' -Workers @{
             'T-1001' = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'acme-web'; stage = 'gating' }
@@ -309,7 +310,7 @@ Describe 'the output shape other code and the skills format on' {
         $row = (Get-Status $state)[0]
         @($row.PSObject.Properties.Name) |
             Should -Be @('id', 'ticket', 'repo', 'stage', 'live', 'agentState', 'agentStatus', 'waitingOn',
-                         'session', 'items', 'itemsError')
+                         'session', 'items', 'itemsError', 'over')
         $row.ticket | Should -Be 'T-1001'
         $row.repo   | Should -Be 'acme-web'
         $row.stage  | Should -Be 'gating'
@@ -414,6 +415,22 @@ Describe 'liveness costs one call plus a corrected state per live worker' {
         @($calls | Where-Object { $_ -like '*agent read*' }).Count |
             Should -Be 2 -Because 'only the two live workers have a screen worth reading'
         Get-HerdrCallCount | Should -Be 5
+    }
+
+    # A finished review or read-only investigation is over like a landed one; `ready` still waits.
+    It 'says which workers are over, reported among them' {
+        Set-HerdrAgents @()
+        $state = New-CrewFile -Name 'over' -Workers @{
+            'T-1001' = @{ ticket = 'T-1001'; kind = 'ticket'; repo = 'r'; stage = 'implementing' }
+            'T-1002' = @{ ticket = 'T-1002'; kind = 'ticket'; repo = 'r'; stage = 'ready' }
+            'T-1003' = @{ ticket = 'T-1003'; kind = 'ticket'; repo = 'r'; stage = 'landed' }
+            'T-1004' = @{ ticket = 'T-1004'; kind = 'ticket'; repo = 'r'; stage = 'failed' }
+            'T-1005' = @{ ticket = 'T-1005'; kind = 'ticket'; repo = 'r'; stage = 'reported' }
+        }
+
+        $rows = Get-Status $state
+        $over = @($rows | Where-Object { $_.over } | ForEach-Object id | Sort-Object)
+        $over | Should -Be @('T-1003', 'T-1004', 'T-1005')
     }
 
     It 'makes no call at all when crew.json holds no workers' {

@@ -582,6 +582,7 @@ When evidence uses an internal label, rewrite it before sending:
 | `stage`, `dispatched`, `implementing` | still working |
 | `gating`, `ready` | waiting on your approval, or waiting on the merge |
 | `landed` | merged, on the default branch |
+| `reported` | reviewed, findings delivered |
 | `failed` | the concrete failure: could not build, could not run the review gate |
 | dispatch gate, landing gate | the approval you owe before I dispatch, or before this lands |
 | `brief` | instructions |
