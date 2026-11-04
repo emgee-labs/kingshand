@@ -139,8 +139,10 @@ BeforeAll {
             $shim = Join-Path $Fixture.Root 'queue-shim'
             New-Item -ItemType Directory -Force -Path $shim | Out-Null
             Set-Content -LiteralPath (Join-Path $shim 'queue.txt') -Value $QueueToon -Encoding utf8
-            Set-Content -LiteralPath (Join-Path $shim 'tasks-axi.cmd') -Encoding ascii -Value @(
-                '@echo off', "type `"$(Join-Path $shim 'queue.txt')`"")
+            Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
+            $queue = Join-Path $shim 'queue.txt'
+            $null = New-TestExecutable -Path (Join-Path $shim 'tasks-axi') `
+                -Cmd @("type `"$queue`"") -Sh @("cat '$($queue.Replace("'", "'\''"))'")
             $env:PATH = $shim + [IO.Path]::PathSeparator + $env:PATH
         }
         try {
@@ -324,6 +326,45 @@ Describe 'a worker parked on a decision is not printed as a worker still working
 
     It 'still renders without throwing, which is the whole contract of this script' {
         { Get-Digest $script:Parked } | Should -Not -Throw
+    }
+}
+
+# A finished review or a read-only investigation is recorded `reported`. Counted with `ready`, it
+# would sit in the live-or-waiting list for good and keep its project named as waiting on the King.
+Describe 'a reported worker is over, the same as a landed one' {
+    BeforeAll {
+        $script:Rep = New-Fixture 'reported'
+        foreach ($n in @('alpha', 'beta')) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $script:Rep.Root "repos\$n") | Out-Null
+        }
+        Add-RegistryEntry $script:Rep '- alpha [review-only] - alpha repo (added 2026-01-01)' (Join-Path $script:Rep.Root 'repos\alpha')
+        Add-RegistryEntry $script:Rep '- beta [direct-PR] - beta repo (added 2026-01-02)' (Join-Path $script:Rep.Root 'repos\beta')
+        @{
+            workers = @{
+                'w-reported' = @{ ticket = 'T-3001'; kind = 'ticket'; repo = 'alpha'; stage = 'reported' }
+                'w-landed'   = @{ ticket = 'T-3002'; kind = 'ticket'; repo = 'beta'; stage = 'landed'; landed = $true }
+                'w-ready'    = @{ ticket = 'T-3003'; kind = 'ticket'; repo = 'beta'; stage = 'ready' }
+            }
+        } | ConvertTo-Json -Depth 10 | Set-Content -Path $script:Rep.State -Encoding utf8
+        $script:RepText = Get-Digest $script:Rep
+    }
+
+    It 'does not list the reported worker as live or not finished' {
+        @($script:RepText -split "`r?`n" | Where-Object { $_ -match '^\s*- w-reported ' }).Count |
+            Should -Be 0
+        @($script:RepText -split "`r?`n" | Where-Object { $_ -match '^\s*- w-ready ' }).Count |
+            Should -Be 1 -Because 'ready still means waiting on the merge'
+    }
+
+    It 'counts it beside the landed and failed ones' {
+        $script:RepText.Contains('1 live or not finished, 1 landed, 1 reported and 0 failed') |
+            Should -BeTrue
+    }
+
+    It 'does not name its project as having something live or waiting' {
+        @($script:RepText -split "`r?`n" | Where-Object { $_ -match '^\s*- alpha \[' }).Count |
+            Should -Be 0
+        $script:RepText.Contains('1 with something live or waiting') | Should -BeTrue
     }
 }
 
@@ -990,7 +1031,9 @@ Describe 'the digest says how to re-arm the usage pulse' {
 
     It 'carries a runnable arming command rather than a reminder to remember one' {
         $script:Pulse.Contains('RE-ARM') | Should -BeTrue
-        $script:Pulse | Should -Match 'Import-Module .*bin\\Usage\.psm1'
+        $sep = [regex]::Escape([IO.Path]::DirectorySeparatorChar)
+        $script:Pulse | Should -Match "Import-Module .*bin$($sep)Usage\.psm1" -Because (
+            'the path is copied into a command, and a backslash is a file name character on macOS and Linux')
         $script:Pulse.Contains('Watch-UsagePulse') |
             Should -BeTrue -Because 'the Hand copies the block, so it has to be runnable'
     }
@@ -1409,10 +1452,14 @@ Describe 'the store path resolves the way lavish-axi resolves it' {
     BeforeAll {
         $script:SavedStateDir = $env:LAVISH_AXI_STATE_DIR
         $script:SavedProfile  = $env:USERPROFILE
+        $script:SavedUnixHome = $env:HOME
+        # The variable Paths.psm1's Get-UserHomePath reads on the system running the suite.
+        $script:HomeVar = if ($IsWindows) { 'USERPROFILE' } else { 'HOME' }
     }
     AfterAll {
         $env:LAVISH_AXI_STATE_DIR = $script:SavedStateDir
         $env:USERPROFILE          = $script:SavedProfile
+        $env:HOME                 = $script:SavedUnixHome
     }
 
     It 'takes LAVISH_AXI_STATE_DIR when it is set' {
@@ -1422,7 +1469,7 @@ Describe 'the store path resolves the way lavish-axi resolves it' {
         ) | Out-Null
 
         $env:LAVISH_AXI_STATE_DIR = Split-Path $f.LavishState -Parent
-        $env:USERPROFILE          = Join-Path $TestDrive 'no-such-profile'
+        [Environment]::SetEnvironmentVariable($script:HomeVar, (Join-Path $TestDrive 'no-such-profile'))
         (Get-Digest $f -ResolveLavishStatePath).Contains((Join-Path $f.Data 'kh-env\gate.html')) |
             Should -BeTrue -Because 'the tool honours that variable, so this has to honour it too'
     }
@@ -1433,10 +1480,10 @@ Describe 'the store path resolves the way lavish-axi resolves it' {
         New-Item -ItemType Directory -Force -Path (Join-Path $fakeHome '.lavish-axi') | Out-Null
         ([ordered]@{ sessions = [ordered]@{ k = (New-LavishSession `
             -File (Join-Path $f.Data 'kh-home\gate.html') -Pending 1) } } | ConvertTo-Json -Depth 6) |
-            Set-Content -LiteralPath (Join-Path $fakeHome '.lavish-axi\state.json') -Encoding utf8
+            Set-Content -LiteralPath (Join-Path $fakeHome '.lavish-axi' 'state.json') -Encoding utf8
 
         Remove-Item Env:\LAVISH_AXI_STATE_DIR -ErrorAction SilentlyContinue
-        $env:USERPROFILE = $fakeHome
+        [Environment]::SetEnvironmentVariable($script:HomeVar, $fakeHome)
         (Get-Digest $f -ResolveLavishStatePath).Contains((Join-Path $f.Data 'kh-home\gate.html')) |
             Should -BeTrue -Because 'that is where the tool keeps it when nothing overrides the location'
     }
@@ -1444,7 +1491,7 @@ Describe 'the store path resolves the way lavish-axi resolves it' {
     It 'says there is nowhere to look rather than inventing a path' {
         $f = New-Fixture 'resolve-nothing'
         Remove-Item Env:\LAVISH_AXI_STATE_DIR -ErrorAction SilentlyContinue
-        $env:USERPROFILE = ''
+        [Environment]::SetEnvironmentVariable($script:HomeVar, '')
         $text = Get-Digest $f -ResolveLavishStatePath
 
         $text | Should -Match 'no home directory to resolve lavish-axi''s session store against'
@@ -1831,5 +1878,40 @@ Describe 'the digest says when a newer release exists, for every installation' {
         $f.ReleaseRepo = New-ReleaseClone -Name 'fresh' -Releases @('v0.1.0', 'v0.2.0')
         (Get-Digest $f).Contains('UPDATE_') | Should -BeFalse
         Test-Path -LiteralPath (Join-Path $f.Root 'state\release-check.json') | Should -BeFalse
+    }
+}
+# What earlier cleanups left behind is one line, printed only when there is something to clear or a
+# read failed. bin\Teardown.psm1 owns the counts; this pins that the digest carries them, names the
+# sweep, says nothing on a clean fixture, and prints a failed read as unreadable rather than zero.
+Describe 'the leftovers line' {
+    It 'counts a dispatched folder git no longer lists, and names the sweep' {
+        $f = New-Fixture 'leftovers'
+        $repo = Join-Path $f.Root 'acme-api'
+        $null = & git init -q -b main $repo 2>&1
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $repo '.claude\worktrees\w-gone\bin')
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $f.Data 'w-gone')
+        Set-Content -LiteralPath (Join-Path $f.Data 'w-gone\brief.md') -Value 'brief'
+        Add-RegistryEntry -Fixture $f -Line '- acme-api [local-only] - a project' -Path $repo
+
+        $line = @((Get-Digest $f) -split "`n" | Where-Object { $_ -like '*LEFTOVERS:*' })
+        $line.Count | Should -Be 1
+        $line[0] | Should -BeLike '*1 leftover copies*'
+        $line[0] | Should -BeLike '*Invoke-WorkerSweep*'
+    }
+
+    It 'says unreadable, never zero, when git cannot list a project''s copies' {
+        $f = New-Fixture 'leftovers-unreadable'
+        $repo = Join-Path $f.Root 'not-a-repo'
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $repo '.claude\worktrees')
+        Add-RegistryEntry -Fixture $f -Line '- not-a-repo [local-only] - a project' -Path $repo
+
+        (Get-Digest $f).Contains('leftover copies unreadable') | Should -BeTrue
+    }
+
+    # The pane and workspace counts come from this machine's real herdr, as the fleet's liveness
+    # does, so only the copies half - which the fixture controls - is pinned here.
+    It 'counts no leftover copies where no project has any' {
+        $f = New-Fixture 'leftovers-none'
+        (Get-Digest $f) | Should -Not -Match '([1-9]\d*|unreadable) leftover copies|leftover copies unreadable'
     }
 }

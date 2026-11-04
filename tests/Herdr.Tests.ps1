@@ -27,13 +27,17 @@ BeforeAll {
         $p
     }
 
-    # A file called herdr.exe and nothing more. Get-Command resolves an Application by name and
-    # extension, never by reading the file, so a stub is enough to prove which candidate the
-    # discovery rule picks - and no test here ever executes it.
+    # A file called herdr.exe and nothing more - or, on macOS and Linux, an executable file called
+    # herdr. Get-Command resolves an Application by name and extension, or there by the execute
+    # bit, never by reading the file, so a stub is enough to prove which candidate the discovery
+    # rule picks - and no test here ever executes it.
     function New-StubHerdr {
         param([Parameter(Mandatory)][string]$Directory)
-        $exe = Join-Path $Directory 'herdr.exe'
+        $exe = Join-Path $Directory ($IsWindows ? 'herdr.exe' : 'herdr')
         Set-Content -LiteralPath $exe -Value 'stub' -Encoding utf8
+        if (-not $IsWindows) {
+            [IO.File]::SetUnixFileMode($exe, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+        }
         $exe
     }
 
@@ -310,7 +314,7 @@ Describe 'Get-HerdrCommandPath prefers a herdr on PATH over the bundled copy' {
         $script:OnPathExe = New-StubHerdr -Directory $script:OnPathDir
 
         $script:FakeHome  = New-TempFixtureDir -Prefix 'herdr-home-'
-        $bundledDir       = Join-Path $script:FakeHome 'tools\herdr'
+        $bundledDir       = Join-Path $script:FakeHome 'tools' 'herdr'
         New-Item -ItemType Directory -Force -Path $bundledDir | Out-Null
         $script:BundledExe = New-StubHerdr -Directory $bundledDir
 
@@ -352,8 +356,13 @@ Describe 'Get-HerdrCommandHint tells the reader what to run' {
     It 'names the installer, the switch and the verification' {
         $hint = Get-HerdrCommandHint
         $hint | Should -Match 'install\.ps1 -InstallMissing'
-        $hint | Should -Match 'tools\\herdr'
+        $hint | Should -Match ([regex]::Escape((Join-Path 'tools' 'herdr')))
         $hint | Should -Match 'SHA-256'
+    }
+
+    It 'names the installer the way this system runs it' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        Get-HerdrCommandHint | Should -Match ([regex]::Escape('pwsh ./install.ps1 -InstallMissing'))
     }
 }
 
@@ -466,6 +475,27 @@ Describe 'Get-HerdrServerState tells a stopped server apart from a status read t
     }
 }
 
+Describe 'Get-HerdrAgents returns its list whole' {
+    # Statute's collection-return rule: the list itself on assignment, at every size and on failure.
+    It 'returns a list of <n> agents on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        $script:ListedAgents = @(1..3 | Select-Object -First $n |
+            ForEach-Object { [pscustomobject]@{ name = "t-900$_"; state = 'idle' } })
+        Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = $script:ListedAgents } }
+
+        $agents = Get-HerdrAgents
+        $agents -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $agents.Count | Should -Be $n
+    }
+
+    It 'returns an empty list when herdr answers with an error' {
+        Mock -ModuleName Herdr Invoke-Herdr { New-HerdrError -Code 'server_unavailable' -Message 'no server' }
+
+        $agents = Get-HerdrAgents
+        $agents -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $agents.Count | Should -Be 0
+    }
+}
+
 Describe 'Get-HerdrAgentInventory keeps the failure that Get-HerdrAgents throws away' {
     # Two readers of the same `agent list` on purpose. Get-HerdrAgents answers an unreachable herdr
     # with an empty list, which is what a status view wants; this one says it could not read the
@@ -519,6 +549,144 @@ Describe 'Get-HerdrAgentInventory keeps the failure that Get-HerdrAgents throws 
         $inventory = Get-HerdrAgentInventory
         $inventory.ok    | Should -BeFalse -Because 'a reply with no agents in it did not answer the question'
         $inventory.error | Should -Match 'without an agents list'
+    }
+}
+
+Describe 'Get-HerdrLiveness answers live, none or unknown, and unknown is never none' {
+    # The reader every deciding caller uses. Each way of not getting an answer is forced here and
+    # must come back unknown naming the read that failed, with no worker list made up for it.
+    BeforeEach {
+        Mock -ModuleName Herdr Get-HerdrCommandPath { 'C:\not-a-real-place\herdr.exe' }
+        Mock -ModuleName Herdr Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = ''; compatible = $true } }
+    }
+
+    It 'reports live, with the workers herdr listed' {
+        Mock -ModuleName Herdr Invoke-Herdr {
+            [pscustomobject]@{ agents = @(
+                [pscustomobject]@{ name = 't-9001'; pane_id = 'p1' }
+                [pscustomobject]@{ name = 't-9002'; pane_id = 'p2' }
+            ) }
+        }
+        $l = Get-HerdrLiveness
+        $l.state    | Should -Be 'live'
+        @($l.workers | ForEach-Object { $_.name }) | Should -Be @('t-9001', 't-9002')
+        $l.evidence | Should -Be ''
+    }
+
+    It 'reports none when the running server listed nobody' {
+        Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } }
+        $l = Get-HerdrLiveness
+        $l.state | Should -Be 'none'
+        @($l.workers).Count | Should -Be 0
+    }
+
+    It 'reports none when the server is down, without asking for the agent list' {
+        Mock -ModuleName Herdr Get-HerdrServerState { [pscustomobject]@{ state = 'stopped'; detail = 'not running'; compatible = $null } }
+        Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached with the server down' }
+        (Get-HerdrLiveness).state | Should -Be 'none' -Because 'a pane dies with its server'
+    }
+
+    It 'reports unknown naming herdr when there is no herdr to ask' {
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $null }
+        $l = Get-HerdrLiveness
+        $l.state    | Should -Be 'unknown'
+        $l.read     | Should -Be 'herdr'
+        $l.evidence | Should -Match 'herdr was not found'
+        @($l.workers).Count | Should -Be 0
+    }
+
+    It 'reports unknown naming the server when its state could not be read' {
+        Mock -ModuleName Herdr Get-HerdrServerState {
+            [pscustomobject]@{ state = 'unknown'; detail = 'herdr status exited 1 and answered with nothing at all'; compatible = $null }
+        }
+        Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached on an unknown server state' }
+        $l = Get-HerdrLiveness
+        $l.state    | Should -Be 'unknown'
+        $l.read     | Should -Be 'server'
+        $l.evidence | Should -Match 'exited 1'
+    }
+
+    It 'reports unknown naming the server when the status read threw' {
+        Mock -ModuleName Herdr Get-HerdrServerState { throw 'status blew up' }
+        $l = Get-HerdrLiveness
+        $l.state    | Should -Be 'unknown'
+        $l.read     | Should -Be 'server'
+        $l.evidence | Should -Match 'status blew up'
+    }
+
+    It 'reports unknown naming the agent list when herdr answered it with an error' {
+        Mock -ModuleName Herdr Invoke-Herdr { New-HerdrError -Code 'timeout' -Message 'no reply' }
+        $l = Get-HerdrLiveness
+        $l.state    | Should -Be 'unknown'
+        $l.read     | Should -Be 'agents'
+        $l.evidence | Should -Match 'timeout'
+        @($l.workers).Count | Should -Be 0
+    }
+
+    It 'reports unknown naming the agent list when the reply could not be read' {
+        Mock -ModuleName Herdr Invoke-Herdr { $null }
+        $l = Get-HerdrLiveness
+        $l.state    | Should -Be 'unknown'
+        $l.read     | Should -Be 'agents'
+        $l.evidence | Should -Match 'nothing that could be read'
+    }
+
+    It 'reports unknown, rather than throwing, when the binary and server are different versions' {
+        Mock -ModuleName Herdr Invoke-Herdr { throw 'herdr protocol_mismatch: from the fake' }
+        $l = Get-HerdrLiveness
+        $l.state    | Should -Be 'unknown'
+        $l.read     | Should -Be 'agents'
+        $l.evidence | Should -Match 'protocol_mismatch'
+    }
+}
+
+Describe 'The pane and workspace inventories keep a failed read, and the workspace close is one call' {
+    # Cleanup deletes a folder only once no pane holds it, so "could not ask herdr" read as "no
+    # panes" would delete a folder still open in a pane. Each failure shape is named.
+
+    It 'reports the panes herdr listed' {
+        Mock -ModuleName Herdr Invoke-Herdr {
+            [pscustomobject]@{ panes = @([pscustomobject]@{ pane_id = 'w1:p1'; cwd = 'C:\x'; workspace_id = 'w1' }) }
+        } -ParameterFilter { $Arguments[0] -eq 'pane' -and $Arguments[1] -eq 'list' }
+        $i = Get-HerdrPaneInventory
+        $i.ok | Should -BeTrue
+        @($i.panes).pane_id | Should -Be 'w1:p1'
+    }
+
+    It 'reports herdr''s own error rather than an empty pane list' {
+        Mock -ModuleName Herdr Invoke-Herdr { New-HerdrError -Code 'server_unavailable' -Message 'no server' }
+        $i = Get-HerdrPaneInventory
+        $i.ok | Should -BeFalse
+        $i.error | Should -Match 'herdr pane list: server_unavailable'
+        @($i.panes).Count | Should -Be 0
+    }
+
+    It 'reports a pane reply that could not be read, and one with no panes list in it' {
+        Mock -ModuleName Herdr Invoke-Herdr { $null }
+        (Get-HerdrPaneInventory).error | Should -Match 'nothing that could be read'
+        Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } }
+        (Get-HerdrPaneInventory).error | Should -Match 'without a panes list'
+    }
+
+    It 'reports the workspaces herdr listed, and a failed workspace read by name' {
+        Mock -ModuleName Herdr Invoke-Herdr {
+            [pscustomobject]@{ workspaces = @([pscustomobject]@{ workspace_id = 'w1'; label = 'kingshand' }) }
+        }
+        $i = Get-HerdrWorkspaceInventory
+        $i.ok | Should -BeTrue
+        @($i.workspaces).label | Should -Be 'kingshand'
+
+        Mock -ModuleName Herdr Invoke-Herdr { New-HerdrError -Code 'server_unavailable' }
+        $bad = Get-HerdrWorkspaceInventory
+        $bad.ok | Should -BeFalse
+        $bad.error | Should -Match 'herdr workspace list: server_unavailable'
+    }
+
+    It 'closes a workspace with herdr''s workspace close, and tolerates one already gone' {
+        $script:seen = $null
+        Mock -ModuleName Herdr Invoke-Herdr { $script:seen = $Arguments; New-HerdrError -Code 'workspace_not_found' }
+        { Remove-HerdrWorkspace -WorkspaceId 'w9' } | Should -Not -Throw
+        $script:seen | Should -Be @('workspace', 'close', 'w9')
     }
 }
 
@@ -895,7 +1063,8 @@ Describe 'Stop-HerdrAgent never submits text already in the box' {
     # UTF-8 box caret as other characters, so the box read empty and `/exit` was submitted behind
     # the waiting text. The ps1 stub above runs in-process and never crosses that decode, so this
     # case uses a cmd stub: a separate process whose `type` writes the screen file's raw UTF-8.
-    It 'still refuses on a code page 437 console, and puts the console encoding back' {
+    # Windows only: a code page 437 console is a Windows console, and nothing else has one.
+    It 'still refuses on a code page 437 console, and puts the console encoding back' -Skip:(-not $IsWindows) {
         $dir = New-TempFixtureDir -Prefix 'herdr-cp437-'
         $screen = Join-Path $dir 'screen.txt'
         $cmd = Join-Path $dir 'herdr-stub.cmd'
@@ -1695,7 +1864,8 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         }
         Mock -ModuleName Herdr Test-HerdrAgentAwaitingInput { $true }
 
-        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 5000 -SampleSeconds 1
+        # 0 reports the prompt at once; the window before it has its own Describe below.
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 5000 -SampleSeconds 1 -BlockedConfirmSeconds 0
         $r.state         | Should -Be 'blocked' -Because 'herdr called a worker on an open menu done'
         $r.awaitingInput | Should -BeTrue
     }
@@ -1782,7 +1952,8 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
     It 'reads the state on a stall rather than asserting the worker is working' {
         Mock -ModuleName Herdr Test-HerdrAgentAwaitingInput { $true }
 
-        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 4000 -SampleSeconds 1 -StallMinutes 0
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 4000 -SampleSeconds 1 -StallMinutes 0 `
+                 -BlockedConfirmSeconds 0
         $r.stalled       | Should -BeTrue
         $r.state         | Should -Be 'blocked' -Because 'the screen outranks the state word here too'
         $r.awaitingInput | Should -BeTrue -Because 'a fabricated $false would hide the question being asked'
@@ -1835,6 +2006,168 @@ Describe 'Wait-HerdrAgentProgress notices a worker that stopped advancing, and n
         Should -Invoke Send-HerdrPrompt -ModuleName Herdr -Times 0 -Exactly
         Should -Invoke Send-HerdrKeys   -ModuleName Herdr -Times 0 -Exactly
         Should -Invoke Stop-HerdrAgent  -ModuleName Herdr -Times 0 -Exactly
+    }
+}
+
+Describe 'Wait-HerdrAgentProgress confirms a prompt before it reports one, on a stall as on a settle' {
+    # The settle half is driven end to end through the watch in Watch.Tests.ps1. This is the stall
+    # half: a worker whose screen sat still on a prompt. herdr's answers and the clock are faked;
+    # the clock moves only when herdr's wait takes its slice or something sleeps, and the screen
+    # shows the prompt until $script:promptUntil.
+    BeforeEach {
+        $script:t0    = Get-Date
+        $script:clock = $script:t0
+        $script:promptUntil = $script:t0.AddHours(1)
+        Mock -ModuleName Herdr Get-Date { $script:clock }
+        Mock -ModuleName Herdr Start-Sleep {
+            param($Seconds, $Milliseconds)
+            $s = if ($Seconds) { $Seconds } else { $Milliseconds / 1000 }
+            $script:clock = $script:clock.AddSeconds($s)
+        }
+        Mock -ModuleName Herdr Wait-HerdrAgent {
+            $script:clock = $script:clock.AddMilliseconds($TimeoutMs); $null
+        }
+        Mock -ModuleName Herdr Get-HerdrAgent {
+            [pscustomobject]@{ name = 't-9001'; agent_status = 'working'; pane_id = 'p1' }
+        }
+        Mock -ModuleName Herdr Read-HerdrAgentScreen {
+            $t = if ($script:clock -lt $script:promptUntil) {
+                "  Do you want to proceed?`n  `u{276F} 1. Yes`n    2. No`n  Esc to cancel"
+            } else { '  Allowed by PermissionRequest hook' }
+            [pscustomobject]@{ ok = $true; text = $t }
+        }
+    }
+
+    It 'reports a stall on a prompt still up after the window as blocked, saying how it confirmed' {
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000 -StallMinutes 1
+        $r.reason            | Should -Be 'stalled'
+        $r.state             | Should -Be 'blocked'
+        $r.awaitingInput     | Should -BeTrue
+        $r.blockedReads      | Should -Be 6
+        $r.blockedUnreadable | Should -Be 0
+    }
+
+    It 'goes on watching a stalled worker whose prompt clears, and never calls it blocked' {
+        $script:promptUntil = $script:t0.AddSeconds(75)
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000 -StallMinutes 1
+        $r.reason        | Should -Be 'stalled' -Because 'the screen then sat still on what came next'
+        $r.state         | Should -Be 'working'
+        $r.awaitingInput     | Should -BeFalse
+        $r.blockedReads      | Should -Be 0 -Because 'a prompt seen to clear lends its confirmation to no later wake'
+        $r.blockedUnreadable | Should -Be 0
+    }
+
+    It 'confirms nothing and reports the prompt at once when the window is 0' {
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000 -StallMinutes 1 -BlockedConfirmSeconds 0
+        $r.state        | Should -Be 'blocked'
+        $r.blockedReads | Should -Be 0
+    }
+
+    It 'carries the confirmation fields on every report, as 0 where no prompt was confirmed' {
+        Mock -ModuleName Herdr Wait-HerdrAgent {
+            [pscustomobject]@{ name = 't-9001'; agent_status = 'done'; pane_id = 'p1' }
+        }
+        $script:promptUntil = $script:t0
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000
+        $r.reason            | Should -Be 'settled'
+        $r.blockedReads      | Should -Be 0
+        $r.blockedUnreadable | Should -Be 0
+    }
+}
+
+Describe 'Wait-HerdrAgentProgress confirms a block only herdr reports by re-reading herdr' {
+    # No prompt is ever on the screen, so only herdr's own state says blocked. herdr's wait and
+    # state read are faked on the same clock as above, and the state reads blocked until
+    # $script:blockedUntil.
+    BeforeEach {
+        $script:t0    = Get-Date
+        $script:clock = $script:t0
+        $script:blockedUntil = $script:t0.AddHours(1)
+        $script:failAfter    = $null
+        $script:settles      = $true
+        Mock -ModuleName Herdr Get-Date { $script:clock }
+        Mock -ModuleName Herdr Start-Sleep {
+            param($Seconds, $Milliseconds)
+            $s = if ($Seconds) { $Seconds } else { $Milliseconds / 1000 }
+            $script:clock = $script:clock.AddSeconds($s)
+        }
+        Mock -ModuleName Herdr Wait-HerdrAgent {
+            if ($script:settles -and $script:clock -lt $script:blockedUntil) {
+                return [pscustomobject]@{ name = 't-9001'; agent_status = 'blocked'; pane_id = 'p1' }
+            }
+            $script:clock = $script:clock.AddMilliseconds($TimeoutMs); $null
+        }
+        Mock -ModuleName Herdr Get-HerdrAgent {
+            if ($script:failAfter -and $script:clock -gt $script:failAfter) {
+                if ([int]($script:clock - $script:t0).TotalSeconds % 20 -eq 0) { return $null }
+                throw 'herdr did not answer'
+            }
+            $st = if ($script:clock -lt $script:blockedUntil) { 'blocked' } else { 'working' }
+            [pscustomobject]@{ name = 't-9001'; agent_status = $st; pane_id = 'p1' }
+        }
+        Mock -ModuleName Herdr Read-HerdrAgentScreen {
+            [pscustomobject]@{ ok = $true; text = '  Some dialog nobody taught the guard' }
+        }
+        Mock -ModuleName Herdr Test-HerdrServer { $true }
+    }
+
+    It 'goes on waiting when herdr stops saying blocked inside the window, on a settle' {
+        $script:blockedUntil = $script:t0.AddSeconds(25)
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 120000 -StallMinutes 60
+        $r.reason       | Should -Be 'timeout'
+        $r.state        | Should -BeNullOrEmpty
+        $r.blockedReads | Should -Be 0
+    }
+
+    It 'reports blocked when herdr still says so after the window, on a settle' {
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000
+        $r.reason            | Should -Be 'settled'
+        $r.state             | Should -Be 'blocked'
+        $r.awaitingInput     | Should -BeFalse
+        $r.blockedReads      | Should -Be 6
+        $r.blockedUnreadable | Should -Be 0
+    }
+
+    It 'counts failed state reads as unreadable and never as a clear, on a settle' {
+        $script:failAfter = $script:t0
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000
+        $r.state             | Should -Be 'blocked'
+        $r.blockedReads      | Should -Be 6
+        $r.blockedUnreadable | Should -Be 6
+    }
+
+    It 'goes on watching a stalled worker when herdr stops saying blocked inside the window' {
+        $script:settles      = $false
+        $script:blockedUntil = $script:t0.AddSeconds(75)
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000 -StallMinutes 1
+        $r.reason       | Should -Be 'stalled'
+        $r.state        | Should -Be 'working'
+        $r.blockedReads | Should -Be 0
+    }
+
+    It 'reports a stalled worker blocked when herdr still says so after the window' {
+        $script:settles = $false
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000 -StallMinutes 1
+        $r.reason            | Should -Be 'stalled'
+        $r.state             | Should -Be 'blocked'
+        $r.blockedReads      | Should -Be 6
+        $r.blockedUnreadable | Should -Be 0
+    }
+
+    It 'counts failed state reads as unreadable on a stall too' {
+        $script:settles   = $false
+        $script:failAfter = $script:t0.AddMinutes(1)
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000 -StallMinutes 1
+        $r.reason            | Should -Be 'stalled'
+        $r.state             | Should -Be 'blocked'
+        $r.blockedReads      | Should -Be 6
+        $r.blockedUnreadable | Should -Be 6
+    }
+
+    It 'reports a block only herdr calls at once when the window is 0' {
+        $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000 -BlockedConfirmSeconds 0
+        $r.state        | Should -Be 'blocked'
+        $r.blockedReads | Should -Be 0
     }
 }
 

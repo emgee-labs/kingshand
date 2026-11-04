@@ -34,6 +34,7 @@ write vaguely: `- the settings drawer closes when the overlay is clicked` can be
 
 ## Before anything: can the browser be driven at all
 
+<!-- rule:witness/browser-load -->
 The browser tools are deferred, so load them in **one** call rather than one call per tool:
 
 ```
@@ -55,10 +56,9 @@ $tools.reason
 
 **The brief names that path in full, and it is the one to use.** It is a copy sitting beside this
 file in the brief's own directory, which with your worktree is the whole of what you can reach -
-the installation's own `bin\` is not. `$env:KINGSHAND_HOME` is no help either: it is not reliably
-set in a worker's session, because a worker inherits the environment of a server that started
-before the variable existed, which is the same trap the credential rule below is about. An import
-written against either silently names no file at all.
+the installation's own `bin\` is not. `$env:KINGSHAND_HOME` is no help either: even where it is
+set, it points into that same installation directory, which is outside what you can reach. An
+import written against either silently names no file at all.
 
 **The server is genuinely unreliable and its absence is an ordinary Tuesday.** It connected and
 disconnected twice inside one conversation on 2026-09-03. So there is no retry loop here and no
@@ -142,17 +142,16 @@ string to type it. So keep it to one read: assign it, pass it to `form_input`, a
 never put it on a command line, never log it, never repeat it and never let it into the report.
 `$cred.summary` is the only line about the login that the report gets.
 
-**There is a trap underneath this, and the function is what handles it.** Workers are started by a
-long-running server - measured at 24.8 hours of uptime on 2026-09-03 - and a process inherits its
-environment block from its parent at the moment it is created. A variable set today is therefore
-invisible to every worker that server starts, however long afterwards, until the server itself
-restarts. Measured the same day: a variable set at user scope was absent from `$env:` in the
-process that set it and in a child spawned after the set, while a registry read returned it from
-both. So `$env:NAME` alone reads empty for a login that is perfectly well set, and the silent
-failure looks exactly like a wrong password.
+**There is a trap underneath this, and the function is what handles it.** A process inherits its
+environment block from its parent at the moment it is created, so any process older than a
+variable - and any child of one - reads it empty from `$env:`, while a registry read returns it.
+A worker is not normally one of them: the server composes a fresh environment for each worker it
+starts (`docs\2026-09-04-worker-environment-propagation.md` owns the measurement). But
+`$env:NAME` alone reads empty for a login that is perfectly well set wherever the trap does fire,
+and the silent failure looks exactly like a wrong password.
 
-`Get-BrowserCredentialStatus` reads the process block first and the user environment second, so it
-finds one the shell cannot see and says which source answered. **Never fall back to a bare
+`Get-BrowserCredentialStatus` reads the process block first and, on Windows, the user environment
+second, so it finds one the shell cannot see and says which source answered. **Never fall back to a bare
 `$env:NAME` read** - that is the failure, not the fix. Where it finds nothing, the reason names the
 variable and says to restart the worker server if a later worker still cannot see it; put that
 reason in the report and record every check that needed the login `not checked`.

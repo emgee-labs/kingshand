@@ -13,7 +13,8 @@ You dispatch background workers, one per unit of work, each in its own git workt
 the user is involved depends on the project's posture. With `yolo` off, which is the default,
 they are involved at two moments: approving what gets dispatched, and approving what lands - and
 that second gate is held **before** anything goes to a server rather than after it, because hard
-rule 2 says nothing reaches one until they say so. With `+yolo` they are involved at neither -
+rule 2 [rule:claude/landing-authority] says nothing reaches one until they say so. With `+yolo`
+they are involved at neither -
 you proceed on your own, inside the floors in Step 7 that no posture relaxes. And for the
 push-capable modes, `direct-PR` and `no-mistakes`, your involvement ends at a pull request, which
 you merge only where that project's registry entry declares `+merge`.
@@ -41,6 +42,7 @@ Two kinds of work:
 integration: the `ado-local-mcp` server is not a kingshand prerequisite, `install.ps1` does not
 install it, and it needs an Azure DevOps organization and a token that most users do not have.
 Nothing else in kingshand touches it.
+<!-- rule:muster/adhoc-intake -->
 
 For tickets, load the ADO tools:
 
@@ -123,12 +125,14 @@ posture is never inferred, only read. Tell the user the project is not registere
 import it with `/annex`. Do not guess a posture, and do not dispatch without one.
 
 **`$proj.rawMode` is what was registered, and it is the field you route on.** For every flat mode
-(`local-only`, `direct-PR`, `no-mistakes`) `$proj.mode` holds exactly the same value and the two
-are interchangeable. They differ only for the policy: a `no-mistakes-prod-only` project comes back
-with `rawMode` of `no-mistakes-prod-only` and `mode` of `no-mistakes`. That `mode` is the most
-rigorous leg of the policy, a conservative fallback for mechanical callers - it is **not** what
-the work ships as, and taking it at face value sends internal-only work through a review gate the
-repo may not even have, stopping a dispatch at Step 1b that should have shipped `direct-PR`.
+(`local-only`, `direct-PR`, `no-mistakes`, `review-only`) `$proj.mode` holds exactly the same value
+and the two are interchangeable. They differ only for the policy: a `no-mistakes-prod-only`
+project comes back with `rawMode` of `no-mistakes-prod-only` and `mode` of `no-mistakes`. That
+`mode` is the most rigorous leg of the policy, a conservative fallback for mechanical callers - it
+is **not** what the work ships as, and taking it at face value sends internal-only work through a
+review gate the repo may not even have, stopping a dispatch at Step 1b that should have shipped
+`direct-PR`.
+<!-- rule:muster/resolved-mode -->
 
 So when `rawMode` is `no-mistakes-prod-only`, classify this task's surface now: internal-only
 tooling, automation, contributor or operator process and release work ships `direct-PR`, while
@@ -143,16 +147,19 @@ resolves:
 Set-Location $env:KINGSHAND_HOME
 tasks-axi add "<id>" "<one line>" --repo "<repo>"
 ```
+<!-- rule:muster/backlog-before-brief -->
 
 Ids are slug-shaped - letters, digits, `.`, `_` and `-`, with no spaces. Filing the item here is
 what makes a unit of work visible before anything is dispatched, so do it even when the dispatch
-gate is about to refuse it. `CLAUDE.md`'s Backlog contract owns why, and `tasks-axi --help` owns
+gate is about to refuse it. `CLAUDE.md`'s Backlog contract owns why
+[rule:claude/backlog-contract],
+and `tasks-axi --help` owns
 the flags.
 
 ## Step 1b - Preflight the review gate
 
-This step applies only when the task's resolved mode is `no-mistakes`. A `direct-PR` or
-`local-only` task has no review gate and skips straight to Step 2.
+This step applies only when the task's resolved mode is `no-mistakes`. A `direct-PR`,
+`local-only` or `review-only` task has no review gate and skips straight to Step 2.
 
 For a `no-mistakes` task, check the repo actually has a gate before promising one:
 
@@ -197,6 +204,7 @@ Three answers, and each one changes what happens next:
   nothing can report is never run, and `$ci.briefLine` tells the worker the pull request is where
   delivery ends. Do not offer to add CI to the repository: an absence is a
   decision somebody made, and this step makes it safe rather than reversing it.
+  <!-- rule:muster/ci-preflight -->
 - `unknown` - the question could not be settled: no `gh`, a remote this cannot see, an
   unauthenticated machine, a network that did not answer. **Say which, in one line, at dispatch
   time.** `$ci.gateLine` deliberately carries **no skip** here - a failed lookup is not proof that
@@ -223,6 +231,7 @@ the brief changes nothing at all, because the worker reads its brief and nothing
 
 ## Step 2 - Write a brief per unit of work
 
+<!-- rule:muster/brief-contents -->
 **Read the index for this project before you write anything.** It is at
 `$env:KINGSHAND_HOME\data\index\<project>.md`, with kingshand's own operational files in
 `$env:KINGSHAND_HOME\data\index.md`, and it is one line per durable file rather than the files
@@ -325,10 +334,12 @@ gate finding generalises, so a project with nothing standing today has criteria 
 is expected to meet. Where a criterion is one this task deliberately sets aside, say so in
 `Requirements` or `Unchanged` and in the `Intent` section the gate is handed - the brief wins over
 the file, and a worker left to work out which source wins picks wrong half the time.
+<!-- rule:muster/criteria-paste -->
 
 **The standing rules are not pasted and not passed.** `data\rules-<project>.md` holds
 context and vocabulary - tagging and casing, shorthand, folders never to touch, branch naming,
-where a login is kept - and `annex` owns its format. Dispatch attaches it by itself and names the
+where a login is kept - and `annex` owns its format [rule:annex/rules-file]. Dispatch attaches it
+by itself and names the
 copy in the dispatch file Step 4 describes, so pass no `-ReadPath` for it and write no line for it.
 Do not paste it into the brief and never ask the worker to report against it: it is reference, and
 an `n/a` answered to "our tickets are tagged NG-" dilutes the self-check on the lines that are
@@ -449,7 +460,7 @@ Import-Module $env:KINGSHAND_HOME\bin\Index.psm1 -Force
 Add-IndexEntry -Project "<project>" -Path "data\<id>\brief.md" -Summary "<the one-line title>"
 ```
 
-**The Done-means block is generated from the resolved mode.** Use exactly one of these five - and
+**The Done-means block is generated from the resolved mode.** Use exactly one of these six - and
 for a `no-mistakes` task, which of the three `no-mistakes` blocks is chosen by Step 1b's answer, not
 by memory: there is one block per answer and they appear in the order `has-ci`, `no-ci`, `unknown`.
 
@@ -485,6 +496,43 @@ by memory: there is one block per answer and they appear in the order `has-ci`, 
 - Never mention Claude, AI, or an assistant in any commit message or file.
 - If the repo cannot build, stop and say so plainly in your final message rather than
   reporting success.
+```
+
+`review-only` - review and report, land nothing:
+
+```markdown
+- Review what this brief asks you to review, in this worktree, and report it. Nothing else is
+  delivered: do not commit, do not push, do not open a pull request, do not comment anywhere, and
+  do not create or update a work item. Nothing this task produces lands or goes to a server.
+- Leave the worktree as you found it. Revert any change you made to check something before you
+  finish, so the copy holds nothing when it is cleaned up - what it taught you goes in `report.md`.
+- Work the `Standing criteria` section above line by line against what you reviewed and record
+  the result in `report.md`: for each line, `pass` with what you checked, a finding with where it
+  is, or `n/a` with the reason. A criterion you cannot check is a criterion to report, not to
+  skip. Where `Requirements` or `Unchanged` sets a criterion aside, this brief overrides that line:
+  record it `n/a` naming the brief line that set it aside.
+- Write your findings to `$env:KINGSHAND_HOME\data\<id>\report.md` before you finish. This file is
+  required every time, including when the review found nothing - say so plainly, and say what you
+  looked at, so a clean review cannot be mistaken for one that never happened.
+- Never call `AskUserQuestion`, and never open any interactive prompt, menu or confirmation of
+  any kind. You are a background agent with nobody attached: there is no one to answer, and the
+  run hangs until it is killed.
+- When you reach a decision your brief does not settle, write the question into
+  `$env:KINGSHAND_HOME\data\<id>\report.md` - the question, the options you can see, and what you
+  would need in order to choose - then say so in your final message and end your turn. **Write it
+  as prose, the way you would put it to a colleague at their desk.** Nothing parses the question
+  you write here, so there is no heading to match exactly, no slug to keep and no marker to get
+  wrong: the Hand reads what you wrote and records the decision itself. **Ending your turn is not the end of your work.**
+  The answer comes back to you as an ordinary prompt and you carry on from there, so leave
+  everything where it is: do not undo what you have done, do not pick a different task, and do not
+  report the work as failed. When the answer reaches you, write down what was decided and what you
+  did with it in that same file, and carry on. A second question later is just another question,
+  written the same way.
+- Where you can proceed on a stated assumption instead, do that: record the assumption in
+  `report.md` and continue rather than stopping.
+- Never mention Claude, AI, or an assistant in any file.
+- If you cannot read or run what you were asked to review, stop and say so plainly in your final
+  message rather than reporting a clean review.
 ```
 
 `direct-PR`:
@@ -703,12 +751,14 @@ still get checks from outside it, which is exactly the case a reading-by-eye get
 
 ### With `yolo` off, a push-capable block stops before anything leaves the machine
 
-Hard rule 2 says nothing goes to a server until the user says so, and a worker cannot ask - so the
+Hard rule 2 [rule:claude/landing-authority] says nothing goes to a server until the user says so,
+and a worker cannot ask - so the
 brief stops it at the last local step, and the Step 7 gate, held before the push rather than after
-it, is where the user answers. **`local-only` is untouched**: no Done-means block above changes,
-because none of them pushes or opens a pull request, so there is nothing here to hold back and no
-separate confirmation exists for it. That is about this project's delivery and not about everything
-it touches - a comment or a work item on a `local-only` project is gated by rule 2 like any other.
+it, is where the user answers. **`local-only` and `review-only` are untouched**: no Done-means
+block above changes, because neither pushes or opens a pull request, so there is nothing here to
+hold back and no separate confirmation exists for it. That is about this project's delivery and not
+about everything it touches - a comment or a work item on a `local-only` project is gated by rule 2
+like any other, and a `review-only` brief forbids both outright.
 
 For a `direct-PR` task, replace the `Push the branch and open a pull request` bullet and the
 `Do not merge it` bullet after it with this one:
@@ -778,9 +828,8 @@ Keep it short and tell the worker so. A report that runs to an essay is as much 
 report - the point is that a fresh session can pick the work up, not that the worker narrates.
 
 The reason the file exists is that a final chat message is a session artefact. A worker's screen
-dies with its pane, and workers inherit `CLAUDE_CODE_CHILD_SESSION` from the Hand's own session,
-so transcript saving is off and there is usually no transcript on disk to fall back to at all. A
-finding that lives only in the worker's output cannot be recovered by a later session.
+dies with its pane, and its on-disk transcript is an unindexed log a later session has no reason to
+search, so a finding that lives only in the worker's output is not recovered in practice.
 `report.md` is kingshand state and survives teardown.
 
 `--skip` has exactly two sanctioned uses on this path and nothing else may add one. The first is
@@ -798,7 +847,9 @@ for any other reason - to shorten a run, to get past a slow step, because CI loo
 report - is the misuse this line names. That last one is the near miss worth recognising in your own
 reasoning: `no-ci` is proof and `unknown` is a guess, which is exactly why `unknown` keeps a
 terminating sentence instead of the flag. Never remove the push prohibition from the `local-only`
-variant.
+variant, nor any of the `review-only` variant's prohibitions - no commit, no push, no pull request,
+no comment, no work item.
+<!-- rule:muster/skip-uses -->
 
 **Say in `--intent` what this task deliberately sets aside.** You write that string, not the worker:
 it is the `Intent` section of the brief, and the three `no-mistakes` blocks hand it to the gate
@@ -860,6 +911,7 @@ convergence: a bare count of three is not an escalation on its own, so authorize
 finding's own merits and send the design question to the user beside it. That is the whole rule
 about repeated findings and this is the only place it is stated - `petition` step 7 points here
 rather than keeping a second copy.
+<!-- rule:muster/repeated-findings -->
 
 **A requirement that names a mechanism carries the fact it rests on.** `kh-dispatch-index-gate`'s
 brief said to gate on a project's own index. The worker built exactly that, then found that
@@ -867,11 +919,13 @@ brief said to gate on a project's own index. The worker built exactly that, then
 built "would have refused nothing, ever" - correct to the letter, and it had to be widened;
 `docs\2026-08-30-data-index.md` owns that record. Where the fact is yours to read - `data\`,
 `state\`, the registry - check it and write it into the brief. Where it is inside the project, hard
-rule 1 says a worker checks it, so write the requirement as a premise to verify before building to
+rule 1 [rule:claude/workers-do-the-work] says a worker checks it, so write the requirement as a
+premise to verify before building to
 it rather than as a settled fact.
 
 ## The review surface
 
+<!-- rule:muster/review-surface -->
 Both gates render to Lavish and then wait in it, and so does anything else that puts a decision in
 front of the user. **This section is the only statement of how that surface is opened, watched and
 answered in.** Step 3 and Step 7 carry their own render command and point back here, and so do the
@@ -929,7 +983,8 @@ lavish-axi poll <file> --agent-reply "<your answer to what they just sent>"
 ```
 
 That displays your answer in the side chat and waits again. **It answers what they just sent and
-nothing else** - hard rule 6 still forbids narrating progress, and a running commentary in the
+nothing else** - hard rule 6 [rule:claude/escalate-real-decisions] still forbids narrating
+progress, and a running commentary in the
 side chat is that rule broken on a different surface. A bare `poll` re-arms too but leaves them
 looking at silence they sent into, which is the reported symptom rather than the fix. Where there
 is work to do before they can answer again, that re-armed poll is the harness-native tracked
@@ -955,7 +1010,7 @@ directory, so with two gates outstanding the newest file is one of them and the 
 That search is for the surfaces the session-start digest cannot name. Its `RE-ARM:` section already
 prints the absolute path of every one still holding something nobody collected, so where a surface
 is named there, poll the path it gives rather than hunting for it - `CLAUDE.md`'s Recovery section
-owns which ones it can name and which it cannot.
+owns which ones it can name and which it cannot [rule:claude/recovery].
 
 **A return whose session has ended is the one with nothing to re-arm**, and `Send & End` is only
 the commonest way to reach that state - ending the review without sending anything reaches it too.
@@ -995,6 +1050,7 @@ ask which surface they want for long content rather than rendering another unrea
 
 ## Step 3 - Gate one: approve the dispatch
 
+<!-- rule:muster/dispatch-gate -->
 **This gate is skipped when the project is registered `+yolo`.** In that case write the brief,
 say in one line what you are dispatching and why, and go straight to Step 4. With `yolo` off,
 which is the default, render the gate and wait.
@@ -1004,7 +1060,8 @@ which is the default, render the gate and wait.
 PowerShell - it would skip this gate on every project and dispatch work no one approved.
 
 **While `parley` is loaded, this gate is asked as a line in chat rather than rendered.** That is
-hard rule 5's own exception and `parley` owns it in full: the line names the project, the change
+hard rule 5's own exception [rule:claude/chat-short-render] and `parley` owns it in full: the line
+names the project, the change
 and what the worker will do, and only the user's answer to it is consent to dispatch. The gate is
 not skipped and the approval is not assumed - what changes is the surface. A dispatch that cannot
 be judged from one line is not quick, and `parley` says to end the mode and render under the rest
@@ -1084,7 +1141,8 @@ too, and the dispatcher's header lists them.
 other twelve is about something this dispatch knows exactly - a path it was handed, or the base ref
 it was told to use; that one is about a number a separate tool reports, and a reading that could
 not be taken warns and dispatches rather than blocking. The one exception is a cached floor already
-at or past the threshold, which refuses with no current reading behind it - `vigil` owns why, and
+at or past the threshold, which refuses with no current reading behind it - `vigil` owns why
+[rule:vigil/refusal-near-limit], and
 relaying whichever of the two you get is the whole of what it asks of you.
 
 **Dispatch confirms the worker has taken its start prompt** - its input box empty and the worker
@@ -1112,6 +1170,7 @@ the copy, so removing a standing file is enough to stop it reaching a worker; ta
 them, dispatched without `-InCheckout`, gets no dispatch file at all. **Do not read the dispatch
 file and do not edit it**: the brief you wrote is exactly what you approved, and anything you open
 is context you pay for again on every call.
+<!-- rule:muster/dispatch-file -->
 
 **Dispatch does not read the paths out of the brief's prose, and nothing may make it start.** An
 earlier version did, comparing what it parsed there against `-ReadPath`, and it cost six review
@@ -1138,8 +1197,17 @@ Import-Module $env:KINGSHAND_HOME\bin\Crew.psm1 -Force
 $s = Import-CrewState -Path $env:KINGSHAND_HOME\state\crew.json
 Add-CrewWorker -State $s -WorkerId $r.id -Ticket "<id>" -Kind "<ticket|adhoc>" `
                -Repo "<repo>" -Worktree $r.worktree -Branch $r.branch -Base $r.base `
-               -Brief "$env:KINGSHAND_HOME\data\<id>\brief.md"
+               -PaneId $r.paneId -Brief "$env:KINGSHAND_HOME\data\<id>\brief.md"
 Save-CrewState -State $s -Path $env:KINGSHAND_HOME\state\crew.json
+```
+
+**A re-dispatch of a worker id already recorded is re-recorded with `Set-CrewRelaunch`, never
+added** - `Add-CrewWorker` refuses the id and says so, and `bin\Crew.psm1` owns which base the
+record keeps:
+
+```powershell
+Set-CrewRelaunch -State $s -WorkerId $r.id -Worktree $r.worktree -Branch $r.branch `
+                 -Base $r.base -BranchCut $r.branchCut -PaneId $r.paneId
 ```
 
 Then mark the backlog item started, so the queue and the workers agree on what is under way:
@@ -1171,19 +1239,18 @@ anything is created and refuses two ways - a `worktree-*` name, on its name alon
 around the resolver must not go around its guard, and a ref `git rev-parse --verify` cannot confirm.
 Neither creates anything, and both name the ref.
 
-**On a re-dispatch the two can disagree, so read step 7's diff knowing that.** Re-dispatching a
-ticket whose branch survived does not branch again - the branch point is whatever the earlier
-dispatch chose - while the base is resolved fresh. If the repository has moved since, by declaring
-an integration branch or changing its default, the recorded base names one tree and the branch was
-cut from another, and step 7's `git log "$base..HEAD"` then lists commits nobody in this ticket
-wrote. Passing a different `-Base` the second time does the same with no repository change at all.
-A widened diff on a re-dispatched ticket is that, not the worker's doing.
+**On a re-dispatch the dispatcher's base and the branch point can disagree, and the record keeps
+the branch point.** Re-dispatching a ticket whose branch survived does not branch again - the
+branch point is whatever the earlier dispatch chose - while the base is resolved fresh, so
+`$r.branchCut` comes back false and `Set-CrewRelaunch` keeps the base already recorded. Step 7's
+`$w.base` is therefore the ref the branch was cut from, even after the repository has declared an
+integration branch or a different `-Base` was passed the second time.
 
 **Relay any warning that call prints.** Base resolution warns when it could not honour a
-repository's declared integration branch, or honoured it only as a local copy nothing has
-confirmed is current - and either one means the landing diff in step 7 is measured against the
-wrong tree. On a `+yolo` project nothing else stops to show it, so an unrelayed warning is work
-landed against a stale base. One line to the user naming the branch and what was used instead.
+repository's declared integration branch, or honoured it only as a local copy, and each warning
+says which ref the worker was based on and what to do - `bin\Resolve-BaseRef.ps1`'s header owns
+what it may claim. On a `+yolo` project nothing else stops to show it, so an unrelayed warning is
+work landed against a stale base. One line to the user naming the branch and what was used instead.
 
 **A dispatch that names its own base warns every time, and that one is not about resolution at
 all.** Naming a base skips the resolver, and with it the only thing that says out loud when the
@@ -1204,6 +1271,7 @@ worker looks like, but only this watch's completion brings you back to look:
 ```powershell
 & $env:KINGSHAND_HOME\bin\Watch.ps1 delivery <worker id>
 ```
+<!-- rule:muster/arm-watch -->
 
 **Arm `delivery` on a worker whose brief runs the review gate, and `worker` on every other.**
 `worker <id>` watches the worker until it needs you. `delivery <id>` does the same and then, when
@@ -1263,7 +1331,7 @@ holding on a worker idle on its own background shells, because herdr's wait retu
   interactive prompt it cannot get past on its own, and it needs the user - surface it immediately
   and load `rally`. This is the failure that cost five hours of silence, and catching it is the
   main thing herdr bought. The line says `BLOCKED` off the worker's own screen, whatever its state
-  word says.
+  word says, and only for a prompt still up after a confirmation window `bin\Herdr.psm1` owns.
 - **`STALLED` is a wake reason too, and it is not a completion.** It means nothing on that worker's
   screen has changed for the minutes the line names, against a threshold of twenty, which is long
   enough that a slow step is not it - a review pass on kingshand has legitimately taken 38 minutes
@@ -1316,7 +1384,8 @@ holding on a worker idle on its own background shells, because herdr's wait retu
 Tell the user one line per worker that dispatch happened, then stop talking.
 
 **A `fief` session's warm worker is dispatched with `-InCheckout -Branch` and recorded with
-`-Session`**, and every later fix reaches it as a prompt rather than a dispatch - `fief` owns that.
+`-Session`**, and every later fix reaches it as a prompt rather than a dispatch - `fief` owns that
+[rule:fief/warm-worker].
 
 ## Step 5 - Quiet, and status on request
 
@@ -1334,7 +1403,8 @@ When they ask:
 ```
 
 This is an update, so it takes the update shape from `CLAUDE.md`'s Escalation and etiquette
-section: current state, what the user owes, one concrete next action. Keep it to what changed.
+section [rule:claude/message-shape]: current state, what the user owes, one concrete next action.
+Keep it to what changed.
 Render it only if they must choose between workers rather than simply read where things stand -
 length alone is not the test.
 
@@ -1352,6 +1422,7 @@ how a worker waiting on a person gets told it is done, torn down, and reported a
 2. it is not awaiting input - the line did not say `BLOCKED`, which is read off the worker's live
    screen rather than taken from herdr's word for it;
 3. `$env:KINGSHAND_HOME\data\<id>\report.md` exists.
+<!-- rule:muster/completion-test -->
 
 The third is kingshand's own evidence and it is the one that carries the weight. Every brief
 requires the worker to write that file before it finishes, and every brief forbids it from opening
@@ -1376,7 +1447,8 @@ on an interactive prompt it cannot get past, which its brief forbade it from ope
 this step against it, and **never answer that prompt blindly** - the choice on it is the user's,
 so tell them what the worker is asking and what the options are, and get their answer first -
 surface it to the user now and load `rally`. The one exception is `regency`'s `A worker is blocked
-on a prompt`, which alone says when a personal project's prompt is answered while he is away.
+on a prompt` [rule:regency/blocked-prompt], which alone says when a personal project's prompt is
+answered while he is away.
 
 **`idle` alone is not a completion signal, and neither is `done`.** Claude Code returns to its
 prompt box when a turn ends, so a worker that has said everything it is going to say reads `idle`
@@ -1392,6 +1464,7 @@ that file at all - **it is `waiting_on` on the worker's own record:**
 $rec = Get-CrewWorker -State $s -WorkerId "<id>"
 $rec.waiting_on        # the key of the hold carrying its decision, or $null
 ```
+<!-- rule:muster/parked-route -->
 
 **Inside this step the worker's record is `$rec` and never `$w`.** `$w` is the name a wake object
 takes wherever one is still held in a script - a re-armed wait of your own, or one `rally` arms -
@@ -1530,7 +1603,7 @@ evidence names the failure rather than passing for an answer.
 `title` sits beside `hold_reason`, so a headerless row can only be read by counting commas.
 Miscount once and `task` reads as the hold kind, so a captain hold looks like something else and the
 open branch below is skipped, or `title` reads as the reason and `decree`'s test for whose question
-the hold is cannot be applied at all.
+the hold is [rule:decree/coverage-test] cannot be applied at all.
 
 **The `N` in that header counts the whole listing for that state, not the rows matching this work
 id.** It is computed before the filter runs, so a header with no rows beneath it means no hold under
@@ -1558,14 +1631,16 @@ note asserting an authorisation nobody gave.
 same key rather than filing a second one.** What selects it is coverage and never its merely
 existing under this work id: an open hold belonging to another of this work's decisions is not this
 worker's, and pointing at it leaves this decision unregistered while steering an answer into a
-worker that asked something else. `decree` owns that test and what to do where coverage cannot be
+worker that asked something else. `decree` owns that test [rule:decree/coverage-test] and what to
+do where coverage cannot be
 established. `add` under an existing key changes nothing, so replaying it is safe and the pointer
 ends up naming the hold that already exists. File a second key and the King is asked the same
 question twice, while the first is orphaned with no pointer naming it and nothing that will ever
 close it.
 
 **Do not replay `hold` on a hold that is already open.** It is a write, not a no-op - `decree`'s
-mechanical facts say what it does - and it overwrites the reason with whatever the replay passes.
+mechanical facts say what it does [rule:decree/hold-replay] - and it overwrites the reason with
+whatever the replay passes.
 That reason is the only thing recording whose question the hold is, so a boilerplate replacement
 leaves a correctly escalated decision looking like a pass nobody can classify, and it freezes until
 somebody establishes why. The hold is open and its reason is already right: leave it alone. Where
@@ -1627,7 +1702,8 @@ An interruption is not a rare case here - the session can end at any point - and
 what a later session finds. Close first and it finds a closed hold the worker has not been told
 about, which sends the answer on once. Send first and it finds an open hold the worker has already
 acted on, which puts the same question to the King a second time. `decree` owns the sequence
-itself, block before close.
+itself, block before close [rule:decree/operating-sequence].
+<!-- rule:muster/answer-route -->
 
 With the answer in hand and recorded, send it to the worker as one prompt, read the screen back,
 and wait for the worker to actually pick the answer up:
@@ -1639,10 +1715,12 @@ Read-HerdrAgent -Name "<worker id>" -Lines 20
 Wait-HerdrAgent -Name "<worker id>" -Until 'working' -TimeoutMs 120000
 ```
 
-`rally` owns the steer itself and says why an unchecked one is not a steer at all. Three things
+`rally` owns the steer itself [rule:rally/steer] and says why an unchecked one is not a steer at
+all. Three things
 about this one in particular. The send is refused outright when that worker's input box already
 holds text this session did not write - the wake reported `promptBox`, so you already know, and
-`rally` owns what to do about it rather than `-AllowNonEmptyBox` being reached for here. And **the
+`rally` owns what to do about it [rule:rally/input-box-text] rather than `-AllowNonEmptyBox` being
+reached for here. And **the
 worker is working again the moment the answer lands, so re-arm the Step 4 wait** - the wait that
 woke you is spent, and a worker resumed with nothing watching it is the silence this whole layer
 exists to prevent.
@@ -1728,15 +1806,14 @@ true if nobody reads it.
 
 **Fold back what the standing criteria missed.** The worker's self-check block and the gate's
 round-one findings are two readings of the same change, so compare them. **That comparison needs a
-gate, and most projects have none.** On a `local-only` or `direct-PR` project - including a
-`no-mistakes-prod-only` project whose task resolved to `direct-PR` - there is no gate and no round
-to compare against, so this loop does not fire, and a report with no rounds in it is the record
-that brief asked for rather than one to query. **What settles it is whether this task ran a review
-gate, never how the project is registered**, so a task whose brief carried no gate line is in that
-same case in full - it has no round to compare against whatever its entry says, the loop does not
-fire, and its report having no rounds is right rather than a gap. Where this task did run the
-review gate, both
-readings are in `report.md`: the `Repeated findings` section of the brief made the worker record
+gate, and most projects have none.** On a `local-only`, `direct-PR` or `review-only` project -
+including a `no-mistakes-prod-only` project whose task resolved to `direct-PR` - there is no gate
+and no round to compare against, so this loop does not fire, and a report with no rounds in it is
+the record that brief asked for rather than one to query. **What settles it is whether this task
+ran a review gate, never how the project is registered**, so a task whose brief carried no gate
+line is in that same case in full - it has no round to compare against whatever its entry says,
+the loop does not fire, and its report having no rounds is right rather than a gap. Where this task
+did run the review gate, both readings are in `report.md`: the `Repeated findings` section of the brief made the worker record
 every round there as it landed, and the first pass as `round 1: no findings` where it raised none,
 so a report carrying a self-check block and no rounds at all is one to ask about rather than one
 with nothing to fold back. Read the self-check block either way, because a criterion the worker
@@ -1779,6 +1856,7 @@ for want of anything to check, delete it and say so. Where that was the file's l
 brief pastes a decision somebody made instead of a blank section. This is the only thing that
 makes the list grow from evidence instead of from invention, and a criterion learned at a gate
 round and left sitting in a report is one somebody pays for again a dispatch later.
+<!-- rule:muster/criteria-growth -->
 
 **A round tally in a report is a finding, not a completion notice.** Where the worker reports three
 rounds of findings in one component or three failed attempts at one bug, escalate it with the tally
@@ -1810,8 +1888,10 @@ Add-IndexEntry -Project "<project>" -Path "data\<id>\report.md" -Summary "<one l
 A report is indexed whenever it is first read, not only here. A worker that fails or goes
 unresponsive never reaches this step - the Hand loads `rally` instead - and that path indexes it
 too, so a torn-down worker's findings are never left listed nowhere.
+<!-- rule:muster/index-report -->
 
-Do not mark it done here. The item closes at Step 8 or Step 8a, when the work has actually landed.
+Do not mark it done here. The item closes at Step 8 or Step 8a, when the work has actually landed,
+or at Step 7 for work that delivers only a report.
 
 Read the worker's own final message before summarising. If it reported that it could not build
 or could not run the gate, say that plainly. Never translate a failure into a success - and set
@@ -1829,19 +1909,22 @@ Read-HerdrAgent -Name "<worker id>" -Lines 60
 
 That returns the worker's recent rendered output and is enough almost every time.
 
-**There is no transcript to fall back to when it is not.** Workers inherit
-`CLAUDE_CODE_CHILD_SESSION` from the Hand's own session, so they run with transcript saving off
-and usually write nothing under `~\.claude\projects\` at all. Do not go looking for a `.jsonl`
-that will not be there and do not report an empty search as an empty report. If the final message
-has scrolled out of reach, ask for more lines while the pane is still alive - once the worker is
-torn down at Step 8b, that output is gone for good and `report.md` is all that is left. That is
-the whole reason the brief demands it.
+**When it is not, the transcript is the last resort, not a report.** Workers do write one: the
+herdr server and each pane are started with `CLAUDE_CODE_CHILD_SESSION` cleared, so transcript
+saving stays on, and the session lands under `~\.claude\projects\` in a folder named for the
+worker's worktree path. It survives cleanup. It is raw session history, not findings, so read it
+only to recover a final message that has scrolled away, and never report an empty or missing one
+as an empty report - a herdr server kingshand did not start may still carry the marker and save
+nothing. If the final message has scrolled out of reach, ask for more lines while the pane is still
+alive first. That `report.md` is the one record a later session reliably reads is the whole reason
+the brief demands it.
 
 Workers report real problems in that message that no git command will show you. Treat it as
 evidence and verify its claims yourself - it is a report, not a finding.
 
 ## Step 7 - Gate two: approve the landing
 
+<!-- rule:muster/landing-gate -->
 **This gate is skipped when the project is registered `+yolo`**, but only for work that is
 green. Gather the evidence either way; with `+yolo` you may take the mode's route below without
 asking, provided every check passes and the change stays inside the brief's accepted criteria.
@@ -1902,6 +1985,7 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
   only refusing**: this run had no review gate, so nothing has established it is safe to merge, and
   that is what goes to the user. **It blocks the forge merge only**: landing on a branch and
   opening a pull request are unaffected.
+  <!-- rule:muster/parley-merge-floor -->
 - **Never land a worker whose pointer names a hold that is still open.** It is mid-run rather than
   delivered, whatever its branch shows, and Step 6 owns what to do with it. **Read the pointer, and
   where it names a key read that hold**: the field says which decision, and the hold says whether
@@ -1914,6 +1998,7 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
   nor anything you remember can tell you - Step 6's parked path runs to completion and deliberately
   leaves the stage where it was, so `dispatched` and `implementing` are what a worker steered an
   hour ago still reads. The read is cheap and the mistake it prevents cannot be taken back.
+  <!-- rule:muster/open-hold-floor -->
 
 **Merging on the forge is a per-repository permission, and it is off unless declared.**
 `$proj.merge` is `'on'` only when that project's entry in `data\projects.md` carries the `+merge`
@@ -1925,6 +2010,7 @@ step acts on. Where the registry cannot be read there is no value at all, becaus
 `Get-ProjectEntry` throws rather than guessing. **Every one of
 those means do not merge, and none of them ever means the other way.** Test it as
 `$proj.merge -eq 'on'`, the same string comparison `yolo` takes and for the same reason.
+<!-- rule:muster/merge-permission -->
 
 **Night's watch merges under its own token, `+watch-merge`, and under no other.** While night's
 watch is in force a green pull request is merged only on a project whose entry declares
@@ -1933,8 +2019,9 @@ failures - whether or not it declares `+merge`, and **`+merge` alone grants nigh
 nothing.** Outside night's watch `+watch-merge` grants nothing at all. Every floor in this step
 still holds, and `Get-WatchMergeVerdict` in `bin\NightsWatch.psm1` checks each one that code can
 hold and binds the merge to the live head; `nights-watch` owns the rest of the run.
+<!-- rule:muster/watch-merge -->
 
-**It is not a mode and not a fourth posture.** The four modes decide how work ships and `yolo`
+**It is not a mode and not a posture of its own.** The modes decide how work ships and `yolo`
 decides whether you ask first; this decides one thing only, whether you may merge that
 repository's own green pull request. It is read per repository and never inferred from either of
 the others - a `+yolo` project you may not merge is an ordinary combination, not a contradiction.
@@ -2013,7 +2100,8 @@ violation.
 Everything above runs in every case. What the posture changes is only what happens next.
 
 When `$proj.yolo -eq 'off'`, **render the evidence and wait**. Render it - do not summarise a diff
-into chat and ask for a yes. This is a decision, and hard rule 5 says every decision renders,
+into chat and ask for a yes. This is a decision, and hard rule 5 [rule:claude/chat-short-render]
+says every decision renders,
 however short the summary looks:
 
 ```powershell
@@ -2042,7 +2130,8 @@ The parameter is `-OutputPath`. An earlier draft of this block abbreviated it, w
 thrown the first time anyone reached the landing gate - a documented command nothing exercises. A
 test pins the spelling for that reason.
 
-**The one exception to rendering is `parley`, and it is hard rule 5's own.** While that skill is
+**The one exception to rendering is `parley`, and it is hard rule 5's own.**
+[rule:claude/chat-short-render] While that skill is
 loaded nothing renders, so this gate is put as a line in chat instead: what changed, what the
 checks say, and exactly what the approval authorises. "Do not summarise a diff into chat and ask
 for a yes" forbids a chat summary standing in for a gate nobody rendered; it does not forbid the
@@ -2159,6 +2248,31 @@ skipped by `+yolo`:
 | `direct-PR` | **skip Step 8 entirely** - go to Step 8a, then Step 8b |
 | `no-mistakes` | **skip Step 8 entirely** - go to Step 8a, then Step 8b |
 | `no-mistakes-prod-only` | resolved at Step 1 to `direct-PR` or `no-mistakes` - take that row |
+| `review-only` | **nothing lands** - skip Step 8 and Step 8a; relay the findings, set `reported`, close the backlog item, then Step 8b |
+
+**`review-only` work is delivered when its report is read, and that is the whole of it.** There is
+no branch to merge, no push and no pull request, so this gate has nothing to approve - with `yolo`
+off it is the user reading the findings, and `+yolo` changes nothing but whether you wait for that.
+Step 6 has already read the report, so relay what it found as findings rather than as a completion
+notice, then `Set-CrewStage` to `reported` - delivered a report, nothing to land, and over like
+`landed` without ever setting the landed flag - and `tasks-axi done "<id>"`, unless `decree` holds
+the item open on a decision the report raised. Step 8b's rule that unlanded work is never torn
+down is met here by the report: it is the work, and it lives outside the isolated copy.
+`Remove-WorkerCopy` still keeps anything the worker left behind, and a review-only copy holding a
+change is a worker that broke its brief - read it, never force past it.
+<!-- rule:muster/review-only-delivery -->
+
+```powershell
+Set-CrewStage -State $s -WorkerId "<id>" -Stage 'reported'
+Save-CrewState -State $s -Path $env:KINGSHAND_HOME\state\crew.json
+```
+
+**A read-only investigation closes out the same way, on any posture.** A dispatch whose brief
+delivers only a report and no commits - an investigation, a diagnosis, an analysis - has nothing to
+land either, so it takes the `review-only` row above rather than its project's own: relay the
+findings, set `reported`, close the backlog item unless `decree` holds it, then Step 8b. Never set
+`landed` for one - nothing was merged.
+<!-- rule:muster/read-only-investigation-closeout -->
 
 Step 8 is local merging, which push-capable work never does. Sending a `direct-PR` or
 `no-mistakes` worker into Step 8 is a dead end - it disclaims them in its first sentence and the
@@ -2208,8 +2322,8 @@ Then go to Step 8b and tear the worker down.
 **Muster itself never pushes.** Pushing is the user's action or the worker's, never yours. A
 *worker* pushes only when its project's mode is push-capable - `direct-PR`, `no-mistakes`, or a
 `no-mistakes-prod-only` project resolved to one of those - because registering that mode is the
-consent. Never for `local-only`, whose brief forbids it outright, and never for a project that
-is not registered at all.
+consent. Never for `local-only` or `review-only`, whose briefs forbid it outright, and never for a
+project that is not registered at all.
 
 ## Step 8a - Close out push-capable work
 
@@ -2232,8 +2346,9 @@ $w = Get-CrewWorker -State $s -WorkerId "<id>"
 $w.stage
 ```
 
-**`ready` or `landed` is the only hard stop.** It means Step 8a has already run and Step 8b has
-already torn the worker down. The worktree is gone with the session, so `git -C $w.worktree
+**`ready`, `landed` or `reported` is the only hard stop.** It means the work has already closed
+out - here, or at Step 7 for work that delivers only a report - and Step 8b has already torn the
+worker down. The worktree is gone with the session, so `git -C $w.worktree
 ls-remote` below would run against a deleted directory and fail for a reason that has nothing to
 do with the push. Report the stage it is already at and stop - there is nothing left to close out.
 
@@ -2424,6 +2539,7 @@ than once per merge.
 
 **Never invent a default strategy.** Squash, merge commit and rebase shape history differently, and
 picking one here would override every repository's own choice at once.
+<!-- rule:muster/merge-strategy -->
 
 **Never run `gh pr merge` with no strategy flag.** It goes interactive, and a background prompt
 nothing can answer is not a merge that failed safely.
@@ -2456,14 +2572,15 @@ about deciding a merge has happened, never about reading a repository's own sett
 strategy probe above is a read of configuration, not a judgement about forge state, and the two do
 not collide. A merge under `+merge` is one the block above performed against Step 7's floors and
 reported; a stage waiting to advance is never the reason for one. The stages are exactly `dispatched`, `implementing`,
-`gating`, `ready`, `landed`, `failed` - `Set-CrewStage` throws on anything else, so do not invent
-one for this path.
+`gating`, `ready`, `landed`, `failed`, `paused`, `reported` - `Set-CrewStage` throws on anything
+else, so do not invent one for this path.
 
 Then go to Step 8b. The confirmed push is what makes teardown safe here - waiting for the merge
 would leave the worktree and the live worker process sitting around until the user gets to it.
 
 ## Step 8b - Tear the worker down
 
+<!-- rule:muster/teardown -->
 **A worker that reads `idle` is not a dead worker.** It is a live Claude Code process sitting at
 its prompt in a live pane, and it holds an open handle on the worktree directory. Removing the
 worktree while the worker lives fails on Windows with "being used by another process", leaving a
@@ -2475,8 +2592,13 @@ half-deleted directory and a stale git worktree registration.
 - `direct-PR`, `no-mistakes`, and `no-mistakes-prod-only` resolved to either - after the push is
   confirmed in Step 8a, at stage `ready`. The branch is on the remote, so removing the local
   worktree cannot lose the work. Do not wait for the pull request to be merged.
+- `review-only`, and a read-only investigation on any posture - after the findings are relayed in
+  Step 7, at stage `reported`. The report under `data\` is the work, so removing the copy cannot
+  lose it, and the copy must hold no change.
 
-**Work that is neither landed nor pushed is never torn down.** If the merge did not happen and
+**Work that is neither landed nor pushed is never torn down**, unless it delivers only a report -
+`review-only` work or a read-only investigation - and that report has been read: the one delivery
+that lives outside the copy. If the merge did not happen and
 the branch is not on the remote, the worktree is the only copy of the work and removing it
 destroys it. Confirm one or the other first - teardown removes the worktree, and nothing puts it
 back.
@@ -2496,6 +2618,7 @@ if ($key) {
       -Pattern "(?m)^\s*-\s*\[x\]\s*$([regex]::Escape($key))\s+-"
 }
 ```
+<!-- rule:muster/teardown-open-hold -->
 
 **`NOT_FOUND` from `show` is not permission to tear down.** Only a closed hold is ever archived, so
 a key the archive holds **on its own entry** is answered and this worker may be stopped. A key in
@@ -2518,44 +2641,29 @@ cannot reach it and nothing here should. Outliving the session is the entire rea
 was made to write it: the worktree, the pane and everything the worker said all go, and the
 findings stay. Leave `data\<id>\` alone.
 
-Teardown is three things in this order, and the order is the safety: stop the worker, discard its
-pane, remove its worktree.
-
-**A worker recorded with `checkout` has no worktree: tear it down with `Stop-CheckoutWorker` from
-`bin\ClaudeWorkspace.psm1`, passing its `settings_record`, and never with the steps below.**
-A close-out passes `-EndSession` as well, which removes the session's baseline; only `fief`'s
-relaunch of a wedged warm worker leaves it off.
-
-```powershell
-Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
-$stop = Stop-HerdrAgent -Name "<worker id>"
-if (-not $stop.stopped) { "STOP FAILED <worker id>" }     # do not touch the worktree
-Remove-HerdrPane -PaneId $stop.paneId
-```
-
-**`Stop-HerdrAgent` exits the worker with `/exit`, and that is not a formality.** A worker killed
-with `Stop-Process` never sends its terminal-mode reset, which leaves its pane echoing every later
-keystroke as literal junk and unusable for anything, permanently. The worktree is never harmed by
-either route - it is only a directory - but a killed worker costs you the pane and can leave a
-handle open on the directory you are about to remove. Never reach for the pid.
-
-`$stop.stopped` being false means the worker did not exit. Stop there, report it, and leave the
-worktree alone: the process is still live and still holding the directory. A `$stop.refused` of
-`prompt-box-not-empty` means its input box holds text and nothing was sent - load `rally`.
-
-Then remove the worktree, which is kingshand's own now - the dispatcher created it, so the
-dispatcher's caller cleans it up:
+**Teardown is one command, `Remove-WorkerCopy` from `bin\Teardown.psm1`, and that module's header
+owns the order and every safety rule** - the stop, the panes, the workspace, the worktree, the
+folder check, the branch and the record. Never hand-write those steps: the hand-written version
+closed nothing for a worker that had already exited, and left a hundred dead panes and sixty-four
+folders behind. A worker recorded with `checkout` goes through the same command, which hands it to
+`Stop-CheckoutWorker` with `-EndSession`; only `fief`'s relaunch of a wedged warm worker calls
+`Stop-CheckoutWorker` itself, without it.
 
 ```powershell
-git -C "<repo path>" worktree remove "<worktree path>"
-git -C "<repo path>" worktree prune
-git -C "<repo path>" branch -D "<branch>"      # only when discarding unlanded work
+Import-Module $env:KINGSHAND_HOME\bin\Teardown.psm1 -Force
+$t = Remove-WorkerCopy -WorkerId "<worker id>"
+$t.outcome; $t.kept          # removed, or kept with the reason for each thing it left
 ```
 
-If `worktree remove` refuses because the tree is dirty, that is unlanded work you were about to
-destroy - stop and read it rather than reaching for `--force`. If it refuses because the directory
-is in use, the worker is not actually stopped. Do not force-delete the directory underneath git:
-that leaves the worktree registered and the next dispatch with the same name will fail.
+**`kept` is an answer to read, never one to force past.** Uncommitted changes or a commit on no
+remote branch and not merged into the worker's base branch is unlanded work: stop and read it. `prompt-box-not-empty` means the worker's input
+box holds text and nothing was sent - load `rally`. `locked` means something still holds the folder;
+it is counted at the next session start and the sweep clears it once the lock is gone. Never reach
+for the pid, for `--force`, or for a delete underneath git.
+
+What earlier cleanups left behind is counted in one line of the session-start digest, and
+`Invoke-WorkerSweep` from the same module clears it by the same rules. The Hand runs it; nothing
+runs it on its own.
 
 ## Step 9 - Report
 

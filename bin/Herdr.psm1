@@ -34,7 +34,7 @@ function Get-HerdrCommandPath {
               Select-Object -First 1
     if ($onPath -and $onPath.Source) { return $onPath.Source }
 
-    $bundled = Join-Path (Get-KingshandHome) 'tools\herdr\herdr.exe'
+    $bundled = Join-Path (Get-KingshandHome) 'tools' 'herdr' (Get-ExecutableName 'herdr')
     if (Test-Path -LiteralPath $bundled -PathType Leaf) { return $bundled }
 
     $null
@@ -44,8 +44,9 @@ function Get-HerdrCommandHint {
     [CmdletBinding()]
     param()
 
-    'herdr was not found. Run install.ps1 -InstallMissing, which downloads the herdr version ' +
-    'pinned in dependencies.json into tools\herdr and verifies its SHA-256 before extracting. ' +
+    "herdr was not found. Run $(Get-InstallerCommand '-InstallMissing'), which downloads the herdr " +
+    "version pinned in dependencies.json into $(Join-Path 'tools' 'herdr') and verifies its SHA-256 " +
+    'before extracting. ' +
     'Dispatch cannot spawn or steer a worker without it.'
 }
 
@@ -716,9 +717,11 @@ function Get-HerdrAgents {
     [CmdletBinding()]
     param()
 
+    $out = [System.Collections.Generic.List[object]]::new()
     $r = Invoke-Herdr -AllowError -Arguments @('agent', 'list')
-    if (-not $r -or $r.PSObject.Properties.Name -contains 'error') { return , @() }
-    , @($r.agents)
+    if (-not $r -or $r.PSObject.Properties.Name -contains 'error') { return , $out }
+    foreach ($a in @($r.agents)) { $out.Add($a) }
+    return , $out
 }
 
 # The same `agent list`, with the failure kept rather than collapsed:
@@ -730,8 +733,8 @@ function Get-HerdrAgents {
 # Get-HerdrAgents above stays exactly as it is, and both are exported. A status view -
 # `bin\Get-CrewStatus.ps1`, `bin\Get-SurveySnapshot.ps1` - wants that collapse, because it still
 # has the durable record to render and an unreachable herdr must not stop it rendering. A guard
-# that refuses an action wants this one instead, because "could not ask" and "nobody is there" are
-# different answers and only one of them is safe to act on.
+# that refuses an action needs "could not ask" and "nobody is there" apart, because only one of
+# them is safe to act on - and reads them through Get-HerdrLiveness below, which is built on this.
 #
 # Neither reader answers a version mismatch: both throw it, because Invoke-Herdr does.
 function Get-HerdrAgentInventory {
@@ -763,6 +766,61 @@ function Get-HerdrAgentInventory {
     }
 
     [pscustomobject]@{ ok = $true; agents = @($r.agents); error = '' }
+}
+
+# Whether any worker is live, for a caller that DECIDES on the answer rather than displaying it:
+#
+#   .state     live | none | unknown - exactly these three
+#   .workers   the agents herdr listed, each as herdr answered it; non-empty only when live
+#   .read      the read that failed - herdr, server or agents - and empty unless unknown
+#   .evidence  what that read said, and empty unless unknown
+#
+# A READER WRITTEN FOR A STATUS DISPLAY IS THE WRONG FOUNDATION FOR A GUARD. A display can turn
+# "could not tell" into "nothing to show" and still look right; a guard that does the same reads as
+# "no worker is live" and acts underneath one. So every caller that refuses or proceeds on liveness
+# - an update, a cleanup - reads this, and treats unknown as do-not-proceed, naming .evidence.
+# Get-HerdrAgents stays the display reader, for status and survey.
+#
+# None has exactly two sources: a server that answered that it is not running, because a herdr
+# pane dies with its server, and a running server whose agent list was read and was empty. Every
+# other way of not getting an answer - no herdr, a status read that failed, an agent list that
+# failed or threw, a version mismatch - is unknown, and the list is never filled in for it.
+#
+# Never throws. A throw from either read comes back as unknown naming it, so a caller has one
+# answer to branch on rather than an answer and an exception.
+function Get-HerdrLiveness {
+    [CmdletBinding()]
+    param()
+
+    $unknown = {
+        param([string]$Read, [string]$Evidence)
+        [pscustomobject]@{ state = 'unknown'; workers = @(); read = $Read; evidence = $Evidence }
+    }
+
+    if (-not (Get-HerdrCommandPath)) { return & $unknown 'herdr' (Get-HerdrCommandHint) }
+
+    try { $server = Get-HerdrServerState } catch {
+        return & $unknown 'server' "herdr status threw - $($_.Exception.Message)"
+    }
+    if ($server.state -eq 'stopped') {
+        return [pscustomobject]@{ state = 'none'; workers = @(); read = ''; evidence = '' }
+    }
+    if ($server.state -ne 'running') {
+        return & $unknown 'server' "whether herdr's server is running could not be read - $($server.detail)"
+    }
+
+    try { $inventory = Get-HerdrAgentInventory } catch {
+        return & $unknown 'agents' "herdr agent list threw - $($_.Exception.Message)"
+    }
+    if (-not $inventory.ok) { return & $unknown 'agents' $inventory.error }
+
+    $workers = @($inventory.agents | Where-Object { $null -ne $_ })
+    [pscustomobject]@{
+        state    = if ($workers.Count -gt 0) { 'live' } else { 'none' }
+        workers  = $workers
+        read     = ''
+        evidence = ''
+    }
 }
 
 # Submits a prompt. With -Wait it returns only once the agent has settled, which is what makes
@@ -1005,6 +1063,37 @@ function Test-HerdrScreenAwaitingInput {
     $false
 }
 
+# Claude Code's exit dialog for its own running background work - the one `/exit` raises while
+# background shells run - quoted as the shipped 2.1.309 binary emits it: the title, and the first
+# and last of its three options (exit and stop, move to background, stay). Bound to a harness
+# version like the placeholders above: a later wording is simply not seen, which reads as some
+# other screen and leaves the caller where it was.
+$script:ExitBackgroundDialog = @('Background work is running', 'Exit and stop tasks', 'Stay')
+
+function Test-HerdrScreenExitBackgroundDialog {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+
+    foreach ($phrase in $script:ExitBackgroundDialog) {
+        if (-not $Text.Contains($phrase)) { return $false }
+    }
+    $true
+}
+
+# A worker's live screen, for a caller deciding what a dialog on it is: .ok, .exitBackground when it
+# is the exit dialog above, and .text, the screen's non-blank lines exactly as drawn, for quoting.
+function Read-HerdrAgentDialog {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Name)
+
+    $read = Read-HerdrAgentScreen -Name $Name
+    if (-not $read.ok) { return [pscustomobject]@{ ok = $false; exitBackground = $false; text = '' } }
+    $lines = @($read.text -split "`r?`n" | ForEach-Object { $_.TrimEnd() } | Where-Object { $_.Trim() })
+    [pscustomobject]@{
+        ok = $true; exitBackground = (Test-HerdrScreenExitBackgroundDialog -Text $read.text)
+        text = $lines -join "`n"
+    }
+}
+
 # The state kingshand acts on: herdr's, corrected by the screen.
 #
 # Nothing downstream should read `agent_status` directly. A worker whose screen is showing a
@@ -1180,6 +1269,61 @@ function Get-HerdrSignalShells {
     $Signal.backgroundShells
 }
 
+# How long a worker the screen shows on a prompt is watched before the progress wait reports it
+# blocked, and how often its screen is read meanwhile. The PermissionRequest hook answers the
+# prompts it owns within a second or two, and on 2026-11-04 those woke the Hand about fifteen times
+# in one night for prompts that had already cleared; a prompt still up a minute later is one nothing
+# is going to answer.
+$script:BlockedConfirmSeconds = 60
+$script:BlockedSampleSeconds  = 10
+
+# Watches a worker the screen showed on a prompt for up to -Seconds, reading its screen every
+# $script:BlockedSampleSeconds, and says whether the prompt was seen to clear. 0 or less reads
+# nothing and confirms it at once. With -HerdrState it reads herdr's own state instead, for a
+# worker only herdr calls blocked: that block has no screen signature to watch clear, so it is
+# confirmed by its own signal, and a read that names any other state is the clear.
+#
+# .cleared     a read succeeded and showed no prompt
+# .reads       how many reads were taken
+# .unreadable  how many of them could not be read
+#
+# Only a screen read and found free of a prompt is a clear. A read that fails or throws is counted
+# as unreadable and the window goes on, so a blind wait reports the prompt rather than guessing it
+# went away - Test-HerdrAgentAwaitingInput answers $false on an unread screen, which is why it is
+# not asked here. A state read that answers nothing, throws, or names no state is unreadable too.
+function Confirm-HerdrAgentBlocked {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][int]$Seconds,
+        [switch]$HerdrState
+    )
+
+    $reads  = 0
+    $unread = 0
+    $until  = (Get-Date).AddSeconds($Seconds)
+    while ((Get-Date) -lt $until) {
+        $left = [int][Math]::Ceiling(($until - (Get-Date)).TotalSeconds)
+        Start-Sleep -Seconds ([Math]::Max(1, [Math]::Min($script:BlockedSampleSeconds, $left)))
+        $reads++
+        if ($HerdrState) {
+            $agent = $null
+            try { $agent = Get-HerdrAgent -Name $Name } catch { $agent = $null }
+            if ($null -eq $agent -or -not "$($agent.agent_status)") { $unread++; continue }
+            if ("$($agent.agent_status)" -ne 'blocked') {
+                return [pscustomobject]@{ cleared = $true; reads = $reads; unreadable = $unread }
+            }
+            continue
+        }
+        $read = $null
+        try { $read = Read-HerdrAgentScreen -Name $Name } catch { $read = $null }
+        if ($null -eq $read -or $read.ok -ne $true) { $unread++; continue }
+        if (-not (Test-HerdrScreenAwaitingInput -Text "$($read.text)")) {
+            return [pscustomobject]@{ cleared = $true; reads = $reads; unreadable = $unread }
+        }
+    }
+    [pscustomobject]@{ cleared = $false; reads = $reads; unreadable = $unread }
+}
+
 # Waits for a worker to stop, and gives up on it when it stops advancing instead.
 #
 # This is ADDED BESIDE `Wait-HerdrAgentSettled` and changes nothing about it. That function is still
@@ -1193,13 +1337,27 @@ function Get-HerdrSignalShells {
 #
 # It never recovers anything. A stall is reported with its evidence and the response belongs to
 # `rally` - a wrong automatic action on a stalled worker is worse than a late human one.
+#
+# A PROMPT IS CONFIRMED BEFORE IT IS REPORTED. When a wake - a settle or a stall - finds the screen
+# on a prompt, the worker is watched for -BlockedConfirmSeconds first. A prompt seen to clear is not
+# an outcome: the wait carries on in this same loop, under this same deadline, and a clear seen at
+# or after the deadline ends as `timeout`, never as blocked. A prompt still up at the end of the
+# window is reported as before, with .blockedReads and .blockedUnreadable saying how it was
+# confirmed. A window already open when the deadline passes is finished rather than cut short, so
+# the wait can run past its timeout by at most one window. A worker only herdr's own word calls
+# blocked, with no prompt on its screen, is confirmed the same way over the same window by
+# re-reading herdr's state: it is cleared only by a read naming another state, and reported
+# blocked when herdr still says so at the end.
 function Wait-HerdrAgentProgress {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Name,
         [int]$TimeoutMs = 0,
         [int]$StallMinutes = $script:StallMinutes,
-        [int]$SampleSeconds = $script:SampleSeconds
+        [int]$SampleSeconds = $script:SampleSeconds,
+        # Every watch takes this default - bin\Watch.ps1 never passes one. 0 reports a prompt the
+        # moment it is seen.
+        [int]$BlockedConfirmSeconds = $script:BlockedConfirmSeconds
     )
 
     if ($SampleSeconds -lt 1) { $SampleSeconds = 1 }
@@ -1232,6 +1390,10 @@ function Wait-HerdrAgentProgress {
     # return that cost no clock is evidence of the spin this guards against.
     $fastReturns = 0
 
+    # How the prompt on the last wake was confirmed: reads taken and how many could not be read.
+    $blockedReads      = 0
+    $blockedUnreadable = 0
+
     $report = {
         param($settled, $state, $awaiting, $stalled, $reason)
         $now = Get-Date
@@ -1254,6 +1416,8 @@ function Wait-HerdrAgentProgress {
             signalReadable = $readable
             samples        = $samples
             stallMinutes   = $StallMinutes
+            blockedReads      = $blockedReads
+            blockedUnreadable = $blockedUnreadable
         }
     }
 
@@ -1265,6 +1429,19 @@ function Wait-HerdrAgentProgress {
         $agent = Wait-HerdrAgent -Name $Name -TimeoutMs $remaining
         if ($agent) {
             $awaiting = Test-HerdrAgentAwaitingInput -Name $Name
+            $herdrOnly = (-not $awaiting) -and "$($agent.agent_status)" -eq 'blocked'
+            if ($awaiting -or $herdrOnly) {
+                $seen = Confirm-HerdrAgentBlocked -Name $Name -Seconds $BlockedConfirmSeconds `
+                    -HerdrState:$herdrOnly
+                if ($seen.cleared) {
+                    # Answered - by the hook, usually - so the worker has moved on. Its screen
+                    # changed, and the stall clock starts again from here.
+                    $lastChange = Get-Date
+                    continue
+                }
+                $blockedReads      = $seen.reads
+                $blockedUnreadable = $seen.unreadable
+            }
             $state    = if ($awaiting) { 'blocked' } else { $agent.agent_status }
 
             # The final screen, carried out with the wake. A state word cannot tell a worker that
@@ -1347,7 +1524,18 @@ function Wait-HerdrAgentProgress {
             if (($live.PSObject.Properties.Name -contains 'agent_status') -and $live.agent_status) {
                 $stallState = $live.agent_status
             }
-            if ($awaiting) { $stallState = 'blocked' }
+            $herdrOnly = (-not $awaiting) -and $stallState -eq 'blocked'
+            if ($awaiting -or $herdrOnly) {
+                $seen = Confirm-HerdrAgentBlocked -Name $Name -Seconds $BlockedConfirmSeconds `
+                    -HerdrState:$herdrOnly
+                if ($seen.cleared) {
+                    $lastChange = Get-Date
+                    continue
+                }
+                $blockedReads      = $seen.reads
+                $blockedUnreadable = $seen.unreadable
+                $stallState = 'blocked'
+            }
 
             return & $report $false $stallState $awaiting $true 'stalled'
         }
@@ -1475,14 +1663,60 @@ function Remove-HerdrPane {
     $null = Invoke-Herdr -AllowError -Arguments @('pane', 'close', $PaneId)
 }
 
+# Closes a whole workspace - the window a worker's pane was created in. A workspace left holding no
+# live pane is invisible to everything that reads agents, so cleanup closes it here. Like the pane
+# close above it answers nothing: the caller re-reads the inventory to see it went.
+function Remove-HerdrWorkspace {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$WorkspaceId)
+    $null = Invoke-Herdr -AllowError -Arguments @('workspace', 'close', $WorkspaceId)
+}
+
+# `pane list` and `workspace list` with the failure kept, in Get-HerdrAgentInventory's shape:
+# .ok, the list itself (empty whenever .ok is false), and .error naming what could not be read.
+# Cleanup refuses on a failed read rather than reading it as "no panes", because nothing open is
+# exactly the answer that lets a folder be deleted.
+function Get-HerdrListInventory {
+    param([string]$Noun, [string]$Field)
+
+    $r = Invoke-Herdr -AllowError -Arguments @($Noun, 'list')
+    $fail = { param($why) [pscustomobject]@{ ok = $false; items = @(); error = $why } }
+    if (-not $r) { return & $fail "herdr answered $Noun list with nothing that could be read as a result." }
+    if ($r.PSObject.Properties.Name -contains 'error') {
+        return & $fail "herdr $Noun list: $($r.error.code) - $($r.error.message)"
+    }
+    if ($r.PSObject.Properties.Name -notcontains $Field) {
+        return & $fail "herdr answered $Noun list without a $Field list in it."
+    }
+    [pscustomobject]@{ ok = $true; items = @($r.$Field); error = '' }
+}
+
+function Get-HerdrPaneInventory {
+    [CmdletBinding()]
+    param()
+    $i = Get-HerdrListInventory -Noun 'pane' -Field 'panes'
+    [pscustomobject]@{ ok = $i.ok; panes = $i.items; error = $i.error }
+}
+
+function Get-HerdrWorkspaceInventory {
+    [CmdletBinding()]
+    param()
+    $i = Get-HerdrListInventory -Noun 'workspace' -Field 'workspaces'
+    [pscustomobject]@{ ok = $i.ok; workspaces = $i.items; error = $i.error }
+}
+
 Export-ModuleMember -Function Get-HerdrCommandPath, Get-HerdrCommandHint, ConvertTo-HerdrAgentName,
                               Invoke-Herdr, Test-HerdrServer, Get-HerdrServerState, Get-HerdrVersion,
                               Start-HerdrServer, New-HerdrPane,
                               Start-HerdrAgent, Get-HerdrAgent, Get-HerdrAgents,
-                              Get-HerdrAgentInventory, Send-HerdrPrompt, Confirm-HerdrPromptTaken,
+                              Get-HerdrAgentInventory, Get-HerdrLiveness,
+                              Send-HerdrPrompt, Confirm-HerdrPromptTaken,
                               Wait-HerdrAgent, Read-HerdrAgent, Send-HerdrKeys, Stop-HerdrAgent,
-                              Remove-HerdrPane, Test-HerdrAgentAwaitingInput, Get-HerdrAgentState,
+                              Remove-HerdrPane, Remove-HerdrWorkspace, Get-HerdrPaneInventory,
+                              Get-HerdrWorkspaceInventory,
+                              Test-HerdrAgentAwaitingInput, Get-HerdrAgentState,
                               Wait-HerdrAgentSettled, Test-HerdrAgentReadable,
                               Get-HerdrAgentProgressSignal, Wait-HerdrAgentProgress,
                               Get-HerdrAgentPromptBox, Read-HerdrAgentScreen,
-                              Get-HerdrBackgroundShellCount
+                              Get-HerdrBackgroundShellCount, Read-HerdrAgentDialog,
+                              Test-HerdrScreenExitBackgroundDialog

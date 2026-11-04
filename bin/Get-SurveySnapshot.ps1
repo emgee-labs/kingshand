@@ -31,6 +31,9 @@
   Liveness cannot answer either half, since a parked worker and a finished one both read `idle`.
   It is intent, so it comes from crew.json and never from herdr.
 
+  `.crew.workers[].over` is $true where the stage is over - `landed`, `failed` or `reported` - and
+  $false for every other stage, an unknown one included. Crew.psm1's Test-CrewStageOver owns it.
+
   `.crew.workers[].session`, `.items`, `.itemsError`, `.branch` and `.checkout` describe a `fief`
   session's warm worker: one row carrying every ticket or fix id on its branch in order, read
   through Crew.psm1's Get-CrewItems. An ordinary worker reads `session` false with its one ticket.
@@ -71,9 +74,9 @@ Set-StrictMode -Version Latest
 # which is the one place that decision is made, and a param default cannot call it.
 Import-Module (Join-Path $PSScriptRoot 'Paths.psm1') -Force
 $script:Root = Get-KingshandHome
-if (-not $RegistryPath) { $RegistryPath = Join-Path $script:Root 'data\projects.md' }
+if (-not $RegistryPath) { $RegistryPath = Join-Path $script:Root 'data' 'projects.md' }
 if (-not $DataPath)     { $DataPath     = Join-Path $script:Root 'data' }
-if (-not $StatePath)    { $StatePath    = Join-Path $script:Root 'state\crew.json' }
+if (-not $StatePath)    { $StatePath    = Join-Path $script:Root 'state' 'crew.json' }
 
 $script:Diagnostics = [System.Collections.Generic.List[string]]::new()
 
@@ -166,16 +169,14 @@ if ($registryPresent) {
     try {
         Import-Module (Join-Path $PSScriptRoot 'Projects.psm1') -Force -ErrorAction Stop
 
-        # Deliberately NOT wrapped in @(). Get-AllProjects returns via the leading-comma idiom,
-        # so the pipeline hands back the intact entries array as one object; @() would nest it a
-        # second time and every entry would read as one unnamed row.
+        # Assigned, never wrapped in @() - statute's collection-return rule.
         # A registry typo is a Write-Warning, not an exception, and it silently makes a project
         # stricter - captured here so the digest can say so instead of losing it to the console.
         $regWarn  = $null
         $projects = Get-AllProjects -RegistryPath $RegistryPath -WarningVariable regWarn -WarningAction SilentlyContinue
         foreach ($w in @($regWarn)) { if ($w) { Add-Fault 'registry' "$w" } }
 
-        foreach ($p in @($projects)) {
+        foreach ($p in $projects) {
             $path = Get-Field $p 'path'
             $entries += [pscustomobject]@{
                 name    = (Get-Field $p 'name' '(unnamed)')
@@ -225,8 +226,9 @@ if ($crewReadable -and $crewIds.Count -gt 0) {
         if (-not (Test-PathQuiet $statusScript)) { throw "Get-CrewStatus.ps1 is not at $statusScript." }
         # Invoked in a child scope with strict mode off: it predates this script and reads
         # optional properties off the agent objects, which StrictMode Latest would turn into an
-        # exception if it inherited the setting from here.
-        $rows = @(& { Set-StrictMode -Off; & $statusScript -StatePath $StatePath })
+        # exception if it inherited the setting from here. Assigned, never wrapped in @(): the
+        # script returns its rows as one list - statute's collection-return rule.
+        $rows = & { Set-StrictMode -Off; & $statusScript -StatePath $StatePath }
     } catch {
         Add-Fault 'liveness' $_.Exception.Message
         $rows = $null
@@ -256,6 +258,9 @@ if ($crewReadable -and $crewIds.Count -gt 0) {
             ticket      = (Get-Field $w 'ticket' '-')
             repo        = (Get-Field $w 'repo' '-')
             stage       = (Get-Field $w 'stage' '-')
+            # Whether the stage is over - nothing running and nothing waiting on the King.
+            # Crew.psm1's Test-CrewStageOver owns which stages those are.
+            over        = (Test-CrewStageOver -Stage (Get-Field $w 'stage'))
             live        = $live
             agentState  = (Get-Field $row 'agentState')
             agentStatus = (Get-Field $row 'agentStatus')

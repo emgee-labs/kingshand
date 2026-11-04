@@ -117,9 +117,9 @@ function Get-RepoCiConfigFiles {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RepoPath)
 
-    $hits = [System.Collections.Generic.List[string]]::new()
+    $hits = [System.Collections.Generic.List[object]]::new()
 
-    $workflows = Join-Path $RepoPath '.github\workflows'
+    $workflows = Join-Path $RepoPath '.github' 'workflows'
     if (Test-Path -LiteralPath $workflows -PathType Container) {
         # An empty workflows directory is not CI. A repository that deleted its last workflow keeps
         # the directory, and calling that `has-ci` restores the endless wait.
@@ -132,7 +132,7 @@ function Get-RepoCiConfigFiles {
         if (Test-Path -LiteralPath (Join-Path $RepoPath $rel) -PathType Leaf) { $hits.Add($rel) }
     }
 
-    $hits.ToArray()
+    return , $hits
 }
 
 # The events a GitHub workflow has to be triggered by before it can put a check on a pull request.
@@ -156,6 +156,7 @@ $script:PullRequestTriggers = @(
 # restricted to one branch still reports the trigger it is restricted on.
 #
 # $null means "not established", never "no triggers", and the caller keeps a file it could not read.
+# A list that was read comes back whole, under statute's collection-return rule.
 function Get-WorkflowTriggers {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Path)
@@ -169,7 +170,7 @@ function Get-WorkflowTriggers {
         $m = [regex]::Match($lines[$i], '^(?:on|''on''|"on"|true)\s*:(?<rest>.*)$')
         if (-not $m.Success) { continue }
 
-        $found = [System.Collections.Generic.List[string]]::new()
+        $found = [System.Collections.Generic.List[object]]::new()
 
         $rest = ($m.Groups['rest'].Value -replace '#.*$', '').Trim()
         if ($rest) {
@@ -178,7 +179,7 @@ function Get-WorkflowTriggers {
                 if ($n) { $found.Add($n.ToLowerInvariant()) }
             }
             if ($found.Count -eq 0) { return $null }
-            return $found.ToArray()
+            return , $found
         }
 
         $indent = -1
@@ -197,7 +198,7 @@ function Get-WorkflowTriggers {
         }
 
         if ($found.Count -eq 0) { return $null }
-        return $found.ToArray()
+        return , $found
     }
 
     $null
@@ -230,7 +231,7 @@ function Get-ReportingCiConfigFiles {
         [switch]$GitHubRemote
     )
 
-    $hits = [System.Collections.Generic.List[string]]::new()
+    $hits = [System.Collections.Generic.List[object]]::new()
 
     foreach ($rel in @($ConfigFiles)) {
         if (-not $rel) { continue }
@@ -239,19 +240,15 @@ function Get-ReportingCiConfigFiles {
             continue
         }
 
-        # Tested against $null before it is wrapped, because @($null) is an array of one and would
-        # turn "not established" into a trigger nothing recognises.
+        # $null is "not established", and keeps the file rather than reading as no triggers.
         $triggers = Get-WorkflowTriggers -Path (Join-Path $RepoPath $rel)
-        if ($null -eq $triggers) { $hits.Add($rel); continue }
-
-        $triggers = @($triggers)
-        if ($triggers.Count -eq 0) { $hits.Add($rel); continue }
+        if ($null -eq $triggers -or $triggers.Count -eq 0) { $hits.Add($rel); continue }
         if (@($triggers | Where-Object { $script:PullRequestTriggers -contains $_ }).Count -gt 0) {
             $hits.Add($rel)
         }
     }
 
-    $hits.ToArray()
+    return , $hits
 }
 
 # How many checks GitHub reported on one commit: check runs plus the older commit statuses, because
@@ -350,8 +347,8 @@ function Get-RepoCiStatus {
         return & $finish 'unknown' 'not-a-repo' "$RepoPath is not a git repository, so nothing could be checked."
     }
 
-    $config = @(Get-RepoCiConfigFiles -RepoPath $RepoPath)
-    $result.configFiles = $config
+    $config = Get-RepoCiConfigFiles -RepoPath $RepoPath
+    $result.configFiles = @($config)
 
     # The remote is resolved BEFORE the files are judged, because which files count depends on it.
     # A pull request opened here is a GitHub pull request, so on a GitHub remote only GitHub's own
@@ -359,7 +356,8 @@ function Get-RepoCiStatus {
     # rest. Where nothing can be asked, every provider's file counts.
     $slug = Get-RepoGitHubSlug -RepoPath $RepoPath
 
-    $reporting = @(Get-ReportingCiConfigFiles -RepoPath $RepoPath -ConfigFiles $config -GitHubRemote:([bool]$slug))
+    $reporting = Get-ReportingCiConfigFiles -RepoPath $RepoPath -ConfigFiles $config `
+                                            -GitHubRemote:([bool]$slug)
     if ($reporting.Count -gt 0) {
         return & $finish 'has-ci' 'ci-config' ("CI is configured in the repository: " + ($reporting -join ', ') + '.')
     }

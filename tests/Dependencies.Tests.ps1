@@ -25,6 +25,48 @@ BeforeAll {
     $script:NpmEntry   = '"tasks-axi":{"source":"npm","package":"tasks-axi","version":"0.2.6"}'
     $script:GhEntry    = '"no-mistakes":{"source":"github","repository":"acme/no-mistakes","version":"1.84.0"}'
     $script:MinEntry   = '"claude-code":{"source":"npm","package":"@acme/cli","minimum":"2.1.307"}'
+
+    # Which digest a herdr pin is read for depends on the machine. The fixtures above carry the
+    # Windows one, so every case reads as a Windows machine unless it says otherwise - the
+    # per-platform choice has its own cases below, each overriding this.
+    Mock -ModuleName Dependencies Get-HerdrPlatformKey { 'windows-x86_64' }
+
+    # herdr's own file name on the host running the suite: herdr.exe on Windows, herdr elsewhere.
+    $script:HostHerdr = if ($IsWindows) { 'herdr.exe' } else { 'herdr' }
+}
+
+Describe 'a herdr pin is read for the machine it runs on' {
+    It 'reads the <key> digest from the tracked manifest' -ForEach @(
+        @{ key = 'windows-x86_64' }, @{ key = 'linux-x86_64' }, @{ key = 'linux-aarch64' },
+        @{ key = 'macos-x86_64' }, @{ key = 'macos-aarch64' }
+    ) {
+        $k = $key
+        Mock -ModuleName Dependencies Get-HerdrPlatformKey { $k }.GetNewClosure()
+        $pins = Read-DependencyPins -Path (Join-Path $script:RepoRoot 'dependencies.json')
+        $h = @($pins | Where-Object name -eq 'herdr')[0]
+        $published = (Get-Content -LiteralPath (Join-Path $script:RepoRoot 'dependencies.json') -Raw |
+                      ConvertFrom-Json).herdr.sha256.$k
+        Get-HerdrPinnedDigest -Pin $h | Should -Be $published.ToLowerInvariant()
+    }
+
+    It 'refuses a manifest with no digest for this machine, naming the machine' {
+        Mock -ModuleName Dependencies Get-HerdrPlatformKey { 'linux-aarch64' }
+        $root = New-PinRoot -Json "{$($script:HerdrEntry)}"
+        { Read-DependencyPins -Path (Join-Path $root 'dependencies.json') } |
+            Should -Throw '*no SHA-256 for linux-aarch64*'
+    }
+
+    It 'knows the bundled copy by this system''s file name' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $manifest = Join-Path (New-PinRoot -Json "{$($script:HerdrEntry)}") 'dependencies.json'
+        $pin  = (Read-DependencyPins -Path $manifest)[0]
+        $root = Join-Path $TestDrive 'unix-install'
+        $exe  = Join-Path $root 'tools' 'herdr' 'herdr'
+        Mock -ModuleName Dependencies Get-HerdrVersion {
+            [pscustomobject]@{ version = '0.9.5'; protocol = 22; path = $exe; detail = '' }
+        }.GetNewClosure()
+        (Get-InstalledDependencyVersion -Pin $pin -Root $root).bundled | Should -BeTrue
+    }
 }
 
 Describe 'the tracked manifest' {
@@ -43,6 +85,48 @@ Describe 'the tracked manifest' {
         $c.minimum | Should -Not -BeNullOrEmpty
         $c.version | Should -BeNullOrEmpty -Because 'it updates itself, so only a floor is pinned'
         @($pins | Where-Object { $_.name -ne 'claude-code' -and -not $_.version }).Count | Should -Be 0
+    }
+}
+
+# Statute's collection-return rule: the list itself on assignment, at every size, from each reader.
+Describe 'the pin lists come back whole' {
+    BeforeAll {
+        $script:ShapeEntries = @($script:NpmEntry, $script:GhEntry, $script:MinEntry)
+        function New-ShapeRoot {
+            param([int]$Count)
+            New-PinRoot -Json ('{' + (@($script:ShapeEntries | Select-Object -First $Count) -join ',') + '}')
+        }
+    }
+
+    It 'reads <n> pins as a list on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        $pins = Read-DependencyPins -Path (Join-Path (New-ShapeRoot $n) 'dependencies.json')
+        $pins -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $pins.Count | Should -Be $n
+    }
+
+    It 'returns <n> status rows as a list on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        Mock -ModuleName Dependencies Get-InstalledDependencyVersion {
+            [pscustomobject]@{ found = $true; version = '9.9.9'; path = 'C:\x'; bundled = $false; detail = '' }
+        }
+        $rows = Get-DependencyPinStatus -Root (New-ShapeRoot $n)
+        $rows -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $rows.Count | Should -Be $n
+    }
+
+    It 'returns <n> report rows as a list on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        Mock -ModuleName Dependencies Invoke-WebJson { '{"tag_name":"v1.84.0"}' | ConvertFrom-Json }
+        Mock -ModuleName Dependencies Invoke-NpmJson { '"0.2.6"' | ConvertFrom-Json }
+        $rows = Get-DependencyPinReport -Root (New-ShapeRoot $n)
+        $rows -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $rows.Count | Should -Be $n
+    }
+
+    # The script runs the report itself, against the network, so only the empty manifest is
+    # reachable here without one - the report's own sizes are covered by the case above.
+    It 'is returned whole by bin\Update-DependencyPins.ps1 too' {
+        $rows = & "$PSScriptRoot\..\bin\Update-DependencyPins.ps1" -Root (New-ShapeRoot 0)
+        $rows -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $rows.Count | Should -Be 0
     }
 }
 
@@ -115,7 +199,7 @@ Describe 'Get-InstalledDependencyVersion reads each version from the tool that o
 
     Context 'herdr' {
         It 'reads the version herdr reports, and knows the copy under this root''s tools\ as its own' {
-            $exe = Join-Path $script:FakeRoot 'tools\herdr\herdr.exe'
+            $exe = Join-Path $script:FakeRoot 'tools' 'herdr' $script:HostHerdr
             Mock -ModuleName Dependencies Get-HerdrVersion { [pscustomobject]@{ version = '0.8.2'; protocol = 20; path = $exe; detail = '' } }
             $r = Get-InstalledDependencyVersion -Pin $script:PinHerdr -Root $script:FakeRoot
             $r.found   | Should -BeTrue
@@ -223,15 +307,16 @@ Describe 'Get-DependencyPinStatus sets every pin against what is installed' {
             [pscustomobject]@{ found = $script:CaseFound; version = $script:CaseVersion; path = 'C:\x'; bundled = $true; detail = 'read failed' }
         }
 
-        $row = @(Get-DependencyPinStatus -Root $script:StatusRoot | Where-Object name -eq $name)[0]
+        $row = @((Get-DependencyPinStatus -Root $script:StatusRoot) | Where-Object name -eq $name)[0]
         $row.state | Should -Be $state
     }
 
     It 'gives each row the command that moves it' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Windows' }
         Mock -ModuleName Dependencies Get-InstalledDependencyVersion {
             [pscustomobject]@{ found = $true; version = '0.0.1'; path = 'C:\x'; bundled = $true; detail = '' }
         }
-        $rows = @(Get-DependencyPinStatus -Root $script:StatusRoot)
+        $rows = Get-DependencyPinStatus -Root $script:StatusRoot
         @($rows | Where-Object name -eq 'tasks-axi')[0].command | Should -Be 'npm install -g tasks-axi@0.2.6'
         @($rows | Where-Object name -eq 'herdr')[0].command     | Should -Be '.\install.ps1 -SyncPins'
         @($rows | Where-Object name -eq 'claude-code')[0].command | Should -Be 'claude update'
@@ -257,6 +342,14 @@ Describe 'Test-HerdrReplaceable lets herdr be replaced only under a stopped serv
         $r.ok     | Should -BeFalse
         $r.reason | Should -Match 'is running'
         $r.reason | Should -Match 'herdr server stop'
+    }
+
+    It 'names the installer the way this system runs it' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        Mock -ModuleName Dependencies Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = ''; compatible = $true } }
+        (Test-HerdrReplaceable).reason | Should -Match ([regex]::Escape('pwsh ./install.ps1 -SyncPins'))
+        $pin = [pscustomobject]@{ name = 'herdr'; source = 'herdr'; version = '0.9.6'; minimum = $null }
+        Get-DependencySyncCommand -Pin $pin | Should -Be 'pwsh ./install.ps1 -SyncPins'
     }
 
     It 'refuses when whether it is running could not be read' {
@@ -287,7 +380,7 @@ Describe 'the weekly pin report' {
         }
         Mock -ModuleName Dependencies Invoke-NpmJson { '"0.2.6"' | ConvertFrom-Json }
 
-        $rows = @(Get-DependencyPinReport -Root $script:ReportRoot)
+        $rows = Get-DependencyPinReport -Root $script:ReportRoot
         $h = @($rows | Where-Object name -eq 'herdr')[0]
         $h.latest   | Should -Be '0.9.6'
         $h.move     | Should -Be 'newer'
@@ -305,7 +398,7 @@ Describe 'the weekly pin report' {
         Mock -ModuleName Dependencies Invoke-WebJson { throw 'offline' }
         Mock -ModuleName Dependencies Invoke-NpmJson { $null }
 
-        $rows = @(Get-DependencyPinReport -Root $script:ReportRoot)
+        $rows = Get-DependencyPinReport -Root $script:ReportRoot
         foreach ($r in $rows) {
             $r.latest   | Should -BeNullOrEmpty
             $r.move     | Should -Be 'unknown'

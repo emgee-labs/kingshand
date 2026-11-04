@@ -7,6 +7,11 @@ BeforeAll {
 
     $script:TempFixtures = [System.Collections.Generic.List[string]]::new()
 
+    # The separator dispatch writes into a path, which is this system's own - a backslash is a file
+    # name character on macOS and Linux - so text a case matches against is built from it too.
+    $script:Sep = [IO.Path]::DirectorySeparatorChar
+    $script:RF  = "read-first$($script:Sep)"
+
     function New-TempFixturePath {
         param([Parameter(Mandatory)][string]$Prefix)
         $p = Join-Path ([System.IO.Path]::GetTempPath()) ($Prefix + [guid]::NewGuid().ToString('N'))
@@ -431,15 +436,33 @@ Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
 
         $warnings = @()
         $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
-        ($warnings -join ' ') | Should -BeLike '*never-fetched*'
-        ($warnings -join ' ') | Should -BeLike '*origin/main*'
+        $text = $warnings -join ' '
+        $text | Should -BeLike '*declares never-fetched in pr.base_branch*'
+        $text | Should -BeLike '*neither origin/never-fetched nor never-fetched resolves here*'
+        $text | Should -BeLike '*based on origin/main instead*'
         # This repo has an origin, so fetching is a real possibility - the remoteless case below
-        # is the one where that advice would be wrong outright. It is offered as one of two
-        # states rather than asserted, because origin may have no such branch either and nothing
-        # short of a network round trip can tell which this is.
-        ($warnings -join ' ') | Should -BeLike '*Fetch never-fetched*'
-        ($warnings -join ' ') | Should -BeLike '*if origin has it*'
-        ($warnings -join ' ') | Should -BeLike '*If origin has no never-fetched either*'
+        # is the one where that advice would be wrong outright. Whether origin has the branch is
+        # never asked, so the action names both answers rather than asserting one.
+        $text | Should -BeLike '*fetch never-fetched if origin has it, create it if not*'
+        $text | Should -BeLike '*Check what its pull request targets before it lands*'
+    }
+
+    # What the warning used to say and could not know: whether origin has the branch, and what the
+    # landing diff will carry. It also told the reader to fetch before landing, which moves nothing -
+    # the worktree is already cut, so a fetch can only help the next dispatch.
+    It 'claims nothing about refs it never looked up, and aims its fix at the next dispatch' {
+        $repo = New-TempRepo -WithOrigin
+        git -C $repo remote set-head origin -a 2>&1 | Out-Null
+        Set-DeclaredBranch -RepoPath $repo -Yaml "pr:`n  base_branch: never-fetched"
+
+        $warnings = @()
+        $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        $text = $warnings -join ' '
+        $text | Should -BeLike '*Before the next dispatch into this repository*'
+        $text | Should -Not -BeLike '*before landing*'
+        $text | Should -Not -BeLike '*landing diff measures*'
+        $text | Should -Not -BeLike '*still proposed against*'
+        $text | Should -Not -BeLike '*If origin has no never-fetched either*'
     }
 
     # The fetch advice is the only actionable sentence in that warning, and on a repository with
@@ -454,10 +477,10 @@ Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
         $base = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
         $base | Should -Be 'main'
         $text = $warnings -join ' '
-        $text | Should -BeLike '*no never-created branch exists here*'
-        $text | Should -BeLike '*no origin to fetch one from*'
-        $text | Should -BeLike '*Create never-created*'
-        $text | Should -Not -BeLike '*Fetch never-created*'
+        $text | Should -BeLike '*no never-created branch resolves here and there is no origin*'
+        $text | Should -BeLike '*based on main instead*'
+        $text | Should -BeLike '*Create never-created, or correct pr.base_branch*'
+        $text | Should -Not -BeLike '*fetch never-created*'
         $text | Should -Not -BeLike '*pull request*'
     }
 
@@ -490,13 +513,30 @@ Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
         $warnings = @()
         $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
         $text = $warnings -join ' '
-        $text | Should -BeLike '*worktree-other*'
-        $text | Should -BeLike '*worker branch*'
-        $text | Should -Not -BeLike '*neither origin/worktree-other nor worktree-other resolves*'
-        $text | Should -Not -BeLike '*Fetch worktree-other*'
+        $text | Should -BeLike '*declares worktree-other in pr.base_branch*'
         $text | Should -BeLike '*refused on its name alone*'
-        $text | Should -Not -BeLike '*It resolves fine*'
-        $text | Should -Not -BeLike '*it belongs to another worker*'
+        $text | Should -BeLike '*a worktree-`* name is never used as a base*'
+        $text | Should -BeLike '*based on origin/main instead*'
+        $text | Should -BeLike '*correct pr.base_branch*'
+        $text | Should -Not -BeLike '*neither origin/worktree-other nor worktree-other resolves*'
+        $text | Should -Not -BeLike '*fetch worktree-other*'
+    }
+
+    # The refusal is decided on the name, so the warning is word for word the same whether the
+    # branch exists or not - and every sentence it used to carry about the ref itself was a guess:
+    # that it resolves, that it belongs to another worker, what basing on it would measure, that
+    # fetching or creating it changes nothing.
+    It 'says nothing about whether a refused worker branch exists or whose it is' {
+        $repo = New-DeclaredWorkerBranchRepo
+
+        $warnings = @()
+        $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
+        $text = $warnings -join ' '
+        foreach ($claim in @('*resolves*', '*another worker*', '*unlanded work*',
+                             '*whether or not it resolves*', '*fetching nor creating*',
+                             '*still proposed against*')) {
+            $text | Should -Not -BeLike $claim
+        }
     }
 
     # `$declaredIsWorker` is decided on the NAME, so this warning fires whether or not the declared
@@ -516,8 +556,15 @@ Describe 'Resolve-BaseRef - a declaration is a candidate, not a guarantee' {
         $text = $warnings -join ' '
         $text | Should -BeLike '*worktree-ghost*'
         $text | Should -BeLike '*refused on its name alone*'
-        $text | Should -Not -BeLike '*It resolves fine*'
-        $text | Should -Not -BeLike '*it belongs to another worker*'
+        $text | Should -Not -BeLike '*resolves*'
+        $text | Should -Not -BeLike '*another worker*'
+
+        # Word for word what a worker branch that does exist gets, with only the repo and name changed.
+        $liveRepo = New-DeclaredWorkerBranchRepo
+        $live = @()
+        $null = Resolve-BaseRef -RepoPath $liveRepo -WarningVariable live -WarningAction SilentlyContinue
+        $liveText = (($live -join ' ').Replace($liveRepo, 'REPO')).Replace('worktree-other', 'W')
+        ($text.Replace($repo, 'REPO')).Replace('worktree-ghost', 'W') | Should -Be $liveText
     }
 
     It 'says the same thing in the refusal when a declared worker branch is all there is' {
@@ -562,8 +609,15 @@ Describe 'Resolve-BaseRef - the declared branch honoured only as a local ref' {
         $base = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
         # The declaration is still honoured - this is a caution, not a refusal.
         $base | Should -Be 'dev'
-        ($warnings -join ' ') | Should -BeLike '*origin/dev*'
-        ($warnings -join ' ') | Should -BeLike '*Fetch dev*'
+        $text = $warnings -join ' '
+        $text | Should -BeLike '*origin/dev does not resolve here*'
+        $text | Should -BeLike '*based on the local dev*'
+        $text | Should -BeLike '*fetch dev if origin has it*'
+        # How far behind the local copy is, and what that would put in a landing diff, are both
+        # questions about origin this never asked.
+        $text | Should -Not -BeLike '*upstream commit*'
+        $text | Should -Not -BeLike '*attributed*'
+        $text | Should -Not -BeLike '*before landing*'
     }
 
     # Fetching only closes the gap when origin actually has the branch. This fixture is the other
@@ -583,8 +637,7 @@ Describe 'Resolve-BaseRef - the declared branch honoured only as a local ref' {
         $null = Resolve-BaseRef -RepoPath $repo -WarningVariable warnings -WarningAction SilentlyContinue
         $text = $warnings -join ' '
         $text | Should -BeLike '*if origin has it*'
-        $text | Should -BeLike '*fetching cannot work*'
-        $text | Should -BeLike '*push the branch*'
+        $text | Should -BeLike '*if not, push it or correct pr.base_branch*'
     }
 
     It 'stays quiet on a remoteless repo, where the local ref is the only ref there is' {
@@ -688,6 +741,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         # fixture's data root - the live $env:KINGSHAND_HOME\data\ is never read or written here.
         Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Index.psm1')    -Force
         Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Projects.psm1') -Force
+        # How muster Step 4 records a dispatch, so a re-dispatch's record is checked end to end.
+        Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Crew.psm1')     -Force
 
         $script:DispatchScript = "$PSScriptRoot\..\bin\Dispatch-Worker.ps1"
         $script:ProcedureFile  = (Resolve-Path (Join-Path (Split-Path $PSScriptRoot -Parent) `
@@ -698,6 +753,11 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         $script:BrowserFiles   = @($script:ProcedureFile, $script:ModuleFile)
         $script:SavedPath      = $env:PATH
         $script:SavedProfile   = $env:USERPROFILE
+        $script:SavedUnixHome  = $env:HOME
+        # Cleared, so the trust grant falls back to the redirected home below - left set, it would
+        # point Grant-ClaudeFolderTrust at the real Claude Code config, which honours it first.
+        $script:SavedConfigDir = $env:CLAUDE_CONFIG_DIR
+        $env:CLAUDE_CONFIG_DIR = $null
 
         $script:ShimDir = New-TempFixturePath -Prefix 'herdr-shim-'
         New-Item -ItemType Directory -Force -Path $script:ShimDir | Out-Null
@@ -709,8 +769,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         # so the worker can read one way before its start prompt and another after it - which is
         # what confirming the prompt was taken reads. The marker sits beside the fixture's own call
         # log, so every fixture starts unprompted.
-        Set-Content -Path (Join-Path $script:ShimDir 'herdr.cmd') -Encoding ascii -Value @(
-            '@echo off',
+        Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
+        $null = New-TestExecutable -Path (Join-Path $script:ShimDir 'herdr') -Cmd @(
             '>>"%KINGSHAND_TEST_HERDR_CALLS%" echo %*',
             'if "%1"=="status" goto :status',
             'if "%1 %2"=="agent prompt" type nul > "%KINGSHAND_TEST_HERDR_CALLS%.prompted"',
@@ -723,31 +783,45 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             ':status',
             'type "%KINGSHAND_TEST_HERDR_DIR%\status.txt"',
             'exit /b 0'
+        ) -Sh @(
+            'echo "$*" >> "$KINGSHAND_TEST_HERDR_CALLS"',
+            'd="$KINGSHAND_TEST_HERDR_DIR"',
+            'if [ "$1" = status ]; then cat "$d/status.txt"; exit 0; fi',
+            'if [ "$1 $2" = "agent prompt" ]; then : > "$KINGSHAND_TEST_HERDR_CALLS.prompted"; fi',
+            'if [ -f "$KINGSHAND_TEST_HERDR_CALLS.prompted" ] && [ -f "$d/$1-$2-prompted.json" ]; then',
+            '  cat "$d/$1-$2-prompted.json"; exit 0',
+            'fi',
+            'cat "$d/$1-$2.json"',
+            'exit 0'
         )
 
         # quota-axi is shimmed on PATH beside herdr, for the same reason and with the same effect:
         # the usage refusal is the first thing dispatch checks now, so every case below has to have
         # an answer waiting for it. It types one canned report and never logs a call, because the
         # call log is what the herdr assertions count.
-        Set-Content -Path (Join-Path $script:ShimDir 'quota-axi.cmd') -Encoding ascii -Value @(
-            '@echo off',
+        $null = New-TestExecutable -Path (Join-Path $script:ShimDir 'quota-axi') -Cmd @(
             'if exist "%KINGSHAND_TEST_HERDR_DIR%\quota-axi.fail" exit /b 1',
             'type "%KINGSHAND_TEST_HERDR_DIR%\quota-axi.json"',
             'exit /b 0'
+        ) -Sh @(
+            'if [ -f "$KINGSHAND_TEST_HERDR_DIR/quota-axi.fail" ]; then exit 1; fi',
+            'cat "$KINGSHAND_TEST_HERDR_DIR/quota-axi.json"'
         )
 
         # The usage probe is a stand-in too, named through the one variable Usage.psm1 reads for it,
         # because this script re-imports that module with -Force and no mock survives that - without
         # it every dispatch below would spend real usage. It types a canned stream-json reply, or
         # exits 1 with nothing, which is a probe that could not answer.
-        Set-Content -Path (Join-Path $script:ShimDir 'claude-probe.cmd') -Encoding ascii -Value @(
-            '@echo off',
+        $probe = New-TestExecutable -Path (Join-Path $script:ShimDir 'claude-probe') -Cmd @(
             'if exist "%KINGSHAND_TEST_HERDR_DIR%\probe.fail" exit /b 1',
             'type "%KINGSHAND_TEST_HERDR_DIR%\probe.txt"',
             'exit /b 0'
+        ) -Sh @(
+            'if [ -f "$KINGSHAND_TEST_HERDR_DIR/probe.fail" ]; then exit 1; fi',
+            'cat "$KINGSHAND_TEST_HERDR_DIR/probe.txt"'
         )
         $script:SavedProbe = $env:KINGSHAND_USAGE_PROBE_COMMAND
-        $env:KINGSHAND_USAGE_PROBE_COMMAND = Join-Path $script:ShimDir 'claude-probe.cmd'
+        $env:KINGSHAND_USAGE_PROBE_COMMAND = $probe
 
         # The reader's gate file lands under KINGSHAND_HOME\state\, so the whole context runs with
         # KINGSHAND_HOME on a root of its own. Nothing dispatch reads hangs off it otherwise: every
@@ -898,7 +972,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             '{ "projects": { "C:/somewhere-else": { "hasTrustDialogAccepted": true } } }' |
                 Set-Content -Path (Join-Path $home_ '.claude.json') -Encoding utf8
 
-            $env:USERPROFILE = $home_
+            if ($IsWindows) { $env:USERPROFILE = $home_ } else { $env:HOME = $home_ }
             $env:KINGSHAND_TEST_HERDR_CALLS = Join-Path $root 'calls.txt'
 
             [pscustomobject]@{
@@ -1008,7 +1082,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             if (-not $PSBoundParameters.ContainsKey('Body')) {
                 $Body = if ($Leaf.Count -eq 0) { @('- Nothing beyond this brief.') } else {
                     foreach ($l in $Leaf) {
-                        "- ``$($Fixture.BriefDir)\read-first\$l`` - what it settles, copied here from ``$From``."
+                        "- ``$($Fixture.BriefDir)$($script:Sep)$($script:RF)$l`` - what it settles, copied here from ``$From``."
                     }
                 }
             }
@@ -1024,6 +1098,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
     AfterAll {
         $env:PATH        = $script:SavedPath
         $env:USERPROFILE = $script:SavedProfile
+        $env:HOME        = $script:SavedUnixHome
+        $env:CLAUDE_CONFIG_DIR = $script:SavedConfigDir
         $env:KINGSHAND_HOME = $script:SavedHome
         $env:KINGSHAND_USAGE_PROBE_COMMAND = $script:SavedProbe
         Remove-Item Env:\KINGSHAND_TEST_HERDR_DIR   -ErrorAction SilentlyContinue
@@ -1064,9 +1140,21 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         # at the moment it started, which the caller has to know because "no prompt found" and
         # "could not look" are different answers and only one means the worker is healthy.
         # `startPrompt` is what the start-prompt confirmation saw, `taken` on the ordinary path.
-        It 'returns the four fields crew.json is built from, plus the readability and start answers' {
+        # `paneId` is the fifth crew.json field: cleanup closes that pane after the worker exits.
+        # `branchCut` says whether `base` is where this dispatch cut the branch, which decides
+        # whether a re-dispatch's record keeps its earlier base.
+        It 'returns the five fields crew.json is built from, plus the branch, readability and start answers' {
             @($script:FirstResult.Keys | Sort-Object) |
-                Should -Be @('base', 'branch', 'id', 'readable', 'startPrompt', 'worktree')
+                Should -Be @('base', 'branch', 'branchCut', 'id', 'paneId', 'readable', 'startPrompt',
+                             'worktree')
+        }
+
+        It 'says a first dispatch cut its branch from the base it returns' {
+            $script:FirstResult.branchCut | Should -BeTrue
+        }
+
+        It 'returns the pane it created, so the record can close it after the worker has exited' {
+            $script:FirstResult.paneId | Should -Not -BeNullOrEmpty
         }
 
         It 'reports the worker as readable when its terminal is wide enough for the guard' {
@@ -1242,7 +1330,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         }
 
         It 'indexes the record it wrote, like every durable file under data' {
-            @(Get-IndexEntries -All -DataPath $script:Co.DataPath | ForEach-Object { $_.path }) |
+            @((Get-IndexEntries -All -DataPath $script:Co.DataPath) | ForEach-Object { $_.path }) |
                 Should -Contain 'data\brief\checkout-settings.json'
         }
 
@@ -1348,7 +1436,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Set-IndexCheckedBrief -Fixture $f
             Set-Content -Path (Join-Path $f.Repo 'wip.txt') -Value 'the owner''s' -Encoding utf8
             $r = Invoke-CheckoutDispatch -Fixture $f
-            @(Get-IndexEntries -All -DataPath $f.DataPath | ForEach-Object { $_.path }) |
+            @((Get-IndexEntries -All -DataPath $f.DataPath) | ForEach-Object { $_.path }) |
                 Should -Contain 'data\brief\checkout-baseline.json'
             $null = Restore-CheckoutWorkerSettings -RecordPath $r.settingsRecord
             $null = Remove-IndexEntry -Path $r.settingsRecord -DataPath $f.DataPath
@@ -1657,6 +1745,26 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         }
     }
 
+    # The warning the Hand relays is the one dispatch prints, so it is read here through the script
+    # muster calls rather than only through the resolver it dot-sources.
+    Context 'a declared branch it cannot honour' {
+        It 'warns with the declared name, the base used and what to do, and nothing more' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'declared-missing'
+            Set-DeclaredBranch -RepoPath $f.Repo -Yaml "pr:`n  base_branch: never-created"
+
+            $warnings = @()
+            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-2010' -BriefPath $f.BriefPath `
+                    -DataPath $f.DataPath -WarningVariable warnings -WarningAction SilentlyContinue
+            $r.base | Should -Be 'main'
+            $text = $warnings -join ' '
+            $text | Should -BeLike '*declares never-created in pr.base_branch of .no-mistakes.yaml*'
+            $text | Should -BeLike '*so this worker is based on main instead*'
+            $text | Should -BeLike '*Create never-created, or correct pr.base_branch*'
+            $text | Should -Not -BeLike '*exists here*'
+        }
+    }
+
     Context 're-dispatching the same ticket' {
         # `git worktree add -b` cannot be told twice, and a raw "fatal: a branch named
         # worktree-T-2001 already exists" is not something the Hand can route on. Sending a worker
@@ -1685,6 +1793,63 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             $two = Invoke-Dispatch -Fixture $f -Name 'T-2002'
             (& git -C $two.worktree rev-parse --abbrev-ref HEAD).Trim() | Should -Be 'worktree-T-2002'
+            $two.branchCut | Should -BeFalse -Because 'the branch was checked out, not cut again'
+        }
+
+        It 'says it did not cut the branch when it reused the registered checkout' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'again-cut'
+            $null = Invoke-Dispatch -Fixture $f -Name 'T-2005'
+            (Invoke-Dispatch -Fixture $f -Name 'T-2005').branchCut | Should -BeFalse
+        }
+
+        # THE RECORD STAYS ON THE REAL BRANCH POINT. The repository moves between the two dispatches -
+        # it declares an integration branch - so the second one resolves `dev` while the branch it
+        # finds was cut from `main`. Recorded the way muster Step 4 records a re-dispatch, the base
+        # stays `main`, which is where the branch really starts.
+        It 'keeps the first base in the record when the repository moved between dispatches' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'moved-base'
+            $one = Invoke-Dispatch -Fixture $f -Name 'T-2006'
+            $one.base | Should -Be 'main'
+            $s = New-CrewState
+            Add-CrewWorker -State $s -WorkerId $one.id -Ticket 'T-2006' -Kind 'ticket' -Repo 'r' `
+                           -Worktree $one.worktree -Branch $one.branch -Base $one.base `
+                           -PaneId $one.paneId -Brief $f.BriefPath
+
+            git -C $f.Repo branch dev
+            Set-DeclaredBranch -RepoPath $f.Repo -Yaml "pr:`n  base_branch: dev"
+            $two = Invoke-Dispatch -Fixture $f -Name 'T-2006'
+            $two.base | Should -Be 'dev' -Because 'the base is resolved fresh on every dispatch'
+
+            { Add-CrewWorker -State $s -WorkerId $two.id -Ticket 'T-2006' -Kind 'ticket' -Repo 'r' `
+                             -Worktree $two.worktree -Branch $two.branch -Base $two.base `
+                             -Brief $f.BriefPath } | Should -Throw '*Set-CrewRelaunch*'
+            Set-CrewRelaunch -State $s -WorkerId $two.id -Worktree $two.worktree -Branch $two.branch `
+                             -Base $two.base -BranchCut $two.branchCut -PaneId $two.paneId
+            $s.workers['T-2006'].base | Should -Be 'main'
+        }
+
+        # The other side: the branch is gone, so this dispatch cuts a new one from the fresh base,
+        # and the record has to move with it.
+        It 'records the fresh base when the branch was gone and had to be cut again' {
+            Set-AgentStartState
+            $f = New-DispatchFixture 'recut-base'
+            $one = Invoke-Dispatch -Fixture $f -Name 'T-2007'
+            $s = New-CrewState
+            Add-CrewWorker -State $s -WorkerId $one.id -Ticket 'T-2007' -Kind 'ticket' -Repo 'r' `
+                           -Worktree $one.worktree -Branch $one.branch -Base $one.base `
+                           -Brief $f.BriefPath
+            & git -C $f.Repo worktree remove --force $one.worktree 2>&1 | Out-Null
+            & git -C $f.Repo branch -D $one.branch 2>&1 | Out-Null
+
+            git -C $f.Repo branch dev
+            Set-DeclaredBranch -RepoPath $f.Repo -Yaml "pr:`n  base_branch: dev"
+            $two = Invoke-Dispatch -Fixture $f -Name 'T-2007'
+            $two.branchCut | Should -BeTrue
+            Set-CrewRelaunch -State $s -WorkerId $two.id -Worktree $two.worktree -Branch $two.branch `
+                             -Base $two.base -BranchCut $two.branchCut -PaneId $two.paneId
+            $s.workers['T-2007'].base | Should -Be 'dev'
         }
 
         # A directory deleted by hand leaves a record under .git\worktrees, and `git worktree add`
@@ -2469,7 +2634,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $criteria = Join-Path $f.DataPath "done-$name.md"
             Set-Content -Path $criteria -Value '- Every new prose rule is pinned by a test.' -Encoding utf8
             Set-ReadFirstBrief -Fixture $f -Body @(
-                "- ``$($f.BriefDir)\read-first\done-$name.md`` - the standing criteria, copied here from ``$criteria``.",
+                "- ``$($f.BriefDir)$($script:Sep)$($script:RF)done-$name.md`` - the standing criteria, copied here from ``$criteria``.",
                 '- The index was checked; nothing in it applies to this task beyond the standing criteria above.')
 
             $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-8024' `
@@ -2563,7 +2728,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $f = New-DispatchFixture 'index-procedure-quoted'
             Register-FixtureProject -Fixture $f -WithIndex | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @(
-                "- ``$($f.BriefDir)\read-first\SKILL.md`` - the procedure, copied here.",
+                "- ``$($f.BriefDir)$($script:Sep)$($script:RF)SKILL.md`` - the procedure, copied here.",
                 '', '## Scope', 'Change the template that reads:', '',
                 '```markdown', '## Browser checks', '- C-001 something', '```')
 
@@ -2976,8 +3141,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                     Heading  = @(0..($lines.Count - 1) |
                                     Where-Object { $lines[$_] -match '^\s*##\s+Read first\s*$' })[0]
                     LeadIn   = & $at $mark
-                    Criteria = & $at "*read-first\done-$Project.md*"
-                    Rules    = & $at "*read-first\rules-$Project.md*"
+                    Criteria = & $at "*$($script:RF)done-$Project.md*"
+                    Rules    = & $at "*$($script:RF)rules-$Project.md*"
                     LeadIns  = @($lines | Where-Object { $_ -like $mark }).Count
                 }
             }
@@ -3024,7 +3189,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Invoke-Dispatch -Fixture $f -Name 'T-9003' | Out-Null
             $lines   = @(Get-Content -LiteralPath (Get-DispatchFilePath $f))
             $heading = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Read first\s*$' })[0]
-            $named   = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like '*read-first\rules-*' })[0]
+            $named   = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like "*$($script:RF)rules-*" })[0]
             ($null -ne $heading) | Should -BeTrue
             ($named -gt $heading) | Should -BeTrue
             @($lines[$heading..$named] | Where-Object { $_ -match '^\s*#{1,6}\s' }).Count |
@@ -3044,7 +3209,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             Invoke-Dispatch -Fixture $f -Name 'T-9035' | Out-Null
             [System.IO.File]::ReadAllBytes($f.BriefPath) | Should -Be $before
-            (Get-DispatchText -Fixture $f).Contains("read-first\rules-$name.md") | Should -BeTrue
+            (Get-DispatchText -Fixture $f).Contains("$($script:RF)rules-$name.md") | Should -BeTrue
         }
 
         # The worker is told about the file by the one thing it is certain to read first. Nothing
@@ -3118,7 +3283,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             Invoke-Dispatch -Fixture $f -Name 'T-9004' | Out-Null
             Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\done-$name.md") | Should -BeTrue
-            (Get-DispatchText -Fixture $f).Contains("read-first\done-$name.md") | Should -BeTrue
+            (Get-DispatchText -Fixture $f).Contains("$($script:RF)done-$name.md") | Should -BeTrue
         }
 
         It 'attaches both when both are there, and neither lands on the other' {
@@ -3214,7 +3379,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $name = Register-FixtureProject -Fixture $f -WithIndex
             $criteria = New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.'
             Set-ReadFirstBrief -Fixture $f -Body @(
-                "- ``$($f.BriefDir)\read-first\done-$name.md`` - the standing criteria, copied from ``$criteria``.")
+                "- ``$($f.BriefDir)$($script:Sep)$($script:RF)done-$name.md`` - the standing criteria, copied from ``$criteria``.")
 
             $msg = ''
             try {
@@ -3292,7 +3457,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $name = Register-FixtureProject -Fixture $f
             $criteria = New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.'
             Set-ReadFirstBrief -Fixture $f -Body @(
-                "- ``$($f.BriefDir)\read-first\done-$name.md`` - the standing criteria, copied from ``$criteria``.",
+                "- ``$($f.BriefDir)$($script:Sep)$($script:RF)done-$name.md`` - the standing criteria, copied from ``$criteria``.",
                 '- The index was checked; nothing in it applies beyond the standing criteria above.')
 
             & $script:DispatchScript -RepoPath $f.Repo -Name 'T-9014' `
@@ -3335,7 +3500,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $lines   = @(Get-Content -LiteralPath (Get-DispatchFilePath $f))
             $heading = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -match '^\s*##\s+Read first\s*$' })[0]
             $leadIn  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like '*attached by dispatch from this project*' })[0]
-            $bullet  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like "*read-first\rules-$name.md*" })[0]
+            $bullet  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like "*$($script:RF)rules-$name.md*" })[0]
 
             ($null -ne $leadIn) | Should -BeTrue
             ($leadIn -gt $heading) | Should -BeTrue
@@ -3451,7 +3616,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                       "project's own standing files, not by hand. They apply as well as everything " +
                       'else in this section, including any line saying nothing beyond this brief ' +
                       'was named - that line was written before these were attached. Read them.'
-            $bullet = "- ``$($f.BriefDir)\read-first\rules-$name.md`` - the standing rules for $name " +
+            $bullet = "- ``$($f.BriefDir)$($script:Sep)$($script:RF)rules-$name.md`` - the standing rules for $name " +
                       '- conventions, vocabulary, exclusions, branch naming, environment facts, ' +
                       "attached automatically at dispatch from ``$(Join-Path $f.DataPath "rules-$name.md")`` " +
                       'rather than named by hand. Read it in full before you start. It is reference ' +
@@ -3471,7 +3636,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             # The dispatch file names the copy once, under its own lead-in, whatever the brief quotes.
             $lines = @(Get-Content -LiteralPath (Get-DispatchFilePath $f))
-            @($lines | Where-Object { $_ -like "*read-first\rules-$name.md*" }).Count | Should -Be 1
+            @($lines | Where-Object { $_ -like "*$($script:RF)rules-$name.md*" }).Count | Should -Be 1
             @($lines | Where-Object { $_ -like '*attached by dispatch from this project*' }).Count |
                 Should -Be 1
         }
@@ -3486,7 +3651,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $criteria = New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.'
             New-StandingFile -Fixture $f -Leaf "rules-$name.md" | Out-Null
             Set-ReadFirstBrief -Fixture $f -Body @(
-                "- ``$($f.BriefDir)\read-first\done-$name.md`` - the standing criteria, copied from ``$criteria``.",
+                "- ``$($f.BriefDir)$($script:Sep)$($script:RF)done-$name.md`` - the standing criteria, copied from ``$criteria``.",
                 '- The index was checked; nothing in it applies to this task beyond the standing criteria above.')
             $brief = Get-BriefText -Fixture $f
 
@@ -3496,9 +3661,9 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             (Get-BriefText -Fixture $f) | Should -Be $brief
             $lines  = @(Get-Content -LiteralPath (Get-DispatchFilePath $f))
             $leadIn = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like '*attached by dispatch from this project*' })[0]
-            $rules  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like "*read-first\rules-$name.md*" })[0]
+            $rules  = @(0..($lines.Count - 1) | Where-Object { $lines[$_] -like "*$($script:RF)rules-$name.md*" })[0]
             ($rules -gt $leadIn) | Should -BeTrue
-            @($lines | Where-Object { $_ -like "*read-first\done-$name.md*" }).Count |
+            @($lines | Where-Object { $_ -like "*$($script:RF)done-$name.md*" }).Count |
                 Should -Be 0 -Because 'the Hand already named the file it passed'
         }
         # A standing file the King removes must stop reaching the worker. Removing one is supported -
@@ -3522,9 +3687,9 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             Test-Path -LiteralPath $copy | Should -BeFalse
             $text = Get-DispatchText -Fixture $f
-            $text.Contains("read-first\rules-$name.md") | Should -BeFalse
+            $text.Contains("$($script:RF)rules-$name.md") | Should -BeFalse
             # The file still there is untouched, and so is the lead-in that introduces it.
-            $text.Contains("read-first\done-$name.md")  | Should -BeTrue
+            $text.Contains("$($script:RF)done-$name.md")  | Should -BeTrue
             Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\done-$name.md") | Should -BeTrue
             $text | Should -BeLike '*attached by dispatch from this project*'
         }
@@ -3555,7 +3720,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             $back = Get-DispatchText -Fixture $f
             $back | Should -BeLike '*attached by dispatch from this project*'
-            $back.Contains("read-first\rules-$name.md") | Should -BeTrue
+            $back.Contains("$($script:RF)rules-$name.md") | Should -BeTrue
             Test-Path -LiteralPath (Join-Path $f.BriefDir "read-first\rules-$name.md") | Should -BeTrue
         }
 
@@ -3571,7 +3736,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $name = Register-FixtureProject -Fixture $f
             $criteria = New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.'
             # muster's own wording, which is not the line this script composes.
-            $handLine = "- ``$($f.BriefDir)\read-first\done-$name.md`` - the standing criteria for " +
+            $handLine = "- ``$($f.BriefDir)$($script:Sep)$($script:RF)done-$name.md`` - the standing criteria for " +
                         "$name, copied from ``$criteria``. Work its lines one by one."
             Set-ReadFirstBrief -Fixture $f -Body @(
                 $handLine,
@@ -3600,7 +3765,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $f = New-DispatchFixture 'standing-prune-ignores-brief'
             $name = Register-FixtureProject -Fixture $f
             $criteria = New-StandingFile -Fixture $f -Leaf "done-$name.md" -Text '- Pester is green.'
-            $own = "- ``$($f.BriefDir)\read-first\done-$name.md`` - the standing definition of done " +
+            $own = "- ``$($f.BriefDir)$($script:Sep)$($script:RF)done-$name.md`` - the standing definition of done " +
                    "for $name, attached automatically at dispatch from ``$criteria`` rather than " +
                    'named by hand. Read it in full. It is this project''s standing definition of ' +
                    'done, and you work its lines one by one.'
@@ -3633,7 +3798,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $copy = Join-Path $f.BriefDir "read-first\rules-$name.md"
             Test-Path -LiteralPath $copy | Should -BeTrue
             (Get-Content -LiteralPath $copy -Raw) | Should -BeLike "*the Hand's own file*"
-            (Get-BriefText -Fixture $f).Contains("read-first\rules-$name.md") | Should -BeTrue
+            (Get-BriefText -Fixture $f).Contains("$($script:RF)rules-$name.md") | Should -BeTrue
         }
 
         # The preflight guards a write. On a re-dispatch that adds nothing there is no write to
@@ -3674,7 +3839,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                 (Invoke-Dispatch -Fixture $f -Name 'T-9041').id | Should -Be 'T-9041'
             } finally { $held.Dispose(); $item.IsReadOnly = $false }
             (Get-BriefText -Fixture $f) | Should -Be $before
-            (Get-DispatchText -Fixture $f).Contains("read-first\rules-$name.md") | Should -BeTrue
+            (Get-DispatchText -Fixture $f).Contains("$($script:RF)rules-$name.md") | Should -BeTrue
         }
 
         # This script never reads the brief's body, so it may not assert anything about what is in
@@ -3689,7 +3854,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             Invoke-Dispatch -Fixture $f -Name 'T-9021' | Out-Null
             $line = @(@(Get-Content -LiteralPath (Get-DispatchFilePath $f)) |
-                        Where-Object { $_ -like "*read-first\done-$name.md*" })[0]
+                        Where-Object { $_ -like "*$($script:RF)done-$name.md*" })[0]
             ($null -ne $line) | Should -BeTrue
             $line | Should -Not -BeLike '*pasted into this brief*'
             # It still has to say what the file IS and how it is worked, or the worker is handed a
@@ -3851,9 +4016,9 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
                     Heading  = @(0..($lines.Count - 1) |
                                     Where-Object { $lines[$_] -match '^\s*##\s+Read first\s*$' })[0]
                     LeadIn   = & $at '*attached by dispatch from this project*'
-                    Criteria = & $at "*read-first\done-$Project.md*"
-                    Rules    = & $at "*read-first\rules-$Project.md*"
-                    Family   = & $at "*read-first\family-$Family.md*"
+                    Criteria = & $at "*$($script:RF)done-$Project.md*"
+                    Rules    = & $at "*$($script:RF)rules-$Project.md*"
+                    Family   = & $at "*$($script:RF)family-$Family.md*"
                 }
             }
         }
@@ -3869,7 +4034,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             $copy = Join-Path $f.BriefDir 'read-first\family-acme.md'
             Test-Path -LiteralPath $copy | Should -BeTrue
             (Get-Content -LiteralPath $copy -Raw) | Should -BeLike '*tagged AC-*'
-            (Get-DispatchText -Fixture $f).Contains('read-first\family-acme.md') | Should -BeTrue
+            (Get-DispatchText -Fixture $f).Contains("$($script:RF)family-acme.md") | Should -BeTrue
             $name | Should -Be 'acme-web'
         }
 
@@ -3884,7 +4049,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             Invoke-Dispatch -Fixture $f -Name 'T-9102' | Out-Null
             $line = @(@(Get-Content -LiteralPath (Get-DispatchFilePath $f)) |
-                        Where-Object { $_ -like '*read-first\family-acme.md*' })[0]
+                        Where-Object { $_ -like "*$($script:RF)family-acme.md*" })[0]
             ($null -ne $line) | Should -BeTrue
             $line | Should -BeLike "*Where it and this project's own rules-$name.md disagree*"
             $line | Should -BeLike "*rules-$name.md wins*"
@@ -3933,7 +4098,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Invoke-Dispatch -Fixture $f -Name 'T-9105' | Out-Null
             (Get-DispatchText -Fixture $f) | Should -Be $after
             @(@(Get-Content -LiteralPath (Get-DispatchFilePath $f)) |
-                Where-Object { $_ -like '*read-first\family-acme.md*' }).Count | Should -Be 1
+                Where-Object { $_ -like "*$($script:RF)family-acme.md*" }).Count | Should -Be 1
         }
 
         # The project's own files are named above the family's, so the order in the brief matches
@@ -4057,9 +4222,9 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             Test-Path -LiteralPath $copy | Should -BeFalse
             $text = Get-DispatchText -Fixture $f
-            $text.Contains('read-first\family-acme.md') | Should -BeFalse
+            $text.Contains("$($script:RF)family-acme.md") | Should -BeFalse
             # The project's own file is untouched, and so is the lead-in that introduces it.
-            $text.Contains("read-first\rules-$name.md") | Should -BeTrue
+            $text.Contains("$($script:RF)rules-$name.md") | Should -BeTrue
             $text | Should -BeLike '*attached by dispatch from this project*'
         }
 
@@ -4084,8 +4249,8 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
 
             Test-Path -LiteralPath $copy | Should -BeFalse
             $text = Get-DispatchText -Fixture $f
-            $text.Contains('read-first\family-acme.md') | Should -BeFalse
-            $text.Contains("read-first\rules-$name.md") | Should -BeTrue
+            $text.Contains("$($script:RF)family-acme.md") | Should -BeFalse
+            $text.Contains("$($script:RF)rules-$name.md") | Should -BeTrue
             # The shared file itself is not this dispatch's to delete - other projects still use it.
             Test-Path -LiteralPath (Join-Path $f.DataPath 'families\acme.md') | Should -BeTrue
         }
@@ -4113,7 +4278,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Invoke-Dispatch -Fixture $f -Name 'T-9115' | Out-Null
 
             $back = Get-DispatchText -Fixture $f
-            $back.Contains('read-first\family-acme.md') | Should -BeTrue
+            $back.Contains("$($script:RF)family-acme.md") | Should -BeTrue
             Test-Path -LiteralPath (Join-Path $f.BriefDir 'read-first\family-acme.md') | Should -BeTrue
         }
 
@@ -4137,7 +4302,7 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             Invoke-Dispatch -Fixture $f -Name 'T-9116' | Out-Null
             Test-Path -LiteralPath $copy | Should -BeTrue
             (Get-Content -LiteralPath $copy -Raw) | Should -BeLike "*the Hand's own file*"
-            (Get-BriefText -Fixture $f).Contains('read-first\family-shared.md') | Should -BeTrue
+            (Get-BriefText -Fixture $f).Contains("$($script:RF)family-shared.md") | Should -BeTrue
         }
 
 

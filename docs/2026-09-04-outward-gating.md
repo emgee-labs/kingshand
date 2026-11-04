@@ -57,7 +57,9 @@ must never carry `+merge`.
 
 ### The contradiction this created, and how it was resolved
 
-`CLAUDE.md`'s Instruction precedence section lists merge among the actions that still require the
+`CLAUDE.md`'s Instruction precedence section [rule:claude/instruction-precedence] lists merge
+among
+the actions that still require the
 user to state the concrete action explicitly, and says a registered `+yolo` posture is never a
 substitute for that. A standing `+merge` permission contradicts it head on.
 
@@ -108,9 +110,9 @@ has nothing to fire on there - its work stops on a branch. That is why no separa
 exists for it: the King dropped that idea deliberately, having satisfied himself that a worker's
 branch is visible from his ordinary checkout. **That is scoped to delivery, not to the project.**
 The rule fires on the action reaching a server whatever the posture, so a comment or an Azure
-DevOps work item on a `local-only` project is gated exactly like any other - and every `cm-*`
-project in this registry is `local-only` with its tickets in Azure DevOps, so the posture-shaped
-reading would have carved out the common case rather than an edge one.
+DevOps work item on a `local-only` project is gated exactly like any other - and when this was
+written every office repository in the registry was `local-only` with its tickets in Azure DevOps,
+so the posture-shaped reading would have carved out the common case rather than an edge one.
 
 `counsel` is covered by the same rule and does not get an exemption for producing tickets rather
 than code. `tasks-axi` is local and needs nothing; an Azure DevOps work item reaches a server.
@@ -155,7 +157,8 @@ So the prohibition is narrowed rather than dropped: this change added the first 
 `yolo` off, where the flags are the stop itself. On a `+yolo` project they never appear. Adding them
 to shorten a run, to get past a slow step, or because CI looks unlikely to report is still the
 misuse the original line existed to prevent, and it is still named. `muster` Step 2 owns the
-current list of sanctioned uses - the CI preflight has since added `--skip ci` on a `no-ci` gate
+current list of sanctioned uses [rule:muster/skip-uses] - the CI preflight has since added `--skip
+ci` on a `no-ci` gate
 line - and nothing widens one use's justification onto the other's step.
 
 The cost is a second gate run on the resumed worker, which re-runs the local steps against commits

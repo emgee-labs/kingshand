@@ -12,6 +12,17 @@ BeforeAll {
     $script:AllTools = Get-BrowserRequiredTools
 }
 
+# Statute's collection-return rule. The required set is fixed, so its one size is the only one.
+Describe 'the required tools come back whole' {
+    It 'returns them as one list on assignment, and a copy each time' {
+        $tools = Get-BrowserRequiredTools
+        $tools -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $tools.Count | Should -BeGreaterThan 1
+        $tools.Clear()
+        (Get-BrowserRequiredTools).Count | Should -Be $script:AllTools.Count
+    }
+}
+
 Describe 'the browser tools are reported present only when they are all present' {
     It 'reports available with the full set' {
         $status = Get-BrowserToolStatus -Loaded $script:AllTools
@@ -134,6 +145,20 @@ Describe 'a login is found where it lives, and never invented' {
         $c = Get-BrowserCredentialStatus -Variable $script:AbsentVar
         $c.reason | Should -Match $script:AbsentVar
         $c.reason | Should -Match 'restart the worker server'
+        $c.reason | Should -Match 'Never put the value in a brief, a report or any file'
+    }
+
+    # macOS and Linux have no user environment to fall back on, so the fix is the one that reaches
+    # the worker server's environment there, never "set it for the user".
+    It 'gives the fix that works on <_>, where there is no user environment' -ForEach @('MacOS', 'Linux') {
+        $p = $_
+        Mock -ModuleName BrowserVerify Get-KingshandPlatform { $p }.GetNewClosure()
+        $c = Get-BrowserCredentialStatus -Variable $script:AbsentVar
+        $c.found  | Should -BeFalse
+        $c.source | Should -Be 'none'
+        $c.reason | Should -Match 'Export it in the shell the worker server is started from'
+        $c.reason | Should -Match 'restart the worker server'
+        $c.reason | Should -Not -Match 'for the user'
         $c.reason | Should -Match 'Never put the value in a brief, a report or any file'
     }
 

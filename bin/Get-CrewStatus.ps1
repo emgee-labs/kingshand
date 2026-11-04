@@ -40,6 +40,9 @@
   Get-CrewItems. A `fief` session's warm worker is one row with every id in order; any other worker
   is `session` false with its one ticket. A list that cannot be read leaves `items` empty and says
   why in `itemsError`, so an unreadable record is never shown as a worker with nothing on it.
+
+  `over` is $true where the stage is over - `landed`, `failed` or `reported` - read through
+  Crew.psm1's Test-CrewStageOver, which owns that list. Every other stage reads $false.
 #>
 [CmdletBinding()]
 param([string]$StatePath)
@@ -51,7 +54,7 @@ Import-Module "$PSScriptRoot\Herdr.psm1" -Force
 
 # Resolved in the body rather than as a parameter default: the root comes from Get-KingshandHome,
 # which is the one place that decision is made, and a param default cannot call it.
-if (-not $StatePath) { $StatePath = Join-Path (Get-KingshandHome) 'state\crew.json' }
+if (-not $StatePath) { $StatePath = Join-Path (Get-KingshandHome) 'state' 'crew.json' }
 
 $state = Import-CrewState -Path $StatePath
 
@@ -66,12 +69,13 @@ if ($state.workers.Count -gt 0) {
     # worker as dead because the tool is missing would be a confident lie. A herdr binary on a
     # different version from its running server throws for the same reason; Herdr.psm1 owns it.
     #
-    # Deliberately NOT wrapped in @(). Get-HerdrAgents returns via the leading-comma idiom, so the
-    # pipeline hands back the intact agents array as one object; @() would nest it a second time
-    # and every worker would then fail to match an agent that is right there.
+    # Assigned, never wrapped in @() - statute's collection-return rule. @() would nest the list a
+    # second time and every worker would then fail to match an agent that is right there.
     $agents = Get-HerdrAgents
 }
 
+# The rows come back as one list under statute's collection-return rule, so a caller assigns them.
+$rows = [System.Collections.Generic.List[object]]::new()
 foreach ($id in $state.workers.Keys) {
     $w = $state.workers[$id]
 
@@ -110,7 +114,7 @@ foreach ($id in $state.workers.Keys) {
     try { $items = @(foreach ($it in (Get-CrewItems -State $state -WorkerId $id)) { $it.id }) }
     catch { $itemsError = $_.Exception.Message }
 
-    [PSCustomObject]@{
+    $rows.Add([PSCustomObject]@{
         id          = $id
         ticket      = $w.ticket
         repo        = $w.repo
@@ -133,5 +137,10 @@ foreach ($id in $state.workers.Keys) {
         # Why the list could not be read, or the empty string. A list that cannot be read is said
         # to be unreadable rather than shown as empty, which would read as nothing on the branch.
         itemsError  = $itemsError
-    }
+        # Whether the stage is over - `landed`, `failed` or `reported`. Crew.psm1's
+        # Test-CrewStageOver owns the list; appended last so no existing field moves.
+        over        = (Test-CrewStageOver -Stage "$($w.stage)")
+    })
 }
+
+return , $rows

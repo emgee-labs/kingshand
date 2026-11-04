@@ -116,7 +116,8 @@ The family's file is listed in every member project's own index, because that is
 reader working on that project opens. Registration lists it only where it already exists: an entry
 pointing at nothing is `missing` drift, and the documented remedy for that count deletes the line
 before the file arrives. Where it does not exist yet, whoever writes it lists it for every project
-then in the family. `annex` Step 4c owns the obligation; decided by the King on 2026-10-30.
+then in the family. `annex` Step 4c owns the obligation [rule:annex/family-index]; decided by the
+King on 2026-10-30.
 The `family-` prefix makes the scan strictly safer than the `rules-*.md` glob it started as: that
 one had to consider every project's own rules file and rule it out, where this one cannot match a
 project's file at all.

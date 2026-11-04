@@ -1,8 +1,8 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  The once-per-session digest: this installation's version, toolchain problems, fleet state, what
-  a restart killed and has to be re-armed, the queue, whether the weekly dependency check is due on
+  The once-per-session digest: this installation's version, toolchain problems, fleet state and a
+  count of what earlier cleanups left behind, what a restart killed and has to be re-armed, the queue, whether the weekly dependency check is due on
   a maintainer's installation, whether a newer release exists, where the data index is and how far
   it has drifted, the King's own standing instructions, and the two curated memory files, rendered
   as one block a session can read and trust.
@@ -110,12 +110,12 @@ Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot 'Paths.psm1') -Force
 $script:Root = Get-KingshandHome
 if (-not $DataPath)         { $DataPath         = Join-Path $script:Root 'data' }
-if (-not $StatePath)        { $StatePath        = Join-Path $script:Root 'state\crew.json' }
-if (-not $RegistryPath)     { $RegistryPath     = Join-Path $script:Root 'data\projects.md' }
-if (-not $BudgetPath)       { $BudgetPath       = Join-Path $script:Root 'config\startup-memory-budget' }
+if (-not $StatePath)        { $StatePath        = Join-Path $script:Root 'state' 'crew.json' }
+if (-not $RegistryPath)     { $RegistryPath     = Join-Path $script:Root 'data' 'projects.md' }
+if (-not $BudgetPath)       { $BudgetPath       = Join-Path $script:Root 'config' 'startup-memory-budget' }
 if (-not $InstructionsPath) { $InstructionsPath = Join-Path $script:Root 'instructions.md' }
 if (-not $QueueRoot)        { $QueueRoot        = $script:Root }
-if (-not $MaintainerPath)   { $MaintainerPath   = Join-Path $script:Root 'config\maintainer' }
+if (-not $MaintainerPath)   { $MaintainerPath   = Join-Path $script:Root 'config' 'maintainer' }
 if (-not $ReleaseRepoPath)  { $ReleaseRepoPath  = $script:Root }
 
 # lavish-axi's own store, resolved exactly the way the tool resolves it: LAVISH_AXI_STATE_DIR when
@@ -132,8 +132,10 @@ if (-not $ReleaseRepoPath)  { $ReleaseRepoPath  = $script:Root }
 # answer this section must never give without having looked.
 if (-not $LavishStatePath) {
     $lavishStateDir = $env:LAVISH_AXI_STATE_DIR
-    if (-not $lavishStateDir -and $env:USERPROFILE) {
-        $lavishStateDir = Join-Path $env:USERPROFILE '.lavish-axi'
+    if (-not $lavishStateDir) {
+        $userHome = $null
+        try { $userHome = Get-UserHomePath } catch { $userHome = $null }
+        if ($userHome) { $lavishStateDir = Join-Path $userHome '.lavish-axi' }
     }
     if ($lavishStateDir) { $LavishStatePath = Join-Path $lavishStateDir 'state.json' }
 }
@@ -204,15 +206,7 @@ function Get-Field {
 # ways and still be the same directory. A path that will not normalise is not inside anything.
 function Test-PathUnder {
     param([string]$Path, [string]$Root)
-    try {
-        if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($Root)) { return $false }
-        $p = [System.IO.Path]::GetFullPath($Path)
-        $r = [System.IO.Path]::GetFullPath($Root).TrimEnd('\', '/') +
-             [System.IO.Path]::DirectorySeparatorChar
-        return $p.StartsWith($r, [System.StringComparison]::OrdinalIgnoreCase)
-    } catch {
-        return $false
-    }
+    Test-PathWithin -Path $Path -Root $Root -ExcludeRoot
 }
 
 # How many prompts are queued on one session - or -1 for a count that could not be read.
@@ -336,7 +330,7 @@ Add-Line ("=== KINGSHAND SESSION START - " + (Get-Date).ToUniversalTime().ToStri
 $configuredHome = $env:KINGSHAND_HOME
 $derivedHome    = Split-Path $PSScriptRoot -Parent
 if (-not [string]::IsNullOrWhiteSpace($configuredHome) -and
-    $configuredHome.TrimEnd('\', '/') -ne $derivedHome.TrimEnd('\', '/')) {
+    -not (Test-SamePath $configuredHome $derivedHome)) {
     Add-Line ''
     Add-Line 'HOME MISMATCH'
     Add-Line "  This copy lives at $derivedHome"
@@ -570,12 +564,15 @@ try {
     # A worker is live or waiting when herdr reads it live, or when its stage is not over - whatever
     # its liveness, so unknown is never read as dead: `dispatched` and `implementing` are recorded as
     # working, which a
-    # worker that is not live needs `rally` for, and `gating` and `ready` wait on the King. Only
-    # `landed` and `failed` are over. Live ones come first, then the ones recorded as working, then
-    # the ones waiting on approval, so the cap below cuts the least urgent.
+    # worker that is not live needs `rally` for, and `gating`, `ready` and `paused` wait on the King.
+    # Test-CrewStageOver in bin\Crew.psm1 owns which stages are over - `landed`, `failed` and
+    # `reported` - and the snapshot carries its answer on each worker as `over`. Live ones come
+    # first, then the ones recorded as working, then the ones waiting on approval, so the cap below
+    # cuts the least urgent. A worker with no `over` answer is not over, so it is listed rather than
+    # hidden.
     $workers  = @($snap.crew.workers)
     $isLive   = { param($w) $w.live -eq $true }
-    $isOver   = { param($w) "$($w.stage)" -in @('landed', 'failed') }
+    $isOver   = { param($w) (Get-Field $w 'over') -eq 'True' }
     $rank     = { param($w)
         if (& $isLive $w) { 0 } elseif ("$($w.stage)" -in @('dispatched', 'implementing')) { 1 } else { 2 } }
     $active   = @($workers | Where-Object { (& $isLive $_) -or -not (& $isOver $_) } |
@@ -654,10 +651,12 @@ try {
         Add-Line '  Workers: none recorded.'
     } else {
         $over = @($workers | Where-Object { -not (& $isLive $_) -and (& $isOver $_) })
-        $landed = @($over | Where-Object { "$($_.stage)" -eq 'landed' }).Count
-        $failed = $over.Count - $landed
+        $landed   = @($over | Where-Object { "$($_.stage)" -eq 'landed' }).Count
+        $reported = @($over | Where-Object { "$($_.stage)" -eq 'reported' }).Count
+        $failed   = $over.Count - $landed - $reported
         Add-Line ("  Workers: $($workers.Count) recorded - $($active.Count) live or not finished, " +
-                  "$landed landed and $failed failed, none of them read live. Get-CrewStatus lists them all.")
+                  "$landed landed, $reported reported and $failed failed, none of them read live. " +
+                  "Get-CrewStatus lists them all.")
         $script:ListCap = [Math]::Max($script:WorkerCap, @($active | Where-Object { & $isLive $_ }).Count)
         Add-BoundedList -Items @($active | ForEach-Object {
             $liveText = if ($null -eq $_.live) { 'liveness unknown' } elseif ($_.live) { 'live' } else { 'not live' }
@@ -703,6 +702,18 @@ try {
     Add-Line ("  FLEET: could not read the fleet - " + (Format-Fault $_.Exception.Message))
 }
 
+# What earlier cleanups left behind: dead panes, empty workspaces, leftover copies. One line, and
+# only when there is something to clear or a read failed - Teardown.psm1 owns what each count means
+# and why a failed read is printed as unreadable rather than as nothing left over.
+try {
+    Import-Module (Join-Path $PSScriptRoot 'Teardown.psm1') -Force -ErrorAction Stop
+    $leftovers = Get-WorkerLeftovers -RegistryPath $RegistryPath -StatePath $StatePath -DataPath $DataPath
+    $leftLine  = Format-WorkerLeftovers -Leftovers $leftovers
+    if ($leftLine) { Add-Line ("  " + (Format-Fault $leftLine)) }
+} catch {
+    Add-Line ("  LEFTOVERS: could not be counted - " + (Format-Fault $_.Exception.Message))
+}
+
 # --------------------------------------------------------------------------------
 # 2b. Re-arm - the background jobs the last session took with it.
 #
@@ -734,8 +745,9 @@ Add-Line '  Pulse: arm it once, as a harness-tracked background job:'
 # this whole section exists against: the command errors at session open, the pulse is never armed,
 # and the silence that follows is indistinguishable from a changed-only pulse with nothing to say.
 # A quote inside the path is doubled for the same reason - it is the only other character that
-# could end the string early.
-Add-Line ("      Import-Module '" + (Join-Path $script:Root 'bin\Usage.psm1').Replace("'", "''") + "'")
+# could end the string early. One segment per Join-Path argument, so the path carries this system's
+# own separator: a backslash in it is a literal file name character on macOS and Linux.
+Add-Line ("      Import-Module '" + (Join-Path $script:Root 'bin' 'Usage.psm1').Replace("'", "''") + "'")
 Add-Line '      Watch-UsagePulse'
 Add-Line '    It runs until the session ends rather than for a set number of ticks, and it speaks'
 Add-Line '    only when something has changed - so say in one line that it is on, because a quiet'

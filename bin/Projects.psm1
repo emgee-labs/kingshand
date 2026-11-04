@@ -12,7 +12,7 @@ Set-StrictMode -Version Latest
 #
 # `+merge` is the per-repository permission to merge that project's own green pull requests on the
 # forge, reported as the string 'on' or 'off' on the entry's `merge` key. It is NOT a mode and not
-# a fourth posture: the mode decides how work ships, `yolo` decides whether the Hand asks first,
+# a posture of its own: the mode decides how work ships, `yolo` decides whether the Hand asks first,
 # and this decides one thing only. `muster` Step 7 owns what it permits; this module only reports
 # what was declared.
 #
@@ -56,7 +56,14 @@ Set-StrictMode -Version Latest
 # All strictness lives in Get-ProjectEntry. Get-ProjectPosture inherits it by calling through.
 # Get-AllProjects is the sole lenient function: it is a listing and validates nothing.
 
-$script:ValidModes = @('no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only')
+# `review-only` is the one posture that delivers nothing: its work is reviewed and reported, and
+# nothing is committed to land, pushed, or raised anywhere. `annex` owns what each mode means and
+# `muster` owns how each one routes; this module only accepts the names.
+$script:ValidModes = @('no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-prod-only', 'review-only')
+
+# The modes that must be able to push. local-only and review-only are deliberately absent: neither
+# ever pushes, so neither needs an origin remote, and neither has a pull request to merge.
+$script:PushCapableModes = @('no-mistakes', 'direct-PR', 'no-mistakes-prod-only')
 
 # For the shape of a name that becomes a file name - a project name, and the family name after
 # `+family:`. The index owns that rule because a project name becomes a file name there, and this
@@ -69,8 +76,16 @@ $script:ValidModes = @('no-mistakes', 'direct-PR', 'local-only', 'no-mistakes-pr
 # the `statute` skill's style rules; tests\Projects.Tests.ps1 pins this edge.
 Import-Module (Join-Path $PSScriptRoot 'Index.psm1')
 
+# Every mode the registry accepts, as one list in the order the error messages list them. A copy,
+# so a caller cannot change what this module accepts by editing what it was handed.
+function Get-ProjectModes {
+    [CmdletBinding()]
+    param()
+    return , [System.Collections.Generic.List[object]]::new([object[]]$script:ValidModes)
+}
+
 function Get-DefaultRegistryPath {
-    Join-Path (Split-Path $PSScriptRoot -Parent) 'data\projects.md'
+    Join-Path (Split-Path $PSScriptRoot -Parent) 'data' 'projects.md'
 }
 
 # Parses the file into entries. Never touches the filesystem beyond reading the registry.
@@ -83,7 +98,7 @@ function Read-Registry {
     }
 
     $lines = @(Get-Content -Path $RegistryPath)
-    $entries = [System.Collections.Generic.List[hashtable]]::new()
+    $entries = [System.Collections.Generic.List[object]]::new()
 
     for ($i = 0; $i -lt $lines.Count; $i++) {
         $m = [regex]::Match($lines[$i], '^-\s+(?<name>\S+)(?:\s+\[(?<ann>[^\]]*)\])?\s+-\s+(?<desc>.*)$')
@@ -230,15 +245,14 @@ function Read-Registry {
         })
     }
 
-    , $entries.ToArray()
+    return , $entries
 }
 
 function Get-AllProjects {
     [CmdletBinding()]
     param([string]$RegistryPath = (Get-DefaultRegistryPath))
-    # Read-Registry already returns via the leading-comma idiom, so its output is a single
-    # pipeline object holding the intact array. Re-wrapping with `, @(...)` here would nest it
-    # a second time and corrupt .Count for callers - pass it through unchanged instead.
+    # Passed through whole: Read-Registry's list is already one object, under statute's
+    # collection-return rule, and re-wrapping it here would nest it a second time.
     Read-Registry -RegistryPath $RegistryPath
 }
 
@@ -249,9 +263,7 @@ function Get-ProjectEntry {
         [string]$RegistryPath = (Get-DefaultRegistryPath)
     )
 
-    # Read-Registry returns via the leading-comma idiom - the whole array as one pipeline
-    # object. Wrapping it in @(...) here would only re-confirm it is a single-element array
-    # whose one element is that array, so a plain loop is used instead of a pipeline filter.
+    # Assigned, then looped - statute's collection-return rule.
     $allEntries = Read-Registry -RegistryPath $RegistryPath
     $entry = $null
     foreach ($candidate in $allEntries) {
@@ -318,16 +330,17 @@ function Add-ProjectEntry {
     }
 
     # Refused at the one place the token is written, rather than left inert in the brackets. A
-    # local-only entry never reaches Step 8a, so `[local-only +merge]` grants nothing today - but a
-    # posture is raised by hand-editing that same annotation, and the moment the mode becomes
-    # push-capable a permission nobody re-considered is live forge merge authority.
-    if ($Merge -and $Mode -eq 'local-only') {
-        throw ("Cannot register '$Name' as local-only with -Merge: a local-only project never " +
+    # local-only or review-only entry never reaches Step 8a, so `[local-only +merge]` grants nothing
+    # today - but a posture is raised by hand-editing that same annotation, and the moment the mode
+    # becomes push-capable a permission nobody re-considered is live forge merge authority.
+    $pushCapable = $script:PushCapableModes -contains $Mode
+    if ($Merge -and -not $pushCapable) {
+        throw ("Cannot register '$Name' as $Mode with -Merge: a $Mode project never " +
                'pushes, so it has no forge and no pull request to merge. Register it with a ' +
                'push-capable mode, or register it without -Merge.')
     }
-    if ($WatchMerge -and $Mode -eq 'local-only') {
-        throw ("Cannot register '$Name' as local-only with -WatchMerge: a local-only project never " +
+    if ($WatchMerge -and -not $pushCapable) {
+        throw ("Cannot register '$Name' as $Mode with -WatchMerge: a $Mode project never " +
                'pushes, so it has no pull request for night''s watch to merge. Register it with a ' +
                'push-capable mode, or register it without -WatchMerge.')
     }
@@ -355,8 +368,7 @@ function Add-ProjectEntry {
     }
 
     if (Test-Path $RegistryPath) {
-        # Read-Registry returns via the leading-comma idiom - the whole array as one pipeline
-        # object. A plain loop is used instead of a pipeline filter, matching Get-ProjectEntry.
+        # Assigned, then looped - statute's collection-return rule.
         $existing = Read-Registry -RegistryPath $RegistryPath
         $norm = Get-NormalisedPath $Path
         foreach ($candidate in $existing) {
@@ -444,9 +456,7 @@ function Test-ProjectImportable {
         $originCode = $LASTEXITCODE
         $result.hasOrigin = ($originCode -eq 0)
 
-        # The subset of valid modes that must be able to push. local-only is deliberately absent.
-        $pushCapable = @('no-mistakes', 'direct-PR', 'no-mistakes-prod-only')
-        if (($pushCapable -contains $Mode) -and -not $result.hasOrigin) {
+        if (($script:PushCapableModes -contains $Mode) -and -not $result.hasOrigin) {
             $result.reason = "$Mode requires an origin remote and this repository has none."
             return $result
         }
@@ -460,5 +470,104 @@ function Test-ProjectImportable {
     }
 }
 
+# The files a repository documents its own conventions in, for `annex` to offer as the source of a
+# seed for data\done-<name>.md. A CLOSED list of names, matched by git as pathspecs against tracked
+# files, so nothing here reads, scans or interprets what any file says - the Hand quotes the files
+# for the King and he decides every line. Only tracked files count: an untracked file is nobody's
+# convention yet. Lint and format configuration is looked for at the root only, because a deeper
+# match is as likely a vendored package's own config as the project's.
+$script:ConventionPathspecs = [ordered]@{
+    'contributing' = @(':(glob,icase)CONTRIBUTING*', ':(glob,icase).github/CONTRIBUTING*',
+                       ':(glob,icase)docs/CONTRIBUTING*')
+    'codeowners'   = @(':(glob)CODEOWNERS', ':(glob).github/CODEOWNERS', ':(glob)docs/CODEOWNERS')
+    'instructions' = @(':(glob)**/AGENTS.md', ':(glob)**/CLAUDE.md')
+    'conventions'  = @(':(glob,icase)docs/**/*convention*', ':(glob,icase)**/STYLEGUIDE*',
+                       ':(glob,icase)**/*style-guide*')
+    'lint-format'  = @(':(glob).editorconfig', ':(glob).eslintrc*', ':(glob)eslint.config.*',
+                       ':(glob).prettierrc*', ':(glob)prettier.config.*', ':(glob).stylelintrc*',
+                       ':(glob).markdownlint*', ':(glob)ruff.toml', ':(glob).rubocop.yml',
+                       ':(glob).golangci.*', ':(glob)rustfmt.toml', ':(glob).clang-format',
+                       ':(glob)PSScriptAnalyzerSettings.psd1')
+}
+
+# Lists the tracked convention files in one repository, as one list of objects with `kind` (a key
+# of the list above) and `path` (repository-relative, forward slashes), sorted by kind then path.
+# An empty list means the repository documents none of them.
+# A repository that cannot be listed THROWS, naming why, because an empty list there would read as
+# "documents nothing" when the truth is "could not tell".
+function Find-ProjectConventionFiles {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        throw "Cannot list convention files: the path does not exist: $Path"
+    }
+
+    $found = [System.Collections.Generic.List[object]]::new()
+    $seen  = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    # git writes paths as UTF-8 whatever the console is set to, so this read decodes as UTF-8 and
+    # then puts the console back; a code page console would otherwise garble a non-ASCII path.
+    $previous = [Console]::OutputEncoding
+    try {
+        [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+        foreach ($kind in $script:ConventionPathspecs.Keys) {
+            # -z, so a path holding a space or a non-ASCII character arrives unquoted rather than in
+            # git's quoted form.
+            $raw  = & git -C $Path ls-files -z -- @($script:ConventionPathspecs[$kind]) 2>$null
+            $code = $LASTEXITCODE
+            if ($code -ne 0) {
+                throw "Cannot list convention files: git ls-files exited $code in $Path - is it a git repository?"
+            }
+            $paths = @("$raw" -split "`0" | Where-Object { $_ } | Sort-Object)
+            foreach ($p in $paths) {
+                # One file is listed once, under the first kind that named it.
+                if ($seen.Add($p)) { $found.Add([pscustomobject]@{ kind = $kind; path = $p }) }
+            }
+        }
+    } finally {
+        [Console]::OutputEncoding = $previous
+        $global:LASTEXITCODE = 0
+    }
+
+    return , $found
+}
+
+# Writes the seed of one project's standing criteria, data\done-<Name>.md, and indexes it, in one
+# call. The content is what the King approved, one line per criterion, written one per line -
+# nothing here composes or checks it. `muster` owns the file's form and grows it from then on.
+#
+# THE ONE CONSTRAINT ON THE PATH: it is always data\done-<Name>.md, and that file must not already
+# exist. A seed is only ever the first content of the file; once one exists, muster's close-out owns
+# every later line, so a seed written over it would silently delete criteria earned from findings.
+# The name is held to the index's file-name rule by Write-DataFile before anything is written.
+function New-ProjectCriteriaSeed {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][AllowEmptyString()][AllowEmptyCollection()][string[]]$Content,
+        # The registry's own directory, which is where annex's call writes - it passes no -DataPath.
+        [string]$DataPath = (Split-Path -Parent (Get-DefaultRegistryPath))
+    )
+
+    $text = ($Content -join "`n").Trim()
+    if (-not $text) {
+        throw ("Nothing approved for $Name, so no criteria file was written. A declined seed " +
+               'writes nothing - absence is the ordinary state.')
+    }
+    if (-not (Test-IndexProjectName -Project $Name)) {
+        throw ("Project name '$Name' cannot name a criteria file: it allows only " +
+               "$(Get-IndexProjectNameRule).")
+    }
+    $target = Join-Path $DataPath "done-$Name.md"
+    if (Test-Path -LiteralPath $target) {
+        throw ("$target already exists, so no seed was written. A seed is only ever a project's " +
+               'first criteria; an existing file is grown by muster, never replaced.')
+    }
+
+    Write-DataFile -Project $Name -Path $target -Content $text -DataPath $DataPath `
+        -Summary "standing criteria for ${Name}: seeded at import from its own convention files"
+}
+
 Export-ModuleMember -Function Get-ProjectEntry, Get-ProjectPosture, Get-AllProjects,
-                              Get-DefaultRegistryPath, Add-ProjectEntry, Test-ProjectImportable
+                              Get-DefaultRegistryPath, Add-ProjectEntry, Test-ProjectImportable,
+                              Get-ProjectModes, Find-ProjectConventionFiles, New-ProjectCriteriaSeed

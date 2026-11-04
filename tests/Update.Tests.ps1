@@ -13,19 +13,18 @@ Set-StrictMode -Version Latest
 # than no guard at all.
 #
 # Liveness is mocked at herdr's own boundary - Invoke-Herdr, the one place that knows its command
-# line - so the real Get-HerdrAgentInventory and the real guard run, with no herdr server, no pane
-# and no worker anywhere. Mocking the guard's own reader instead would prove nothing about the guard.
+# line - so the real Get-HerdrLiveness, the real Get-HerdrAgentInventory and the real guard run,
+# with no herdr server, no pane and no worker anywhere. Mocking the guard's own reader instead
+# would prove nothing about the guard.
 #
-# The two reads the guard makes BEFORE that boundary - is herdr installed, is its server up - run
-# the binary rather than going through Invoke-Herdr, so they are mocked too, and every case that
-# reaches the guard says herdr is installed and its server running unless it is the case about one
-# of those. Without that this suite would pass only on a machine that happens to have herdr
+# The two reads Get-HerdrLiveness makes BEFORE that boundary - is herdr installed, is its server up
+# - run the binary rather than going through Invoke-Herdr, so they are mocked too, and every case
+# that reaches the guard says herdr is installed and its server running unless it is the case about
+# one of those. Without that this suite would pass only on a machine that happens to have herdr
 # installed with its server up, which is exactly the coupling the rest of it avoids.
 #
-# Each of those two is mocked in Update rather than in Herdr, because that is where the call
-# resolves: Get-LiveWorkerNames calls them directly, and Pester replaces a function in the scope
-# doing the calling. Invoke-Herdr is the other way round - Get-HerdrAgentInventory calls it from
-# inside Herdr - so that one is mocked there, which is what lets the real inventory reader run.
+# All three are mocked in Herdr, because that is where the calls resolve: Get-HerdrLiveness makes
+# them from inside Herdr, and Pester replaces a function in the scope doing the calling.
 #
 # The server read is Get-HerdrServerState, not the boolean beside it: a status call that failed and
 # a server that is genuinely down are different answers here, and tests\Herdr.Tests.ps1 is where
@@ -178,13 +177,13 @@ Describe 'liveness comes from herdr, and unknown is not none' {
     # agent list that failed - is not knowing, and an update that proceeds on not knowing is the
     # failure this guard exists to prevent.
     BeforeEach {
-        Mock -ModuleName Update Get-HerdrCommandPath { $script:StubHerdrPath }
-        Mock -ModuleName Update Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = '' } }
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $script:StubHerdrPath }
+        Mock -ModuleName Herdr Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = '' } }
     }
 
     It 'reports no workers when herdr knows of none' {
         Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } }
-        @(Get-LiveWorkerNames).Count | Should -Be 0
+        (Get-LiveWorkerNames).Count | Should -Be 0
     }
 
     It 'names every worker herdr knows about' {
@@ -194,26 +193,26 @@ Describe 'liveness comes from herdr, and unknown is not none' {
                 [pscustomobject]@{ name = 't-9002'; state = 'idle' }
             ) }
         }
-        @(Get-LiveWorkerNames) | Should -Be @('t-9001', 't-9002')
+        (Get-LiveWorkerNames) | Should -Be @('t-9001', 't-9002')
     }
 
     It 'throws rather than reporting none when herdr is not installed at all' {
-        Mock -ModuleName Update Get-HerdrCommandPath { $null }
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $null }
         { Get-LiveWorkerNames } | Should -Throw -ExpectedMessage '*herdr was not found*'
     }
 
     It 'reports no workers when herdr is installed but its server is not running' {
-        Mock -ModuleName Update Get-HerdrServerState {
+        Mock -ModuleName Herdr Get-HerdrServerState {
             [pscustomobject]@{ state = 'stopped'; detail = 'not running' }
         }
         Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached with the server down' }
 
-        @(Get-LiveWorkerNames).Count |
+        (Get-LiveWorkerNames).Count |
             Should -Be 0 -Because 'a pane dies with its server, so a server that is down holds no worker'
     }
 
     It 'throws rather than reporting none when the server state itself could not be read' {
-        Mock -ModuleName Update Get-HerdrServerState {
+        Mock -ModuleName Herdr Get-HerdrServerState {
             [pscustomobject]@{ state = 'unknown'; detail = 'herdr status exited 1 - could not reach the server' }
         }
         Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached on an unknown server state' }
@@ -236,6 +235,29 @@ Describe 'liveness comes from herdr, and unknown is not none' {
         Mock -ModuleName Herdr Invoke-Herdr { $null }
         { Get-LiveWorkerNames } | Should -Throw -ExpectedMessage '*nothing that could be read*'
     }
+
+    It 'throws rather than reporting none when the binary and its server are different versions' {
+        Mock -ModuleName Herdr Invoke-Herdr { throw 'herdr protocol_mismatch: from the fake' }
+        { Get-LiveWorkerNames } | Should -Throw -ExpectedMessage '*protocol_mismatch*'
+    }
+
+    # Statute's collection-return rule: the list itself on assignment, at every size.
+    It 'returns <n> worker names as a list on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        $script:ListedAgents = @(1..3 | Select-Object -First $n |
+            ForEach-Object { [pscustomobject]@{ name = "t-900$_"; state = 'working' } })
+        Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = $script:ListedAgents } }
+
+        $names = Get-LiveWorkerNames
+        $names -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $names.Count | Should -Be $n
+    }
+
+    It 'counts a worker herdr lists with no name, rather than dropping it' {
+        Mock -ModuleName Herdr Invoke-Herdr {
+            [pscustomobject]@{ agents = @([pscustomobject]@{ pane_id = 'p4'; state = 'working' }) }
+        }
+        (Get-LiveWorkerNames) | Should -Be @('an unnamed worker in pane p4')
+    }
 }
 
 Describe 'the latest release is the highest version tag, and only a release tag counts' {
@@ -246,6 +268,19 @@ Describe 'the latest release is the highest version tag, and only a release tag 
     It 'sorts by version rather than by string, so v0.10.0 beats v0.9.0' {
         $repo = New-TagRepo -Name 'tagorder' -Tags @('v0.9.0', 'v0.10.0')
         Get-LatestReleaseTag -RepoPath $repo | Should -Be 'v0.10.0'
+    }
+
+    # On macOS and Linux PowerShell expands a wildcard in an unquoted native argument against the
+    # working directory, so a `v*` pattern run from a folder holding a file named v-something reached
+    # git as that file name and every tag was missed. Run from exactly such a folder.
+    It 'finds the tags from a folder holding a file whose name matches the tag pattern' {
+        $repo = New-TagRepo -Name 'tagglob' -Tags @('v0.9.0', 'v0.10.0')
+        $cwd = Join-Path $TestDrive 'glob-cwd'
+        New-Item -ItemType Directory -Force -Path $cwd | Out-Null
+        Set-Content -LiteralPath (Join-Path $cwd 'vendor.txt') -Value 'x'
+        Push-Location -LiteralPath $cwd
+        try { Get-LatestReleaseTag -RepoPath $repo | Should -Be 'v0.10.0' }
+        finally { Pop-Location }
     }
 
     It 'ignores a tag that is not a release' {
@@ -302,18 +337,27 @@ Describe 'what changed is the commit subjects, with no parsing of anything' {
     }
 
     It 'returns one subject per commit between the two releases' {
-        $changes = @(Get-ReleaseChanges -RepoPath $script:LogRepo -From 'v0.1.0' -To 'v0.2.0')
+        $changes = Get-ReleaseChanges -RepoPath $script:LogRepo -From 'v0.1.0' -To 'v0.2.0'
         $changes | Should -Contain 'Teach the drawer to close'
         $changes | Should -Contain 'Refresh the badge'
     }
 
     It 'leaves out the merge commit, which names a branch rather than a change' {
-        @(Get-ReleaseChanges -RepoPath $script:LogRepo -From 'v0.1.0' -To 'v0.2.0') |
+        (Get-ReleaseChanges -RepoPath $script:LogRepo -From 'v0.1.0' -To 'v0.2.0') |
             Should -Not -Contain 'Merge pull request #1 from side'
     }
 
+    # Statute's collection-return rule: the list itself on assignment, at every size.
+    It 'returns <n> subjects as a list on assignment' -TestCases @(
+        @{ n = 0; from = 'v0.2.0' }, @{ n = 1; from = 'v0.2.0~1' }, @{ n = 2; from = 'v0.1.0' }
+    ) {
+        $changes = Get-ReleaseChanges -RepoPath $script:LogRepo -From $from -To 'v0.2.0'
+        $changes -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $changes.Count | Should -Be $n
+    }
+
     It 'is empty between a release and itself' {
-        @(Get-ReleaseChanges -RepoPath $script:LogRepo -From 'v0.2.0' -To 'v0.2.0').Count | Should -Be 0
+        (Get-ReleaseChanges -RepoPath $script:LogRepo -From 'v0.2.0' -To 'v0.2.0').Count | Should -Be 0
     }
 }
 
@@ -350,8 +394,8 @@ Describe 'a session is told to re-read only what an update actually moved' {
 
 Describe 'an update that can happen moves the installation and reports the move' {
     BeforeEach {
-        Mock -ModuleName Update Get-HerdrCommandPath { $script:StubHerdrPath }
-        Mock -ModuleName Update Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = '' } }
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $script:StubHerdrPath }
+        Mock -ModuleName Herdr Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = '' } }
         Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } }
     }
 
@@ -439,8 +483,8 @@ Describe 'an update that can happen moves the installation and reports the move'
 
 Describe 'every refusal names itself and leaves the installation exactly as it was' {
     BeforeEach {
-        Mock -ModuleName Update Get-HerdrCommandPath { $script:StubHerdrPath }
-        Mock -ModuleName Update Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = '' } }
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $script:StubHerdrPath }
+        Mock -ModuleName Herdr Get-HerdrServerState { [pscustomobject]@{ state = 'running'; detail = '' } }
         Mock -ModuleName Herdr Invoke-Herdr { [pscustomobject]@{ agents = @() } }
     }
 
@@ -477,7 +521,7 @@ Describe 'every refusal names itself and leaves the installation exactly as it w
     }
 
     It 'refuses when there is no herdr to ask whether a worker is live' {
-        Mock -ModuleName Update Get-HerdrCommandPath { $null }
+        Mock -ModuleName Herdr Get-HerdrCommandPath { $null }
         $f = New-Installation -Name 'noherdratall'
         Publish-Release -Fixture $f -Version '0.2.0' -Subjects @('Change a thing')
 
@@ -509,7 +553,7 @@ Describe 'every refusal names itself and leaves the installation exactly as it w
     }
 
     It 'updates when herdr is installed but its server is down, which really is no workers' {
-        Mock -ModuleName Update Get-HerdrServerState {
+        Mock -ModuleName Herdr Get-HerdrServerState {
             [pscustomobject]@{ state = 'stopped'; detail = 'not running' }
         }
         Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached with the server down' }
@@ -523,7 +567,7 @@ Describe 'every refusal names itself and leaves the installation exactly as it w
     }
 
     It 'refuses when whether herdr''s server is up could not be read' {
-        Mock -ModuleName Update Get-HerdrServerState {
+        Mock -ModuleName Herdr Get-HerdrServerState {
             [pscustomobject]@{ state = 'unknown'; detail = 'herdr status exited 1 - could not reach the server' }
         }
         Mock -ModuleName Herdr Invoke-Herdr { throw 'agent list must not be reached on an unknown server state' }
@@ -678,10 +722,21 @@ Describe 'every refusal names itself and leaves the installation exactly as it w
 Describe 'the guard readers answer for themselves' {
     It 'reports a clean tree as clean and a dirty one by path' {
         $f = New-Installation -Name 'readers'
-        @(Get-DirtyPaths -RepoPath $f.Path).Count | Should -Be 0
+        (Get-DirtyPaths -RepoPath $f.Path).Count | Should -Be 0
 
         Add-Content -LiteralPath (Join-Path $f.Path 'README.md') -Value 'edit'
-        @(Get-DirtyPaths -RepoPath $f.Path) | Should -Contain 'README.md'
+        (Get-DirtyPaths -RepoPath $f.Path) | Should -Contain 'README.md'
+    }
+
+    # Statute's collection-return rule: the list itself on assignment, at every size.
+    It 'returns <n> dirty paths as a list on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        $f = New-Installation -Name "dirty-$n"
+        foreach ($name in @('a.txt', 'b.txt', 'c.txt') | Select-Object -First $n) {
+            Set-Content -LiteralPath (Join-Path $f.Path $name) -Value 'new'
+        }
+        $dirty = Get-DirtyPaths -RepoPath $f.Path
+        $dirty -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $dirty.Count | Should -Be $n
     }
 
     It 'reports the checked-out branch, and an empty string on a detached HEAD' {
@@ -813,10 +868,11 @@ Describe 'every installation hears of a newer release, at most once a day' {
         $f = New-Installation -Name 'notice-shim' -TagSeed
         $shims = Join-Path $TestDrive 'notice-shims'
         New-Item -ItemType Directory -Force -Path $shims | Out-Null
-        $garbled = Join-Path $shims 'garbled.cmd'
-        Set-Content -LiteralPath $garbled -Encoding ascii -Value @('@echo off', 'echo this is not a tag line')
-        $slow = Join-Path $shims 'slow.cmd'
-        Set-Content -LiteralPath $slow -Encoding ascii -Value @('@echo off', 'ping -n 30 127.0.0.1 >nul')
+        Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
+        $garbled = New-TestExecutable -Path (Join-Path $shims 'garbled') `
+            -Cmd @('echo this is not a tag line') -Sh @('echo this is not a tag line')
+        $slow = New-TestExecutable -Path (Join-Path $shims 'slow') `
+            -Cmd @('ping -n 30 127.0.0.1 >nul') -Sh @('sleep 30')
 
         Mock -ModuleName Update Get-Command { [pscustomobject]@{ Source = $garbled } } -ParameterFilter { $Name -eq 'git' }
         { Get-RemoteReleaseTag -RepoPath $f.Path } | Should -Throw -ExpectedMessage '*a line that is not a tag*'

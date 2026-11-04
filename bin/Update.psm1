@@ -74,44 +74,24 @@ function Get-ReleaseBranchName {
 # guard that must not update `bin\` and the skills underneath a working worker needs the second
 # one. A worker recorded as torn down but still alive is exactly the case this catches.
 #
-# ONLY ONE STATE MEANS "NOBODY IS WORKING", AND EVERY OTHER FAILURE THROWS:
-#
-#   no herdr at all       - liveness is UNKNOWN. Throws, so the update refuses. An installation
-#                           with no herdr may still have been dispatching from a herdr that was
-#                           uninstalled or moved out from under it, and this cannot tell.
-#   server state unknown  - the status read failed. Throws. This is the one that looks safe and
-#                           is not: a herdr upgrade that changes the reply, a non-zero exit or a
-#                           transient error all arrive here, and every one of them would read as
-#                           an empty fleet if it were allowed to fall through.
-#   server stopped        - no live workers, as a FACT rather than a guess. A herdr pane dies with
-#                           its server, so a server that is not running has no worker in it;
-#                           `bin\Get-CrewStatus.ps1` states the same thing.
-#   server running        - ask, and throw if the answer could not be read.
-#
-# So both reads go through the three-answer reader rather than the two-answer one.
-# `Get-HerdrServerState` distinguishes a stopped server from a status read that failed, where
-# `Test-HerdrServer` cannot; `Get-HerdrAgentInventory` keeps herdr's own error where
-# `Get-HerdrAgents` deliberately answers an unreachable herdr with an empty list. Either boolean
-# would read as "nobody is working" and let the update fast-forward `bin\` and the skills out from
-# under a live worker. `bin\Herdr.psm1` owns the command line for all of them.
+# Read through Get-HerdrLiveness, whose header owns which answers mean none: unknown throws its
+# evidence, so the update refuses rather than reading "could not tell" as an empty fleet. An agent
+# herdr lists with no name is still a live worker and is counted by its pane.
 function Get-LiveWorkerNames {
     [CmdletBinding()]
     param()
 
-    if (-not (Get-HerdrCommandPath)) { throw (Get-HerdrCommandHint) }
+    $liveness = Get-HerdrLiveness
+    if ($liveness.state -eq 'unknown') { throw $liveness.evidence }
 
-    $server = Get-HerdrServerState
-    if ($server.state -eq 'unknown') {
-        throw "whether herdr's server is running could not be read - $($server.detail)"
+    $out = [System.Collections.Generic.List[object]]::new()
+    foreach ($w in @($liveness.workers)) {
+        $name = if ($w.PSObject.Properties.Name -contains 'name') { "$($w.name)" } else { '' }
+        if ($name) { $out.Add($name); continue }
+        $pane = if ($w.PSObject.Properties.Name -contains 'pane_id') { "$($w.pane_id)" } else { '' }
+        $out.Add("an unnamed worker$(if ($pane) { " in pane $pane" })")
     }
-    if ($server.state -eq 'stopped') { return @() }
-
-    $inventory = Get-HerdrAgentInventory
-    if (-not $inventory.ok) { throw $inventory.error }
-
-    @($inventory.agents |
-      Where-Object { $_ -and $_.PSObject.Properties.Name -contains 'name' -and $_.name } |
-      ForEach-Object { "$($_.name)" })
+    return , $out
 }
 
 # The tracked paths git reports as modified, staged, deleted or untracked. Empty means clean.
@@ -126,8 +106,12 @@ function Get-DirtyPaths {
     $global:LASTEXITCODE = 0
     if ($code -ne 0) { throw "git could not read the state of $RepoPath - $(($out | Out-String).Trim())" }
 
-    @($out | ForEach-Object { "$_".Trim() } | Where-Object { $_ } |
-      ForEach-Object { ($_ -split '\s+', 2)[-1] })
+    $paths = [System.Collections.Generic.List[object]]::new()
+    foreach ($line in $out) {
+        $t = "$line".Trim()
+        if ($t) { $paths.Add(($t -split '\s+', 2)[-1]) }
+    }
+    return , $paths
 }
 
 # The checked-out branch, an empty string on a detached HEAD, or a throw when git could not answer.
@@ -167,8 +151,10 @@ function Get-LatestReleaseTag {
     $PSNativeCommandUseErrorActionPreference = $false
 
     # -v:refname is git's own version ordering, so v0.10.0 sorts above v0.9.0 where a plain string
-    # sort puts it below.
-    $out = @(& git -C $RepoPath tag --list $script:ReleaseTagGlob --sort=-v:refname 2>&1)
+    # sort puts it below. The pattern is QUOTED on purpose: on macOS and Linux PowerShell expands a
+    # wildcard in an unquoted argument to a native program against the current directory, so a bare
+    # `v*` reached git as whatever files there start with v, and every tag was missed.
+    $out = @(& git -C $RepoPath tag --list "$($script:ReleaseTagGlob)" --sort=-v:refname 2>&1)
     $code = $LASTEXITCODE
     $global:LASTEXITCODE = 0
     if ($code -ne 0) { throw "git could not list the tags in $RepoPath - $(($out | Out-String).Trim())" }
@@ -237,7 +223,9 @@ function Get-ReleaseChanges {
         throw "git could not list the commits between $From and $To - $(($out | Out-String).Trim())"
     }
 
-    @($out | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+    $subjects = [System.Collections.Generic.List[object]]::new()
+    foreach ($line in $out) { $t = "$line".Trim(); if ($t) { $subjects.Add($t) } }
+    return , $subjects
 }
 
 # Must a live session read its instructions again? `CLAUDE.md`, `bin\` and `.claude\skills\` are
@@ -346,7 +334,7 @@ function Invoke-KingshandUpdate {
     # Guard 1 - a dirty tree. Someone's unsaved work, and a fast-forward over it would either
     # refuse halfway or carry it into a release it does not belong to.
     try {
-        $dirty = @(Get-DirtyPaths -RepoPath $Root)
+        $dirty = Get-DirtyPaths -RepoPath $Root
     } catch {
         return & $refuse $_.Exception.Message
     }
@@ -364,7 +352,7 @@ function Invoke-KingshandUpdate {
     # Guard 2 - a live worker. Moving bin\ and the skills under a worker mid-task breaks it, and
     # liveness is herdr's answer rather than crew.json's.
     try {
-        $live = @(Get-LiveWorkerNames)
+        $live = Get-LiveWorkerNames
     } catch {
         return & $refuse ('Whether any worker is live could not be established, so nothing was ' +
                           "updated - $($_.Exception.Message)")
@@ -451,7 +439,8 @@ function Invoke-KingshandUpdate {
     }
 
     try {
-        $result.changes = @(Get-ReleaseChanges -RepoPath $Root -From $result.fromCommit -To $target)
+        $changes = Get-ReleaseChanges -RepoPath $Root -From $result.fromCommit -To $target
+        $result.changes = $changes.ToArray()
     } catch {
         return & $refuse $_.Exception.Message
     }

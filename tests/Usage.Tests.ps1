@@ -1102,17 +1102,25 @@ Describe 'the cadence is the King''s, and decided in one place' {
 Describe 'the probe boundary itself, against a stand-in for Claude Code' {
     BeforeAll {
         $script:StandInDir = New-TempFixtureDir -Prefix 'usage-probe-standin-'
-        $script:StandIn    = Join-Path $script:StandInDir 'claude-standin.cmd'
         $script:ArgsFile   = Join-Path $script:StandInDir 'args.txt'
         $script:CwdFile    = Join-Path $script:StandInDir 'cwd.txt'
         $script:Reply      = Join-Path $script:StandInDir 'reply.txt'
-        Set-Content -LiteralPath $script:StandIn -Encoding ascii -Value @(
-            '@echo off',
+        Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
+        $script:StandIn = New-TestExecutable -Path (Join-Path $script:StandInDir 'claude-standin') -Cmd @(
             'echo %*>"%KH_TEST_PROBE_ARGS%"',
             'cd>"%KH_TEST_PROBE_CWD%"',
             'if exist "%KH_TEST_PROBE_DIR%\slow" ping -n 30 127.0.0.1 >nul',
             'type "%KH_TEST_PROBE_DIR%\reply.txt"',
             'exit /b 0'
+        ) -Sh @(
+            # An empty argument is written as "", the way a Windows command line shows it, so the
+            # same assertion reads both - and here it proves the empty value arrived as its own.
+            'out=""',
+            'for a in "$@"; do if [ -z "$a" ]; then out="$out \"\""; else out="$out $a"; fi; done',
+            'echo "$out" > "$KH_TEST_PROBE_ARGS"',
+            'pwd > "$KH_TEST_PROBE_CWD"',
+            'if [ -f "$KH_TEST_PROBE_DIR/slow" ]; then sleep 30; fi',
+            'cat "$KH_TEST_PROBE_DIR/reply.txt"'
         )
         (New-ProbeOutput -FiveHour 0.07) | Set-Content -LiteralPath $script:Reply -Encoding utf8
         $script:Saved = @{ cmd = $env:KINGSHAND_USAGE_PROBE_COMMAND }
@@ -1180,6 +1188,36 @@ Describe 'A number that is not one is no number, and never a percentage' {
                          'NaN', 'Infinity')) {
             ConvertTo-UsageNumber $v | Should -BeNullOrEmpty
         }
+    }
+}
+
+Describe 'A list comes back as a list, at every size' {
+    # Statute's collection-return rule: the list itself on assignment, never $null or a bare item.
+    It 'returns <n> JSON list entries as a list on assignment' -TestCases @(
+        @{ n = 0 }, @{ n = 1 }, @{ n = 3 }
+    ) {
+        $json = '{ "providers": [' + ((1..3 | Select-Object -First $n |
+                    ForEach-Object { "{ ""provider"": ""p$_"" }" }) -join ',') + '] }'
+        $list = ConvertTo-JsonList ($json | ConvertFrom-Json).providers
+        $list -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $list.Count | Should -Be $n
+    }
+
+    It 'returns a JSON null as an empty list, never one item' {
+        $list = ConvertTo-JsonList $null
+        $list -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $list.Count | Should -Be 0
+    }
+
+    It 'returns <n> recognised account windows as a list on assignment' -TestCases @(
+        @{ n = 0 }, @{ n = 1 }, @{ n = 2 }
+    ) {
+        $later   = [datetimeoffset]::UtcNow.AddHours(2).ToString('o')
+        $windows = @(@('five_hour', 'seven_day') | Select-Object -First $n |
+            ForEach-Object { [pscustomobject]@{ id = $_; percentUsed = 10; resetsAt = $later } })
+        $present = Get-AccountUsageWindows -Windows $windows
+        $present -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $present.Count | Should -Be $n
     }
 }
 
@@ -1270,11 +1308,12 @@ Describe 'Which account the reading belongs to' {
     # function declared there does not exist when the cases actually run.
     BeforeAll {
         $script:SavedProfile = $env:USERPROFILE
+        $script:SavedUnixHome = $env:HOME
 
         function New-AccountsHome {
             param([string]$Active, [switch]$NoActiveFile, [string]$ActiveText)
             $root = New-TempFixtureDir -Prefix 'usage-home-'
-            $dir  = Join-Path $root '.claude\accounts'
+            $dir  = Join-Path $root '.claude' 'accounts'
             New-Item -ItemType Directory -Force -Path $dir | Out-Null
             # A credential file, present exactly so the tests can show it is never read.
             '{ "accessToken": "SECRET-TOKEN-MARKER", "refreshToken": "SECRET-REFRESH-MARKER" }' |
@@ -1283,15 +1322,30 @@ Describe 'Which account the reading belongs to' {
                 $text = if ($PSBoundParameters.ContainsKey('ActiveText')) { $ActiveText } else { $Active }
                 Set-Content -LiteralPath (Join-Path $dir '.active') -Value $text -Encoding utf8
             }
-            $env:USERPROFILE = $root
+            # The variable this system reads its home directory from: Paths.psm1's Get-UserHomePath.
+            if ($IsWindows) { $env:USERPROFILE = $root } else { $env:HOME = $root }
             $root
         }
     }
-    AfterAll { $env:USERPROFILE = $script:SavedProfile }
+    AfterAll { $env:USERPROFILE = $script:SavedProfile; $env:HOME = $script:SavedUnixHome }
 
     It 'reads the active account name' {
         New-AccountsHome -Active 'personal' | Out-Null
         Get-ActiveAccountName | Should -Be 'personal'
+    }
+
+    It 'reads the name from under HOME on macOS and Linux' {
+        $root = New-AccountsHome -Active 'personal'
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $env:HOME = $root
+        $env:USERPROFILE = Join-Path $TestDrive 'not-the-profile'
+        Get-ActiveAccountName | Should -Be 'personal'
+    }
+
+    It 'reads no account rather than failing when there is no home directory at all' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $env:HOME = ''
+        Get-ActiveAccountName | Should -Be ''
     }
 
     It 'reads no account rather than failing when there is no such file' {
@@ -1322,7 +1376,8 @@ Describe 'The launchable quota-axi, and why a .ps1 is never it' {
 
     # npm installs a .ps1 alongside the .cmd, and a native launch of a .ps1 dies with
     # "%1 is not a valid Win32 application" - the same failure Paths.psm1 records for Claude Code.
-    It 'prefers a launchable wrapper over the PowerShell script npm installs beside it' {
+    # Windows only: elsewhere a `.cmd` is not a program at all, and npm installs no such pair.
+    It 'prefers a launchable wrapper over the PowerShell script npm installs beside it' -Skip:(-not $IsWindows) {
         $dir = New-TempFixtureDir -Prefix 'quota-shim-'
         Set-Content -Path (Join-Path $dir 'quota-axi.ps1') -Value 'exit 0' -Encoding ascii
         Set-Content -Path (Join-Path $dir 'quota-axi.cmd') -Value '@echo off' -Encoding ascii
@@ -1354,15 +1409,19 @@ Describe 'The launchable quota-axi, and why a .ps1 is never it' {
     # dispatch running under ErrorActionPreference Stop.
     It 'reports a temp directory it cannot use rather than throwing out of the boundary' {
         $shim = New-TempFixtureDir -Prefix 'quota-shim-'
-        Set-Content -Path (Join-Path $shim 'quota-axi.cmd') -Value '@echo off' -Encoding ascii
+        Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
+        $null = New-TestExecutable -Path (Join-Path $shim 'quota-axi') -Cmd @() -Sh @()
         $gone = Join-Path (New-TempFixtureDir -Prefix 'quota-notemp-') 'no-such-directory'
 
-        $savedTmp  = $env:TMP
-        $savedTemp = $env:TEMP
+        # TMP and TEMP are what Windows reads for the temp directory; macOS and Linux read TMPDIR.
+        $savedTmp    = $env:TMP
+        $savedTemp   = $env:TEMP
+        $savedTmpDir = $env:TMPDIR
         try {
-            $env:PATH = $shim + [IO.Path]::PathSeparator + $script:SavedPath
-            $env:TMP  = $gone
-            $env:TEMP = $gone
+            $env:PATH   = $shim + [IO.Path]::PathSeparator + $script:SavedPath
+            $env:TMP    = $gone
+            $env:TEMP   = $gone
+            $env:TMPDIR = $gone
 
             $r = $null
             { $script:NoTempResult = Invoke-QuotaAxi -Arguments @('--json') } | Should -Not -Throw
@@ -1370,8 +1429,9 @@ Describe 'The launchable quota-axi, and why a .ps1 is never it' {
             $r.ok    | Should -BeFalse
             $r.error | Should -BeLike '*quota-axi could not be run*'
         } finally {
-            $env:TMP  = $savedTmp
-            $env:TEMP = $savedTemp
+            $env:TMP    = $savedTmp
+            $env:TEMP   = $savedTemp
+            $env:TMPDIR = $savedTmpDir
         }
     }
 }
@@ -1401,7 +1461,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                window = 'seven_day'; account = 'personal'; generatedAt = ''
                                schemaVersion = '3'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '62% used (week, personal) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '62% week (personal) - 1 running: kh working'
     }
 
     # TWO READINGS EITHER SIDE OF A SWITCH ARE PERCENTAGES OF TWO DIFFERENT POOLS. Silence would
@@ -1415,11 +1475,11 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                schemaVersion = '3'; takenAt = 'now' }
         }
         Mock -ModuleName Usage Get-UsageWindow { & $reading 'personal' }
-        Get-UsagePulse | Should -Be '62% used (session, personal) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '62% session (personal) - 1 running: kh working'
         Get-UsagePulse | Should -BeNullOrEmpty -Because 'nothing moved within that account'
 
         Mock -ModuleName Usage Get-UsageWindow { & $reading 'office' }
-        Get-UsagePulse | Should -Be '62% used (session, office) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '62% session (office) - 1 running: kh working'
     }
 
     # A floor is never printed as a bare percentage, because a bare percentage reads as a
@@ -1445,7 +1505,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                window = 'five_hour'; account = 'a'; generatedAt = ''
                                schemaVersion = '3'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '40% used (session, a) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '40% session (a) - 1 running: kh working'
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'unknown'; signal = 'stale-reading'; percent = $null
@@ -1465,7 +1525,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                window = 'five_hour'; account = 'a'; generatedAt = ''
                                schemaVersion = '3'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -BeLike '*(session, a)*'
+        Get-UsagePulse | Should -BeLike '*62% session (a)*'
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 'driving-window'; percent = 62
@@ -1473,7 +1533,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
                                window = 'seven_day'; account = 'a'; generatedAt = ''
                                schemaVersion = '3'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -BeLike '*(week, a)*'
+        Get-UsagePulse | Should -BeLike '*62% week (a)*'
     }
 
     It 'names the percentage, the count and what each worker is doing' {
@@ -1483,7 +1543,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
         }
 
         Get-UsagePulse |
-            Should -Be '62% used (session) - 2 running: kh-usage-watch running checks, emgee-seo waiting on you'
+            Should -Be '62% session - 2 running: kh-usage-watch running checks, emgee-seo waiting on you'
     }
 
     # ONE LINE, hard cap, however many workers are live. A second line is the thing the King ruled
@@ -1517,7 +1577,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
     }
 
     It 'names the percentage beside the one worker running' {
-        Get-UsagePulse | Should -Be '62% used (session) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '62% session - 1 running: kh working'
     }
 
     # NO READING WHILE NOTHING RUNS - the King's word, 2026-10-22. The number barely moves with no
@@ -1537,7 +1597,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
         Get-UsagePulse | Should -Be 'usage not read while nothing runs - nothing running'
 
         Mock -ModuleName Usage Get-UsageFleet { @(New-FleetRow -Ticket 'kh') }
-        Get-UsagePulse | Should -Be '62% used (session) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '62% session - 1 running: kh working'
     }
 
     It 'says a held floor as held rather than as stale' {
@@ -1565,6 +1625,14 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
         Get-UsagePulse | Should -BeLike '*kh running checks*'
     }
 
+    # A finished review is over, so the pulse must never put it to the King as his to answer.
+    It 'says a reported worker delivered its findings, never that it waits on the King' {
+        Mock -ModuleName Usage Get-UsageFleet { @(New-FleetRow -Ticket 'kh' -Stage 'reported') }
+        $line = Get-UsagePulse
+        $line | Should -Be '62% session - 1 running: kh findings delivered'
+        $line | Should -Not -BeLike '*waiting on you*'
+    }
+
     It 'stays quiet on a percentage that moves inside its band, and speaks when it crosses one' {
         Get-UsagePulse | Should -Not -BeNullOrEmpty
 
@@ -1578,7 +1646,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 71; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '71% used (session) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '71% session - 1 running: kh working'
     }
 
     # THE SAME SENTENCE TWICE IS NOT A CHANGE. The band that decides whether the pulse speaks and
@@ -1590,7 +1658,7 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 69.6; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '70% used (session) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '70% session - 1 running: kh working'
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 70.2; detail = 'x'
@@ -1604,13 +1672,13 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 69.2; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '69% used (session) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '69% session - 1 running: kh working'
 
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 70.2; detail = 'x'
                                resetsAt = ''; window = 'five_hour'; takenAt = 'now' }
         }
-        Get-UsagePulse | Should -Be '70% used (session) - 1 running: kh working'
+        Get-UsagePulse | Should -Be '70% session - 1 running: kh working'
     }
 
     # Losing the number is itself a change worth one line. Reported as the same silence as
@@ -1632,6 +1700,13 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
             @(New-FleetRow -Ticket 'odd' -Stage 'something-nobody-recognises')
         }
         Get-UsagePulse | Should -BeLike '*odd phase not known*'
+    }
+
+    It 'says a paused worker is paused with its work kept' {
+        Mock -ModuleName Usage Get-UsageFleet {
+            @(New-FleetRow -Ticket 'kh' -Stage 'paused')
+        }
+        Get-UsagePulse | Should -BeLike '*kh paused, its work kept*'
     }
 
     It 'says a worker is stuck on a question whatever stage it was recorded at' {
@@ -1671,6 +1746,118 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
     }
 }
 
+# A WEEKLY 5 READ AGAINST A SESSION 3 LOOKED LIKE A WRONG NUMBER, because the line named only the
+# driving window. Every case here goes through the real reader - the probe or quota-axi mocked at
+# its boundary and nothing above it - so the windows the line shows are the ones the reading saw.
+Describe 'The pulse shows both account windows on one line' {
+    BeforeEach {
+        Mock -ModuleName Usage Get-ActiveAccountName { 'office' }
+        Mock -ModuleName Usage Get-UsageFleet { @(New-FleetRow -Ticket 'kh') }
+        InModuleScope Usage { $script:LastSpoken = $null }
+    }
+
+    It 'shows both, session first, and names the account once' {
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.03 -SevenDay 0.05) }
+        $line = Get-UsagePulse
+        $line | Should -Be '3% session / 5% week (office) - 1 running: kh working'
+        ([regex]::Matches($line, 'office')).Count | Should -Be 1
+    }
+
+    It 'keeps session first when the session is the driving window' {
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.4 -SevenDay 0.05) }
+        Get-UsagePulse | Should -Be '40% session / 5% week (office) - 1 running: kh working'
+    }
+
+    It 'collapses to one figure naming both windows when they print the same' {
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.05 -SevenDay 0.05) }
+        Get-UsagePulse | Should -Be '5% session and week (office) - 1 running: kh working'
+    }
+
+    It 'collapses on the printed figure, not the raw one' {
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.049 -SevenDay 0.051) }
+        Get-UsagePulse | Should -Be '5% session and week (office) - 1 running: kh working'
+    }
+
+    # The quota-axi fallback is where a window can go missing or arrive as something that is not a
+    # number - the probe refuses either outright. Its report also carries the spend cap at 100,
+    # which is not an account window and must never reach the line.
+    Context 'when one window cannot be read' {
+        BeforeEach {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeFail }
+        }
+
+        It 'says a week the tool did not report is unreadable rather than leaving it out' {
+            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 3) }
+            $line = Get-UsagePulse
+            $line | Should -Be '3% session / week unreadable (office) - 1 running: kh working'
+            $line | Should -Not -BeLike '*100*' -Because 'the spend cap is not an account window'
+            $line | Should -Not -BeLike '*extra*'
+        }
+
+        It 'says a week whose figure is not a number is unreadable' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 3 -WithSevenDay -SevenDayPercent 'lots')
+            }
+            Get-UsagePulse | Should -Be '3% session / week unreadable (office) - 1 running: kh working'
+        }
+
+        It 'says a session whose figure is not a number is unreadable, still first' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 'lots' -WithSevenDay -SevenDayPercent 5)
+            }
+            Get-UsagePulse | Should -Be 'session unreadable / 5% week (office) - 1 running: kh working'
+        }
+
+        It 'says a week that has already rolled is unreadable rather than showing its old figure' {
+            Mock -ModuleName Usage Invoke-QuotaAxi {
+                New-AxiOk (New-AxiReport -FiveHourPercent 3 -WithSevenDay -SevenDayPercent 80 `
+                               -SevenDayResets ([datetimeoffset]::UtcNow.AddHours(-1).ToString('o')))
+            }
+            $line = Get-UsagePulse
+            $line | Should -Be '3% session / week unreadable (office) - 1 running: kh working'
+            $line | Should -Not -BeLike '*80*'
+        }
+    }
+
+    It 'says usage unknown, unchanged, when neither window can be read' {
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeFail }
+        Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiFail }
+        Get-UsagePulse | Should -Be 'usage unknown - 1 running: kh working'
+    }
+
+    # The longer prefix does not change the tail rule: it summarises by count, after three names,
+    # whatever the width - so the widest prefix still gives one line ending in the count.
+    It 'stays on one line with the widest prefix and summarises the tail as a count' {
+        Mock -ModuleName Usage Get-ActiveAccountName { 'a-long-account-name' }
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.88 -SevenDay 0.47) }
+        Mock -ModuleName Usage Get-UsageFleet {
+            @(1..6 | ForEach-Object { New-FleetRow -Ticket "task-$_" -Stage 'gating' })
+        }
+        $line = Get-UsagePulse
+        $line.Contains("`n") | Should -BeFalse
+        $line | Should -BeLike '88% session / 47% week (a-long-account-name) - 6 running: *'
+        $line | Should -BeLike '*task-3 running checks, +3 more'
+    }
+
+    It 'still speaks again when the account changes with the same two figures' {
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.03 -SevenDay 0.05) }
+        Get-UsagePulse | Should -BeLike '*(office)*'
+        Get-UsagePulse | Should -BeNullOrEmpty
+
+        Mock -ModuleName Usage Get-ActiveAccountName { 'personal' }
+        Get-UsagePulse | Should -Be '3% session / 5% week (personal) - 1 running: kh working'
+    }
+
+    It 'leaves the driving window, and only that one, as the figure anything acts on' {
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.03 -SevenDay 0.05) }
+        $r = Get-UsageWindow
+        $r.percent | Should -Be 5
+        $r.window  | Should -Be 'seven_day'
+        $r.detail  | Should -BeLike '5 percent of the weekly window is spent.*'
+        @($r.windows).Count | Should -Be 2
+    }
+}
+
 Describe 'The pulse takes the fleet from the reader that already joins intent to liveness' {
     # No -Fleet seam here on purpose: this is the caller path the documented background job takes,
     # so it runs the real Get-CrewStatus.ps1 against a crew record of its own. An empty one asks
@@ -1699,6 +1886,39 @@ Describe 'The pulse takes the fleet from the reader that already joins intent to
     # those reads actually executes - the empty-record case above never enters it. herdr is a shim
     # on PATH answering with no agents, the same way CrewStatus.Tests.ps1 stubs it, so the real
     # argument list and JSON parsing are exercised without a server.
+    # Statute's collection-return rule, through the real crew reader: the list itself on assignment.
+    It 'returns the fleet as a list of <n> rows on assignment' -TestCases @(
+        @{ n = 0 }, @{ n = 1 }, @{ n = 3 }
+    ) {
+        $shim = New-TempFixtureDir -Prefix 'herdr-shim-'
+        Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
+        $null = New-TestExecutable -Path (Join-Path $shim 'herdr') `
+            -Cmd @('type "%KINGSHAND_TEST_USAGE_HERDR%"') -Sh @('cat "$KINGSHAND_TEST_USAGE_HERDR"')
+        $reply = Join-Path $shim 'agents.json'
+        '{ "agents": [] }' | Set-Content -LiteralPath $reply -Encoding utf8
+
+        $workers = @{}
+        for ($i = 1; $i -le $n; $i++) {
+            $workers["T-$i"] = @{ ticket = "T-$i"; repo = 'acme-api'; stage = 'implementing' }
+        }
+        $crew = Join-Path (New-TempFixtureDir) 'crew.json'
+        @{ workers = $workers } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $crew -Encoding utf8
+
+        $savedPath = $env:PATH
+        $savedVar  = $env:KINGSHAND_TEST_USAGE_HERDR
+        try {
+            $env:PATH = $shim + [IO.Path]::PathSeparator + $savedPath
+            $env:KINGSHAND_TEST_USAGE_HERDR = $reply
+
+            $fleet = Get-UsageFleet -CrewStatePath $crew
+            $fleet -is [System.Collections.Generic.List[object]] | Should -BeTrue
+            $fleet.Count | Should -Be $n
+        } finally {
+            $env:PATH = $savedPath
+            $env:KINGSHAND_TEST_USAGE_HERDR = $savedVar
+        }
+    }
+
     It 'survives a crew record that is missing a field the reader treats as optional' {
         Mock -ModuleName Usage Get-UsageWindow {
             [pscustomobject]@{ status = 'has-usage'; signal = 's'; percent = 5; detail = 'x'
@@ -1707,10 +1927,9 @@ Describe 'The pulse takes the fleet from the reader that already joins intent to
         InModuleScope Usage { $script:LastSpoken = $null }
 
         $shim = New-TempFixtureDir -Prefix 'herdr-shim-'
-        Set-Content -Path (Join-Path $shim 'herdr.cmd') -Encoding ascii -Value @(
-            '@echo off',
-            'type "%KINGSHAND_TEST_USAGE_HERDR%"'
-        )
+        Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
+        $null = New-TestExecutable -Path (Join-Path $shim 'herdr') `
+            -Cmd @('type "%KINGSHAND_TEST_USAGE_HERDR%"') -Sh @('cat "$KINGSHAND_TEST_USAGE_HERDR"')
         $reply = Join-Path $shim 'agents.json'
         '{ "agents": [] }' | Set-Content -LiteralPath $reply -Encoding utf8
 
@@ -1858,7 +2077,7 @@ Describe 'The pulse on a timer' {
                                   -WarningAction SilentlyContinue)
         $global:UsageTickCount | Should -Be 2 -Because 'the second tick has to happen at all'
         $out.Count | Should -Be 1
-        $out[0]    | Should -Be '5% used (session) - 1 running: kh working'
+        $out[0]    | Should -Be '5% session - 1 running: kh working'
         Remove-Variable -Name UsageTickCount -Scope Global -ErrorAction SilentlyContinue
     }
 

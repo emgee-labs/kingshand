@@ -58,7 +58,7 @@ $script:StampPattern = '^[0-9]{8}T[0-9]{6}Z$'
 $script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 function Get-DefaultAwayFlagPath {
-    Join-Path (Get-KingshandHome) 'state\.afk'
+    Join-Path (Get-KingshandHome) 'state' '.afk'
 }
 
 function Get-DefaultAwayDataPath {
@@ -168,7 +168,7 @@ function Get-AwayFlag {
     try {
         $result.since       = Read-AwaySince -FlagPath $FlagPath
         $result.stamp       = ConvertTo-AwayStamp -Since $result.since
-        $result.journalPath = Join-Path $DataPath "$script:JournalDirName\$($result.stamp)$script:JournalExt"
+        $result.journalPath = Join-Path $DataPath $script:JournalDirName "$($result.stamp)$script:JournalExt"
     } catch {
         $result.problem = $_.Exception.Message
     }
@@ -179,7 +179,9 @@ function Read-JournalLines {
     param([Parameter(Mandatory)][string]$Path)
 
     $text = [System.IO.File]::ReadAllText($Path) -replace "`r`n", "`n"
-    @($text.Split("`n") | Where-Object { $_.Trim() })
+    $out  = [System.Collections.Generic.List[object]]::new()
+    foreach ($line in $text.Split("`n")) { if ($line.Trim()) { $out.Add($line) } }
+    return , $out
 }
 
 # One JSON line as a dictionary, or $null when it is not a JSON object at all. Nothing downstream
@@ -223,7 +225,7 @@ function Assert-JournalHeader {
         [Parameter(Mandatory)][string]$Since
     )
 
-    $lines = @(Read-JournalLines -Path $Path)
+    $lines = Read-JournalLines -Path $Path
     if ($lines.Count -eq 0) {
         throw "$Path exists but is empty, so nothing proves it is an away journal. Move it aside; the journal for this period cannot be written over it."
     }
@@ -431,7 +433,7 @@ function Get-AwayDigest {
             $since = Read-AwaySince -FlagPath $FlagPath
             $stamp = ConvertTo-AwayStamp -Since $since
             $result.since = $since
-            $result.path  = Join-Path $DataPath "$script:JournalDirName\$stamp$script:JournalExt"
+            $result.path  = Join-Path $DataPath $script:JournalDirName "$stamp$script:JournalExt"
         } catch {
             return (& $unreadable $_.Exception.Message)
         }
@@ -442,7 +444,7 @@ function Get-AwayDigest {
     }
 
     $lines = @()
-    try { $lines = @(Read-JournalLines -Path $result.path) }
+    try { $lines = Read-JournalLines -Path $result.path }
     catch { return (& $unreadable "$($result.path) could not be read - $($_.Exception.Message)") }
 
     if ($lines.Count -eq 0) {

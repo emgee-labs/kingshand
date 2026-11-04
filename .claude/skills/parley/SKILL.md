@@ -12,8 +12,9 @@ A parley is a short exchange, and then everyone goes back to what they were doin
 it differs from `herald` and `vigil`, which are on in every session and whose rules therefore live
 in `CLAUDE.md` so they apply with no skill loaded. Parley needs no such home: the mode begins when
 this file is loaded and ends when the exchange does, so there is no moment when parley is in force
-and this file is not in hand. `CLAUDE.md`'s Skills section carries the one line that gets it loaded
-and nothing more.
+and this file is not in hand. `CLAUDE.md`'s Skills section [rule:claude/skill-triggers] carries
+the
+one line that gets it loaded and nothing more.
 
 **It exists because the same complaint arrived twice.** `data\king.md` has carried "match the
 ceremony to the size of the work" since 2026-09-16, written after a three-line change drew a
@@ -27,7 +28,8 @@ Four things, and every one of them is ceremony.
 1. **Replies are capped at one or two lines.** One line is the target, two sentences the ceiling.
 2. **Nothing renders.** No review surface at all while parley is on. Work that genuinely needs one
    ends the mode instead - see `## How it ends` - rather than being squeezed into chat.
-3. **A quick dispatch carries a short brief.** Every section `muster` Step 2 requires is still
+3. **A quick dispatch carries a short brief.** Every section `muster` Step 2 requires
+   [rule:muster/brief-contents] is still
    there and still filled honestly; what goes is the padding. Most sections are already `n/a` on a
    change of a few lines, and `n/a` with the reason is the whole of what they need.
 4. **A parley dispatch runs no review gate.** `## The gate a parley dispatch does not run` owns
@@ -38,22 +40,27 @@ Four things, and every one of them is ceremony.
 Read this before using the mode, because brevity is the easiest thing here to mistake for
 permission.
 
-- **Hard rule 1 holds at any size.** The Hand writes no project code in parley - not a typo, not a
-  string, not one character. A bounded override was offered to the King and he declined it;
+- **Hard rule 1 holds at any size.** [rule:claude/workers-do-the-work] The Hand writes no project
+  code in parley - not a typo, not a string, not one character. A bounded override was offered to
+  the King and he declined it;
   `## What was offered and declined` records it so nobody rebuilds it.
-- **Hard rule 2 holds.** Nothing reaches a server without his word. His instruction is that word,
+- **Hard rule 2 holds.** [rule:claude/landing-authority] Nothing reaches a server without his
+  word.
+  His instruction is that word,
   which is exactly why `## One step at a time` matters: an instruction to commit is not an
   instruction to push.
-- **Hard rule 3 holds.** No agent, model or tooling name in anything reaching a git remote or Azure
-  DevOps.
+- **Hard rule 3 holds.** [rule:claude/no-tool-names-outward] No agent, model or tooling name in
+  anything reaching a git remote or Azure DevOps.
 - **The dispatch gate happens.** Wherever `yolo` is off - the default across most of the registry -
-  `muster` Step 3 is still asked and still his to answer, as a line in chat rather than a rendered
+  `muster` Step 3 [rule:muster/dispatch-gate] is still asked and still his to answer, as a line in
+  chat rather than a rendered
   page, and nothing is dispatched until he answers it. He settled that a rendered surface becomes a
   chat line; he never settled that a gate disappears, and removing his approval before dispatch is
   not a reading of anything he said. **Parley shortens how a gate is presented; it never removes
   one.**
 - **The landing gate happens.** It is a line in chat rather than a rendered page, and it is still
-  asked and still his to answer. `muster` Step 7 owns that gate and every floor in it, unchanged.
+  asked and still his to answer. `muster` Step 7 owns that gate and every floor in it, unchanged
+  [rule:muster/landing-gate].
 - **The public-repository boundary holds.** `data\rules-<project>.md` owns it and parley does not
   touch it.
 - **The standing criteria still apply** to whatever a worker delivers. They are self-reported
@@ -76,12 +83,14 @@ applies.
 
 ## One step at a time
 
+<!-- rule:parley/one-step-at-a-time -->
 **Do exactly the step asked, and stop.** "Make the change" means make the change - not also commit
 it, not also push it, not also raise a pull request because it looked like the obvious next move.
 "Commit and push" means commit and push, not also open a pull request.
 
 This is a guard against the Hand's own habit of doing the next helpful thing, and in parley the
-next step is his to name. It is also what keeps hard rule 2 honest: his instruction is the
+next step is his to name. It is also what keeps hard rule 2 [rule:claude/landing-authority]
+honest: his instruction is the
 authorisation, so "commit push" is his word for that push and for nothing after it. Treating it as
 a word for the following step would be taking authority he did not give.
 
@@ -103,22 +112,26 @@ hesitation, never a refusal.
 **Most quick work needs no worker at all** - answering a question, reading something, explaining a
 mechanism, saying where a thing lives. None of that is project work and none of it ever needed one.
 Use a sub-agent only where it is genuinely unavoidable, which on this rule means a change to a
-project's own files, because hard rule 1 says so.
+project's own files, because hard rule 1 says so [rule:claude/workers-do-the-work].
 
 Where one is needed:
 
-- **Gate the dispatch wherever `yolo` is off, before anything is dispatched.** `muster` Step 3 is
-  not skipped in parley - it becomes one line in chat naming the project, the change and what the
+- **Gate the dispatch wherever `yolo` is off, before anything is dispatched.** `muster` Step 3
+  [rule:muster/dispatch-gate] is not skipped in parley - it becomes one line in chat naming the
+  project, the change and what the
   worker will do, and only his answer to that line is consent to dispatch. `yolo` off is the
   default across most of the registry, so this is the ordinary case rather than the exception.
   **Where a dispatch cannot be judged from a line in chat it is not quick**: say so, and let it
   render under the normal rules per `## How it ends`.
-- **Write the brief through `muster` Step 2, short.** Step 2 owns what a brief must contain and
+- **Write the brief through `muster` Step 2, short.** Step 2 owns what a brief must contain
+  [rule:muster/brief-contents] and
   this mode adds no second contract: every mandatory section is present, the `Read first` line
   about the index is there, the standing criteria are pasted, and the Done-means block is one of
   Step 2's own.
 - **Where the task resolves to `no-mistakes`, take Step 2's `direct-PR` Done-means block and skip
-  Step 1b.** Key this on the task's resolved mode from `muster` Step 1, never on how the project is
+  Step 1b.** Key this on the task's resolved mode from `muster` Step 1
+  [rule:muster/resolved-mode],
+  never on how the project is
   registered: a `no-mistakes-prod-only` project resolves to `no-mistakes` on product-facing work
   and this bullet fires there too, exactly as it does on a project registered `no-mistakes`. There
   is no gate to preflight and no gate line to carry, and `direct-PR` is the existing contract that
@@ -134,12 +147,13 @@ Where one is needed:
 - **Where the task resolves to `no-mistakes`, and only there, write the no-gate marker.** The
   marker means one thing: *a review gate that would otherwise have run did not.* So it attaches
   exactly where parley actually took a gate away. Key that on the task's resolved mode from
-  `muster` Step 1, never on how the project is registered - a `no-mistakes-prod-only` project
+  `muster` Step 1 [rule:muster/resolved-mode], never on how the project is registered - a
+  `no-mistakes-prod-only` project
   resolves to `no-mistakes` on product-facing work and gets the marker there. **On a task resolved
-  to `direct-PR` or to `local-only`, write no marker at all**: those modes run no review gate in
-  normal mode either, so parley subtracted nothing and a `+merge` the King granted stands exactly
-  as he granted it. Claiming a safety reduction that did not happen is as wrong as hiding one that
-  did.
+  to `direct-PR`, `local-only` or `review-only`, write no marker at all**: those modes run no review
+  gate in normal mode either, so parley subtracted nothing and a `+merge` the King granted stands
+  exactly as he granted it. Claiming a safety reduction that did not happen is as wrong as hiding
+  one that did.
 
   Where it is written, it takes **two shapes, because the two files take different shapes** - and
   **each shape stands on its own**: either file carrying the token is enough for Step 7's floor to
@@ -156,7 +170,8 @@ Where one is needed:
 
   - **In `report.md`, the same prose under its own `## No review gate` heading.** Ask for it as
     one more bullet in the brief's own list of what the report must contain - `muster` Step 2 owns
-    that list and the Hand already writes it per brief. No new brief section and no sixth
+    that list [rule:muster/brief-contents] and the Hand already writes it per brief. No new brief
+    section and no sixth
     Done-means block: this rides the contract Step 2 already has.
 
   **A brief without that bullet is a parley brief written wrong, and so is a brief that carries it
@@ -170,7 +185,8 @@ Where one is needed:
   because the Hand that reads it next may have never heard of parley and must still be unable to
   misread it.
 
-  **Do not reword or respell that first line.** `muster` Step 7's floor matches
+  **Do not reword or respell that first line.** `muster` Step 7's floor
+  [rule:muster/parley-merge-floor] matches
   `PARLEY DISPATCH - NO REVIEW GATE RAN.` literally, so a paraphrase disarms the floor silently,
   and it must be spelled identically in both shapes.
 
@@ -178,16 +194,18 @@ Where one is needed:
   line leaves the report silent about it, which is why the brief's copy is the one the floor can
   rely on. **A parley dispatch whose `report.md` lacks the line is a report to query, never a run
   to merge**: ask the worker, because the brief already settles that no review gate ran.
-- **Do not wait.** Arm the worker's wait exactly as `muster` Step 4 requires - a worker nobody is
-  watching is the failure `CLAUDE.md`'s Recovery section exists to prevent, and that is a safety
+- **Do not wait.** Arm the worker's wait exactly as `muster` Step 4 requires
+  [rule:muster/arm-watch] - a worker nobody is watching is the failure `CLAUDE.md`'s Recovery
+  section [rule:claude/recovery] exists to prevent, and that is a safety
   rule rather than ceremony - then answer in one line and end the turn. Parley does not hold an
   exchange open on a worker.
 - **A parley dispatch that carries the marker is never merged on the forge, whatever `+merge`
   declares** - a gate that would have run did not, so nothing has established that the run is safe
-  to merge. That is the same scope as the marker: a dispatch resolved to `direct-PR` or
-  `local-only` carries none, gave up nothing, and merges exactly as it would outside parley.
-  `muster` Step 7 owns the refusal and states it in full; this is the reason and the
-  cross-reference. Where it bites, the work stops where its posture stops and the merge is the
+  to merge. That is the same scope as the marker: a dispatch resolved to `direct-PR`,
+  `local-only` or `review-only` carries none, gave up nothing, and merges exactly as it would
+  outside parley. `muster` Step 7 owns the refusal and states it in full
+  [rule:muster/parley-merge-floor]; this is the reason and
+  the cross-reference. Where it bites, the work stops where its posture stops and the merge is the
   King's own next step in his own words.
 
 ## The gate a parley dispatch does not run
@@ -209,7 +227,7 @@ knowingly, for speed on quick work.
 - **The standing criteria still apply.** The worker still works `data\done-<project>.md` line by
   line and records `pass`, `fixed` or `n/a`. Criterion 1 - the suite green at the delivered head -
   is run directly and needs no gate.
-- **Hard rule 1 is untouched.** The worker writes the code.
+- **Hard rule 1 is untouched.** [rule:claude/workers-do-the-work] The worker writes the code.
 
 **The gate is removed by never asking for it, never by stopping one that is running.** The
 `no-mistakes axi run` line is simply absent from the brief, so nothing is ever mid-run and told to
@@ -253,7 +271,8 @@ runs the same safe way.
 brief written with no review gate outlives the session that wrote it, so a forgotten mode would
 otherwise leave an ungated run looking like any other green branch to whoever picks it up. That is
 why the no-gate marker is written into the brief and carried into the `report.md` rather than held
-in mind, and why `muster` Step 7's floor reads it instead of trusting anyone's memory: the
+in mind, and why `muster` Step 7's floor [rule:muster/parley-merge-floor] reads it instead of
+trusting anyone's memory: the
 constraint is attached to the work, not to the session.
 
 ## What enforces each rule here, and where the answer is nothing
@@ -267,7 +286,8 @@ is supposed to honour - so each one is answered rather than assumed.
 - The absent review gate is enforced mechanically: the gate line is never written into the brief,
   so no agent is ever inside a run and told to stop. That is the `--skip ci` shape rather than the
   fifteen-minutes-in-a-brief shape.
-- The no-merge rule on a parley dispatch is enforced by `muster` Step 7's floor, which matches the
+- The no-merge rule on a parley dispatch is enforced by `muster` Step 7's floor
+  [rule:muster/parley-merge-floor], which matches the
   line `PARLEY DISPATCH - NO REVIEW GATE RAN.` in the brief or in the worker's `report.md` -
   **either one is enough** - and refuses the merge wherever it finds it. **The marker is durable
   and the memory of the mode is not**, so that floor holds through a restart, and the brief's copy
@@ -282,7 +302,9 @@ is supposed to honour - so each one is answered rather than assumed.
 
 ## What was offered and declined
 
-Recorded so it is not rebuilt. The Hand proposed a bounded override of hard rule 1 for parley -
+<!-- rule:parley/offered-declined -->
+Recorded so it is not rebuilt. The Hand proposed a bounded override of hard rule 1
+[rule:claude/workers-do-the-work] for parley -
 no-logic changes only, one file, the diff shown, never pushed - and the King declined it on
 2026-09-24: "we are complicating, agent does the code writing, not you, no to hard rule 1 pass.. we
 will follow it, its just sub agent will be quick to do it rather than taking its sweet time."

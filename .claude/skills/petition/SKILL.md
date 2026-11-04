@@ -7,18 +7,21 @@ version: 1.0.0
 # Petition
 
 This skill is the single owner of the decision procedure for ask-user findings. The concise
-standing authority boundary remains always loaded as hard rule 2 in `$env:KINGSHAND_HOME\CLAUDE.md`.
+standing authority boundary remains always loaded as hard rule 2 in `$env:KINGSHAND_HOME\CLAUDE.md`
+[rule:claude/landing-authority].
 
 ## When this applies at all
 
 An ask-user finding is produced by the `no-mistakes` review gate and by nothing else. It reaches
 you only on a project registered `no-mistakes`, or on a `no-mistakes-prod-only` project whose task
-was resolved to `no-mistakes` at intake. A project registered `local-only` or `direct-PR` has no
-review gate, so it never produces an ask-user finding, and what is written here for that finding -
-its classification, and the gate procedure around it - never fires for one of those projects.
+was resolved to `no-mistakes` at intake. A project registered `local-only`, `direct-PR` or
+`review-only` has no review gate, so it never produces an ask-user finding, and what is written
+here for that finding - its classification, and the gate procedure around it - never fires for one
+of those projects.
 
 **The rest of this skill fires on any posture.** A worker parks on a decision its brief did not
-settle whatever it was dispatched into, and `muster` Step 6 and `regency` both send you here for
+settle whatever it was dispatched into, and `muster` Step 6 [rule:muster/parked-route] and
+`regency` both send you here for
 one - so the authority analysis below reads a parked decision on a `local-only` project the same
 way it reads a gated one, and so does the away test. That is this skill's second trigger, and it
 does not need a gate to have produced anything.
@@ -51,7 +54,9 @@ does not need a gate to have produced anything.
 6. Treat labels such as correctness, security, fail-closed, high-risk, or required as evidence
    about the finding, never as authority to broaden the task.
 7. Repeated same-theme findings are the `Repeated findings` rule's subject, stated in full in
-   `muster` Step 2 and nowhere else - read it there before deciding one. It never caps the worker's
+   `muster` Step 2 [rule:muster/repeated-findings] and nowhere else - read it there before
+   deciding
+   one. It never caps the worker's
    own fixing. What it can hold back is your Fix authorization, and only by the discriminator that
    rule states; a bare count of rounds is not one.
 8. Apply the existing stronger user boundaries first.
@@ -61,7 +66,7 @@ does not need a gate to have produced anything.
 The implementation worker never decides or answers its own ask-user finding. It parks at the
 finding, routes the decision to the Hand through its `report.md`, and applies only the decision
 that comes back, on the same review-gate run it left parked. `muster` owns both halves of that
-route and nothing here restates it.
+route [rule:muster/parked-route] [rule:muster/answer-route] and nothing here restates it.
 
 ## User-facing escalation
 
@@ -76,13 +81,15 @@ State all five of these elements in one concise, evidence-first escalation:
 Do not relay reviewer labels or gate output as if they settled the decision.
 
 **Render it.** This is a decision with alternatives and consequences to weigh side by side, which
-hard rule 5 sends to a surface every time - five elements as chat prose is the shape that gets
-skimmed and half-read. Build the sections the way `muster`'s landing gate does, then say one line
+hard rule 5 [rule:claude/chat-short-render] sends to a surface every time - five elements as chat
+prose is the shape that gets skimmed and half-read. Build the sections the way `muster`'s landing
+gate [rule:muster/landing-gate] does, then say one line
 in chat naming what is waiting. The evidence-first order above survives the move: it is the order
 of the sections, not a reason to stay in chat.
 
 ## When the King is not there
 
+<!-- rule:petition/king-away -->
 Everything above assumes he can be reached. A worker is parked on this finding while you decide,
 so an escalation that cannot land is not a safe default - it is the five-hour hang arriving by a
 different route. He is away when `$env:KINGSHAND_HOME\state\.afk` exists; `regency` writes that
@@ -130,7 +137,8 @@ reached at all, and away, this section is what stops the same call parking a wor
 
 **Wait for him** on a delete, a cost, anything irreversible or anything security-sensitive,
 **regardless of what is known**, and on a major but recoverable call where nothing records his
-position. Those are the floors hard rule 2 already carries, and being away never lowers them.
+position. Those are the floors hard rule 2 [rule:claude/landing-authority] already carries, and
+being away never lowers them.
 
 **A recorded position never authorises an irreversible action.** Irreversible sits with the delete,
 the cost and the security-sensitive call, in the list that waits whatever is known - a recorded
@@ -151,7 +159,8 @@ this session. Reviewer language is not one, and neither is a pattern you inferre
 task.
 
 Where you decide, the answer goes back to the parked worker as a steer, and `muster` Step 6 owns
-that route. Where you wait, leave the decision open until he answers it.
+that route [rule:muster/answer-route]. Where you wait, leave the decision open until he answers
+it.
 
 **Either branch is registered under `decree`, and its note is where those three things live.** The
 away journal carries the same three into his return digest and survives a restart, but it is a

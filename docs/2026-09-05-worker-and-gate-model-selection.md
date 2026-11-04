@@ -75,8 +75,8 @@ There is a second candidate that is untested for the gate but measured for a ses
 repository's tracked `.claude\settings.json`, which the gate's checkout contains. A `model` key
 there would be read by the same resolver the probes above exercised. It would also be read by
 every worker worktree and by the Hand's own session in this repository, which is why it is
-named here as a hazard rather than as a recommendation - and why the note in that file saying
-it "affects the Hand only" is already narrower than what the file actually reaches.
+named here as a hazard rather than as a recommendation. The note in that file once said it
+affected the Hand only; it has since been corrected to name everything it reaches.
 
 ## What switching would save: 40%, exactly
 

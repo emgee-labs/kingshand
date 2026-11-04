@@ -134,11 +134,13 @@ made. Hence: always `/exit`, never a kill.
 Enter in one call selects the wrong option and reports success while doing it. Keys go one per
 call, with the screen read back in between.
 
-**Workers run with transcript saving off.** The Hand is itself a Claude Code session, so the herdr
-server and every pane inherit `CLAUDE_CODE_CHILD_SESSION`. Both are scrubbed where kingshand starts
-them, but a herdr server it did not start carries whatever it inherited. The practical consequence
-is that the session transcript is not a reliable fallback for a worker's findings any more.
-`report.md` is not a nicety; it is the only durable record.
+**Workers run with transcript saving off unless the marker is scrubbed.** The Hand is itself a
+Claude Code session, so the herdr server and every pane inherit `CLAUDE_CODE_CHILD_SESSION`. Both
+are scrubbed where kingshand starts them, and with the scrub in place workers do write a
+transcript - measured on 2026-11-03, every recent worker had one on disk. A herdr server
+kingshand did not start carries whatever it inherited, so the transcript is still not a reliable
+fallback for a worker's findings. `report.md` is not a nicety; it is the only durable record
+anything reads.
 
 **herdr keeps state outside the repository**, in `%APPDATA%\herdr` and `%LOCALAPPDATA%\herdr`, and
 there is no way to redirect it. Its server also fetches detection manifests over the network at

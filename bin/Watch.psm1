@@ -25,12 +25,13 @@ Import-Module (Join-Path $PSScriptRoot 'Crew.psm1')
 # anything going silent.
 #
 # EVERY OUTCOME THE WAITS CAN REPORT HAS ITS OWN LINE, and none is folded into another: a worker
-# blocked, stalled, gone, settled, settled over text it never took, idle on its own background
-# shells until the clock ran out, its watch failing or timing out, a screen the watch could not
-# read, text in its input box; a gate run parked with its findings, passed, failed, unreadable or
-# quiet until the clock ran out; a worker gone idle while the gate it started keeps running; and a
-# report written, not written, or unreadable. A line that cannot be composed is never replaced by a
-# quieter one - an unreadable input reads as unreadable, never as a state word.
+# blocked (on a prompt still up after the progress wait's confirmation window), stalled, gone,
+# settled, settled over text it never took, idle on its own background shells until the clock ran
+# out, its watch failing or timing out, a screen the watch could not read, text in its input box; a
+# gate run parked with its findings, passed, failed, unreadable or quiet until the clock ran out; a
+# worker gone idle while the gate it started keeps running; and a report written, not written, or
+# unreadable. A line that cannot be composed is never replaced by a quieter one - an unreadable
+# input reads as unreadable, never as a state word.
 #
 # Nothing here acts on what it sees. No prompt is answered, no key is sent, no run is driven: a
 # watch reports, and `muster`, `rally` and `petition` own what happens next.
@@ -161,13 +162,21 @@ function Format-WorkerWake {
         ' Its screen could not be read, so the watch was blind - check Test-HerdrAgentReadable ' +
         'and say you cannot see it rather than calling it healthy.'
     } else { '' }
+    # A prompt confirmed through reads that failed was never seen to clear, and the line says so.
+    $unread   = Get-WatchField $Wake 'blockedUnreadable'
+    $reads    = Get-WatchField $Wake 'blockedReads'
+    $confirm  = if ($null -ne $unread -and [int]$unread -gt 0) {
+        " While the prompt was being confirmed, $unread of $reads reads could not be taken, so " +
+        'it was never seen to clear.'
+    } else { '' }
 
     switch ("$($Wake.reason)") {
         'settled' {
             if ($awaiting -or $state -eq 'blocked') {
                 return ("BLOCKED $Name - it is sitting on an interactive prompt it cannot pass. " +
                         'Next: load rally and, unless regency is in force and says otherwise, ' +
-                        "tell the King now what it is asking; never answer the prompt blind.$boxNote$tail")
+                        'tell the King now what it is asking; never answer the prompt ' +
+                        "blind.$boxNote$tail$confirm")
             }
             if ($box) {
                 return ("UNSENT $Name state=$state - its input box holds text that was never " +
@@ -200,7 +209,7 @@ function Format-WorkerWake {
                 return ("BLOCKED $Name - nothing on its screen moved for $quiet minutes and it is " +
                         'sitting on a prompt. Next: load rally and, unless regency is in force ' +
                         'and says otherwise, tell the King what it is asking; never answer ' +
-                        "the prompt blind.$boxNote$tail")
+                        "the prompt blind.$boxNote$tail$confirm")
             }
             return ("STALLED $Name state=$state - nothing on its screen has moved for $quiet " +
                     'minutes. Next: tell the King what it stopped on and load rally; do not act ' +
@@ -235,11 +244,14 @@ function Invoke-WorkerWait {
     param(
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][int]$TimeoutMs,
-        [Parameter(Mandatory)][int]$StallMinutes
+        [Parameter(Mandatory)][int]$StallMinutes,
+        # Below 0 is the wait's own confirmation window, as 0 is its own stall threshold.
+        [int]$BlockedConfirmSeconds = -1
     )
 
     $splat = @{ Name = $Name; TimeoutMs = $TimeoutMs }
     if ($StallMinutes -gt 0) { $splat.StallMinutes = $StallMinutes }
+    if ($BlockedConfirmSeconds -ge 0) { $splat.BlockedConfirmSeconds = $BlockedConfirmSeconds }
     try {
         $r = Invoke-WatchQuietly { Wait-HerdrAgentProgress @splat }
     } catch {
@@ -296,13 +308,15 @@ function Invoke-WorkerWatch {
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][int]$TimeoutMinutes,
         [Parameter(Mandatory)][int]$StallMinutes,
-        [scriptblock]$OnShell = $null
+        [scriptblock]$OnShell = $null,
+        [int]$BlockedConfirmSeconds = -1
     )
 
     $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
     $ms = $TimeoutMinutes * 60000
     while ($true) {
-        $worker = Invoke-WorkerWait -Name $Name -TimeoutMs $ms -StallMinutes $StallMinutes
+        $worker = Invoke-WorkerWait -Name $Name -TimeoutMs $ms -StallMinutes $StallMinutes `
+                      -BlockedConfirmSeconds $BlockedConfirmSeconds
         if (-not (Test-WorkerWakeOnShell $worker.wake)) { return $worker }
         if ($null -ne $OnShell -and (& $OnShell $worker.wake)) { return $worker }
         if ((Wait-WorkerShells -Name $Name -Deadline $deadline) -eq 'deadline') { return $worker }
@@ -322,10 +336,15 @@ function Watch-Worker {
         [int]$TimeoutMinutes = $script:DefaultTimeoutMinutes,
         # 0 is the wait's own threshold, which every caller takes unless the work is quiet for
         # longer - muster says never under fifteen.
-        [int]$StallMinutes = 0
+        [int]$StallMinutes = 0,
+        # How long a prompt must stay up before it is reported BLOCKED. -1 is the progress wait's
+        # own window, which every arm takes - Watch.ps1 never passes one; 0 reports a prompt the
+        # moment it is seen.
+        [int]$BlockedConfirmSeconds = -1
     )
 
-    (Invoke-WorkerWatch -Name $Name -TimeoutMinutes $TimeoutMinutes -StallMinutes $StallMinutes).line
+    (Invoke-WorkerWatch -Name $Name -TimeoutMinutes $TimeoutMinutes -StallMinutes $StallMinutes `
+         -BlockedConfirmSeconds $BlockedConfirmSeconds).line
 }
 
 # One gate wait's result as one line. Exported so every outcome can be driven with the wait forced.
@@ -521,7 +540,7 @@ function Resolve-WatchTarget {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Name,
-        [string]$StatePath = (Join-Path (Get-KingshandHome) 'state\crew.json')
+        [string]$StatePath = (Join-Path (Get-KingshandHome) 'state' 'crew.json')
     )
 
     $fail = { param($why) [pscustomobject]@{ ok = $false; repo = ''; branch = ''; error = $why } }
@@ -559,7 +578,9 @@ function Watch-Delivery {
         [Parameter(Mandatory)][string]$RepoPath,
         [Parameter(Mandatory)][string]$Branch,
         [int]$TimeoutMinutes = $script:DefaultTimeoutMinutes,
-        [int]$StallMinutes = 0
+        [int]$StallMinutes = 0,
+        # As Watch-Worker's: how long a prompt must stay up before it is reported BLOCKED.
+        [int]$BlockedConfirmSeconds = -1
     )
 
     # A worker idle on its own background shells is waited through, as Watch-Worker does - unless
@@ -571,7 +592,8 @@ function Watch-Delivery {
         "$(Get-WatchField $g 'status')" -eq 'has-run' -and $null -eq (ConvertTo-GateStopWait -State $g)
     }
     $worker = Invoke-WorkerWatch -Name $Name -TimeoutMinutes $TimeoutMinutes `
-                  -StallMinutes $StallMinutes -OnShell $gateRunning
+                  -StallMinutes $StallMinutes -OnShell $gateRunning `
+                  -BlockedConfirmSeconds $BlockedConfirmSeconds
     $wake   = $worker.wake
     $ended  = "$(Get-WatchField $wake 'reason')" -eq 'settled' -and
               (Get-WatchField $wake 'awaitingInput') -ne $true -and

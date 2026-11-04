@@ -54,6 +54,64 @@ Describe 'Add-CrewWorker' {
         { Add-CrewWorker -State $script:s -WorkerId 'a1' -Ticket 'y' -Kind 'adhoc' -Repo 'r' -Worktree 'w' -Branch 'b' -Brief 'f' } |
             Should -Throw '*uplicate*'
     }
+
+    # A duplicate is a re-dispatch, and a refusal that only says "duplicate" leaves the Hand nowhere
+    # to go - which is how muster said a re-dispatch re-records the base while this threw instead.
+    It 'names the way through when the id is a re-dispatch, and leaves the record as it was' {
+        Add-CrewWorker -State $script:s -WorkerId 'a1' -Ticket 'x' -Kind 'adhoc' -Repo 'r' `
+                       -Worktree 'w' -Branch 'b' -Brief 'f' -Base 'origin/main'
+        { Add-CrewWorker -State $script:s -WorkerId 'a1' -Ticket 'x' -Kind 'adhoc' -Repo 'r' `
+                         -Worktree 'w' -Branch 'b' -Brief 'f' -Base 'origin/dev' } |
+            Should -Throw '*re-dispatch*Set-CrewRelaunch*-BranchCut*'
+        $script:s.workers['a1'].base | Should -Be 'origin/main'
+    }
+}
+
+Describe 'Set-CrewRelaunch - the recorded base on a re-dispatch' {
+    # The landing gate diffs against the recorded base, so it has to stay the ref the branch was cut
+    # from. A re-dispatch that finds its branch does not cut it again, and the base that dispatch
+    # resolved fresh names whatever the repository points at now.
+    BeforeEach {
+        $script:s = New-CrewState
+        Add-CrewWorker -State $script:s -WorkerId 'T-2002' -Ticket 'T-2002' -Kind 'ticket' `
+                       -Repo 'acme-api' -Worktree 'C:/wt/T-2002' -Branch 'worktree-T-2002' `
+                       -Brief 'f' -Base 'origin/main' -PaneId 'p-1'
+        Set-CrewStage -State $script:s -WorkerId 'T-2002' -Stage 'implementing'
+    }
+
+    It 'keeps the recorded base when the dispatch reused the branch' {
+        Set-CrewRelaunch -State $script:s -WorkerId 'T-2002' -Worktree 'C:/wt/T-2002' `
+            -Branch 'worktree-T-2002' -Base 'origin/dev' -BranchCut $false -PaneId 'p-2'
+        $rec = $script:s.workers['T-2002']
+        $rec.base    | Should -Be 'origin/main' -Because 'the branch was cut from main, not dev'
+        $rec.pane_id | Should -Be 'p-2'
+        $rec.stage   | Should -Be 'dispatched'
+    }
+
+    It 'records the new base when the dispatch cut a new branch from it' {
+        Set-CrewRelaunch -State $script:s -WorkerId 'T-2002' -Worktree 'C:/wt/T-2002' `
+            -Branch 'worktree-T-2002' -Base 'origin/dev' -BranchCut $true
+        $script:s.workers['T-2002'].base | Should -Be 'origin/dev'
+    }
+
+    # The default is the relaunch callers that name no -BranchCut: a paused worker's resume command,
+    # and a relaunch in rally or fief. Each reuses its branch, so keeping is the true answer.
+    It 'keeps the recorded base and pane when -BranchCut and -PaneId are left off' {
+        Set-CrewRelaunch -State $script:s -WorkerId 'T-2002' -Worktree 'C:/wt/T-2002' `
+            -Branch 'worktree-T-2002' -Base 'origin/dev'
+        $rec = $script:s.workers['T-2002']
+        $rec.base    | Should -Be 'origin/main'
+        $rec.pane_id | Should -Be 'p-1'
+    }
+
+    It 'refuses a cut branch with no base to record, and changes nothing' {
+        { Set-CrewRelaunch -State $script:s -WorkerId 'T-2002' -Worktree 'C:/wt/other' `
+              -Branch 'worktree-T-2002' -BranchCut $true } | Should -Throw '*needs -Base*'
+        $rec = $script:s.workers['T-2002']
+        $rec.base     | Should -Be 'origin/main'
+        $rec.worktree | Should -Be 'C:/wt/T-2002'
+        $rec.stage    | Should -Be 'implementing'
+    }
 }
 
 Describe 'Set-CrewStage' {
@@ -72,6 +130,20 @@ Describe 'Set-CrewStage' {
         $script:s.workers['a1'].landed | Should -BeTrue
     }
 
+    It 'sets paused, the stage a worker stopped with its copy kept is left at' {
+        Set-CrewStage -State $script:s -WorkerId 'a1' -Stage 'paused'
+        $script:s.workers['a1'].stage | Should -Be 'paused'
+        $script:s.workers['a1'].landed | Should -BeFalse
+    }
+
+    # A review-only job or a read-only investigation delivers a report and lands nothing, so the
+    # landed flag would claim a merge that never happened.
+    It 'sets reported, and never sets the landed flag for it' {
+        Set-CrewStage -State $script:s -WorkerId 'a1' -Stage 'reported'
+        $script:s.workers['a1'].stage  | Should -Be 'reported'
+        $script:s.workers['a1'].landed | Should -BeFalse
+    }
+
     It 'rejects an invalid stage' {
         { Set-CrewStage -State $script:s -WorkerId 'a1' -Stage 'sideways' } | Should -Throw '*stage*'
     }
@@ -81,11 +153,33 @@ Describe 'Set-CrewStage' {
     }
 }
 
+Describe 'Test-CrewStageOver' {
+    It 'counts <stage> as over' -ForEach @(
+        @{ stage = 'landed' }, @{ stage = 'failed' }, @{ stage = 'reported' }
+    ) {
+        Test-CrewStageOver -Stage $stage | Should -BeTrue
+    }
+
+    It 'counts <stage> as not over' -ForEach @(
+        @{ stage = 'dispatched' }, @{ stage = 'implementing' }, @{ stage = 'gating' },
+        @{ stage = 'ready' }, @{ stage = 'paused' }
+    ) {
+        Test-CrewStageOver -Stage $stage | Should -BeFalse
+    }
+
+    # A record with no stage, or one this module never wrote, is listed rather than hidden.
+    It 'counts a missing or unknown stage as not over' {
+        Test-CrewStageOver -Stage ''        | Should -BeFalse
+        Test-CrewStageOver -Stage $null     | Should -BeFalse
+        Test-CrewStageOver -Stage 'sideways' | Should -BeFalse
+    }
+}
+
 # waiting_on records which tasks-axi hold a worker parked on. Null means no park has been recorded
 # on this record - never that there is nothing to answer, since only a Hand who has read the report
 # ever writes it; a key means it did, and whether that decision is still outstanding is the hold's
 # own state in the queue, which this module does not read.
-# It is deliberately not a stage: the six stages are a lifecycle a
+# It is deliberately not a stage: the stages are a lifecycle a
 # worker moves along, while waiting is a condition that can happen at any of them and resolves back
 # to the one the worker was already at.
 Describe 'waiting_on points at a hold and is never a stage' {
@@ -220,6 +314,20 @@ Describe 'Get-CrewByStage' {
         $s = New-CrewState
         (Get-CrewByStage -State $s -Stage 'ready').Count | Should -Be 0
     }
+
+    # Statute's collection-return rule: the list itself on assignment, at every size.
+    It 'returns a list of <n> on assignment, never a bare hashtable or nothing' -TestCases @(
+        @{ n = 0 }, @{ n = 1 }, @{ n = 3 }
+    ) {
+        $s = New-CrewState
+        for ($i = 1; $i -le $n; $i++) {
+            Add-CrewWorker -State $s -WorkerId "a$i" -Ticket "$i" -Kind 'ticket' -Repo 'r' -Worktree 'w' -Branch 'b' -Brief 'f'
+            Set-CrewStage -State $s -WorkerId "a$i" -Stage 'ready'
+        }
+        $r = Get-CrewByStage -State $s -Stage 'ready'
+        $r -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $r.Count | Should -Be $n
+    }
 }
 
 Describe 'Save and Import round-trip' {
@@ -270,19 +378,48 @@ Describe 'a session worker carries several items, and nothing else changes shape
                          'ticket', 'waiting_on', 'worktree')
     }
 
+    It 'records the pane dispatch created when it is given, so cleanup can close it after an exit' {
+        Add-CrewWorker -State $script:s -WorkerId 'T-1002' -Ticket 'T-1002' -Kind 'ticket' `
+                       -Repo 'acme-web' -Worktree 'w' -Branch 'worktree-T-1002' -Brief 'f' -PaneId 'w1:p1'
+        $script:s.workers['T-1002'].pane_id | Should -Be 'w1:p1'
+    }
+
+    It 'records that cleanup finished beside the stage, leaving the stage where it was' {
+        Add-CrewWorker -State $script:s -WorkerId 'T-1003' -Ticket 'T-1003' -Kind 'ticket' `
+                       -Repo 'acme-web' -Worktree 'w' -Branch 'worktree-T-1003' -Brief 'f'
+        Set-CrewStage -State $script:s -WorkerId 'T-1003' -Stage 'ready'
+        Set-CrewTornDown -State $script:s -WorkerId 'T-1003'
+        $script:s.workers['T-1003'].torn_down_at | Should -Not -BeNullOrEmpty
+        $script:s.workers['T-1003'].stage | Should -Be 'ready'
+        { Set-CrewTornDown -State $script:s -WorkerId 'nobody' } | Should -Throw '*not found*'
+    }
+
     It 'reads an ordinary record as its one ticket' {
         Add-CrewWorker -State $script:s -WorkerId 'T-1001' -Ticket 'T-1001' -Kind 'ticket' `
                        -Repo 'acme-web' -Worktree 'w' -Branch 'worktree-T-1001' -Brief 'f'
-        $items = @(Get-CrewItems -State $script:s -WorkerId 'T-1001')
+        $items = Get-CrewItems -State $script:s -WorkerId 'T-1001'
         $items.Count   | Should -Be 1
         $items[0].id   | Should -Be 'T-1001'
         $items[0].kind | Should -Be 'ticket'
     }
 
+    # Statute's collection-return rule. An empty list is refused by name, so 0 is a throw, below.
+    It 'returns the items as a list on assignment, for one item and for several' {
+        Add-SessionWorker -State $script:s
+        $one = Get-CrewItems -State $script:s -WorkerId 'acme-api-session'
+        $one -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $one.Count | Should -Be 1
+        Add-CrewItem -State $script:s -WorkerId 'acme-api-session' -Item 'fix-header' -Kind 'adhoc'
+        Add-CrewItem -State $script:s -WorkerId 'acme-api-session' -Item 'T-1003' -Kind 'ticket'
+        $many = Get-CrewItems -State $script:s -WorkerId 'acme-api-session'
+        $many -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $many.Count | Should -Be 3
+    }
+
     It 'starts a session worker with its first ticket as the first item' {
         Add-SessionWorker -State $script:s
         $script:s.workers['acme-api-session'].ticket | Should -Be 'T-1001'
-        @(Get-CrewItems -State $script:s -WorkerId 'acme-api-session').id | Should -Be @('T-1001')
+        (Get-CrewItems -State $script:s -WorkerId 'acme-api-session').id | Should -Be @('T-1001')
     }
 
     It 're-records a relaunched worker without losing its items or the hold it parked on' {
@@ -293,7 +430,7 @@ Describe 'a session worker carries several items, and nothing else changes shape
         Set-CrewRelaunch -State $script:s -WorkerId 'acme-api-session' -Worktree 'C:/repos/acme-api' `
             -Branch 'feature-x' -Base 'origin/main' -SettingsRecord 'D:\data\acme-api-session\checkout-settings-2.json'
         $rec = $script:s.workers['acme-api-session']
-        @(Get-CrewItems -State $script:s -WorkerId 'acme-api-session').id | Should -Be @('T-1001', 'fix-header')
+        (Get-CrewItems -State $script:s -WorkerId 'acme-api-session').id | Should -Be @('T-1001', 'fix-header')
         $rec.waiting_on      | Should -Be 'T-1001-copy'
         $rec.base            | Should -Be 'origin/main'
         $rec.stage           | Should -Be 'dispatched'
@@ -322,7 +459,7 @@ Describe 'a session worker carries several items, and nothing else changes shape
         $p = Join-Path $TestDrive 'session-crew.json'
         Save-CrewState -State $script:s -Path $p
         $r = Import-CrewState -Path $p
-        $items = @(Get-CrewItems -State $r -WorkerId 'acme-api-session')
+        $items = Get-CrewItems -State $r -WorkerId 'acme-api-session'
         $items.id   | Should -Be @('T-1001', 'fix-header', 'T-1003')
         $items.kind | Should -Be @('ticket', 'adhoc', 'ticket')
     }
@@ -333,7 +470,7 @@ Describe 'a session worker carries several items, and nothing else changes shape
         Save-CrewState -State $script:s -Path $p
         $r = Import-CrewState -Path $p
         Add-CrewItem -State $r -WorkerId 'acme-api-session' -Item 'T-1002' -Kind 'ticket'
-        @(Get-CrewItems -State $r -WorkerId 'acme-api-session').id | Should -Be @('T-1001', 'T-1002')
+        (Get-CrewItems -State $r -WorkerId 'acme-api-session').id | Should -Be @('T-1001', 'T-1002')
     }
 
     It 'refuses an item joining a worker that is not a session worker' {

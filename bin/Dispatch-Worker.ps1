@@ -366,6 +366,9 @@ Import-Module (Join-Path $PSScriptRoot 'Index.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Projects.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'ClaudeWorkspace.psm1') -Force
 Import-Module (Join-Path $PSScriptRoot 'Usage.psm1') -Force
+# LAST and without -Force: every module above already loaded Paths as a nested module, so this only
+# brings its path helpers into this script's scope. Forcing it would remove the copy they hold.
+Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
 
 # Dot-sourced up here rather than at the call site far below, because the two functions it defines
 # are wanted at different moments: Test-WorkerBranch by the -Base check a few lines down, which has
@@ -508,9 +511,7 @@ if ($InCheckout) {
     $global:LASTEXITCODE = 0
     $sameRoot = $false
     if ($topOk -and $topLevel) {
-        $sameRoot = [IO.Path]::GetFullPath(($topLevel -replace '/', '\')).TrimEnd('\').Equals(
-                        [IO.Path]::GetFullPath($RepoPath).TrimEnd('\'),
-                        [System.StringComparison]::OrdinalIgnoreCase)
+        $sameRoot = Test-SamePath $topLevel $RepoPath
     }
     if (-not $sameRoot) {
         throw ("-InCheckout needs the top of a git checkout and $RepoPath is not one, so the " +
@@ -594,9 +595,7 @@ $registered   = @()
 $registryPath = Join-Path $DataPath 'projects.md'
 if (Test-Path -LiteralPath $registryPath -PathType Leaf) {
     try {
-        # Get-AllProjects returns the whole array as ONE pipeline object - Projects.psm1's
-        # leading-comma idiom - so the loop below runs over the assigned value rather than an @()
-        # wrap, which would nest it a second time and iterate once over the array itself.
+        # Assigned, never wrapped in @() - statute's collection-return rule.
         $registered = Get-AllProjects -RegistryPath $registryPath -WarningAction SilentlyContinue
     } catch {
         Write-Warning ("The project registry at $registryPath could not be read " +
@@ -606,19 +605,24 @@ if (Test-Path -LiteralPath $registryPath -PathType Leaf) {
     }
 }
 
-$target = [IO.Path]::GetFullPath($RepoPath).TrimEnd('\')
+$target = ConvertTo-NormalPath $RepoPath
 $family = ''
 foreach ($entry in $registered) {
     if (-not $entry.path -or -not $entry.indexable) { continue }
     # Guarded per entry, so one unusable path costs that entry and not the whole resolution.
     $entryPath = ''
-    try { $entryPath = [IO.Path]::GetFullPath($entry.path).TrimEnd('\') }
+    # A blank path is refused by name rather than left to GetFullPath: Windows throws on one, but on
+    # macOS and Linux it resolves quietly to a file called " " in the working directory.
+    try {
+        if ([string]::IsNullOrWhiteSpace($entry.path)) { throw 'the path is blank' }
+        $entryPath = ConvertTo-NormalPath $entry.path
+    }
     catch {
         Write-Warning ("Project $($entry.name) records a 'path:' line that is not a usable path " +
                        "($($_.Exception.Message)); skipping it while resolving this dispatch.")
         continue
     }
-    if ($entryPath.Equals($target, [System.StringComparison]::OrdinalIgnoreCase)) {
+    if (Test-SamePath $entryPath $target) {
         $project = $entry.name
         # Empty where this project declares no family, which is the ordinary state and is what
         # Projects.psm1 reports rather than a word - so nothing below can compose it into a file
@@ -648,7 +652,7 @@ foreach ($entry in $registered) {
 function New-FamilyEntry {
     param([Parameter(Mandatory)][string]$Family)
     @{
-        path = Join-Path $dataRoot "families\$Family.md"
+        path = Join-Path $dataRoot 'families' "$Family.md"
         what = ("the standing rules shared by every project in the $Family family - conventions, " +
                 "vocabulary, exclusions, branch naming, environment facts")
         how  = ('Read it in full before you start. It is reference to consult, not a list to ' +
@@ -707,6 +711,10 @@ if ($project) {
 # naming a file that is not there is a brief the worker cannot carry out, and finding that out
 # after a worker is running means one more dispatch spent discovering it. Every refusal below
 # names the offending path and leaves nothing created.
+#
+# Keyed by file name and deliberately case-insensitive on every system, unlike the path comparisons
+# below: this guards one directory against two files landing on one name, and a macOS volume is
+# usually case-insensitive, so refusing `A.md` beside `a.md` is the safe answer everywhere.
 $readFirstDir = Join-Path $briefDir 'read-first'
 $staged       = [System.Collections.Generic.Dictionary[string, string]]::new(
                     [System.StringComparer]::OrdinalIgnoreCase)
@@ -731,7 +739,7 @@ foreach ($p in @($ReadPath | Where-Object { $_ -and $_.Trim() })) {
     foreach ($standingLeaf in $standing.Keys) {
         if ($standing[$standingLeaf].kind -ne 'family') { continue }
         if (-not $resolved.Equals($standing[$standingLeaf].path,
-                                  [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+                                  (Get-PathComparison))) { continue }
         throw ("Read first names $resolved, the shared rules of the $family family. This dispatch " +
                "attaches that file itself for every project in the family and names the copy " +
                "$standingLeaf, so passing it by hand stages one file twice under two names. Leave " +
@@ -787,7 +795,7 @@ foreach ($leaf in $standing.Keys) {
     if ($staged.ContainsKey($leaf)) {
         # The same file, passed by hand as well. The Hand's own `Read first` line already names it,
         # so this adds nothing and writes no second line for it.
-        if ($staged[$leaf].Equals($p, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        if ($staged[$leaf].Equals($p, (Get-PathComparison))) { continue }
         throw ("Read first names $($staged[$leaf]), and $leaf at $p is attached to every brief for " +
                "project $project. Both would land on $leaf in the staging " +
                "directory and one would overwrite the other. Pass the file under a distinct name, " +
@@ -869,7 +877,7 @@ if (-not $hasSection) {
 # installation rather than of anybody's data, and resolved so every comparison below sees the same
 # shape Resolve-Path gave the staged copies.
 $procedurePath = [System.IO.Path]::GetFullPath(
-    (Join-Path $PSScriptRoot '..\.claude\skills\witness\SKILL.md'))
+    (Join-Path $PSScriptRoot '..' '.claude' 'skills' 'witness' 'SKILL.md'))
 $modulePath    = [System.IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot 'BrowserVerify.psm1'))
 
@@ -889,7 +897,7 @@ if ($hasBrowser) {
     $absent = @(foreach ($k in $needed.Keys) {
         $p = $needed[$k]
         $there = @($staged.Values | Where-Object {
-            $_.Equals($p, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+            $_.Equals($p, (Get-PathComparison)) }).Count -gt 0
         if (-not $there) { "the $k at $p" }
     })
     if ($absent.Count -gt 0) {
@@ -919,7 +927,7 @@ if ($hasBrowser) {
 # the gate unable to fire at all.
 $gates = [System.Collections.Generic.List[hashtable]]::new()
 
-$rootEntries = @(Get-IndexEntries -DataPath $DataPath)
+$rootEntries = Get-IndexEntries -DataPath $DataPath
 if ($rootEntries.Count -gt 0) {
     $gates.Add(@{
         label = 'the root index'
@@ -929,7 +937,7 @@ if ($rootEntries.Count -gt 0) {
 }
 
 if ($project) {
-    $projectEntries = @(Get-IndexEntries -Project $project -DataPath $DataPath)
+    $projectEntries = Get-IndexEntries -Project $project -DataPath $DataPath
     if ($projectEntries.Count -gt 0) {
         $gates.Add(@{
             label = "project $project's index"
@@ -999,7 +1007,7 @@ if ($gates.Count -gt 0) {
     $module    = if ($hasBrowser) { $modulePath }    else { '' }
 
     $byRote = [System.Collections.Generic.HashSet[string]]::new(
-                  [System.StringComparer]::OrdinalIgnoreCase)
+                  (Get-PathComparer))
     foreach ($leaf in $standing.Keys) { $null = $byRote.Add($standing[$leaf].path) }
     foreach ($p in @($procedure, $module)) { if ($p) { $null = $byRote.Add($p) } }
 
@@ -1035,7 +1043,7 @@ if ($gates.Count -gt 0) {
         $wasPassed = {
             param($path)
             $path -and @($staged.Values | Where-Object {
-                $_.Equals($path, [System.StringComparison]::OrdinalIgnoreCase) }).Count -gt 0
+                $_.Equals($path, (Get-PathComparison)) }).Count -gt 0
         }
         # Walked in $standing's order, so the criteria file is named before the rules file wherever
         # both were passed by hand. The family's file never matches here: a -ReadPath naming it was
@@ -1366,22 +1374,10 @@ foreach ($copy in $staleCopies) { Remove-Item -LiteralPath $copy -Force }
 # That holds for the fresh-branch path and only that one. The two re-dispatch paths below do not
 # branch at all: one reuses a registered worktree without touching git, the other checks out a
 # branch that survived its worktree, and in both the branch point is whatever the earlier dispatch
-# chose. Resolve it again after the repository has moved - a `.no-mistakes.yaml` added since, a
-# default branch that changed - and the base recorded here describes a branch cut somewhere else,
-# so `git log "$base..HEAD"` carries commits nobody in this ticket wrote. The landing gate's
-# attribution scan runs over that same range, so any of them carrying a co-author trailer surfaces
-# there - which muster reads as a bad diff base rather than as the worker's doing - but the rest
-# just widen the diff. Closing that gap is possible and is simply not done here: the branch's own
-# reflog records where it was cut from - `git reflog show worktree-<name>` ends at
-# `branch: Created from <ref>`, written by the `-b` add below, so it exists by construction on the
-# reuse path and survives until gc.reflogExpire - and crew.json already holds the base the first
-# dispatch recorded under this same worker id. Either would give the real branch point; both are
-# a behaviour change to make deliberately rather than a line to slip in beside a comment.
-#
-# Handing a DIFFERENT -Base to the second dispatch opens that same gap with no repository change at
-# all, so the parameter is one more way in rather than a new failure. It is left open for the reason
-# above: the fix is on the re-dispatch paths, and it is the deliberate behaviour change, not a
-# clause added beside the parameter that made the trigger easier to reach.
+# chose - so the base resolved here, or handed in as a different -Base, need not be it. The result
+# says which path ran in `branchCut`, true only where this dispatch cut the branch from $base, and
+# Set-CrewRelaunch in Crew.psm1 owns what the record keeps on a re-dispatch: the base crew.json
+# already holds under this worker id, unless the branch was cut afresh.
 #
 # Resolved BEFORE the spawn on purpose: Resolve-BaseRef refuses rather than inventing a ref, and
 # a refusal after the worker exists would leave an orphaned agent running in the repo.
@@ -1439,18 +1435,20 @@ function Test-LocalBranch {
 }
 
 # git prints worktree paths with forward slashes and its own casing, so a string compare against a
-# Windows path built with Join-Path never matches. Compare fully-qualified paths instead.
+# Windows path built with Join-Path never matches. Compare as paths instead - Paths.psm1 owns the
+# rule, including which systems ignore case.
 function Test-WorktreeRegistered {
     param([Parameter(Mandatory)][string]$Path)
-    $target = [IO.Path]::GetFullPath($Path).TrimEnd('\')
     foreach ($line in @((Get-GitOutput @('worktree', 'list', '--porcelain')) -split "`r?`n")) {
         if ($line -notmatch '^worktree\s+(.+)$') { continue }
-        $listed = [IO.Path]::GetFullPath(($Matches[1].Trim() -replace '/', '\')).TrimEnd('\')
-        if ($listed -eq $target) { return $true }
+        if (Test-SamePath $Matches[1].Trim() $Path) { return $true }
     }
     $false
 }
 
+# Whether this dispatch cut the branch from $base. Only the fresh `-b` add below does; the checkout
+# and both re-dispatch paths take a branch that already exists.
+$branchCut = $false
 if ($InCheckout) {
     # No prune and no worktree add: the King's repository is not touched beyond the one settings
     # file, and that file is recorded before it is changed. The record is indexed as it is written,
@@ -1504,6 +1502,7 @@ if ($InCheckout) {
     } else {
         $out = Get-GitOutput @('worktree', 'add', '-b', $branch, $worktree, $base)
         if ($LASTEXITCODE -ne 0) { throw "git worktree add -b $branch $worktree $base failed: $out" }
+        $branchCut = $true
     }
 
     # The two grants that used to be `--permission-mode bypassPermissions --add-dir <briefdir>` on the
@@ -1648,8 +1647,14 @@ $result = [hashtable]@{
     worktree    = $worktree
     branch      = $branch
     base        = $base
+    # Whether this dispatch cut the branch from `base`. False on a re-dispatch that found its branch,
+    # where Set-CrewRelaunch keeps the base already recorded.
+    branchCut   = $branchCut
     readable    = $readable
     startPrompt = $taken.outcome
+    # Recorded with Add-CrewWorker -PaneId, so cleanup can close this pane after the worker has
+    # exited - by then herdr has no agent left to find it through.
+    paneId      = $paneId
 }
 # Two more keys for a checkout worker and none for a worktree one, so an ordinary dispatch returns
 # exactly the shape it always has. The record path is what Stop-CheckoutWorker takes back.

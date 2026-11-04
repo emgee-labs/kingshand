@@ -1,6 +1,6 @@
 ---
 name: statute
-description: Reference for changing kingshand's own tracked material - `CLAUDE.md`, `bin\`, `.claude\skills\`, `tests\`, `docs\`. Load it before editing any of that material, whether working as the Hand directly or as a worker briefed on a kingshand-repo task. Covers the knowledge-placement decision tree, the one-owner rule for contracts, the inline-stub pattern for content moved into a skill, size discipline for the always-loaded file, trigger hygiene for new skills, the rule that a prose rule needs a test, matching a new rule's form to the failure it is for, the dependency pins and their weekly refresh, and kingshand's style rules. Also load it to run that weekly refresh.
+description: Reference for changing kingshand's own tracked material - `CLAUDE.md`, `bin\`, `.claude\skills\`, `tests\`, `docs\`. Load it before editing any of that material, whether working as the Hand directly or as a worker briefed on a kingshand-repo task. Covers the knowledge-placement decision tree, the one-owner rule for contracts, the rule ids that make a pointer to a rule checkable, the inline-stub pattern for content moved into a skill, size discipline for the always-loaded file, trigger hygiene for new skills, the rule that a prose rule needs a test, matching a new rule's form to the failure it is for, the dependency pins and their weekly refresh, and kingshand's style rules. Also load it to run that weekly refresh.
 version: 1.0.0
 ---
 
@@ -28,7 +28,7 @@ Before writing a new fact anywhere in this repo, ask where it belongs, in this o
 2. Does the Hand or a worker need it only in a nameable situation - an intake, a gate, a
    dispatch, a landing, a teardown, a specific lifecycle step, a reported bug?
    If yes: a skill under `.claude\skills\`, plus a one-line trigger pointer left inline in
-   `CLAUDE.md`'s Skills section.
+   `CLAUDE.md`'s Skills section [rule:claude/skill-triggers].
 3. Is it design rationale - why kingshand is shaped the way it is, what was considered and
    rejected, what a future change must not undo?
    If yes: `docs\`, as a dated design note.
@@ -64,6 +64,48 @@ When you touch a contract, patch, replace, or prune the owner's existing languag
 appending a new clause or paragraph wherever possible, then grep the repo for its other mentions
 and update the cross-references, not duplicate the change into a second full copy.
 
+**A setting is a contract too: before adding one, check whether an existing dimension already
+answers it.** A new flag beside a question kingshand already asks - how far work goes for a
+project, say - is a second way of saying one thing, and the two drift exactly as two copies of a
+contract do. Make the new capability another answer to the existing question, and add a setting
+only when no existing one can carry it. "A separate flag is smaller and touches nothing else" is
+the reasoning this catches: it moves the cost onto every reader, who now has two places to look.
+One proposed flag was withdrawn on exactly this (the `kh-two-discipline-rules` work item).
+
+## Rule ids
+
+**An owned rule that anything else points at carries a rule id where it is owned, and every
+pointer to it cites that id.** The one-owner rule is enforced by reading, and when a rule moves
+nothing else enumerates the places that pointed at it; a rule id turns those places into a list the
+suite hands you. Of fifteen review findings against one change, thirteen were a pointer left aimed
+at a rule's old position (`data\kh-outward-gating\report.md`).
+
+The grammar is closed and matched literally, never parsed:
+
+- **A declaration** is `<!-- rule:<owner>/<name> -->`, exactly so - one space inside each end of
+  the comment. It is an HTML comment, so it renders as nothing. Put it on a line of its own, under
+  the owning heading or as the last line of the owning paragraph or bullet, indented to match -
+  never in the middle of a paragraph, which it would split in two, and never on a heading line,
+  which a test may read word for word.
+- **A citation** is `[rule:<owner>/<name>]`, written where the pointer is, and it renders as that
+  text. Never follow it directly with `(` or `[`, which would make Markdown read it as a link.
+- **The id** is lower-case letters, digits and `-`, either side of one `/`. The owner names the one
+  file a declaration may sit in: `claude` is `CLAUDE.md`, a skill's name is its `SKILL.md`, and a
+  design note's dated name is that note under `docs\`. The name says what the rule is, never where
+  it sits - not a step number and not a position.
+
+A pointer keeps the words a reader navigates by - "`muster` Step 7 owns the rule" - and adds the
+citation; where it restated the rule it becomes the citation plus at most one short clause of
+context. A rule pointed at only from inside its own file needs no id, and a pointer at a whole
+skill rather than a rule inside it cites nothing. **Moving a rule to another owner renames its id**,
+which is the point: every citation of the old one then fails.
+
+`tests\RuleIds.Tests.ps1` reads every tracked Markdown file and fails, naming the file and the
+line, on a citation nobody declares, an id declared twice or outside its owner's file, a declared
+id nothing outside its own file cites, and anything that opens like an id and is not a whole one.
+A rule owned but not cited yet, or text that opens like an id on purpose, is a literal exception in
+`tests\rule-ids.psd1` with its reason - never a change to the test.
+
 ## Inline-stub pattern
 
 When content moves out of `CLAUDE.md` into a skill, decide what stays behind by asking one
@@ -74,7 +116,8 @@ Everything else - the procedure, the mechanism, the surrounding detail - moves o
 Do not leave a partial restatement behind "just in case". A partial copy is exactly the duplication
 the one-owner rule forbids.
 
-The model to copy is `CLAUDE.md`'s Skills section: it keeps only when to invoke `muster`,
+The model to copy is `CLAUDE.md`'s Skills section [rule:claude/skill-triggers]: it keeps only when
+to invoke `muster`,
 `annex`, and `survey`, plus the standing reminder that reading `CLAUDE.md` is not a
 substitute for loading the skill, and points everything else at the skill itself.
 
@@ -91,8 +134,10 @@ patching that owner's existing language, and add only the one-line trigger to `C
 
 ## Trigger hygiene
 
+<!-- rule:statute/trigger-hygiene -->
 A new skill is dead weight if nothing loads it. Every new skill needs its load trigger declared
-inline in `CLAUDE.md`'s Skills section, in one line. State the trigger as a condition ("load before
+inline in `CLAUDE.md`'s Skills section [rule:claude/skill-triggers], in one line. State the
+trigger as a condition ("load before
 X", "load when Y is reported"), never as a vague pointer. The skill's own `description` must fire
 on the situation as well, not only on a slash command, because a reference procedure is reached by
 recognising the situation rather than by the user typing its name.
@@ -126,6 +171,16 @@ that containment is asserted with `.Contains` and not `Should -BeLike`, because 
 PowerShell's wildcard escape character and a `-BeLike` pattern quietly stops matching backtick-rich
 text it was copied from.
 
+**A rule cites the file that holds its evidence and keeps one checkable number beside it, rather
+than reproducing the breakdown inline.** The number keeps the rule's cost visible, which is the
+reason its wording is pinned at all: an editor who cannot see what a rule cost will delete it. The
+breakdown is what goes stale - every count beside a rule is a claim nobody re-measures, so an
+inline breakdown writes tomorrow's stale claim into the file whose job is to prevent one. Name the
+source - a design note under `docs\`, a task's `data\<id>\report.md` or its work item - and keep
+one number a reader can check there. Four of the six review findings against one change were
+about the numbers quoted beside its rules and none about a rule (`data\kh-dev-skills\report.md`).
+This shapes rules written from here on; it does not open a pass over the existing ones.
+
 For critical safety, routing, and gating behavior generally, prefer deterministic enforcement over
 relying on agent memory alone. Keep the prose as the authority and discovery layer, and make the
 test the thing that notices when the prose is gone.
@@ -153,6 +208,7 @@ reopening one already in force.
 
 ## Dependency pins
 
+<!-- rule:statute/dependency-pins -->
 `dependencies.json` at the repo root records the exact version of every dependency a release was
 verified with - herdr with each platform's SHA-256, the review gate, and the npm tools - and a
 minimum for Claude Code, which updates itself. `install.ps1 -SyncPins` moves a user to those pins
@@ -181,8 +237,13 @@ the file turns it off. The refresh:
 
 - Use `-`, never the long dash (U+2014). `tests\Docs.Tests.ps1` asserts this for every skill and
   for `CLAUDE.md`.
+- A word banned in `tests\banned-words.psd1` never appears in tracked material, and
+  `tests\Vocabulary.Tests.ps1` fails naming the file, the line and the word to use instead. Ban a
+  word or add an exception in that list, never in the test, and keep every exception a literal
+  file or phrase rather than a rule about context.
 - Never mention Claude, AI, an assistant, or a model in anything that reaches a git remote or Azure
-  DevOps: ticket text, commit messages, PR bodies. This is hard rule 3 and it does not bend.
+  DevOps: ticket text, commit messages, PR bodies. This is hard rule 3
+  [rule:claude/no-tool-names-outward] and it does not bend.
 - Never add an agent name as a commit co-author.
 - Wrap tracked Markdown to match the existing skills, at roughly 95 columns, and keep paragraphs
   as paragraphs rather than one sentence per line.
@@ -196,6 +257,16 @@ the file turns it off. The refresh:
   `Index.psm1`, `Memory.psm1` and `Projects.psm1` point their import line back here, and
   `tests\Index.Tests.ps1`, `tests\Memory.Tests.ps1` and `tests\Projects.Tests.ps1` pin the
   Index, Memory and Projects edges.
+- **A helper under `bin\` that returns a collection returns one
+  `[System.Collections.Generic.List[object]]`, whole: `return , $list`.** The caller assigns it -
+  `$x = Get-Thing` - and counts, indexes, loops or pipes `$x`; a call used in place is
+  parenthesised, as `(Get-Thing).Count` or `(Get-Thing) | ...`. Never `@(Get-Thing)`,
+  `Get-Thing | ...` or `foreach ($i in Get-Thing)`: each sees the list as one item. A bare
+  `return $list` is not the rule, because PowerShell enumerates a List on return exactly as it does
+  an array and the caller gets `$null`, one item or an array by count. A helper relaying another's
+  list returns the call itself or `return , $x`, never `return $x`.
+  `tests\CollectionReturn.Tests.ps1` holds the measurement, and each such helper has a test of its
+  shape at zero, one and many items.
 - `yolo` is the string `'on'` or `'off'`, never a boolean. Test it as `-eq 'on'`; `if ($proj.yolo)`
   is true for `'off'` because every non-empty string is truthy in PowerShell.
 - Tests live in `tests\` as Pester, named `<Subject>.Tests.ps1`. Extend an existing file rather

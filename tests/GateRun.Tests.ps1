@@ -348,8 +348,10 @@ run:
     intent,completed,0,6
 '@
 
+    # Any real program will do. On Windows that has to be the .exe, which a native caller can start;
+    # on macOS and Linux node has no extension at all.
     $script:NodePath = (Get-Command 'node' -CommandType Application |
-                        Where-Object { $_.Source -like '*.exe' } |
+                        Where-Object { -not $IsWindows -or $_.Source -like '*.exe' } |
                         Select-Object -First 1).Source
 
     # Two stand-ins for the gate binary, because the launch branches cannot be forced any other
@@ -360,15 +362,15 @@ run:
                                  ("gate shims $([guid]::NewGuid().ToString('N'))")
     New-Item -ItemType Directory -Path $script:ShimRoot -Force | Out-Null
 
-    $script:SlowShim = Join-Path $script:ShimRoot 'axi slow.cmd'
-    Set-Content -LiteralPath $script:SlowShim -Encoding ascii `
-        -Value @('@echo off', 'ping -n 31 127.0.0.1 >nul')
+    Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
+    $script:SlowShim = New-TestExecutable -Path (Join-Path $script:ShimRoot 'axi slow') `
+        -Cmd @('ping -n 31 127.0.0.1 >nul') -Sh @('sleep 30')
 
     # `axi status --run <value>` puts the run id in the fourth argument, so `%~4` is the value as
     # the binary really received it. A joined command line splits it and this prints the fragment.
-    $script:ArgvEchoShim = Join-Path $script:ShimRoot 'axi echo.cmd'
-    Set-Content -LiteralPath $script:ArgvEchoShim -Encoding ascii `
-        -Value @('@echo off', 'echo error: "the run asked for was [%~4]"')
+    $script:ArgvEchoShim = New-TestExecutable -Path (Join-Path $script:ShimRoot 'axi echo') `
+        -Cmd @('echo error: "the run asked for was [%~4]"') `
+        -Sh @('echo "error: \"the run asked for was [$4]\""')
 
     # Two shapes the launcher returns, and nothing invented: the binary ran, or it did not.
     function New-AxiRan {

@@ -18,12 +18,23 @@ Set-StrictMode -Version Latest
 # and the Hand's console with hashtable dumps.
 #
 # `waiting_on` is a pointer, not a stage, and the distinction is the whole reason it exists.
-# The six stages are a lifecycle - a worker is at exactly one of them and moves forward. Waiting
+# The stages are a lifecycle - a worker is at exactly one of them and moves forward. Waiting
 # for a decision is a condition that can happen at any of them and then resolves back to wherever
-# the worker already was, so a seventh stage would destroy the one fact most needed afterwards:
+# the worker already was, so a stage for it would destroy the one fact most needed afterwards:
 # what the worker was doing before it parked. This field holds the tasks-axi hold key carrying
 # that decision. The `decree` skill owns the hold's own lifecycle and how its key is composed;
 # this module only records which key a worker parked on, so no session has to reconstruct it.
+#
+# `paused` is the one stage off that forward line. Suspend-Worker in bin\Teardown.psm1 sets it once
+# a worker is stopped with its copy kept, so a later session reads it as paused rather than dead,
+# and a relaunch moves it back to `dispatched` with Set-CrewRelaunch. A pause does not resolve back
+# to where the worker was - a relaunch starts over - so nothing is lost by it being a stage, and the
+# stage it left is written into its pause record.
+#
+# `reported` means delivered a report, nothing to land: a review-only job or a read-only
+# investigation whose findings have been relayed. It is over, the same as `landed`, and it never
+# sets the `landed` flag, because nothing was merged. Test-CrewStageOver is the one list of the
+# stages that are over, and every reader that decides over-or-waiting asks it.
 #
 # THERE IS NO CLEARING VERB, AND THAT IS THE DESIGN RATHER THAN AN OMISSION. Once a worker parks,
 # the field keeps naming that hold for the rest of the worker's life. Clearing it on the way back
@@ -48,8 +59,14 @@ Set-StrictMode -Version Latest
 #
 # A worker in the project's own checkout, with no worktree, carries `checkout` and the path of the
 # permission-file record dispatch wrote, which is what its cleanup reads back.
+#
+# `pane_id` is the herdr pane dispatch started the worker in, absent on records from before it was
+# kept, and `torn_down_at` says its cleanup finished. bin\Teardown.psm1 reads the first and writes
+# the second.
 
-$script:ValidStages = @('dispatched', 'implementing', 'gating', 'ready', 'landed', 'failed')
+$script:ValidStages = @('dispatched', 'implementing', 'gating', 'ready', 'landed', 'failed', 'paused',
+                        'reported')
+$script:OverStages  = @('landed', 'failed', 'reported')
 $script:ValidKinds  = @('ticket', 'adhoc')
 
 # tasks-axi ids are slug-shaped - letters, digits, '.', '_' and '-', with no spaces - and the first
@@ -96,14 +113,22 @@ function Add-CrewWorker {
         # Dispatch-Worker returned as settingsRecord, and it is required here because cleanup
         # cannot put the King's settings file back without it.
         [switch]$InCheckout,
-        [string]$SettingsRecord = ''
+        [string]$SettingsRecord = '',
+        # The herdr pane the worker was started in, as Dispatch-Worker returned it in paneId. Kept so
+        # cleanup can close that pane after the worker has exited, when herdr no longer has an agent
+        # to find it through. Left off, nothing is recorded and cleanup finds the pane by its cwd.
+        [string]$PaneId = ''
     )
 
     if ($Kind -notin $script:ValidKinds) {
         throw "Invalid kind '$Kind'. Must be one of: $($script:ValidKinds -join ', ')"
     }
+    # A second dispatch under an id already recorded is a re-dispatch, and Set-CrewRelaunch owns
+    # how one is recorded - so the refusal names it rather than leaving the Hand at a dead end.
     if ($State.workers.ContainsKey($WorkerId)) {
-        throw "Duplicate worker id '$WorkerId'."
+        throw ("Duplicate worker id '$WorkerId'. It is already recorded, so this is a re-dispatch: " +
+               "re-record it with Set-CrewRelaunch, passing -BranchCut from the dispatch result's " +
+               "branchCut, which keeps the recorded base unless that dispatch cut a new branch.")
     }
     if ($InCheckout -and -not $SettingsRecord.Trim()) {
         throw ("A checkout worker needs -SettingsRecord - the record Dispatch-Worker returned as " +
@@ -138,6 +163,22 @@ function Add-CrewWorker {
         $State.workers[$WorkerId].checkout        = $true
         $State.workers[$WorkerId].settings_record = $SettingsRecord.Trim()
     }
+    if ($PaneId.Trim()) { $State.workers[$WorkerId].pane_id = $PaneId.Trim() }
+}
+
+# Records that a worker's cleanup finished: its pane, workspace and copy are gone. The stage is left
+# where it was - cleanup runs at `ready` or at `landed`, and both still say truly how far the work
+# got - so this is a field beside the stage rather than a seventh stage every reader would have to
+# learn. bin\Teardown.psm1 is the one writer.
+function Set-CrewTornDown {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$State,
+        [Parameter(Mandatory)][string]$WorkerId
+    )
+
+    if (-not $State.workers.ContainsKey($WorkerId)) { throw "Worker '$WorkerId' not found." }
+    $State.workers[$WorkerId].torn_down_at = (Get-Date).ToUniversalTime().ToString('o')
 }
 
 # One more ticket or fix joining a session worker's branch, appended in order. Refused on a worker
@@ -166,7 +207,6 @@ function Add-CrewItem {
         throw ("Worker '$WorkerId' is not a session worker, so it carries one ticket and nothing " +
                "joins it. Dispatch the new work on its own, or record the session worker with -Session.")
     }
-    # Assigned rather than wrapped: Get-CrewItems returns its list through the leading-comma idiom.
     $items = Get-CrewItems -State $State -WorkerId $WorkerId
     if (@($items | Where-Object { $_.id -eq $Item }).Count -gt 0) {
         throw "Item '$Item' is already on worker '$WorkerId''s branch."
@@ -187,28 +227,40 @@ function Get-CrewItems {
 
     if (-not $State.workers.ContainsKey($WorkerId)) { throw "Worker '$WorkerId' not found." }
     $rec = $State.workers[$WorkerId]
+    $out = [System.Collections.Generic.List[object]]::new()
     if (-not ($rec -is [System.Collections.IDictionary] -and $rec.Contains('items'))) {
-        return , @([pscustomobject]@{ id = "$($rec.ticket)"; kind = "$($rec.kind)" })
+        $out.Add([pscustomobject]@{ id = "$($rec.ticket)"; kind = "$($rec.kind)" })
+        return , $out
     }
-    $out = foreach ($it in @($rec.items)) {
+    foreach ($it in @($rec.items)) {
         if (-not ($it -is [System.Collections.IDictionary]) -or -not $it.Contains('id') -or
             -not $it.Contains('kind') -or "$($it.id)" -notmatch $script:HoldKeyPattern -or
             "$($it.kind)" -notin $script:ValidKinds) {
             throw ("Worker '$WorkerId' records an item list that cannot be read: every entry must " +
                    "carry an id and a kind of $($script:ValidKinds -join ' or ').")
         }
-        [pscustomobject]@{ id = "$($it.id)"; kind = "$($it.kind)" }
+        $out.Add([pscustomobject]@{ id = "$($it.id)"; kind = "$($it.kind)" })
     }
-    if (@($out).Count -eq 0) {
+    if ($out.Count -eq 0) {
         throw "Worker '$WorkerId' records an empty item list, so nothing says what rides its branch."
     }
-    , @($out)
+    return , $out
 }
 
-# Re-records an existing worker after a relaunch: where it now runs, on which branch, from which
-# base, and the new permission-file record for a checkout worker. Its items, its waiting_on and
-# everything else it carried are kept - a relaunch is the same work, and Add-CrewWorker would refuse
-# the id as a duplicate.
+# Re-records an existing worker after a relaunch or any other re-dispatch under the same id: where
+# it now runs, on which branch, in which pane, and the new permission-file record for a checkout
+# worker. Its items, its waiting_on and everything else it carried are kept - a re-dispatch is the
+# same work, and Add-CrewWorker refuses the id as a duplicate and points here.
+#
+# THE RECORDED BASE MUST STAY THE REF THE BRANCH WAS CUT FROM, because the landing gate diffs
+# against it. Dispatch-Worker resolves a base on every dispatch, but cuts a branch from it only when
+# the branch does not exist yet; a re-dispatch that finds the branch - its worktree still registered,
+# or the branch outliving it - checks it out where the earlier dispatch cut it. So the recorded base
+# is replaced only when -BranchCut says this dispatch cut the branch, and then by the -Base it was
+# cut from. Otherwise it is kept, and any -Base passed is not recorded: it was resolved fresh and
+# the branch was not cut from it, so recording it would let the landing diff carry commits nobody
+# in this work wrote. Keeping is the default because a relaunch reuses its branch, so a caller that
+# says nothing gets the true answer.
 function Set-CrewRelaunch {
     [CmdletBinding()]
     param(
@@ -216,8 +268,14 @@ function Set-CrewRelaunch {
         [Parameter(Mandatory)][string]$WorkerId,
         [Parameter(Mandatory)][string]$Worktree,
         [Parameter(Mandatory)][string]$Branch,
-        [Parameter(Mandatory)][string]$Base,
-        [string]$SettingsRecord = ''
+        # The ref the branch was cut from. Recorded only with -BranchCut $true, which requires it.
+        [string]$Base = '',
+        # Dispatch-Worker's branchCut: whether that dispatch cut the branch from -Base.
+        [bool]$BranchCut = $false,
+        [string]$SettingsRecord = '',
+        # The pane the re-dispatch started the worker in, as Dispatch-Worker returned it. Left off,
+        # the pane already recorded is kept.
+        [string]$PaneId = ''
     )
 
     if (-not $State.workers.ContainsKey($WorkerId)) { throw "Worker '$WorkerId' not found." }
@@ -230,13 +288,19 @@ function Set-CrewRelaunch {
     if ($SettingsRecord.Trim() -and -not $checkout) {
         throw "Worker '$WorkerId' is not a checkout worker, so -SettingsRecord has nothing to replace."
     }
+    if ($BranchCut -and -not $Base.Trim()) {
+        throw ("-BranchCut says this dispatch cut a new branch for worker '$WorkerId', so it needs " +
+               "-Base - the ref the branch was cut from, the dispatch result's base. Nothing was " +
+               "changed.")
+    }
 
     $rec.worktree      = $Worktree
     $rec.branch        = $Branch
-    $rec.base          = $Base
+    if ($BranchCut) { $rec.base = $Base.Trim() }
     $rec.stage         = 'dispatched'
     $rec.dispatched_at = (Get-Date).ToUniversalTime().ToString('o')
     if ($checkout) { $rec.settings_record = $SettingsRecord.Trim() }
+    if ($PaneId.Trim()) { $rec.pane_id = $PaneId.Trim() }
 }
 
 function Set-CrewWaitingOn {
@@ -279,6 +343,16 @@ function Set-CrewStage {
     if ($Stage -eq 'landed') { $State.workers[$WorkerId].landed = $true }
 }
 
+# Whether a stage is over - nothing left running and nothing waiting on the King. Anything else,
+# including a stage this module does not know, is not over, so an unreadable stage is listed
+# rather than hidden.
+function Test-CrewStageOver {
+    [CmdletBinding()]
+    param([AllowEmptyString()][AllowNull()][string]$Stage)
+
+    "$Stage" -in $script:OverStages
+}
+
 function Get-CrewWorker {
     [CmdletBinding()]
     param(
@@ -294,17 +368,17 @@ function Get-CrewByStage {
         [Parameter(Mandatory)][hashtable]$State,
         [Parameter(Mandatory)][string]$Stage
     )
-    $out = foreach ($id in $State.workers.Keys) {
+    # Returned whole under statute's collection-return rule: a bare return would hand back the
+    # one hashtable alone, and .Count would report its key count instead of 1.
+    $out = [System.Collections.Generic.List[object]]::new()
+    foreach ($id in $State.workers.Keys) {
         if ($State.workers[$id].stage -eq $Stage) {
             $w = $State.workers[$id].Clone()
             $w['id'] = $id
-            $w
+            $out.Add($w)
         }
     }
-    # The leading comma is load-bearing. PowerShell unwraps a single-element array on return,
-    # so `@($out)` alone would hand back the bare hashtable and .Count would report its key
-    # count instead of 1. Wrapping in an outer array survives the unwrap.
-    , @($out)
+    return , $out
 }
 
 function Save-CrewState {
@@ -339,6 +413,6 @@ function Import-CrewState {
     $raw
 }
 
-Export-ModuleMember -Function New-CrewState, Add-CrewWorker, Set-CrewStage, Set-CrewWaitingOn,
+Export-ModuleMember -Function New-CrewState, Add-CrewWorker, Set-CrewStage, Test-CrewStageOver, Set-CrewWaitingOn,
                               Get-CrewWorker, Get-CrewByStage, Save-CrewState, Import-CrewState,
-                              Add-CrewItem, Get-CrewItems, Set-CrewRelaunch
+                              Add-CrewItem, Get-CrewItems, Set-CrewRelaunch, Set-CrewTornDown

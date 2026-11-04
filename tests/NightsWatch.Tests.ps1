@@ -164,6 +164,17 @@ Describe 'a merge happens only under every floor' {
         ($v.reasons -join ' ') | Should -BeLike '*never relocated*'
     }
 
+    It 'never merges for a review-only project, whichever side names the mode' -ForEach @(
+        @{ projectMode = 'review-only'; taskMode = 'review-only' }
+        @{ projectMode = 'review-only'; taskMode = 'direct-PR' }
+        @{ projectMode = 'direct-PR';   taskMode = 'review-only' }
+    ) {
+        Set-PrReply (New-PrJson -Checks @((New-GreenRun)))
+        $v = Get-Verdict -Project (New-Project -Mode $projectMode) -Mode $taskMode
+        $v.allowed | Should -BeFalse
+        ($v.reasons -join ' ') | Should -BeLike '*review-only project lands nothing*'
+    }
+
     It 'never merges red' {
         Set-PrReply (New-PrJson -Checks @((New-GreenRun), @{ __typename = 'CheckRun'; status = 'COMPLETED'; conclusion = 'FAILURE' }))
         $v = Get-Verdict
@@ -500,7 +511,7 @@ Describe 'a pause rescues the gate''s commits first, and a restart carries what 
     It 'looks in the gate''s own mirrors under the profile when no mirror root is named' {
         $repo = New-Repo
         $profileDir = New-CaseDir
-        $mirror = Join-Path $profileDir '.no-mistakes\repos\abc123.git'
+        $mirror = Join-Path $profileDir '.no-mistakes' 'repos' 'abc123.git'
         git clone -q --bare $repo $mirror
         $work = New-CaseDir
         git clone -q $mirror $work
@@ -510,13 +521,26 @@ Describe 'a pause rescues the gate''s commits first, and a restart carries what 
         git -C $work push -q origin HEAD:refs/heads/gate-run 2>&1 | Out-Null
         $head = (git -C $work rev-parse HEAD).Trim()
 
-        $saved = $env:USERPROFILE
+        $saved = $env:USERPROFILE; $savedUnixHome = $env:HOME
         try {
-            $env:USERPROFILE = $profileDir
+            if ($IsWindows) { $env:USERPROFILE = $profileDir } else { $env:HOME = $profileDir }
             $r = Save-WatchGateRescue -RepoPath $repo -Head $head -Task 'T-1001'
-        } finally { $env:USERPROFILE = $saved }
+        } finally { $env:USERPROFILE = $saved; $env:HOME = $savedUnixHome }
         $r.from | Should -Be $mirror
         (git -C $repo rev-parse $r.ref).Trim() | Should -Be $head
+    }
+
+    # With no home directory there is nowhere the gate's mirrors could be, and a mirror root
+    # invented here would be searched, found empty, and reported as "no mirror holds the commit".
+    It 'refuses, naming the missing variable, when there is no home directory to find the mirrors in' {
+        $repo = New-Repo
+        $saved = $env:HOME
+        try {
+            Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+            $env:HOME = ''
+            { Save-WatchGateRescue -RepoPath $repo -Head ('a' * 40) -Task 'T-1001' } |
+                Should -Throw '*HOME environment variable is not set*'
+        } finally { $env:HOME = $saved }
     }
 
     It 'writes the ref directly when the repository already has the commit' {

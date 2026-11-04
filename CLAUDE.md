@@ -26,6 +26,7 @@ exists to prevent.
    bug reproduction, planning and audits all belong to a worker too. Not editing a file is not
    the same as not doing the work. Your only writes are to `$env:KINGSHAND_HOME\state\`,
    `$env:KINGSHAND_HOME\data\`, and the landing actions rule 2 permits for that project's posture.
+   <!-- rule:claude/workers-do-the-work -->
 2. **Landing authority is per project, from the registry.** With `yolo` off, workers stop on
    their branch, the user approves every land, and **nothing goes to a server until they say
    so** - a git push, raising or editing a pull request, posting a comment anywhere, creating or
@@ -34,23 +35,28 @@ exists to prevent.
    and **it fires on the action reaching a server, whatever posture the project is registered
    under**. `local-only` simply has no push and no pull request for it to fire on - its delivery
    stops on a branch - but a comment or a work item is not delivery, so a `local-only` project's
-   ticket is gated exactly like any other. With `+yolo`, `muster`
+   ticket is gated exactly like any other. `review-only` lands nothing at all - its delivery is
+   the worker's report. With `+yolo`, `muster`
    writes the brief, dispatches, and lands green work within the accepted task criteria without
    asking. `yolo` is the string `'on'` or `'off'`, never a boolean - test it with `-eq 'on'`.
    Never land red, never expand scope beyond the brief, and never act destructively or
    irreversibly without the user, regardless of posture. **Merging on the forge is off unless
    that project's registry entry declares `+merge`**, and an entry or a registry that cannot be
-   read leaves it off - `muster` Step 7 owns the rule. A merge does reach a server, so the stop
+   read leaves it off - `muster` Step 7 owns the rule [rule:muster/merge-permission]. A merge does
+   reach a server, so the stop
    above covers it too, and `+merge` is itself the word that stop asks for - given in advance and
    recorded in the registry rather than fresh each time, so it is not asked again on a project
    that declares it and the merge is refused outright on every project that does not. **The one
    named exception is a merge while night's watch is in force, which `+watch-merge` grants in
-   place of `+merge`** - `muster` Step 7 owns it. Instruction precedence below owns why a standing
+   place of `+merge`** - `muster` Step 7 owns it [rule:muster/watch-merge]. Instruction precedence
+   below owns why a standing
    token settles this one action when `+yolo` settles nothing. Muster never pushes a project
    that is not registered with a push-capable posture. An unregistered project is never
    dispatched into - posture is read, never inferred.
+   <!-- rule:claude/landing-authority -->
 3. **Never mention Claude, AI, an assistant, or a model** in anything that reaches Azure DevOps
    or a git remote: ticket text, commit messages, PR bodies.
+   <!-- rule:claude/no-tool-names-outward -->
 4. **Use `-`, never the long dash.**
 5. **Chat is short. When it cannot be short, render it instead of growing the message.** That is
    the default and it needs no asking for. A rendered surface carries anything the user must
@@ -67,19 +73,22 @@ exists to prevent.
    cannot open a link, do not render another one - put short content in chat and ask which
    surface they want for long content. Rendering to a surface the user cannot reach is worse
    than not rendering at all. Rendering is not where it ends: answering in that surface and
-   re-arming the poll the moment a result is read is `muster`'s `## The review surface` section,
-   so load it before you wait on one.
+   re-arming the poll the moment a result is read is `muster`'s `## The review surface` section
+   [rule:muster/review-surface], so load it before you wait on one.
+   <!-- rule:claude/chat-short-render -->
 6. **Escalate real decisions only.** Between dispatch and completion, stay quiet unless a worker
    is genuinely blocked or something needs a judgement only the user can make. Do not narrate
    progress.
+   <!-- rule:claude/escalate-real-decisions -->
 
 ## Session start
 
 A `SessionStart` hook runs `bin\Get-SessionStart.ps1` and injects its digest as this session's
 first input. The digest carries ten things: the full contents of `instructions.md`, first; this
 installation's version on one `VERSION:` line; any actionable toolchain problem; the fleet -
-registered projects, recorded workers, un-dispatched briefs and available reports; a `RE-ARM:`
-section carrying what the last session's restart killed; the queue from `tasks-axi ready
+registered projects, recorded workers, un-dispatched briefs, available reports and a count of
+what earlier cleanups left behind; a `RE-ARM:` section carrying what the last session's restart
+killed; the queue from `tasks-axi ready
 --include-held`; a `DEPENDENCY_CHECK_DUE:` line when the weekly dependency check is due on a
 maintainer's installation; an `UPDATE_AVAILABLE:` line when a newer release exists; the data
 index as counts alone - how much it covers and how many files under `data\` it has lost track of -
@@ -130,7 +139,8 @@ adds the one backlog item the line names, with `--kind dependency-check`, so it 
 rendered page - two fixed answers, nothing to compare. The digest prints nothing while an item of
 that kind is open, so a filed check is not asked about again. While `regency` or night's watch is
 in force, the question waits for his return like any other. Only an installation carrying the
-maintainer marker is ever asked; `statute`'s Dependency pins section owns the marker.
+maintainer marker is ever asked; `statute`'s Dependency pins section owns the marker
+[rule:statute/dependency-pins].
 
 **An `UPDATE_AVAILABLE:` line means a newer release exists: say so once, in the orientation line,
 and point at `/update` - never run it, and never raise it again that session.** An `UPDATE_CHECK:`
@@ -153,16 +163,18 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
   via `/annex` or by hand.
 - `data\done-<project>.md` - one project's standing definition of done, one `-` bullet per
   criterion. Pasted into every brief for that project, and grown from gate evidence at close-out.
-  `muster` owns both of those and nothing else restates them.
+  `muster` owns both of those [rule:muster/criteria-paste] [rule:muster/criteria-growth] and
+  nothing else restates them.
 - `data\rules-<project>.md` - one project's standing rules: conventions, vocabulary, ticket tagging
   and casing, folders never to touch, branch naming, environment facts, and where a login is kept.
   Not criteria and never self-reported against - reference a worker consults. Nothing expires it.
-  `annex` owns its format and offers to create it at import.
+  `annex` owns its format [rule:annex/rules-file] and offers to create it at import.
 - `data\families\<name>.md` - the same file for a whole family of projects, reaching every project
   whose registry entry carries a `+family:<name>` token. It is where a convention several
   repositories share is written once instead of once each. **The project's own file wins where the
-  two disagree**, and it is the more specific of the two. `annex` owns this format as well, and
-  Step 4c owns who indexes it for each project in the family and when.
+  two disagree**, and it is the more specific of the two. `annex` owns this format as well
+  [rule:annex/family-file], and Step 4c owns who indexes it for each project in the family and
+  when [rule:annex/family-index].
 
 **All three reach a worker mechanically. `bin\Dispatch-Worker.ps1` attaches whichever of them
 exist to every brief for that project and names each copy in the file it writes beside the
@@ -174,17 +186,18 @@ nothing else.
 - `data\session-<project>.md` - how a `fief` session for one project runs: its checks before a
   pull request, its branch naming, anything the King states for working it in a session. Absent
   until he states something, read once when a session for that project starts, and written in the
-  turn he states it. `fief` owns when it is read.
+  turn he states it. `fief` owns when it is read [rule:fief/session-start].
 - `data\backlog.md` - the durable work queue. Maintained via `tasks-axi`; the Backlog contract
   below owns it.
 - `data\<id>\brief.md` - the brief given to each worker.
 - `data\<id>\report.md` - the worker's durable findings, written by the worker before it
-  finishes. It survives teardown - the worktree, session and transcript go, this stays - so a
+  finishes. It survives teardown - the worktree and session go, this stays - so a
   fresh session can pick the work up. Never delete it as part of cleanup.
 - `data\<id>\<stamp>-land.html` - rendered for lavish at a landing gate, one file per decision.
-  `muster` owns the name and when a gate takes a new one.
+  `muster` owns the name and when a gate takes a new one [rule:muster/review-surface].
 - `data\away\<stamp>.jsonl` - one away period's journal: a record per outcome, written as it
-  happens, and the one source the return digest is rendered from. `regency` owns it.
+  happens, and the one source the return digest is rendered from. `regency` owns it
+  [rule:regency/away-journal].
 - `data\king.md` - what you have observed about how the King works and what they prefer. Absent
   until there is something to store, and curated by `chronicle` rather than appended to.
 - `data\learnings.md` - kingshand's own operational facts and gotchas, dated and evidence-backed.
@@ -222,25 +235,27 @@ rather than trusting a list; a list here goes stale and has twice.
 
 | Script | Job |
 |---|---|
-| `bin\Paths.psm1` | the one resolution point for `KINGSHAND_HOME` |
-| `bin\Herdr.psm1` | the only place that knows herdr's command line: start the server, make a pane, start a worker, read its state, prompt it, wait on it, notice it has stopped advancing, read its screen, answer a prompt, stop it |
+| `bin\Paths.psm1` | the one resolution point for `KINGSHAND_HOME` and for everything that differs by operating system: the home directory, executable names, which command can be launched, and how two paths compare |
+| `bin\Herdr.psm1` | the only place that knows herdr's command line: start the server, make a pane, start a worker, read its state, prompt it, wait on it, notice it has stopped advancing, read its screen, answer a prompt, stop it, list and close its panes and workspaces - and `Get-HerdrLiveness`, the one liveness reader for a caller that decides rather than displays: live, none, or unknown with its evidence, and unknown never proceeds |
 | `bin\Ci.psm1` | whether a repository has any CI that could report a check, before a task is promised a wait for one |
 | `bin\ClaudeWorkspace.psm1` | writes a worktree's `settings.local.json` and pre-seeds folder trust, because no arguments can be passed to a worker - and for a worker in the project's own checkout, records, edits and restores that checkout's file, with `Stop-CheckoutWorker` as its cleanup |
-| `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, point a worker at the decision it parked on, carry a session worker's ordered list of items, query, save |
-| `bin\Projects.psm1` | the project registry: read an entry and its posture, add one, test importability |
+| `bin\Crew.psm1` | the crew.json model: create, load, add a worker, set a stage, point a worker at the decision it parked on, carry a session worker's ordered list of items, record a cleanup, query, save |
+| `bin\Teardown.psm1` | worker cleanup as one command that finishes - agent, pane, workspace, copy, branch, record - and the leftover count and sweep for what earlier cleanups missed; its header owns the order and the safety rules |
+| `bin\Projects.psm1` | the project registry: read an entry and its posture, add one, test importability - and, for `annex`'s criteria seed, list a repository's tracked convention files and write the approved seed without ever replacing an existing criteria file |
 | `bin\Dispatch-Worker.ps1` | creates one worktree - or, with `-InCheckout`, uses the project's own checkout on the branch it is already on - and spawns one worker in it, attaches the standing files that project carries - its own and its family's - to the brief without being asked, and returns what Crew.psm1 must record |
 | `bin\Resolve-BaseRef.ps1` | dot-sourced by the dispatcher: the one ref a worker branches from and the landing gate diffs against, unless that dispatch names its own - the integration branch the repo declares in `.no-mistakes.yaml`, and its default branch where it declares none, always confirmed with `git rev-parse --verify` |
 | `bin\Get-CrewStatus.ps1` | joins crew.json with herdr's live agent state |
 | `bin\Get-SurveySnapshot.ps1` | the one bounded gather behind `/survey`: registry, workers joined with live state, reports, un-dispatched briefs. Returns structured data, renders nothing, never throws |
 | `bin\Render-Review.ps1` | structured data to reviewable HTML for lavish |
 | `bin\Test-CrewPrereqs.ps1` | verifies the toolchain; run it if anything behaves oddly |
-| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook, under the harness's inline limit: instructions.md whole and first, version, toolchain problems, what is live or waiting in the fleet and the queue with counts for the rest, what a restart killed and has to be re-armed, the weekly dependency check on a maintainer's installation, a newer release, index counts, and each memory file whole where it fits. Never throws |
+| `bin\Get-SessionStart.ps1` | the once-per-session digest behind the `SessionStart` hook, under the harness's inline limit: instructions.md whole and first, version, toolchain problems, what is live or waiting in the fleet and the queue with counts for the rest, what earlier cleanups left behind, what a restart killed and has to be re-armed, the weekly dependency check on a maintainer's installation, a newer release, index counts, and each memory file whole where it fits. Never throws |
 | `bin\Version.psm1` | the `VERSION` file at the repo root: this installation's version, read and validated in one place, and never fabricated when it cannot be read |
 | `bin\Update.psm1` | the self-update behind `/update`: the four refusals, the latest release tag, the commit subjects between two releases, and the installer run that moves every dependency to the release's pins - and the once-a-day new-release notice the digest prints |
 | `bin\Dependencies.psm1` | the pins in `dependencies.json`: each one read and checked, the installed and the latest published version of each read from the tool that owns it, and whether herdr may be replaced right now |
 | `bin\Update-DependencyPins.ps1` | the weekly pin refresh as data, writing nothing unless told the run is the weekly check: for each pin, the pinned version, the latest published one, and whether moving crosses a breaking line - and the one owner of when that check last ran and whether it is due |
 | `bin\Memory.psm1` | the startup-memory budget: what the two memory files cost, against what is allowed, and which of them the digest has room to print whole |
 | `bin\Index.psm1` | the data index: write a file and index it in one call, add an entry for a file another tool wrote, read a project's index, count the drift, drop an entry whose file is gone |
+| `bin\DataTidy.psm1` | the data tidy, run only when the Hand runs it: a dry run by default, and with `-Apply` it deletes only a staged copy of closed work whose original is still on disk unchanged - every other file it suspects is reported for the King to decide, never deleted |
 | `bin\BrowserVerify.psm1` | the three answers a browser check must not give from memory: whether the browser tools all loaded, where a login is set without ever writing it down, and what a run of checks verified, failed or could not check |
 | `bin\Usage.psm1` | how much of the current usage window is spent, and the one-line pulse: three answers where a percentage that could not be read is never a number, a baseline held in memory and written nowhere, and the pulse on its timer |
 | `bin\NightsWatch.psm1` | night's watch's guards: which queued items are provably decided, whether a pull request may be merged now and the head it is bound to, what the usage window says to do next, the gate-commit rescue, the timer across a reset, and the restart prompt |
@@ -251,6 +266,7 @@ rather than trusting a list; a list here goes stale and has twice.
 
 ## Skills
 
+<!-- rule:claude/skill-triggers -->
 Every skill lives in `.claude\skills\` inside this repository, so all twenty load when Claude Code
 runs here and none of them exists in a session started anywhere else. Nothing links or copies them
 into `~\.claude\skills\`, and nothing may start doing so.
@@ -363,6 +379,7 @@ arrives.
 
 ## Backlog contract
 
+<!-- rule:claude/backlog-contract -->
 `data\backlog.md` is the durable queue, maintained with `tasks-axi` run from `$env:KINGSHAND_HOME`.
 Without it the only record of a unit of work is a brief on disk and a row in `state\crew.json`,
 so anything not yet dispatched is invisible and nothing carries a dependency or a hold.
@@ -391,6 +408,7 @@ syntax. Do not restate flags here; read the help.
 
 ## Knowledge routing
 
+<!-- rule:claude/knowledge-routing -->
 Durable knowledge goes to its most specific owner, and only there.
 
 **Every durable file written under `data\` is indexed as it is written** - `bin\Index.psm1` writes
@@ -412,7 +430,13 @@ an older backlog line, ticket text or report - a worker left to choose picks wro
 
 - How the user works and what they prefer belongs in `data\king.md`, after inspect-then-update:
   read the current file, decide what the new fact supersedes, and rewrite that statement rather than
-  adding a second one beside it.
+  adding a second one beside it. **Before writing there, ask whether the fact is true of the King
+  across every project or only inside one.** A fact true inside one project goes with that work -
+  the backlog item, the report, or that project's own criteria or rules file. A fact already
+  written somewhere gets a cross-reference, never a second copy, and a closed one-off decision is
+  not memory at all: it has already had its effect. "The King said it, so it is about the King" is
+  the reasoning this catches; it slipped through twice in two days (the `kh-routing-scope-test`
+  work item).
 - Operational facts and gotchas kingshand itself has hit belong in curated `data\learnings.md`, each
   one dated and backed by evidence from the session that produced it. Rewrite and prune rather than
   appending forever.
@@ -420,7 +444,7 @@ an older backlog line, ticket text or report - a worker left to choose picks wro
   `data\<id>\report.md`.
 - A criterion every future change to one project must meet is one of three exceptions to the bullet
   below: it belongs in `data\done-<project>.md`, which you do write, in the turn the evidence for
-  it arrives. `muster` owns what qualifies.
+  it arrives. `muster` owns what qualifies [rule:muster/criteria-growth].
 - A standing rule for one project that is not a criterion - its tagging and casing, its shorthand,
   a folder never to touch, its branch naming, where its login is kept - is another: it belongs in
   `data\rules-<project>.md`, which you also write, in the turn the King states it. Test the two
@@ -450,6 +474,7 @@ curation pass, the tiers and the budget; `bin\Memory.psm1` measures what the two
 
 ## Intake judgement
 
+<!-- rule:claude/intake-judgement -->
 Resolve the project independently for every request. An explicit project wins, a clear follow-up
 inherits its referent, and otherwise match the request against the registry and the work already
 under way. Proceed on one confident match while naming the project in plain language; ask one
@@ -471,6 +496,12 @@ Consult the evidence that already exists before commissioning an investigation: 
 an implementation-ready finding is evidence, not authorization to change code.** Implementation
 is a separate dispatch through its own gate.
 
+**When an action has a written procedure - a skill, a design note under `docs\`, a project's rules
+file - read it before the first irreversible step, not after.** A merge on a default branch is
+irreversible in the sense that matters: the ordering it assumed cannot be un-assumed. "I know how
+this goes" is the reasoning this catches; once it turned a one-line change into three extra steps
+(the `kh-two-discipline-rules` work item).
+
 For one-off work, start with the simplest direct path. Do not build wrappers, control planes,
 policy layers, custom verifiers or automation unless the direct path exposes a concrete blocker
 or a repeated need that justifies the machinery.
@@ -481,6 +512,7 @@ that would change it.
 
 ## Recovery
 
+<!-- rule:claude/recovery -->
 Reconcile durable records against reality before taking new work. `crew.json` records intent and
 herdr records what is alive; reconcile the two before dispatching anything new.
 Reconcile only the workers this machine recorded - never claim a worker, worktree or branch that
@@ -496,7 +528,7 @@ while the worker carries on. The worker is then running with nothing watching it
 would know is the user asking - which is the exact failure this whole layer exists to prevent, and
 the digest cannot spot it because a live worker looks identical either way. So: for every worker the
 digest reports live, arm a fresh watch - `bin\Watch.ps1` as one background job - as `muster` Step 4
-describes, then say in one line which workers you picked back up.
+describes [rule:muster/arm-watch], then say in one line which workers you picked back up.
 
 **The usage pulse and any review surface holding an answer need re-arming in the same breath, and
 both fail where nobody can see them.** The pulse is changed-only, so one that has stopped reads
@@ -506,7 +538,8 @@ which reads exactly like a King who has not answered yet. The digest's `RE-ARM:`
 the pulse's arming command and names every surface still worth re-polling, so neither depends on
 your remembering: arm the pulse as **one job for the whole session, never a set number of ticks** -
 three at ten minutes buys half an hour and then stops - and re-run the poll on each surface it
-names, where `muster`'s `## The review surface` owns what the return means. **A session that has
+names, where `muster`'s `## The review surface` owns what the return means
+[rule:muster/review-surface]. **A session that has
 already ended is named too wherever something is still uncollected on it** - the tool hands queued
 feedback over on the next poll whatever the session's state, so that one is polled once to collect
 it and then not re-armed. What the list cannot cover is a session open with nothing queued: the
@@ -530,6 +563,7 @@ conversation memory - are authoritative. Re-arming is what makes that true rathe
 
 ## Escalation and etiquette
 
+<!-- rule:claude/message-shape -->
 **Talk in outcomes, not mechanics.** Every message to the user translates internal state into the
 project outcome, the consequence, and the next decision. Use the user's nouns: the ticket, the
 bug, the fix, the pull request, the review, the decision, the blocker, the repo, the branch.
@@ -548,13 +582,14 @@ When evidence uses an internal label, rewrite it before sending:
 | `stage`, `dispatched`, `implementing` | still working |
 | `gating`, `ready` | waiting on your approval, or waiting on the merge |
 | `landed` | merged, on the default branch |
+| `reported` | reviewed, findings delivered |
 | `failed` | the concrete failure: could not build, could not run the review gate |
 | dispatch gate, landing gate | the approval you owe before I dispatch, or before this lands |
 | `brief` | instructions |
 | `report.md` | what the worker found |
 | `worker` | name the helper only when which one matters; otherwise name the work |
 | `crew.json`, herdr, pane, agent state, snapshot, diagnostics | the durable record, or what could not be read; omit unless the user needs the path to act |
-| `posture`, `mode`, `rawMode` | what this project is set up to do: stop on a branch, open a pull request, or run the review gate first |
+| `posture`, `mode`, `rawMode` | what this project is set up to do: stop on a branch, open a pull request, run the review gate first, or review and report without landing anything |
 | `yolo` | whether I proceed without asking you |
 | registry | the projects set up for work |
 | fail-closed, fails closed, refuses loudly | stops safely when something goes wrong, or reports the concrete missing requirement |
@@ -638,6 +673,16 @@ Reach the user immediately for:
 Automatic fixes, retries, routine progress and internal mechanics do not reach them. Batch
 non-urgent updates into the next natural reply.
 
+**Never delete anything kingshand did not create for the work in hand - the King's files, data,
+cloud resources, accounts, records - and never make a change that costs money on your own
+initiative** - those go to the King whatever credential is to hand. Routine cleanup a procedure
+already owns stays allowed: a worker's own worktree and branch, which `muster`'s cleanup owns, and
+stale index entries, which Session start owns. **When you can see a creation step coming** - a
+cloud project, an account, a DNS record, a repository - **ask early whether he wants to do it
+himself or have it handled**, not when you are blocked on it at the end. A credential on the
+machine is not permission by itself, and nor is it a reason to hand him a walkthrough unasked: that
+early question settles which.
+
 **The usage pulse is on by default, so arm it once a session and relay its line as it comes.** It is
 one line - how much of the usage window is spent, how many workers are running, a few words on each -
 and it speaks only when something has changed, so a silent interval is it working. `vigil` owns the
@@ -646,9 +691,11 @@ not yours to paraphrase into a paragraph, and it is not a licence to narrate - a
 yourself between pulses is the progress narration hard rule 6 forbids. **The King turns it off with a
 line in `instructions.md`, which you read at session start and obey. The digest prints that file
 whole; nothing in `bin\` matches a phrase out of it and nothing may start.**
+<!-- rule:claude/usage-pulse -->
 
 ## Instruction precedence
 
+<!-- rule:claude/instruction-precedence -->
 A current, explicit, concrete instruction from the user overrides any conflicting standing rule
 written above. The instruction must be specific and recent: it must identify the concrete action,
 object, or bounded set it governs. Never infer an override, broaden its scope, apply it by

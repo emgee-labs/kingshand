@@ -181,7 +181,7 @@ Describe 'Get-RepoCiConfigFiles reads what is committed, and an empty directory 
     It 'finds a workflow file' {
         $repo = New-TempRepo
         New-WorkflowFile -RepoPath $repo
-        @(Get-RepoCiConfigFiles -RepoPath $repo) | Should -Contain '.github\workflows\ci.yml'
+        (Get-RepoCiConfigFiles -RepoPath $repo) | Should -Contain '.github\workflows\ci.yml'
     }
 
     It 'finds a <name> at the repository root' -ForEach @(
@@ -191,7 +191,7 @@ Describe 'Get-RepoCiConfigFiles reads what is committed, and an empty directory 
     ) {
         $repo = New-TempRepo
         Set-Content -Path (Join-Path $repo $name) -Value 'x' -Encoding utf8
-        @(Get-RepoCiConfigFiles -RepoPath $repo) | Should -Contain $name
+        (Get-RepoCiConfigFiles -RepoPath $repo) | Should -Contain $name
     }
 
     # A repository that deleted its last workflow keeps the directory. Calling that `has-ci`
@@ -199,17 +199,38 @@ Describe 'Get-RepoCiConfigFiles reads what is committed, and an empty directory 
     It 'does not count an empty workflows directory' {
         $repo = New-TempRepo
         New-Item -ItemType Directory -Force -Path (Join-Path $repo '.github\workflows') | Out-Null
-        @(Get-RepoCiConfigFiles -RepoPath $repo).Count | Should -Be 0
+        (Get-RepoCiConfigFiles -RepoPath $repo).Count | Should -Be 0
     }
 
     It 'does not count a README that happens to live in the workflows directory' {
         $repo = New-TempRepo
         New-WorkflowFile -RepoPath $repo -Name 'README.md'
-        @(Get-RepoCiConfigFiles -RepoPath $repo).Count | Should -Be 0
+        (Get-RepoCiConfigFiles -RepoPath $repo).Count | Should -Be 0
+    }
+
+    # Statute's collection-return rule: the list itself on assignment, at every size.
+    It 'returns a list of <n> files on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        $repo = New-TempRepo
+        foreach ($name in @('a.yml', 'b.yml', 'c.yml') | Select-Object -First $n) {
+            New-WorkflowFile -RepoPath $repo -Name $name
+        }
+        $files = Get-RepoCiConfigFiles -RepoPath $repo
+        $files -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $files.Count | Should -Be $n
+    }
+
+    It 'returns a list of <n> reporting files on assignment' -TestCases @(@{ n = 0 }, @{ n = 1 }, @{ n = 3 }) {
+        $repo = New-TempRepo
+        $names = @(@('a.yml', 'b.yml', 'c.yml') | Select-Object -First $n)
+        foreach ($name in $names) { New-WorkflowFile -RepoPath $repo -Name $name }
+        $files = Get-ReportingCiConfigFiles -RepoPath $repo -GitHubRemote `
+            -ConfigFiles @($names | ForEach-Object { ".github\workflows\$_" })
+        $files -is [System.Collections.Generic.List[object]] | Should -BeTrue
+        $files.Count | Should -Be $n
     }
 
     It 'finds nothing in a repository that has none' {
-        @(Get-RepoCiConfigFiles -RepoPath (New-TempRepo)).Count | Should -Be 0
+        (Get-RepoCiConfigFiles -RepoPath (New-TempRepo)).Count | Should -Be 0
     }
 }
 
@@ -420,7 +441,7 @@ Describe 'Get-RepoCiStatus refuses to guess, and never converts a failed lookup 
         ) {
             $repo = New-TempRepo
             New-WorkflowFile -RepoPath $repo -Content $yaml
-            @(Get-WorkflowTriggers -Path (Join-Path $repo '.github\workflows\ci.yml')) |
+            (Get-WorkflowTriggers -Path (Join-Path $repo '.github\workflows\ci.yml')) |
                 Should -Contain $expected
         }
 
@@ -429,9 +450,22 @@ Describe 'Get-RepoCiStatus refuses to guess, and never converts a failed lookup 
         It 'does not mistake a trigger''s own settings for triggers' {
             $repo = New-TempRepo
             New-WorkflowFile -RepoPath $repo -Content "on:`n  schedule:`n    - cron: '0 3 * * *'`njobs:`n  build:`n"
-            $triggers = @(Get-WorkflowTriggers -Path (Join-Path $repo '.github\workflows\ci.yml'))
+            $triggers = Get-WorkflowTriggers -Path (Join-Path $repo '.github\workflows\ci.yml')
             $triggers.Count | Should -Be 1 -Because 'cron and build are not triggers'
             $triggers[0]    | Should -Be 'schedule'
+        }
+
+        # Statute's collection-return rule. No triggers read is $null by design, below, so a list
+        # that comes back always holds at least one.
+        It 'returns <n> triggers as a list on assignment' -TestCases @(
+            @{ n = 1; yaml = "on: push`n" }
+            @{ n = 3; yaml = "on: [push, pull_request, schedule]`n" }
+        ) {
+            $repo = New-TempRepo
+            New-WorkflowFile -RepoPath $repo -Content $yaml
+            $triggers = Get-WorkflowTriggers -Path (Join-Path $repo '.github\workflows\ci.yml')
+            $triggers -is [System.Collections.Generic.List[object]] | Should -BeTrue
+            $triggers.Count | Should -Be $n
         }
 
         It 'answers nothing at all for a file with no on: key, rather than an empty list' {

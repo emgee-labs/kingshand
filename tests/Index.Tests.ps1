@@ -16,6 +16,8 @@
 
 BeforeAll {
     Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Index.psm1') -Force
+    # Without -Force, so Index keeps the copy it holds; loaded here so a case can fake the platform.
+    Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'bin\Paths.psm1')
 
     function New-DataFixture {
         param([Parameter(Mandatory)][string]$Name)
@@ -60,7 +62,7 @@ Describe 'an entry says where a file is and what it is, in one line' {
     }
 
     It 'reads back with the path resolved to a file that exists' {
-        $entries = @(Get-IndexEntries -Project 'emgeelabs-site' -DataPath $script:Data)
+        $entries = Get-IndexEntries -Project 'emgeelabs-site' -DataPath $script:Data
         $entries.Count      | Should -Be 1
         $entries[0].fullPath | Should -Be $script:File
         $entries[0].exists   | Should -BeTrue
@@ -122,10 +124,23 @@ Describe 'an entry says where a file is and what it is, in one line' {
         Add-IndexEntry -Path 'data\good.md' -Summary 'a good one' -DataPath $data | Out-Null
         Add-Content -LiteralPath (Join-Path $data 'index.md') -Value '- `..\..\escape.md` - hand-edited'
 
-        $entries = @(Get-IndexEntries -DataPath $data)
+        $entries = Get-IndexEntries -DataPath $data
         $entries.Count   | Should -Be 1
         $entries[0].path | Should -Be 'data\good.md'
         { Get-IndexDrift -DataPath $data } | Should -Not -Throw
+    }
+
+    It 'indexes a new file into an index that already holds an unreadable line' {
+        $data = New-DataFixture 'bad-line-write'
+        New-DataFile -DataPath $data -Relative 'next.md' | Out-Null
+        Set-Content -LiteralPath (Join-Path $data 'index.md') -Encoding utf8 -Value @(
+            '# Index'
+            ''
+            '- `..\..\escape.md` - hand-edited'
+        )
+
+        { Add-IndexEntry -Path 'data\next.md' -Summary 'the next one' -DataPath $data } | Should -Not -Throw
+        (Get-IndexEntries -DataPath $data).path | Should -Be 'data\next.md'
     }
 
     It 'refuses a project name that is not slug-shaped' {
@@ -151,7 +166,7 @@ Describe 're-indexing a file rewrites its line rather than adding a second one' 
     }
 
     It 'leaves exactly one entry for that file' {
-        @(Get-IndexEntries -Project 'acme' -DataPath $script:Data).Count | Should -Be 1
+        (Get-IndexEntries -Project 'acme' -DataPath $script:Data).Count | Should -Be 1
     }
 
     It 'keeps the date it first entered the index' {
@@ -159,9 +174,9 @@ Describe 're-indexing a file rewrites its line rather than adding a second one' 
     }
 
     It 'carries the corrected summary' {
-        # @() before the index, always: a lone hashtable unrolls out of the pipeline, and [0] on a
-        # hashtable is a key lookup that quietly returns $null rather than the entry.
-        @(Get-IndexEntries -Project 'acme' -DataPath $script:Data)[0].summary | Should -Be 'the corrected summary'
+        # The list comes back whole, so [0] is the entry - never a key lookup on a lone hashtable,
+        # which quietly returns $null.
+        (Get-IndexEntries -Project 'acme' -DataPath $script:Data)[0].summary | Should -Be 'the corrected summary'
     }
 
     # A hand-edited index whose last line has no terminator took the appended entry onto the end of
@@ -178,7 +193,7 @@ Describe 're-indexing a file rewrites its line rather than adding a second one' 
 
         Add-IndexEntry -Path 'data\b.md' -Summary 'the report' -Project 'acme' -DataPath $data | Out-Null
 
-        $entries = @(Get-IndexEntries -Project 'acme' -DataPath $data)
+        $entries = Get-IndexEntries -Project 'acme' -DataPath $data
         @($entries | ForEach-Object { $_.path }) | Should -Be @('data\a.md', 'data\b.md')
         @($entries | Where-Object { $_.path -eq 'data\a.md' })[0].summary |
             Should -Be 'the brand' -Because 'the first entry must not swallow the second as its summary'
@@ -196,7 +211,7 @@ Describe 'writing a file and indexing it are one call' {
         $r = Write-DataFile -Path 'data\emgee-brand.md' -Content "# Brand`nteal" `
             -Summary 'settled brand' -Project 'emgeelabs-site' -DataPath $script:Data
         (Get-Content -LiteralPath $r.fullPath -Raw).Contains('teal') | Should -BeTrue
-        @(Get-IndexEntries -Project 'emgeelabs-site' -DataPath $script:Data).Count | Should -Be 1
+        (Get-IndexEntries -Project 'emgeelabs-site' -DataPath $script:Data).Count | Should -Be 1
     }
 
     It 'creates the directories the path needs' {
@@ -237,21 +252,70 @@ Describe 'the index is scoped per project, with kingshand''s own files at the ro
     }
 
     It 'hands a project only its own files' {
-        $site = @(Get-IndexEntries -Project 'emgeelabs-site' -DataPath $script:Data)
+        $site = Get-IndexEntries -Project 'emgeelabs-site' -DataPath $script:Data
         $site.Count  | Should -Be 1 -Because 'an index spanning every project hands a website worker the aegis reports'
         $site[0].path | Should -Be 'data\site\brand.md'
     }
 
     It 'keeps the operational files in the root index, which no project name can collide with' {
-        $root = @(Get-IndexEntries -DataPath $script:Data)
+        $root = Get-IndexEntries -DataPath $script:Data
         $root.Count   | Should -Be 1
         $root[0].path | Should -Be 'data\learnings.md'
         Get-IndexPath -DataPath $script:Data | Should -Be (Join-Path $script:Data 'index.md')
     }
 
     It 'reads every index at once when asked for all of them' {
-        @(Get-IndexEntries -All -DataPath $script:Data).Count | Should -Be 3
-        @(Get-AllIndexPaths -DataPath $script:Data).Count     | Should -Be 3
+        (Get-IndexEntries -All -DataPath $script:Data).Count | Should -Be 3
+        (Get-AllIndexPaths -DataPath $script:Data).Count     | Should -Be 3
+    }
+}
+
+# Statute's collection-return rule: every list here is the list itself on assignment, at every
+# size. Read-IndexFile is reached through Get-IndexEntries, which hands back its list untouched.
+Describe 'the index lists come back whole' {
+    BeforeAll {
+        function Assert-ListOf {
+            param($Value, [int]$Count)
+            $Value -is [System.Collections.Generic.List[object]] | Should -BeTrue
+            $Value.Count | Should -Be $Count
+        }
+    }
+
+    It 'returns <n> entries of one index, and of all of them, as a list on assignment' -TestCases @(
+        @{ n = 0 }, @{ n = 1 }, @{ n = 3 }
+    ) {
+        $data = New-DataFixture "shape-entries-$n"
+        for ($i = 1; $i -le $n; $i++) {
+            New-DataFile -DataPath $data -Relative "f$i.md" | Out-Null
+            Add-IndexEntry -Path "data\f$i.md" -Summary "file $i" -Project 'acme' -DataPath $data | Out-Null
+        }
+        Assert-ListOf (Get-IndexEntries -Project 'acme' -DataPath $data) $n
+        Assert-ListOf (Get-IndexEntries -All -DataPath $data) $n
+    }
+
+    It 'returns <n> index paths as a list on assignment' -TestCases @(
+        @{ n = 0; projects = @() }
+        @{ n = 1; projects = @('acme') }
+        @{ n = 3; projects = @('acme', 'beta', 'gamma') }
+    ) {
+        $data = New-DataFixture "shape-paths-$n"
+        foreach ($p in $projects) {
+            New-DataFile -DataPath $data -Relative "$p.md" | Out-Null
+            Add-IndexEntry -Path "data\$p.md" -Summary $p -Project $p -DataPath $data | Out-Null
+        }
+        Assert-ListOf (Get-AllIndexPaths -DataPath $data) $n
+    }
+
+    It 'returns <n> indexable files as a list on assignment' -TestCases @(
+        @{ n = 0 }, @{ n = 1 }, @{ n = 3 }
+    ) {
+        $data = New-DataFixture "shape-files-$n"
+        for ($i = 1; $i -le $n; $i++) { New-DataFile -DataPath $data -Relative "f$i.md" | Out-Null }
+        Assert-ListOf (Get-IndexableFiles -DataPath $data) $n
+    }
+
+    It 'returns an empty list, not nothing, where there is no data directory at all' {
+        Assert-ListOf (Get-IndexableFiles -DataPath (Join-Path $TestDrive 'no-such-data')) 0
     }
 }
 
@@ -323,7 +387,7 @@ Describe 'a file no index lists is drift, and drift is counted' {
             Should -BeFalse -Because 'a review surface is regenerated from state, not read as a source'
         @($script:Drift.unindexed) -contains 'data\index\acme.md' |
             Should -BeFalse -Because 'an index does not index itself'
-        @(Get-IndexableFiles -DataPath $script:Data).Count |
+        (Get-IndexableFiles -DataPath $script:Data).Count |
             Should -Be 2 -Because 'the exclusions are an index, a rendered surface and a read-first copy, and each one is a file derived from a listed file rather than a file judged unimportant'
     }
 
@@ -375,7 +439,7 @@ Describe 'a file no index lists is drift, and drift is counted' {
         Push-Location (Split-Path $data -Parent)
         try {
             $resolved = Resolve-IndexDataPath -DataPath 'data'
-            $entries  = @(Get-IndexEntries -Project 'acme' -DataPath 'data')
+            $entries  = Get-IndexEntries -Project 'acme' -DataPath 'data'
         } finally { Pop-Location }
 
         $resolved | Should -Be (Resolve-IndexDataPath -DataPath $data) `
@@ -419,7 +483,7 @@ Describe 'an entry whose file is gone can be dropped, so stale drift reaches zer
         @($d.missing).Count   | Should -Be 0 -Because 'the stale half of the count must be clearable'
         @($d.unindexed).Count | Should -Be 0
         $d.indexed            | Should -Be 1
-        @(Get-IndexEntries -All -DataPath $data | ForEach-Object { $_.path }) | Should -Be @('data\kept.md')
+        @((Get-IndexEntries -All -DataPath $data) | ForEach-Object { $_.path }) | Should -Be @('data\kept.md')
     }
 
     It 'drops one named entry and leaves every other line as it was' {
@@ -471,7 +535,84 @@ Describe 'an entry whose file is gone can be dropped, so stale drift reaches zer
         Write-DataFile -Path 'data\a.md' -Content 'a' -Summary 'file a' -DataPath $data | Out-Null
 
         @((Remove-IndexEntry -Path 'data\never-listed.md' -DataPath $data).removed).Count | Should -Be 0
-        @(Get-IndexEntries -All -DataPath $data | ForEach-Object { $_.path }) | Should -Be @('data\a.md')
+        @((Get-IndexEntries -All -DataPath $data) | ForEach-Object { $_.path }) | Should -Be @('data\a.md')
+    }
+}
+
+# An index file has to read the same wherever it was written, so the stored separator is `\` on
+# every system - while on macOS and Linux `\` is a legal file-name character, not a separator. These
+# pin both halves: what is written, and that what is read resolves to a real path on this system.
+# The resolution used to rewrite every `/` to `\` by hand, which on macOS and Linux turned an
+# absolute `/home/x/data` into a relative path and refused every file as outside data\.
+Describe 'an entry is stored with backslashes and resolves on any system' {
+    BeforeAll {
+        $script:Data = New-DataFixture 'portable'
+        $script:File = New-DataFile -DataPath $script:Data -Relative (Join-Path 'sub' 'deep' 'note.md')
+    }
+
+    It 'stores the path with backslashes whatever this system''s separator is' {
+        $e = Add-IndexEntry -Path $script:File -Summary 'portable note' -DataPath $script:Data
+        $e.path | Should -Be 'data\sub\deep\note.md'
+        (Get-Content -LiteralPath $e.indexPath -Raw).Contains('- `data\sub\deep\note.md` - portable note') |
+            Should -BeTrue
+    }
+
+    It 'resolves a stored backslash entry to the real file on this system' {
+        $entry = (Get-IndexEntries -DataPath $script:Data) |
+                 Where-Object { $_.path -eq 'data\sub\deep\note.md' }
+        $entry.fullPath | Should -Be $script:File
+        $entry.exists   | Should -BeTrue -Because 'a stored path that resolves nowhere would read as stale'
+    }
+
+    It 'accepts a relative path written with <name>' -ForEach @(
+        @{ name = 'forward slashes'; rel = 'data/sub/deep/note.md' }
+        @{ name = 'backslashes';     rel = 'data\sub\deep\note.md' }
+        @{ name = 'no data prefix';  rel = 'sub/deep/note.md' }
+    ) {
+        (Add-IndexEntry -Path $rel -Summary 'portable note' -DataPath $script:Data).path |
+            Should -Be 'data\sub\deep\note.md'
+    }
+
+    It 'refuses a path that climbs out of data whichever separator it uses' {
+        { Add-IndexEntry -Path '../outside.md' -Summary 'x' -DataPath $script:Data } | Should -Throw '*outside*'
+        { Add-IndexEntry -Path '..\outside.md' -Summary 'x' -DataPath $script:Data } | Should -Throw '*outside*'
+    }
+
+    It 'refuses a sibling directory that only shares the data directory''s name as a prefix' {
+        $sibling = Join-Path (Split-Path $script:Data -Parent) 'data2'
+        New-Item -ItemType Directory -Force -Path $sibling | Out-Null
+        $f = Join-Path $sibling 'x.md'
+        Set-Content -LiteralPath $f -Value 'x' -Encoding utf8
+        { Add-IndexEntry -Path $f -Summary 'x' -DataPath $script:Data } | Should -Throw '*outside*'
+    }
+
+    It 'counts a file under read-first and under index as derived, not drift' {
+        $null = New-DataFile -DataPath $script:Data -Relative (Join-Path 'w1' 'read-first' 'copy.md')
+        $drift = Get-IndexDrift -DataPath $script:Data
+        @($drift.unindexed | Where-Object { $_ -like '*read-first*' -or $_ -like 'data\index*' }) |
+            Should -BeNullOrEmpty
+    }
+}
+
+# Paths differ by case only on a system that tells them apart. On Linux two entries whose paths
+# differ only in case are two files, and on Windows they are one - the comparison is Paths.psm1's.
+Describe 'two entries differing only in case are one file on Windows and two on Linux' {
+    BeforeEach {
+        $script:Data = New-DataFixture ('case-' + [guid]::NewGuid().ToString('N'))
+        $null = New-DataFile -DataPath $script:Data -Relative 'Note.md'
+        $null = Add-IndexEntry -Path 'data\Note.md' -Summary 'first' -DataPath $script:Data
+    }
+
+    It 'rewrites the one line on Windows' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Windows' }
+        $null = Add-IndexEntry -Path 'data\note.md' -Summary 'second' -DataPath $script:Data
+        (Get-IndexEntries -DataPath $script:Data).Count | Should -Be 1
+    }
+
+    It 'keeps two lines on Linux' {
+        Mock -ModuleName Paths Get-KingshandPlatform { 'Linux' }
+        $null = Add-IndexEntry -Path 'data\note.md' -Summary 'second' -DataPath $script:Data
+        (Get-IndexEntries -DataPath $script:Data).Count | Should -Be 2
     }
 }
 

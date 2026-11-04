@@ -14,6 +14,7 @@ owns that, and everything below holds inside it.
 
 ## What a regency never grants
 
+<!-- rule:regency/never-grants -->
 Being away is not consent. Every one of these still waits for the King, however long that takes:
 
 - **A landing that is not already authorised.** `+yolo` already permits landing green work inside
@@ -23,7 +24,8 @@ Being away is not consent. Every one of these still waits for the King, however 
   on a worker's screen is answered in his stead only on a personal project and only inside that
   worker's brief - `A worker is blocked on a prompt` below owns the rule. A decision
   a worker *wrote into its `report.md`* is a different case and no longer this one: `petition`
-  owns whether you may answer that and by what test, and it is the only place the test is stated.
+  owns whether you may answer that and by what test [rule:petition/king-away], and it is the only
+  place the test is stated.
 - **Anything destructive or irreversible.** Force-push, history rewrite, deleting a branch or a
   worktree holding unlanded work, dropping data. None of it, whatever the posture.
 - **Anything security-sensitive.** Credentials, tokens, permissions, published artifacts, anything
@@ -56,6 +58,7 @@ batch it and stop.
 
 ## What regency actually does
 
+<!-- rule:regency/what-it-does -->
 1. Write the durable flag and open the journal, so both the mode and the account of it survive a
    restart and a fresh session picks them up. **Reuse an open period's `since:`, and mint a new
    timestamp only where no away period is open or the existing `since:` cannot be read:**
@@ -90,17 +93,22 @@ batch it and stop.
 
    ```powershell
    Import-Module $env:KINGSHAND_HOME\bin\Herdr.psm1 -Force
-   foreach ($a in (Get-HerdrAgents)) {
+   $live = Get-HerdrLiveness
+   if ($live.state -eq 'unknown') { "whether any worker is live is unknown - $($live.evidence)" }
+   foreach ($a in $live.workers) {
      [pscustomobject]@{ worker = $a.name; readable = (Test-HerdrAgentReadable -Name $a.name) }
    }
    ```
 
+   **An unknown answer means you cannot see any of them**, which is not the same as there being
+   none: say so with the evidence it names, exactly as for an unreadable worker below.
    **Any worker reporting `readable = False` cannot be watched.** Its terminal is too narrow to
    render the text that identifies a prompt, so a stuck worker and a working one look identical.
    Say that plainly before they leave, naming the worker, and let them decide whether to go. Do not
    enter a regency silently over a worker you cannot see.
 
-3. Arm a watch for every live worker with `bin\Watch.ps1`, exactly as `muster` Step 4 describes -
+3. Arm a watch for every live worker with `bin\Watch.ps1`, exactly as `muster` Step 4 describes
+   [rule:muster/arm-watch] -
    one background job per worker, never a wait written out by hand. Nothing else wakes you. Re-arm
    on `NO OUTCOME`.
 
@@ -108,6 +116,7 @@ batch it and stop.
 
 ## The away journal
 
+<!-- rule:regency/away-journal -->
 Everywhere below that says to record something means **one line in the away journal, written the
 moment it happens**. The journal is `data\away\<stamp>.jsonl`, one file per away period, named from
 the flag's own `since:` - so a second regency cannot touch the first one's record, and a session
@@ -132,7 +141,8 @@ exactly as it always did.
 
 **The journal is a record and never an authority.** Writing an outcome down grants nothing, moves no
 posture and settles no decision. Every limit in *What a regency never grants* stands whatever the
-journal says, and `petition` still owns what may be decided in his stead.
+journal says, and `petition` still owns what may be decided in his stead
+[rule:petition/king-away].
 
 **It is kept on return, never cleared.** What was decided in his name, and on what basis, is
 reviewable the next morning and the next week; deleting the record at the moment it becomes
@@ -154,8 +164,9 @@ owns any unresolved decision and still applies.
 `report.md` and ended its turn, so nothing is hanging and nothing
 is lost while you think. Every posture parks that way, so this is not only the gated ones: a
 review gate's ask-user finding is one route into it and not the only one. Load `petition`, whose
-away-mode test owns whether this one is yours to answer, and take the route back into the worker
-from `muster` Step 6. Register it under `decree` either way - what you decided, or the question the
+away-mode test [rule:petition/king-away] owns whether this one is yours to answer, and take the
+route back into the worker from `muster` Step 6 [rule:muster/answer-route]. Register it under
+`decree` either way - what you decided, or the question the
 test left standing with him - and record it in the journal as `-Kind decided` with its `-Basis`, or
 as `-Kind waiting` where the test left it standing. Do not message.
 
@@ -163,6 +174,7 @@ as `-Kind waiting` where the test left it standing. Do not message.
 Read its screen first, every time - `Test-HerdrAgentAwaitingInput` to confirm the prompt is
 there and `Read-HerdrAgent` for its wording and every option, as `rally` describes. What happens
 next turns on whose project it is.
+<!-- rule:regency/blocked-prompt -->
 
 **Office or personal is read, never guessed.** A project is office work when the King's own
 standing word names it as his employer's: the machine-wide instructions that say which account
@@ -179,14 +191,16 @@ Scope names.
   needs - allowing it for the rest of the session, a whole folder where the brief names one file -
   is outside it; where no option is narrow enough, it waits.
 - Send the keys through `Send-HerdrKeys`, one key per call, reading the screen back between the
-  arrow and the Enter, exactly as `rally`'s `Never batch keys at a blocked prompt` says. Never
+  arrow and the Enter, exactly as `rally`'s `Never batch keys at a blocked prompt` says
+  [rule:rally/never-batch-keys]. Never
   open with a bare Enter.
 - Read the screen once more to see the prompt gone and the worker moving again.
 - Record the prompt verbatim and the option chosen as `-Kind decided -Basis judgement`, naming in
   the text the brief line that allowed it, so he can review the call on return. Do not message.
 
 **It still waits for him** when the answer would go outside the brief, or would be a delete, a
-cost, anything irreversible or anything security-sensitive - `petition`'s floors, unchanged, and a
+cost, anything irreversible or anything security-sensitive - `petition`'s floors
+[rule:petition/king-away], unchanged, and a
 prompt is no way around them. It waits too where the options cannot be read or you cannot tell
 which one the brief allows.
 
@@ -226,6 +240,7 @@ interrupts is not a regency.
 
 ## When they come back
 
+<!-- rule:regency/come-back -->
 Any ordinary message from them ends it. Bias every ambiguous case toward ending - a present King
 outranks a durable flag, and wrongly staying in regency is worse than wrongly leaving it.
 
@@ -243,7 +258,8 @@ outranks a durable flag, and wrongly staying in regency is worse than wrongly le
    running. Every blocked worker's question, quoted, and every prompt you answered, quoted with
    the option chosen. **Every finding you decided in his stead,
    with the reasoning and whether it rested on a recorded position or on your own judgement** -
-   that flag is what makes the digest reviewable, and `petition` owns why.
+   that flag is what makes the digest reviewable, and `petition` owns why
+   [rule:petition/king-away].
 
    **All of it comes out of `$away`, never out of this session.** `$away.byKind` holds each group
    and `$away.entries` holds them in the order they happened; the journal survives a restart and

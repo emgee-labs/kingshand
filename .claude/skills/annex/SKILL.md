@@ -1,6 +1,6 @@
 ---
 name: annex
-description: Use when the user wants to register a repository so work can be dispatched into it - e.g. "import C:\repos\acme-api", "register acme-web", "annex C:\repos\acme-api", "add this repo as direct-PR", "what projects are registered". Records the project's standing delivery posture, offers to initialise the review gate when the chosen posture needs one, offers to record the project's standing rules, and records which family of repositories it shares conventions with. It never clones and never removes.
+description: Use when the user wants to register a repository so work can be dispatched into it - e.g. "import C:\repos\acme-api", "register acme-web", "annex C:\repos\acme-api", "add this repo as direct-PR", "what projects are registered". Records the project's standing delivery posture - including review-only, where work is reviewed and reported and nothing lands - offers to initialise the review gate when the chosen posture needs one, offers to record the project's standing rules, offers to seed its standing criteria from the convention files the repository already tracks, and records which family of repositories it shares conventions with. It never clones and never removes.
 tools: Bash, PowerShell, Read, Write, Glob, Grep, AskUserQuestion
 version: 1.0.0
 ---
@@ -53,7 +53,7 @@ git -C $path remote get-url origin 2>&1
 | No remote | `local-only` |
 | Always | `yolo` off |
 
-The four modes:
+The five modes:
 
 - `no-mistakes` - full validation pipeline, then a PR.
 - `direct-PR` - push and open a PR without the pipeline.
@@ -62,30 +62,37 @@ The four modes:
   automation, contributor or operator process and release work ships `direct-PR`; product-facing,
   mixed and uncertain work ships `no-mistakes`. Registering it is a one-time choice and never
   requires classifying any change now.
+- `review-only` - **review and report, land nothing.** The worker reviews in its isolated copy and
+  writes what it found; nothing is committed to a branch that lands, nothing is pushed, and no pull
+  request, comment or work item is raised. The report is the whole delivery. It is never proposed
+  by default - register it only where the user asks for a project that is looked at and never
+  changed, such as a repository someone else owns. `muster` owns how it routes
+  [rule:muster/resolved-mode].
 
 `+yolo` relaxes both of `muster`'s gates for this project: it writes the brief and dispatches
 without approval, and lands green work itself. Default it off and enable it only on the user's
 explicit instruction. With it off, the second gate is also what holds back anything going to a
-server - a push, a pull request, a comment, a work item - per hard rule 2.
+server - a push, a pull request, a comment, a work item - per hard rule 2
+[rule:claude/landing-authority].
 
 `+merge` is a separate token answering a separate question: whether this repository's own green
 pull requests may be merged on the forge. It is off on every project that does not carry it, and
 `+yolo` does not imply it. **Default it off, never propose it, and write it only where the user
 says so in the moment.** A repository whose default branch deploys on merge makes every merge a
 live production release, which is why the default runs this way and why this is never a tidy-up.
-`muster` Step 7 owns what it permits.
+`muster` Step 7 owns what it permits [rule:muster/merge-permission].
 
-**It belongs to the push-capable postures only, and `local-only` cannot carry it.**
-`Add-ProjectEntry` throws on that pair rather than writing it, because a local-only project never
-pushes and so has no forge and no pull request to merge. Do not offer it on a `local-only` import
-at all - inviting a choice the writer refuses turns a whole preflight into a failure at the last
-step.
+**It belongs to the push-capable postures only, and neither `local-only` nor `review-only` can
+carry it.** `Add-ProjectEntry` throws on either pair rather than writing it, because neither mode
+ever pushes and so has no forge and no pull request to merge. Do not offer it on a `local-only` or
+`review-only` import at all - inviting a choice the writer refuses turns a whole preflight into a
+failure at the last step.
 
 `+watch-merge` is night's watch's own token, independent of `+merge`: whether this repository's
 green pull requests may be merged while night's watch is in force. It is held to the same rules -
 **off by default, never proposed, written only where the user says so in the moment**, push-capable
 postures only - and `+merge` neither implies it nor is implied by it. `muster` Step 7 owns what it
-permits.
+permits [rule:muster/watch-merge].
 
 Tell the user what these mean in one line each if they have not seen them before, then confirm
 name, path, mode and yolo together - and merge alongside them **where the chosen mode is
@@ -104,7 +111,8 @@ if (-not $check.ok) { $check.reason }
 ```
 
 `Test-ProjectImportable` owns three of the six refusals: the path existing, it being a git
-repository, and a push-capable mode requiring an `origin` remote. Report `$check.reason`
+repository, and a push-capable mode requiring an `origin` remote - which `local-only` and
+`review-only` never do. Report `$check.reason`
 verbatim and stop; do not paraphrase it into something softer.
 
 The fourth is `gh`. A push-capable mode - `direct-PR`, `no-mistakes`, `no-mistakes-prod-only` -
@@ -153,8 +161,8 @@ one - the stamp is the function's job, not yours.
 ### Offer to initialise the gate, only when the posture needs one
 
 This applies **only** when the chosen mode is `no-mistakes` or `no-mistakes-prod-only`, and only
-when `status` reports the repo is not initialised. A `direct-PR` or `local-only` project has no
-review gate and needs none - never offer it there.
+when `status` reports the repo is not initialised. A `direct-PR`, `local-only` or `review-only`
+project has no review gate and needs none - never offer it there.
 
 Import is the right moment to ask, because the posture that requires a gate is being chosen right
 now. Registering a gate-requiring posture against a repo with no gate produces a project that
@@ -193,8 +201,9 @@ worker that tried would be writing configuration its brief never authorised.
 Add-ProjectEntry -Name "<name>" -Path $path -Mode "<mode>" -Description "<desc>" [-Yolo] [-Merge] [-WatchMerge] [-Family "<family>"]
 ```
 
-`-Merge` is available on the push-capable modes only. Passing it with `-Mode local-only` throws
-rather than registering anything, so it is not the freely optional flag the brackets make it look.
+`-Merge` is available on the push-capable modes only. Passing it with `-Mode local-only` or
+`-Mode review-only` throws rather than registering anything, so it is not the freely optional
+flag the brackets make it look.
 
 Leave `-Merge` off unless the user asked for it in this conversation. Without it the entry is
 written exactly as it always was and the permission is absent, which is the off state - there is
@@ -225,8 +234,8 @@ that repository.
 ### Say what can report a check here, where the posture reaches a pull request
 
 **Only on a push-capable mode** - `direct-PR`, `no-mistakes` or `no-mistakes-prod-only`. A
-`local-only` project opens no pull request and runs no pipeline, so nothing there ever waits on a
-check and a line about CI is noise.
+`local-only` or `review-only` project opens no pull request and runs no pipeline, so nothing there
+ever waits on a check and a line about CI is noise.
 
 Import is the moment to say it, because the alternative is the user finding out from a run that
 behaves oddly for an hour. Ask the module the dispatcher asks, so the answer here and the answer at
@@ -243,7 +252,8 @@ One line to the user, and never more than one:
 - `has-ci` - **say nothing at all.** It is the ordinary case, and a line about it is noise.
 - `no-ci` - say plainly that nothing reports a check on this repository, so work here is delivered
   as a pull request and stops there rather than waiting for a green that cannot arrive. **Do not
-  offer to add CI.** An absence is a decision somebody made, and `muster` Step 1b owns that rule -
+  offer to add CI.** An absence is a decision somebody made, and `muster` Step 1b owns that rule
+  [rule:muster/ci-preflight] -
   this is the cross-reference to it, not a second statement of it.
 - `unknown` - say which part of the lookup failed, from `$ci.detail`, and that delivery will stop
   at the pull request under that uncertainty. This is the one that pays for itself with a new
@@ -278,6 +288,7 @@ learn it says nothing.
 
 ### What the file holds, and what it must never hold
 
+<!-- rule:annex/rules-file -->
 Free-form Markdown, read whole by a worker. Nothing parses it, so its shape is the King's.
 
 **It holds rules and context, never criteria.** A criterion is something a worker can report `pass`
@@ -310,6 +321,7 @@ so nobody has to remember to pass it, and editing the file is the whole of chang
 
 ## Step 4c - Offer the family, where this repository shares its conventions
 
+<!-- rule:annex/family-file -->
 **A family is a set of repositories that work the same way**: one ticket tagging scheme, one work
 item workflow, one branch convention, one pair of accounts. Its shared rules live in a single
 `data\families\<name>.md`, written exactly like the file above and holding exactly the same kinds of
@@ -336,6 +348,7 @@ through the same call as the file above with the family's path in place of the p
 
 **The family's file is indexed under every project in the family, and who does it depends on
 whether the file exists yet.** This section owns that obligation; every other mention points here.
+<!-- rule:annex/family-index -->
 
 - **Registering a project into a family indexes the file only when it already exists.** Where it
   does, list it for the project just registered:
@@ -371,11 +384,57 @@ specific of the two, and the line dispatch writes beside the brief says so, so a
 never has to work it out. Put a rule in the family's file only when it is true of every project in
 the family; put the exception in the one project's file.
 
+## Step 4d - Offer to seed the standing criteria from what the repository already documents
+
+A repository that writes down its own conventions has done half the work of its criteria file
+already, and a reviewer without those conventions both misses what they would catch and flags what
+they permit. **So at import, offer to draft `data\done-<name>.md` from the convention files the
+repository tracks.** Ask the module which ones there are - git matches a fixed list of names, so
+nothing here reads a file to decide whether it counts:
+
+```powershell
+Import-Module $env:KINGSHAND_HOME\bin\Projects.psm1 -Force
+$files = Find-ProjectConventionFiles -Path $path
+$files | Format-Table kind, path -AutoSize
+```
+
+- **No files back, or `data\done-<name>.md` already exists - say nothing and offer nothing.** An
+  existing file is grown by `muster` from findings and is never re-seeded.
+- **A throw is a reason to report, not an empty list.** It names why the repository could not be
+  listed; say that the seed could not be offered and why, and carry on with the import.
+- **Otherwise ask, in one line, whether the user wants a draft** naming how many files were found.
+  Declined is the ordinary answer and writes nothing.
+
+**On a yes, the draft is a list of quotes, never a set of derived rules.** Read only the files
+named, and for each one quote the lines that state a convention a change could be checked against,
+with the file each came from - the seed exists so the King decides every line, and a rule you
+inferred from a config file is a rule nobody stated. Do not turn each lint or format setting into a
+criterion: where the file exists, the most it supports is one line saying the project's own check
+passes, and only where the repository names the command that runs it. Reading those files is
+registration, not project work - the same footing as reading the repository's remotes in Step 2 -
+and it stops at them: never open the source to judge whether a convention holds.
+
+Propose each criterion as one line in the form `muster` gives the file, beside the quote it came
+from, and **render the draft with one item per proposed line, so the King approves or drops each
+one on its own** - it is a decision, so it renders. Anything a worker could not report `pass` or
+`fixed` against is a rule rather than a criterion, and goes to Step 4b's file instead, on the same
+approval.
+
+Write only the lines he approved, through the one call that refuses to replace an existing file:
+
+```powershell
+New-ProjectCriteriaSeed -Name "<name>" -Content $approvedLines
+```
+
+**A seed is a starting point, not a finished file.** Most lines in a good criteria file are earned
+from real findings rather than written up front, and `muster`'s close-out keeps adding them; say so
+in one line when the seed is written, so nobody mistakes a short file for a complete one.
+
 ## Step 5 - Show what is registered
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Projects.psm1 -Force
-Get-AllProjects | ForEach-Object { [pscustomobject]$_ } |
+(Get-AllProjects) | ForEach-Object { [pscustomobject]$_ } |
     Select-Object name, rawMode, yolo, merge, family, path | Format-Table -AutoSize
 ```
 
@@ -385,7 +444,7 @@ header and zero populated rows, so "what is registered" answers blank.
 
 Answer in at most six lines. If there is more to say than that, render it and use lavish - and if
 you then wait on that surface, `muster`'s `## The review surface` section owns answering in it and
-re-arming the poll.
+re-arming the poll [rule:muster/review-surface].
 
 ## Changing a posture later
 
@@ -397,10 +456,10 @@ the next dispatch of any ticket in that project takes the family's copy and its 
 back out, and putting the token back restores both.
 
 **Raising a mode: look at the brackets for a `+merge` before you do.** A `+merge` beside
-`local-only` grants nothing, because that project never pushes and never reaches a pull request -
-but the moment the mode on that same line becomes push-capable, the token goes live and the Hand
-may merge that repository's own green pull requests. `Add-ProjectEntry` refuses the combination, so
-it can only be there by hand; either way, raising the mode is the moment to decide whether the
+`local-only` or `review-only` grants nothing, because that project never pushes and never reaches
+a pull request - but the moment the mode on that same line becomes push-capable, the token goes
+live and the Hand may merge that repository's own green pull requests. `Add-ProjectEntry` refuses
+the combination, so it can only be there by hand; either way, raising the mode is the moment to decide whether the
 permission was ever meant.
 
 The description doubles as the posture-change log:
