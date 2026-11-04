@@ -80,10 +80,10 @@ Describe 'the guard goes red when it should' {
         @($found.Line) | Should -Be @(1, 3)
     }
 
-    It 'does not read mate into material or estimate' {
-        $repo = New-FixtureRepo -Files @{ 'docs/a.md' = @('material', 'an estimate', 'a mate') }
+    It 'does not read a short word into a longer one that holds it' {
+        $repo = New-FixtureRepo -Files @{ 'docs/a.md' = @('zorkish', 'an unzorked', 'a zor') }
         $list = New-FixtureList -Repo $repo -Body @'
-@{ Banned = @( @{ Word = 'mate'; Use = 'peer'; Reason = 'test' } ) }
+@{ Banned = @( @{ Word = 'zor'; Use = 'quan'; Reason = 'test' } ) }
 '@
         @((Find-BannedVocabulary -Root $repo -ListPath $list -Pathspec @('docs')).Line) | Should -Be @(3)
     }
@@ -120,25 +120,25 @@ Describe 'the guard goes red when it should' {
 Describe 'exceptions are literal, and exempt only what they name' {
     It 'an exact phrase exempts the word inside it and nowhere else' {
         $repo = New-FixtureRepo -Files @{ 'docs/a.md' = @(
-            'tasks-axi hold x --kind captain',
-            'the captain decides',
-            '--KIND CAPTAIN then a captain'
+            'tasks-axi hold x --kind zork',
+            'the zork decides',
+            '--KIND ZORK then a zork'
         ) }
         $list = New-FixtureList -Repo $repo -Body @'
 @{
-    Banned = @( @{ Word = 'captain'; Use = 'King'; Reason = 'test' } )
-    Allow  = @( @{ Word = 'captain'; Phrase = '--kind captain'; Reason = 'external schema' } )
+    Banned = @( @{ Word = 'zork'; Use = 'quandle'; Reason = 'test' } )
+    Allow  = @( @{ Word = 'zork'; Phrase = '--kind zork'; Reason = 'external schema' } )
 }
 '@
         @((Find-BannedVocabulary -Root $repo -ListPath $list -Pathspec @('docs')).Line) | Should -Be @(2, 3)
     }
 
     It 'a phrase holding the word inside a longer phrase still exempts it' {
-        $repo = New-FixtureRepo -Files @{ 'docs/a.md' = @('an anchor point here', 'drop anchor') }
+        $repo = New-FixtureRepo -Files @{ 'docs/a.md' = @('a zork point here', 'drop zork') }
         $list = New-FixtureList -Repo $repo -Body @'
 @{
-    Banned = @( @{ Word = 'anchor'; Use = 'hold'; Reason = 'test' } )
-    Allow  = @( @{ Word = 'anchor'; Phrase = 'anchor point'; Reason = 'not naval' } )
+    Banned = @( @{ Word = 'zork'; Use = 'quandle'; Reason = 'test' } )
+    Allow  = @( @{ Word = 'zork'; Phrase = 'zork point'; Reason = 'test' } )
 }
 '@
         @((Find-BannedVocabulary -Root $repo -ListPath $list -Pathspec @('docs')).Line) | Should -Be @(2)
@@ -146,21 +146,21 @@ Describe 'exceptions are literal, and exempt only what they name' {
 
     It 'a file exemption covers its own word in that file and no other word' {
         $repo = New-FixtureRepo -Files @{
-            'README.md'  = @('credit to firstmate', 'a zork')
-            'docs/a.md'  = 'firstmate'
+            'README.md'  = @('credit to blorp', 'a zork')
+            'docs/a.md'  = 'blorp'
         }
         $list = New-FixtureList -Repo $repo -Body @'
 @{
     Banned = @(
-        @{ Word = 'firstmate'; Use = 'Hand'; Reason = 'test' }
+        @{ Word = 'blorp'; Use = 'quandle'; Reason = 'test' }
         @{ Word = 'zork'; Use = 'quandle'; Reason = 'test' }
     )
-    Allow  = @( @{ Word = 'firstmate'; File = 'README.md'; Reason = 'attribution' } )
+    Allow  = @( @{ Word = 'blorp'; File = 'README.md'; Reason = 'test' } )
 }
 '@
         $found = @(Find-BannedVocabulary -Root $repo -ListPath $list -Pathspec @('README.md', 'docs'))
         @($found | ForEach-Object { "$($_.File):$($_.Word)" }) | Sort-Object |
-            Should -Be @('docs/a.md:firstmate', 'README.md:zork')
+            Should -Be @('docs/a.md:blorp', 'README.md:zork')
     }
 }
 
