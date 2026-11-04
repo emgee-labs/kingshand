@@ -22,16 +22,23 @@ that fires near the limit, and why an unreadable reading never blocks work.
 One line, hard cap, however many workers are live:
 
 ```
-62% used (session, personal) - 2 running: kh-usage-watch running checks, emgee-seo waiting on you
+3% session / 62% week (personal) - 2 running: kh-usage-watch running checks, emgee-seo waiting on you
 ```
 
-The percentage of the current usage window that is spent, which window that is and which account it
-belongs to, how many workers are running, and a few words on each. Where more workers are live than
-fit, the tail becomes a count - `+3 more` - rather than a second line.
+How much of each usage window is spent, the session first, which account they belong to, how many
+workers are running, and a few words on each. Where more workers are live than fit,
+the tail becomes a count - `+3 more` - rather than a second line.
 
-**Two windows are watched, not one, and the line names whichever is nearer its limit.** An overnight
-run sits comfortably inside the five-hour session window while burning the week, and the weekly
-window resets in days rather than hours, so tripping that one costs far more.
+**Two windows are watched, not one, and the line shows both, session first.** An overnight run sits
+comfortably inside the five-hour session window while burning the week, and the weekly window
+resets in days rather than hours, so tripping that one costs far more. One figure alone could not
+be placed - a weekly 5 read against a session 3 looks like a wrong number - so both are said. The
+dispatch refusal still acts on, and names, only the one nearer its limit.
+
+**Two windows at the same figure are said once, naming both** - `5% session and week (personal)`.
+**A window that cannot be read stays in the line as unreadable** - `3% session / week unreadable
+(personal)` - whether the reading did not report it, its figure was not a number, or it has already
+reset. It is never left out, because a line missing one window reads as a line about one window.
 
 **The account is named because the reading silently follows it.** The percentage always describes
 whichever account is active at the time, so a switch changes which pool it is about with nothing
@@ -44,7 +51,8 @@ instead, because silence would say they were one quota sitting still.
 at least 41% used (stale, session, personal) - 1 running: kh-usage-watch working
 ```
 
-That is the shape when the probe could not answer and quota-axi answered from its own cache. A
+That is the shape when the probe could not answer and quota-axi answered from its own cache. **A
+floor names only the window it bounds**, because it is a lower bound on that one window alone. A
 window already read at or past 90 percent says `held` in place of `stale`: the reader is not
 reading it again until it resets, and the figure is the last one it read. Consumption never falls
 inside a window, so either figure is a lower bound - true, but not current. It is

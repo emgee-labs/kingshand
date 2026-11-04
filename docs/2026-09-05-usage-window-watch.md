@@ -195,7 +195,7 @@ different pools, and a silence would say they were one quota sitting still.
 
 ## The pulse, and why silence is the common case
 
-One line: how much of the window is spent, how many workers are running, and a few words on each.
+One line: how much of each window is spent, how many workers are running, and a few words on each.
 It speaks only when the fleet has moved or the percentage has crossed into a new ten-point band. A
 line every interval regardless would be the progress narration hard rule 6 forbids, and the King
 asked for this so he would not have to ask for updates - not so he would get a heartbeat.
