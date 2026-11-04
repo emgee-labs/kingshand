@@ -2031,8 +2031,9 @@ Describe 'Wait-HerdrAgentProgress confirms a prompt before it reports one, on a 
         $r = Wait-HerdrAgentProgress -Name 'T-9001' -TimeoutMs 600000 -StallMinutes 1
         $r.reason        | Should -Be 'stalled' -Because 'the screen then sat still on what came next'
         $r.state         | Should -Be 'working'
-        $r.awaitingInput | Should -BeFalse
-        $r.blockedReads  | Should -Be 2
+        $r.awaitingInput     | Should -BeFalse
+        $r.blockedReads      | Should -Be 0 -Because 'a prompt seen to clear lends its confirmation to no later wake'
+        $r.blockedUnreadable | Should -Be 0
     }
 
     It 'confirms nothing and reports the prompt at once when the window is 0' {

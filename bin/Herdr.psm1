@@ -1412,14 +1412,14 @@ function Wait-HerdrAgentProgress {
             $awaiting = Test-HerdrAgentAwaitingInput -Name $Name
             if ($awaiting) {
                 $seen = Confirm-HerdrAgentBlocked -Name $Name -Seconds $BlockedConfirmSeconds
-                $blockedReads      = $seen.reads
-                $blockedUnreadable = $seen.unreadable
                 if ($seen.cleared) {
                     # Answered - by the hook, usually - so the worker has moved on. Its screen
                     # changed, and the stall clock starts again from here.
                     $lastChange = Get-Date
                     continue
                 }
+                $blockedReads      = $seen.reads
+                $blockedUnreadable = $seen.unreadable
             }
             $state    = if ($awaiting) { 'blocked' } else { $agent.agent_status }
 
@@ -1505,12 +1505,12 @@ function Wait-HerdrAgentProgress {
             }
             if ($awaiting) {
                 $seen = Confirm-HerdrAgentBlocked -Name $Name -Seconds $BlockedConfirmSeconds
-                $blockedReads      = $seen.reads
-                $blockedUnreadable = $seen.unreadable
                 if ($seen.cleared) {
                     $lastChange = Get-Date
                     continue
                 }
+                $blockedReads      = $seen.reads
+                $blockedUnreadable = $seen.unreadable
                 $stallState = 'blocked'
             }
 
