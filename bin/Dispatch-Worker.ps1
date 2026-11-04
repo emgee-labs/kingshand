@@ -1376,22 +1376,10 @@ foreach ($copy in $staleCopies) { Remove-Item -LiteralPath $copy -Force }
 # That holds for the fresh-branch path and only that one. The two re-dispatch paths below do not
 # branch at all: one reuses a registered worktree without touching git, the other checks out a
 # branch that survived its worktree, and in both the branch point is whatever the earlier dispatch
-# chose. Resolve it again after the repository has moved - a `.no-mistakes.yaml` added since, a
-# default branch that changed - and the base recorded here describes a branch cut somewhere else,
-# so `git log "$base..HEAD"` carries commits nobody in this ticket wrote. The landing gate's
-# attribution scan runs over that same range, so any of them carrying a co-author trailer surfaces
-# there - which muster reads as a bad diff base rather than as the worker's doing - but the rest
-# just widen the diff. Closing that gap is possible and is simply not done here: the branch's own
-# reflog records where it was cut from - `git reflog show worktree-<name>` ends at
-# `branch: Created from <ref>`, written by the `-b` add below, so it exists by construction on the
-# reuse path and survives until gc.reflogExpire - and crew.json already holds the base the first
-# dispatch recorded under this same worker id. Either would give the real branch point; both are
-# a behaviour change to make deliberately rather than a line to slip in beside a comment.
-#
-# Handing a DIFFERENT -Base to the second dispatch opens that same gap with no repository change at
-# all, so the parameter is one more way in rather than a new failure. It is left open for the reason
-# above: the fix is on the re-dispatch paths, and it is the deliberate behaviour change, not a
-# clause added beside the parameter that made the trigger easier to reach.
+# chose - so the base resolved here, or handed in as a different -Base, need not be it. The result
+# says which path ran in `branchCut`, true only where this dispatch cut the branch from $base, and
+# Set-CrewRelaunch in Crew.psm1 owns what the record keeps on a re-dispatch: the base crew.json
+# already holds under this worker id, unless the branch was cut afresh.
 #
 # Resolved BEFORE the spawn on purpose: Resolve-BaseRef refuses rather than inventing a ref, and
 # a refusal after the worker exists would leave an orphaned agent running in the repo.
@@ -1460,6 +1448,9 @@ function Test-WorktreeRegistered {
     $false
 }
 
+# Whether this dispatch cut the branch from $base. Only the fresh `-b` add below does; the checkout
+# and both re-dispatch paths take a branch that already exists.
+$branchCut = $false
 if ($InCheckout) {
     # No prune and no worktree add: the King's repository is not touched beyond the one settings
     # file, and that file is recorded before it is changed. The record is indexed as it is written,
@@ -1513,6 +1504,7 @@ if ($InCheckout) {
     } else {
         $out = Get-GitOutput @('worktree', 'add', '-b', $branch, $worktree, $base)
         if ($LASTEXITCODE -ne 0) { throw "git worktree add -b $branch $worktree $base failed: $out" }
+        $branchCut = $true
     }
 
     # The two grants that used to be `--permission-mode bypassPermissions --add-dir <briefdir>` on the
@@ -1657,6 +1649,9 @@ $result = [hashtable]@{
     worktree    = $worktree
     branch      = $branch
     base        = $base
+    # Whether this dispatch cut the branch from `base`. False on a re-dispatch that found its branch,
+    # where Set-CrewRelaunch keeps the base already recorded.
+    branchCut   = $branchCut
     readable    = $readable
     startPrompt = $taken.outcome
     # Recorded with Add-CrewWorker -PaneId, so cleanup can close this pane after the worker has
