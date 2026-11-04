@@ -1,6 +1,6 @@
 <img src="assets/banner.svg" alt="kingshand - you rule, it executes" width="100%">
 
-[![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](https://github.com/emgee-labs/kingshand)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D4)](https://github.com/emgee-labs/kingshand)
 [![PowerShell](https://img.shields.io/badge/PowerShell-7%2B-5391FE)](https://github.com/PowerShell/PowerShell)
 [![Tests](https://img.shields.io/badge/tests-Pester-3fb950)](tests)
 [![Licence](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
@@ -76,10 +76,10 @@ reads.
 Seven things. **Install the first two yourself** - you need Git to clone this and PowerShell 7 to
 run the installer - and the installer fetches or names the other five.
 
-| | Why | Install |
+| | Why | Install on Windows |
 |---|---|---|
 | PowerShell 7+ | every script targets it. Windows ships only Windows PowerShell 5.1, which will not run them | `winget install --id Microsoft.PowerShell` |
-| Git for Windows | worktrees are the isolation | `winget install --id Git.Git` |
+| Git | worktrees are the isolation | `winget install --id Git.Git` |
 | Node.js | npm, which the next three install through | `winget install --id OpenJS.NodeJS.LTS` |
 | Claude Code | the Hand and every worker | `npm install -g @anthropic-ai/claude-code` |
 | `lavish-axi` | the review surface both gates render to | `npm install -g lavish-axi@<pin>` |
@@ -87,8 +87,16 @@ run the installer - and the installer fetches or names the other five.
 | `herdr` | the terminal every worker is spawned and watched through | fetched by the installer, at its pinned version |
 
 `<pin>` is the version `dependencies.json` names; the installer prints each command with it filled
-in. Node.js installs for the whole machine, so on an account without administrator rights it needs
-someone who has them, or the installer from [nodejs.org](https://nodejs.org).
+in. On Windows, Node.js installs for the whole machine, so on an account without administrator
+rights it needs someone who has them, or the installer from [nodejs.org](https://nodejs.org).
+
+**On macOS and Linux** the npm rows and herdr are the same, and only the system packages differ.
+PowerShell 7 comes from [aka.ms/powershell](https://aka.ms/powershell). On macOS the installer
+uses Homebrew in place of winget - `brew install git`, `brew install node` - and runs it under
+`-InstallMissing`; Homebrew does not ship with macOS, so install it from [brew.sh](https://brew.sh)
+first. On Linux it recognises apt, dnf, pacman and zypper and prints the exact command for your
+distribution - `sudo apt-get install -y nodejs npm`, say - but never runs it, because each needs
+sudo and the installer never elevates.
 
 Everything below this line is optional, and a run with none of it installed reports no failure.
 
@@ -96,11 +104,12 @@ Everything below this line is optional, and a run with none of it installed repo
 `direct-PR`, `no-mistakes`, `no-mistakes-prod-only` - because those end at a pull request. Work
 that stops at a finished local branch never calls it. `-InstallMissing` installs it anyway, and
 its absence is a note rather than a failure; `/annex` refuses to register a push-capable posture
-without it and tells you the command. `winget install --id GitHub.cli`, then `gh auth login`.
+without it and tells you the command. `winget install --id GitHub.cli` on Windows, `brew install
+gh` on macOS, or the command the installer prints on Linux - then `gh auth login`.
 
 **The review gate.** `no-mistakes` is needed only by projects you register `no-mistakes` or
 `no-mistakes-prod-only`. `setup` asks whether you want it, and `.\install.ps1 -WithReviewGate`
-adds it at any time - it fetches the Windows build from
+adds it at any time - it fetches the build for your system from
 [kunchenguid/no-mistakes](https://github.com/kunchenguid/no-mistakes) and checks it against the
 published SHA-256 before extracting. Work that stops at a finished local branch never needs it.
 
@@ -187,6 +196,10 @@ manual equivalent of `set it up`:
 .\install.ps1 -InstallMissing
 ```
 
+On macOS and Linux the installer names itself as `pwsh ./install.ps1`, so run
+`pwsh ./install.ps1 -InstallMissing` there, and read every `.\install.ps1` in this README the same
+way.
+
 Then open a new `pwsh`, so it sees what was installed, and carry on from `claude`. The first time
 Claude Code starts it asks you to sign in, to trust this folder, and to accept the permission mode
 this repository ships with - [Permissions](#permissions-and-what-you-are-agreeing-to) below says
@@ -197,7 +210,9 @@ with the exact command that fixes it. Nothing self-elevates. `herdr` is the one 
 directly: it is checked against the SHA-256 `dependencies.json` pins and the one published in
 `https://herdr.dev/latest.json` before it is extracted, a mismatch deletes the download and
 installs nothing, and an offline machine is told so in one line rather than shown a web exception.
-Open a new shell afterwards so `KINGSHAND_HOME` is picked up.
+On Windows, open a new shell afterwards so `KINGSHAND_HOME` is picked up. On macOS and Linux it is
+written into this folder's own gitignored `.claude/settings.local.json` instead, which every Claude
+Code session started here reads.
 
 **Every dependency is pinned.** `dependencies.json` records the exact version of herdr, the review
 gate, `lavish-axi`, `tasks-axi` and `quota-axi` that this release was verified with, and the
@@ -362,11 +377,11 @@ an external dependency, and nothing in it reads or writes your live `data\` or `
 
 ## Credit
 
-Kingshand is a Windows-native rebuild of ideas from
+Kingshand began as a Windows-native rebuild of ideas from
 [firstmate](https://github.com/kunchenguid/firstmate) by Kun Chen, which runs on macOS and Linux.
-Several skills, the delivery-posture and knowledge-routing contracts, the registry line format and
-the startup-memory estimate all come from there. Where a rule here reads well, it is usually because
-it was proven there first.
+Kingshand itself now runs on Windows, macOS and Linux. Several skills, the delivery-posture and
+knowledge-routing contracts, the registry line format and the startup-memory estimate all come from
+there. Where a rule here reads well, it is usually because it was proven there first.
 
 What differs is the layer underneath. Firstmate supervises workers itself, across six terminal
 backends and roughly 56,000 lines of shell. Kingshand keeps about 16,000 lines of PowerShell -

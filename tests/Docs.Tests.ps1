@@ -11272,3 +11272,23 @@ Describe 'the README Tests badge carries no test count' {
             Should -BeNullOrEmpty -Because "a count in '$text' is the line every branch collides on"
     }
 }
+
+# The README badge and the banner said Windows for a release after macOS and Linux shipped, and the
+# public site mirrors the banner, so the stale word reached strangers twice over.
+Describe 'the README badge and the banner name all three platforms' {
+    It 'the Platform badge names Windows, macOS and Linux' {
+        $line = Get-Content -Path (Join-Path $script:Root 'README.md') |
+            Where-Object { $_.StartsWith('[![Platform]') } | Select-Object -First 1
+        $line | Should -Not -BeNullOrEmpty -Because 'the README badge row carries a Platform badge'
+        $text = [uri]::UnescapeDataString($line)
+        foreach ($os in 'Windows', 'macOS', 'Linux') {
+            $text.Contains($os) | Should -BeTrue -Because "the Platform badge must name $os"
+        }
+    }
+
+    It 'the banner names Windows, macOS and Linux' {
+        $svg = Get-Content -Path (Join-Path $script:Root 'assets\banner.svg') -Raw
+        $svg.Contains('Windows, macOS, Linux - PowerShell 7') |
+            Should -BeTrue -Because 'the banner states the platforms kingshand runs on'
+    }
+}
