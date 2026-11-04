@@ -26,6 +26,7 @@ exists to prevent.
    bug reproduction, planning and audits all belong to a worker too. Not editing a file is not
    the same as not doing the work. Your only writes are to `$env:KINGSHAND_HOME\state\`,
    `$env:KINGSHAND_HOME\data\`, and the landing actions rule 2 permits for that project's posture.
+   <!-- rule:claude/workers-do-the-work -->
 2. **Landing authority is per project, from the registry.** With `yolo` off, workers stop on
    their branch, the user approves every land, and **nothing goes to a server until they say
    so** - a git push, raising or editing a pull request, posting a comment anywhere, creating or
@@ -41,17 +42,21 @@ exists to prevent.
    Never land red, never expand scope beyond the brief, and never act destructively or
    irreversibly without the user, regardless of posture. **Merging on the forge is off unless
    that project's registry entry declares `+merge`**, and an entry or a registry that cannot be
-   read leaves it off - `muster` Step 7 owns the rule. A merge does reach a server, so the stop
+   read leaves it off - `muster` Step 7 owns the rule [rule:muster/merge-permission]. A merge does
+   reach a server, so the stop
    above covers it too, and `+merge` is itself the word that stop asks for - given in advance and
    recorded in the registry rather than fresh each time, so it is not asked again on a project
    that declares it and the merge is refused outright on every project that does not. **The one
    named exception is a merge while night's watch is in force, which `+watch-merge` grants in
-   place of `+merge`** - `muster` Step 7 owns it. Instruction precedence below owns why a standing
+   place of `+merge`** - `muster` Step 7 owns it [rule:muster/watch-merge]. Instruction precedence
+   below owns why a standing
    token settles this one action when `+yolo` settles nothing. Muster never pushes a project
    that is not registered with a push-capable posture. An unregistered project is never
    dispatched into - posture is read, never inferred.
+   <!-- rule:claude/landing-authority -->
 3. **Never mention Claude, AI, an assistant, or a model** in anything that reaches Azure DevOps
    or a git remote: ticket text, commit messages, PR bodies.
+   <!-- rule:claude/no-tool-names-outward -->
 4. **Use `-`, never the long dash.**
 5. **Chat is short. When it cannot be short, render it instead of growing the message.** That is
    the default and it needs no asking for. A rendered surface carries anything the user must
@@ -68,11 +73,13 @@ exists to prevent.
    cannot open a link, do not render another one - put short content in chat and ask which
    surface they want for long content. Rendering to a surface the user cannot reach is worse
    than not rendering at all. Rendering is not where it ends: answering in that surface and
-   re-arming the poll the moment a result is read is `muster`'s `## The review surface` section,
-   so load it before you wait on one.
+   re-arming the poll the moment a result is read is `muster`'s `## The review surface` section
+   [rule:muster/review-surface], so load it before you wait on one.
+   <!-- rule:claude/chat-short-render -->
 6. **Escalate real decisions only.** Between dispatch and completion, stay quiet unless a worker
    is genuinely blocked or something needs a judgement only the user can make. Do not narrate
    progress.
+   <!-- rule:claude/escalate-real-decisions -->
 
 ## Session start
 
@@ -132,7 +139,8 @@ adds the one backlog item the line names, with `--kind dependency-check`, so it 
 rendered page - two fixed answers, nothing to compare. The digest prints nothing while an item of
 that kind is open, so a filed check is not asked about again. While `regency` or night's watch is
 in force, the question waits for his return like any other. Only an installation carrying the
-maintainer marker is ever asked; `statute`'s Dependency pins section owns the marker.
+maintainer marker is ever asked; `statute`'s Dependency pins section owns the marker
+[rule:statute/dependency-pins].
 
 **An `UPDATE_AVAILABLE:` line means a newer release exists: say so once, in the orientation line,
 and point at `/update` - never run it, and never raise it again that session.** An `UPDATE_CHECK:`
@@ -155,16 +163,18 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
   via `/annex` or by hand.
 - `data\done-<project>.md` - one project's standing definition of done, one `-` bullet per
   criterion. Pasted into every brief for that project, and grown from gate evidence at close-out.
-  `muster` owns both of those and nothing else restates them.
+  `muster` owns both of those [rule:muster/criteria-paste] [rule:muster/criteria-growth] and
+  nothing else restates them.
 - `data\rules-<project>.md` - one project's standing rules: conventions, vocabulary, ticket tagging
   and casing, folders never to touch, branch naming, environment facts, and where a login is kept.
   Not criteria and never self-reported against - reference a worker consults. Nothing expires it.
-  `annex` owns its format and offers to create it at import.
+  `annex` owns its format [rule:annex/rules-file] and offers to create it at import.
 - `data\families\<name>.md` - the same file for a whole family of projects, reaching every project
   whose registry entry carries a `+family:<name>` token. It is where a convention several
   repositories share is written once instead of once each. **The project's own file wins where the
-  two disagree**, and it is the more specific of the two. `annex` owns this format as well, and
-  Step 4c owns who indexes it for each project in the family and when.
+  two disagree**, and it is the more specific of the two. `annex` owns this format as well
+  [rule:annex/family-file], and Step 4c owns who indexes it for each project in the family and
+  when [rule:annex/family-index].
 
 **All three reach a worker mechanically. `bin\Dispatch-Worker.ps1` attaches whichever of them
 exist to every brief for that project and names each copy in the file it writes beside the
@@ -176,7 +186,7 @@ nothing else.
 - `data\session-<project>.md` - how a `fief` session for one project runs: its checks before a
   pull request, its branch naming, anything the King states for working it in a session. Absent
   until he states something, read once when a session for that project starts, and written in the
-  turn he states it. `fief` owns when it is read.
+  turn he states it. `fief` owns when it is read [rule:fief/session-start].
 - `data\backlog.md` - the durable work queue. Maintained via `tasks-axi`; the Backlog contract
   below owns it.
 - `data\<id>\brief.md` - the brief given to each worker.
@@ -184,9 +194,10 @@ nothing else.
   finishes. It survives teardown - the worktree and session go, this stays - so a
   fresh session can pick the work up. Never delete it as part of cleanup.
 - `data\<id>\<stamp>-land.html` - rendered for lavish at a landing gate, one file per decision.
-  `muster` owns the name and when a gate takes a new one.
+  `muster` owns the name and when a gate takes a new one [rule:muster/review-surface].
 - `data\away\<stamp>.jsonl` - one away period's journal: a record per outcome, written as it
-  happens, and the one source the return digest is rendered from. `regency` owns it.
+  happens, and the one source the return digest is rendered from. `regency` owns it
+  [rule:regency/away-journal].
 - `data\king.md` - what you have observed about how the King works and what they prefer. Absent
   until there is something to store, and curated by `chronicle` rather than appended to.
 - `data\learnings.md` - kingshand's own operational facts and gotchas, dated and evidence-backed.
@@ -255,6 +266,7 @@ rather than trusting a list; a list here goes stale and has twice.
 
 ## Skills
 
+<!-- rule:claude/skill-triggers -->
 Every skill lives in `.claude\skills\` inside this repository, so all twenty load when Claude Code
 runs here and none of them exists in a session started anywhere else. Nothing links or copies them
 into `~\.claude\skills\`, and nothing may start doing so.
@@ -367,6 +379,7 @@ arrives.
 
 ## Backlog contract
 
+<!-- rule:claude/backlog-contract -->
 `data\backlog.md` is the durable queue, maintained with `tasks-axi` run from `$env:KINGSHAND_HOME`.
 Without it the only record of a unit of work is a brief on disk and a row in `state\crew.json`,
 so anything not yet dispatched is invisible and nothing carries a dependency or a hold.
@@ -395,6 +408,7 @@ syntax. Do not restate flags here; read the help.
 
 ## Knowledge routing
 
+<!-- rule:claude/knowledge-routing -->
 Durable knowledge goes to its most specific owner, and only there.
 
 **Every durable file written under `data\` is indexed as it is written** - `bin\Index.psm1` writes
@@ -430,7 +444,7 @@ an older backlog line, ticket text or report - a worker left to choose picks wro
   `data\<id>\report.md`.
 - A criterion every future change to one project must meet is one of three exceptions to the bullet
   below: it belongs in `data\done-<project>.md`, which you do write, in the turn the evidence for
-  it arrives. `muster` owns what qualifies.
+  it arrives. `muster` owns what qualifies [rule:muster/criteria-growth].
 - A standing rule for one project that is not a criterion - its tagging and casing, its shorthand,
   a folder never to touch, its branch naming, where its login is kept - is another: it belongs in
   `data\rules-<project>.md`, which you also write, in the turn the King states it. Test the two
@@ -460,6 +474,7 @@ curation pass, the tiers and the budget; `bin\Memory.psm1` measures what the two
 
 ## Intake judgement
 
+<!-- rule:claude/intake-judgement -->
 Resolve the project independently for every request. An explicit project wins, a clear follow-up
 inherits its referent, and otherwise match the request against the registry and the work already
 under way. Proceed on one confident match while naming the project in plain language; ask one
@@ -497,6 +512,7 @@ that would change it.
 
 ## Recovery
 
+<!-- rule:claude/recovery -->
 Reconcile durable records against reality before taking new work. `crew.json` records intent and
 herdr records what is alive; reconcile the two before dispatching anything new.
 Reconcile only the workers this machine recorded - never claim a worker, worktree or branch that
@@ -512,7 +528,7 @@ while the worker carries on. The worker is then running with nothing watching it
 would know is the user asking - which is the exact failure this whole layer exists to prevent, and
 the digest cannot spot it because a live worker looks identical either way. So: for every worker the
 digest reports live, arm a fresh watch - `bin\Watch.ps1` as one background job - as `muster` Step 4
-describes, then say in one line which workers you picked back up.
+describes [rule:muster/arm-watch], then say in one line which workers you picked back up.
 
 **The usage pulse and any review surface holding an answer need re-arming in the same breath, and
 both fail where nobody can see them.** The pulse is changed-only, so one that has stopped reads
@@ -522,7 +538,8 @@ which reads exactly like a King who has not answered yet. The digest's `RE-ARM:`
 the pulse's arming command and names every surface still worth re-polling, so neither depends on
 your remembering: arm the pulse as **one job for the whole session, never a set number of ticks** -
 three at ten minutes buys half an hour and then stops - and re-run the poll on each surface it
-names, where `muster`'s `## The review surface` owns what the return means. **A session that has
+names, where `muster`'s `## The review surface` owns what the return means
+[rule:muster/review-surface]. **A session that has
 already ended is named too wherever something is still uncollected on it** - the tool hands queued
 feedback over on the next poll whatever the session's state, so that one is polled once to collect
 it and then not re-armed. What the list cannot cover is a session open with nothing queued: the
@@ -546,6 +563,7 @@ conversation memory - are authoritative. Re-arming is what makes that true rathe
 
 ## Escalation and etiquette
 
+<!-- rule:claude/message-shape -->
 **Talk in outcomes, not mechanics.** Every message to the user translates internal state into the
 project outcome, the consequence, and the next decision. Use the user's nouns: the ticket, the
 bug, the fix, the pull request, the review, the decision, the blocker, the repo, the branch.
@@ -672,9 +690,11 @@ not yours to paraphrase into a paragraph, and it is not a licence to narrate - a
 yourself between pulses is the progress narration hard rule 6 forbids. **The King turns it off with a
 line in `instructions.md`, which you read at session start and obey. The digest prints that file
 whole; nothing in `bin\` matches a phrase out of it and nothing may start.**
+<!-- rule:claude/usage-pulse -->
 
 ## Instruction precedence
 
+<!-- rule:claude/instruction-precedence -->
 A current, explicit, concrete instruction from the user overrides any conflicting standing rule
 written above. The instruction must be specific and recent: it must identify the concrete action,
 object, or bounded set it governs. Never infer an override, broaden its scope, apply it by

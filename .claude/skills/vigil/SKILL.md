@@ -8,8 +8,9 @@ description: Owns the usage pulse, and it is on by default - one line saying how
 A vigil watches through the night and speaks only when something happens.
 
 **The pulse is the default. It is already on, in every session, without this skill being loaded.**
-The rule lives in `CLAUDE.md`'s Escalation and etiquette section so it applies whether or not anyone
-reads this file - a rule that only exists in an unloaded skill is not in force. Nothing here
+The rule lives in `CLAUDE.md`'s Escalation and etiquette section [rule:claude/usage-pulse] so it
+applies whether or not anyone reads this file - a rule that only exists in an unloaded skill is not
+in force. Nothing here
 auto-invokes at session start and nothing can: a skill loads when the Hand loads it, which is why
 the standing behaviour is stated where it is rather than here. What does arrive unasked is the
 session-start digest, which carries the arming command itself - see `## Arming it` below.
@@ -81,12 +82,12 @@ watch alive across the gap. `bin\Usage.psm1` owns the order, the gate and the ho
 
 **Relay it as it comes.** It is already written in the King's nouns, so it needs no translating, no
 preamble and no sentence around it. A pulse the Hand paraphrases into a paragraph is the progress
-narration hard rule 6 forbids, arriving by the back door.
+narration hard rule 6 [rule:claude/escalate-real-decisions] forbids, arriving by the back door.
 
 ## Arming it
 
 One background job per session, armed once at session start, in the shape `muster` Step 4 already
-uses for worker waits:
+uses for worker waits [rule:muster/arm-watch]:
 
 ```powershell
 Import-Module $env:KINGSHAND_HOME\bin\Usage.psm1
@@ -97,7 +98,8 @@ Watch-UsagePulse
 process reaches nobody, which is the same failure as a wait nothing is watching.
 
 **The session-start digest carries that command in its `RE-ARM:` section, so arming it is not
-something anybody has to remember.** `CLAUDE.md`'s Recovery section owns the rule; this owns what
+something anybody has to remember.** `CLAUDE.md`'s Recovery section owns the rule
+[rule:claude/recovery]; this owns what
 the job itself does. A restart kills the job along with every other one the last session armed, and
 because the pulse is changed-only there is nothing to notice - which is how "no tokens, no updates"
 was reported twice in one day.
@@ -119,7 +121,9 @@ never ran. One line, at arming time, and nothing further: making a quiet pulse l
 is somebody else's piece of work and deliberately not this one.
 
 This one polls on a timer, and that is not the worker-wait rule being broken. A wait on a worker is
-an event and must never be a loop - `muster` Step 4 owns that. "Nothing has changed for five minutes"
+an event and must never be a loop - `muster` Step 4 owns that [rule:muster/arm-watch]. "Nothing
+has
+changed for five minutes"
 is not an event anything can push, so the pulse is the one thing here that is allowed a clock, and
 it rides beside the waits rather than over them.
 
@@ -145,6 +149,7 @@ and let the King write it.
 
 ## The refusal near the limit
 
+<!-- rule:vigil/refusal-near-limit -->
 Dispatch refuses a new worker once the usage window is 90 percent spent, and says so by name so the
 Hand can relay it. `bin\Dispatch-Worker.ps1` owns the threshold and the wording; the reason is that
 a worker started into the last few percent of a window dies mid-run and leaves the work half done,
@@ -186,6 +191,7 @@ pauses on it at any `-ThresholdPercent`.
 - **It never resumes work when the window resets.** That belongs to other work and is not wired in
   here.
 - **It never narrates progress.** A pulse that spoke every interval regardless would be exactly the
-  thing hard rule 6 forbids, which is why silence is its common case.
+  thing hard rule 6 [rule:claude/escalate-real-decisions] forbids, which is why silence is its
+  common case.
 - **It relaxes no hard rule.** Nothing here touches delivery posture, landing authority, or what may
   be done without the user.

@@ -26,7 +26,9 @@ the one anybody cares about.
 ### CI is established before a worker is promised a wait for it
 
 `bin\Ci.psm1` answers one question - can anything report a check on this repository's pull requests
-- and `muster` Step 1b asks it before a `no-mistakes` task is dispatched. The answer picks which of
+- and `muster` Step 1b asks it before a `no-mistakes` task is dispatched
+  [rule:muster/ci-preflight].
+The answer picks which of
 the three `no-mistakes` Done-means blocks the brief carries, and with it the gate line that block
 runs: a repository proven to have no CI takes `--skip ci`, so the step that would wait for a check
 nothing can report is never run at all.

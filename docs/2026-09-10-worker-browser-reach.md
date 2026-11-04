@@ -18,7 +18,8 @@ So the question was never whether the browser is useful. It was where the payloa
 
 **The browser tools load in a worker.** They are deferred, and a worker's single batched load
 returned all of them, including the two read tools the record is built from. `witness` owns the
-exact load line and `bin\BrowserVerify.psm1` owns the required set; both were used as written and
+exact load line [rule:witness/browser-load] and `bin\BrowserVerify.psm1` owns the required set;
+both were used as written and
 the availability check came back available with nothing missing. One tool was loaded on top of that
 line rather than from it, and the tab-close recommendation below names it. Being dispatched into a
 worktree costs a worker nothing here - the tool inventory is the session's, not the directory's.

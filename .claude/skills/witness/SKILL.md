@@ -34,6 +34,7 @@ write vaguely: `- the settings drawer closes when the overlay is clicked` can be
 
 ## Before anything: can the browser be driven at all
 
+<!-- rule:witness/browser-load -->
 The browser tools are deferred, so load them in **one** call rather than one call per tool:
 
 ```

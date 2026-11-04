@@ -11,8 +11,9 @@ project and nothing else.
 
 **Fief is off by default, and nothing turns it on but the King's own word.** It is held in this
 session's own context, so the mode begins when this file is loaded and ends when the King ends it
-or the session does - `## How it ends` owns that. `CLAUDE.md`'s Skills section carries the one line
-that gets it loaded, and the one fact that has to survive without it: a restarted session that
+or the session does - `## How it ends` owns that. `CLAUDE.md`'s Skills section
+[rule:claude/skill-triggers] carries the one line that gets it loaded, and the one fact that has
+to survive without it: a restarted session that
 finds a session worker still live reports it and does not re-enter the mode.
 
 **It exists because a run of small fixes on one project paid for a worktree, a dispatch and a
@@ -22,6 +23,7 @@ the supported version of it.
 
 ## How it starts
 
+<!-- rule:fief/session-start -->
 1. **Resolve the project from the registry**, the way intake resolves any project. A project that
    is not registered is never dispatched into, and a session does not change that: say so in one
    line and do not enter the mode.
@@ -33,7 +35,8 @@ the supported version of it.
      request, its branch naming, anything the King has said about working it in a session.
 
    **Absent is a normal state** for every one of the four. `CLAUDE.md`'s Knowledge routing owns
-   what goes in the session file and how it differs from the rules file.
+   what goes in the session file and how it differs from the rules file
+   [rule:claude/knowledge-routing].
 3. **Say in one line** that the session is in force, for which project, and on which branch where
    he has named one.
 
@@ -48,18 +51,23 @@ Three things, and every one of them is routing or delivery.
 
 ## What it never changes
 
-- **Hard rule 1 holds.** The Hand writes no project code in a session - the warm worker does. A
-  Hand-writes-code override was offered once for small work and the King declined it; `parley`'s
-  `## What was offered and declined` records why, and a session is not a second route to it.
-- **Hard rule 2 holds.** Nothing reaches a server without his word. `## Delivery` owns how that
+- **Hard rule 1 holds.** [rule:claude/workers-do-the-work] The Hand writes no project code in a
+  session - the warm worker does. A Hand-writes-code override was offered once for small work and
+  the King declined it; `parley`'s `## What was offered and declined`
+  [rule:parley/offered-declined] records why, and a session is not a second route to it.
+- **Hard rule 2 holds.** [rule:claude/landing-authority] Nothing reaches a server without his
+  word. `## Delivery` owns how that
   word is given, one step at a time.
-- **Hard rule 3 holds.** No agent, model or tooling name in anything reaching a git remote or Azure
-  DevOps - commit titles and pull request bodies built from the item list included.
-- **The dispatch gate happens** for the warm worker, as `muster` Step 3 has it, before it exists.
-- **The landing gate happens.** `muster` Step 7 owns it and every floor in it. In a session it
+- **Hard rule 3 holds.** [rule:claude/no-tool-names-outward] No agent, model or tooling name in
+  anything reaching a git remote or Azure DevOps - commit titles and pull request bodies built from
+  the item list included.
+- **The dispatch gate happens** for the warm worker, as `muster` Step 3 has it
+  [rule:muster/dispatch-gate], before it exists.
+- **The landing gate happens.** `muster` Step 7 owns it and every floor in it
+  [rule:muster/landing-gate]. In a session it
   shows the whole branch against its base, once - the session's diff is the one diff.
 - **The registered posture is still read and never inferred**, and `muster` Step 7 still owns
-  merging, `+merge` included.
+  merging, `+merge` included [rule:muster/merge-permission].
 - **It routes work and switches no account.** The identity and account rules in the King's global
   instructions are untouched, and checking the account before a push is exactly as it is outside.
 - **`parley`'s rules are unchanged**, whether or not it is loaded. `## Fief and parley together`.
@@ -81,8 +89,10 @@ the branch is what the worker's durable record lists, and nothing else.
 
 ## The warm worker
 
+<!-- rule:fief/warm-worker -->
 **The first change in the session starts it, through `muster` as any dispatch is.** Step 2 writes
-its brief and Step 3 gates it. The brief covers the run rather than one fix: its first item, the
+its brief [rule:muster/brief-contents] and Step 3 gates it [rule:muster/dispatch-gate]. The brief
+covers the run rather than one fix: its first item, the
 rule that later fixes arrive as prompts, and the Done-means block for the resolved mode - with
 nothing in it that commits, pushes or runs the gate unprompted, because `## Delivery` gives each of
 those its own word. Pass `data\session-<project>.md` under `Read first` where it exists; the
@@ -99,7 +109,8 @@ $r = & $env:KINGSHAND_HOME\bin\Dispatch-Worker.ps1 `
 
 The dispatcher's header owns what that switch refuses and writes - it never creates or switches a
 branch, it refuses a checkout not already on that branch, and it writes the checkout warnings into
-the dispatch file beside the brief, as `muster` Step 4 says. Relay any refusal as it comes: a
+the dispatch file beside the brief, as `muster` Step 4 says [rule:muster/dispatch-file]. Relay any
+refusal as it comes: a
 checkout on the wrong branch is his to switch.
 
 **A session that asks for isolation** - "use a worktree", or work he must not see half-done in his
@@ -107,7 +118,7 @@ checkout - takes one ordinary worktree for the whole run of fixes: the same call
 `-InCheckout` or `-Branch`, and still one worker. Never one worktree per fix.
 
 **Record it as one worker carrying many items**, then arm its wait exactly as `muster` Step 4
-says:
+says [rule:muster/arm-watch]:
 
 ```powershell
 Add-CrewWorker -State $s -WorkerId $r.id -Ticket "<first id>" -Kind "<ticket|adhoc>" `
@@ -123,16 +134,18 @@ shape.
 the record first, with `Add-CrewItem`, and save - so the list on disk is the branch's truth before
 the worker touches anything. A fix with no ticket gets a short slug of its own and kind `adhoc`.
 Then send the fix with `Send-HerdrPrompt`, wait for `working`, and re-arm the watch, as Step 4
-requires of any prompt you send yourself. The King asking for a fix is his word for that fix;
-where sending it would add scope he did not state, that is a Step 3 question in one line first.
+requires of any prompt you send yourself [rule:muster/arm-watch]. The King asking for a fix is his
+word for that fix; where sending it would add scope he did not state, that is a Step 3 question
+[rule:muster/dispatch-gate] in one line first.
 
 **It is stopped at the session's end or on his word, and never before its work is safe.** A
 checkout worker's work is in the checkout and on its branch whatever happens to the worker, so
 stopping it loses nothing - but a worker whose record points at an open hold is still never
-stopped, as Step 8b says. Clean a checkout worker up with `Stop-CheckoutWorker` from
+stopped, as Step 8b says [rule:muster/teardown-open-hold]. Clean a checkout worker up with
+`Stop-CheckoutWorker` from
 `bin\ClaudeWorkspace.psm1`, passing its recorded `settings_record` and, because the session is
 over, `-EndSession`; it never deletes the branch and never removes the checkout. An isolated
-session worker is cleaned up as Step 8b has it.
+session worker is cleaned up as Step 8b has it [rule:muster/teardown].
 
 **A wedged warm worker is relaunched as the same worker, and keeps its fixes.** In the checkout,
 clean it up with `Stop-CheckoutWorker`, dispatch it again with the same name, brief and branch, and re-record it with
@@ -140,30 +153,36 @@ clean it up with `Stop-CheckoutWorker`, dispatch it again with the same name, br
 what was already uncommitted, so the relaunched brief quotes only those files as not its own and
 lists the rest as the session's own earlier fixes. **Pass `-EndSession` to `Stop-CheckoutWorker`
 only when the session ends**, which removes that baseline too. An isolated session worker has no
-settings record and no baseline: it is relaunched in its worktree as `rally` Step 4 says, and
+settings record and no baseline: it is relaunched in its worktree as `rally` Step 4 says
+[rule:rally/relaunch], and
 re-recorded with `Set-CrewRelaunch` with no `-SettingsRecord`.
+<!-- rule:fief/wedged-worker -->
 
 ## Delivery
 
 **Commit, push and raise a pull request are three separate words, and each authorises only
-itself.** `parley`'s `## One step at a time` owns that rule and states it in full; in a session it
+itself.** `parley`'s `## One step at a time` owns that rule and states it in full
+[rule:parley/one-step-at-a-time]; in a session it
 applies whether or not parley is loaded. **Inside a session that holds whatever the project's
 `yolo` says**: he is present and batching, so `+yolo` lands nothing early here.
 
 **A project registered `review-only` gets no commit, no push and no pull request.** On any of
 those three words, say in one line that the project is registered review-only, and do nothing -
-prompt the worker for nothing. Its delivery is the report, as muster's Step 7 says.
+prompt the worker for nothing. Its delivery is the report, as muster's Step 7 says
+[rule:muster/review-only-delivery].
 
 - **Commit** - prompt the worker to commit. The title names every id on the branch, comma
   separated, in the order its durable record holds them, read with `Get-CrewItems`.
 - **Push** - on a task that resolves to `no-mistakes`, this is the word that runs the review gate:
-  prompt the worker with the gate line from Step 2's block for that mode, once, over the whole
+  prompt the worker with the gate line from Step 2's block for that mode
+  [rule:muster/brief-contents], once, over the whole
   branch, and the gate's own push follows. **The gate runs once, on the whole branch, never per
   fix**, because no fix prompt carries the gate line. On any other mode, prompt the push itself.
 - **Pull request** - its title names every id the same way, and its description calls out each
   item of kind `adhoc` as a change with no ticket.
 
-The landing gate in Step 7 shows the whole branch against the recorded base. That base is resolved
+The landing gate in Step 7 [rule:muster/landing-gate] shows the whole branch against the recorded
+base. That base is resolved
 at dispatch exactly as for a worktree, and the dispatcher refuses one that resolves to the session
 branch itself - pass `-Base` with the branch the work will be proposed against when it does.
 
@@ -211,7 +230,7 @@ routing is ordinary and a request for that project is matched the ordinary way.
   prompt. No agent is ever inside a run and told to stop.
 - **The review-only refusal** is obeyed by the Hand, which reads the project's mode before it
   prompts a commit, a push or a pull request. Behind it, muster's Step 7 never pushes a project
-  that is not push-capable; nothing in code stops the commit.
+  that is not push-capable [rule:muster/landing-gate]; nothing in code stops the commit.
 - **Pinned routing, the one-line mismatch and the step boundary** are obeyed by the Hand while it
   composes a reply, at a turn boundary. Prose is the mechanism and nothing else could be.
 - **The exit conditions are enforced by nothing at all.** A Hand that forgets the mode falls back
