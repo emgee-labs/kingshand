@@ -5400,9 +5400,24 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         # The two facts a percentage is meaningless without: which window it is about, and which
         # account's pool it measures. Both were learned the hard way and both belong in the line.
         It 'names the driving window and the account, and says why each is there' {
-            $script:Vigil | Should -Match '\*\*Two windows are watched, not one'
+            $script:Vigil | Should -Match ('\*\*Two windows are watched, not one, and the line shows ' +
+                                           'both, session first\.\*\*')
+            $script:Vigil | Should -Match ('The\s+dispatch refusal still acts on, and names, only the one ' +
+                                           'nearer its limit\.')
             $script:Vigil | Should -Match '\*\*The account is named because the reading silently follows it\.\*\*'
             $script:Vigil | Should -Match 'Two readings either side of a switch are never\s+compared'
+        }
+
+        # The line's three shapes for a current reading. Usage.Tests.ps1 drives each through the
+        # reader; these pin what the King is told the line looks like, so the two cannot part.
+        It 'shows equal windows once and an unreadable window as unreadable, never omitted' {
+            $script:Vigil | Should -Match '3% session / 62% week \(personal\) - 2 running:'
+            $script:Vigil | Should -Match '\*\*Two windows at the same figure are said once, naming both\*\*'
+            $script:Vigil | Should -Match '`5% session and week \(personal\)`'
+            $script:Vigil | Should -Match '\*\*A window that cannot be read stays in the line as unreadable\*\*'
+            $script:Vigil | Should -Match '`3% session / week unreadable\s+\(personal\)`'
+            $script:Vigil | Should -Match 'It is never left out, because a line missing one window'
+            $script:Vigil | Should -Match '\*\*A\s+floor names only the window it bounds\*\*'
         }
 
         # THE FAILURE THAT PUT A FOUR-TIMES-UNDERSTATED NUMBER IN FRONT OF THE KING. A cached
