@@ -199,6 +199,10 @@ the file turns it off. The refresh:
 
 - Use `-`, never the long dash (U+2014). `tests\Docs.Tests.ps1` asserts this for every skill and
   for `CLAUDE.md`.
+- A word banned in `tests\banned-words.psd1` never appears in tracked material, and
+  `tests\Vocabulary.Tests.ps1` fails naming the file, the line and the word to use instead. Ban a
+  word or add an exception in that list, never in the test, and keep every exception a literal
+  file or phrase rather than a rule about context.
 - Never mention Claude, AI, an assistant, or a model in anything that reaches a git remote or Azure
   DevOps: ticket text, commit messages, PR bodies. This is hard rule 3 and it does not bend.
 - Never add an agent name as a commit co-author.

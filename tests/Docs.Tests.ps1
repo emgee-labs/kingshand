@@ -4241,6 +4241,18 @@ Describe 'no long dash' {
     }
 }
 
+Describe 'statute names where the banned words live' {
+    # tests\Vocabulary.Tests.ps1 is the behaviour; this pins the rule that tells a contributor the
+    # list is the place to edit and that its exceptions stay literal.
+    It 'statute says banned words live in one list, edited there and never in the test' {
+        Assert-Phrase -Text (Get-DocText $script:GuidelinesMd) -Where 'statute' `
+            -Phrase ('A word banned in `tests\banned-words.psd1` never appears in tracked material, and ' +
+                     '`tests\Vocabulary.Tests.ps1` fails naming the file, the line and the word to use ' +
+                     'instead. Ban a word or add an exception in that list, never in the test, and keep ' +
+                     'every exception a literal file or phrase rather than a rule about context.')
+    }
+}
+
 Describe 'one file owns herdr''s command line, and the record says why' {
     # The last spawn layer was spelled out in four scripts and three skills, so replacing it meant
     # editing all seven. Keeping the command line in one module is what makes the next migration a
