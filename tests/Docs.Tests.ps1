@@ -11008,7 +11008,7 @@ Describe 'the README Tests badge carries no test count' {
         $path = $line.Substring($start, $end - $start)
         $colour = $path.LastIndexOf('-')
         $colour | Should -BeGreaterThan 0 -Because 'the badge path ends in -<colour>'
-        $text = $path.Substring(0, $colour)
+        $text = [uri]::UnescapeDataString($path.Substring(0, $colour))
         @($text.ToCharArray() | Where-Object { [char]::IsDigit($_) }) |
             Should -BeNullOrEmpty -Because "a count in '$text' is the line every branch collides on"
     }
