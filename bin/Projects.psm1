@@ -509,10 +509,14 @@ function Find-ProjectConventionFiles {
 
     $found = [System.Collections.Generic.List[pscustomobject]]::new()
     $seen  = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    # git writes paths as UTF-8 whatever the console is set to, so this read decodes as UTF-8 and
+    # then puts the console back; a code page console would otherwise garble a non-ASCII path.
+    $previous = [Console]::OutputEncoding
     try {
+        [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
         foreach ($kind in $script:ConventionPathspecs.Keys) {
-            # -z, so a path holding a space or a non-ASCII character arrives as itself rather than
-            # in git's quoted form.
+            # -z, so a path holding a space or a non-ASCII character arrives unquoted rather than in
+            # git's quoted form.
             $raw  = & git -C $Path ls-files -z -- @($script:ConventionPathspecs[$kind]) 2>$null
             $code = $LASTEXITCODE
             if ($code -ne 0) {
@@ -525,6 +529,7 @@ function Find-ProjectConventionFiles {
             }
         }
     } finally {
+        [Console]::OutputEncoding = $previous
         $global:LASTEXITCODE = 0
     }
 
