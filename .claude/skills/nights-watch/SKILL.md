@@ -66,6 +66,7 @@ floor holds, the parley marker included, and so do these, which are floors rathe
 - never merge work that materially expands its brief;
 - never anything destructive or security-sensitive;
 - a `local-only` landing is never relocated - it lands on its branch;
+- a `review-only` project lands nothing - its report is the delivery, and nothing is merged;
 - every existing Step 7 floor.
 
 **Merge only where `Get-WatchMergeVerdict` allows it, and only through `Invoke-WatchMerge`:**
@@ -78,12 +79,12 @@ if ($v.allowed) { Invoke-WatchMerge -Verdict $v -Strategy "<the repository's str
 ```
 
 The verdict checks every floor code can hold and refuses on each by name: the project's own
-`+watch-merge`, `+merge` alone granting nothing, the run's own switch, local-only, the gate, an open
-hold, the parley marker, and every check green at the live head. The merge is bound to the head
-the checks were read at. **Two floors it cannot check, and you judge them before calling it**:
-whether the work materially expands its brief, and whether it is destructive or security-sensitive.
-Where either is in doubt, it waits for the King. The strategy comes from the repository, as Step
-8a has it, never a default.
+`+watch-merge`, `+merge` alone granting nothing, the run's own switch, local-only, review-only, the
+gate, an open hold, the parley marker, and every check green at the live head. The merge is bound
+to the head the checks were read at. **Two floors it cannot check, and you judge them before
+calling it**: whether the work materially expands its brief, and whether it is destructive or
+security-sensitive. Where either is in doubt, it waits for the King. The strategy comes from the
+repository, as Step 8a has it, never a default.
 
 A verdict that refuses is not a failure: record it as `waiting` with its reasons and move on.
 

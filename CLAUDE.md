@@ -34,7 +34,8 @@ exists to prevent.
    and **it fires on the action reaching a server, whatever posture the project is registered
    under**. `local-only` simply has no push and no pull request for it to fire on - its delivery
    stops on a branch - but a comment or a work item is not delivery, so a `local-only` project's
-   ticket is gated exactly like any other. With `+yolo`, `muster`
+   ticket is gated exactly like any other. `review-only` lands nothing at all - its delivery is
+   the worker's report. With `+yolo`, `muster`
    writes the brief, dispatches, and lands green work within the accepted task criteria without
    asking. `yolo` is the string `'on'` or `'off'`, never a boolean - test it with `-eq 'on'`.
    Never land red, never expand scope beyond the brief, and never act destructively or
@@ -569,7 +570,7 @@ When evidence uses an internal label, rewrite it before sending:
 | `report.md` | what the worker found |
 | `worker` | name the helper only when which one matters; otherwise name the work |
 | `crew.json`, herdr, pane, agent state, snapshot, diagnostics | the durable record, or what could not be read; omit unless the user needs the path to act |
-| `posture`, `mode`, `rawMode` | what this project is set up to do: stop on a branch, open a pull request, or run the review gate first |
+| `posture`, `mode`, `rawMode` | what this project is set up to do: stop on a branch, open a pull request, run the review gate first, or review and report without landing anything |
 | `yolo` | whether I proceed without asking you |
 | registry | the projects set up for work |
 | fail-closed, fails closed, refuses loudly | stops safely when something goes wrong, or reports the concrete missing requirement |

@@ -136,10 +136,10 @@ Where one is needed:
   exactly where parley actually took a gate away. Key that on the task's resolved mode from
   `muster` Step 1, never on how the project is registered - a `no-mistakes-prod-only` project
   resolves to `no-mistakes` on product-facing work and gets the marker there. **On a task resolved
-  to `direct-PR` or to `local-only`, write no marker at all**: those modes run no review gate in
-  normal mode either, so parley subtracted nothing and a `+merge` the King granted stands exactly
-  as he granted it. Claiming a safety reduction that did not happen is as wrong as hiding one that
-  did.
+  to `direct-PR`, `local-only` or `review-only`, write no marker at all**: those modes run no review
+  gate in normal mode either, so parley subtracted nothing and a `+merge` the King granted stands
+  exactly as he granted it. Claiming a safety reduction that did not happen is as wrong as hiding
+  one that did.
 
   Where it is written, it takes **two shapes, because the two files take different shapes** - and
   **each shape stands on its own**: either file carrying the token is enough for Step 7's floor to
@@ -184,10 +184,10 @@ Where one is needed:
   exchange open on a worker.
 - **A parley dispatch that carries the marker is never merged on the forge, whatever `+merge`
   declares** - a gate that would have run did not, so nothing has established that the run is safe
-  to merge. That is the same scope as the marker: a dispatch resolved to `direct-PR` or
-  `local-only` carries none, gave up nothing, and merges exactly as it would outside parley.
-  `muster` Step 7 owns the refusal and states it in full; this is the reason and the
-  cross-reference. Where it bites, the work stops where its posture stops and the merge is the
+  to merge. That is the same scope as the marker: a dispatch resolved to `direct-PR`,
+  `local-only` or `review-only` carries none, gave up nothing, and merges exactly as it would
+  outside parley. `muster` Step 7 owns the refusal and states it in full; this is the reason and
+  the cross-reference. Where it bites, the work stops where its posture stops and the merge is the
   King's own next step in his own words.
 
 ## The gate a parley dispatch does not run
