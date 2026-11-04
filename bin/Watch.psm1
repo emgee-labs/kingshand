@@ -356,9 +356,16 @@ function Invoke-WorkerWatch {
         $worker = Invoke-WorkerWait -Name $Name -TimeoutMs $ms -StallMinutes $StallMinutes
         if (Test-WorkerWakeOnPrompt $worker.wake) {
             $seen = Confirm-WorkerPrompt -Name $Name -Seconds $PromptConfirmSeconds
-            if ($seen.cleared -and (Get-Date) -lt $deadline) {
-                $ms = [int][Math]::Max(1000, ($deadline - (Get-Date)).TotalMilliseconds)
-                continue
+            if ($seen.cleared) {
+                if ((Get-Date) -lt $deadline) {
+                    $ms = [int][Math]::Max(1000, ($deadline - (Get-Date)).TotalMilliseconds)
+                    continue
+                }
+                $wake = [pscustomobject]@{
+                    reason = 'timeout'; settled = $false; stalled = $false; awaitingInput = $false
+                    waitedMinutes = $TimeoutMinutes; signalReadable = $true
+                }
+                return [pscustomobject]@{ wake = $wake; line = (Format-WorkerWake -Name $Name -Wake $wake) }
             }
             if ($seen.unreadable -gt 0) {
                 $worker.line += (" While the prompt was being confirmed, $($seen.unreadable) of " +

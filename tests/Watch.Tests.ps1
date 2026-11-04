@@ -512,12 +512,12 @@ Describe 'A worker watch confirms a prompt is still up before it reports BLOCKED
         Should -Invoke -ModuleName Watch Start-Sleep -Times 0 -Exactly
     }
 
-    It 'never waits past its own timeout on a prompt that keeps coming back' {
+    It 'never waits past its own timeout on a prompt that keeps clearing, and never calls it blocked' {
         Mock -ModuleName Watch Wait-HerdrAgentProgress { New-Wake -State 'blocked' -Awaiting $true }
         Mock -ModuleName Watch Read-HerdrAgentScreen {
             [pscustomobject]@{ ok = $true; text = $script:ClearScreen }
         }
-        (Watch-Worker -Name 'T-1' -TimeoutMinutes 1) | Should -BeLike 'BLOCKED T-1*'
+        (Watch-Worker -Name 'T-1' -TimeoutMinutes 1) | Should -BeLike 'NO OUTCOME T-1 after 1 minutes*'
         $script:slept | Should -BeLessOrEqual 70
     }
 
