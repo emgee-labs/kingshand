@@ -102,20 +102,24 @@ Work these in order. Each one's outcome decides whether the next runs.
    write to a work item, a state move or a comment.
 
    Take recent pull requests in the same repository whose title names a work item as `AB#<id>`,
-   and hand each pair over. Each candidate is checked against that work item's own links, so a
-   pairing that is wrong matches nothing rather than matching wrongly:
+   and hand every pair over. Each candidate is checked against that work item's own links. A link
+   names no repository, so a work item shared across repositories can carry another one's pull
+   request under the same number: the module sets aside any GUID already cached for another
+   repository, and returns a GUID only where at least two candidates with different pull request
+   numbers agree on it:
 
    ```powershell
    gh pr list --repo "<owner>/<repo>" --state all --limit 30 --json number,title
-   $f = Find-RepoGuid -Root $env:KINGSHAND_HOME -Candidates @(@{ ticketId = <id>; prNumber = <n> })
-   $f.guid; $f.matched; $f.unreadable
+   $f = Find-RepoGuid -Root $env:KINGSHAND_HOME -RepoKey "<owner>/<repo>" `
+        -Candidates @(@{ ticketId = <id>; prNumber = <n> }, @{ ticketId = <id2>; prNumber = <n2> })
+   $f.guid; $f.matched; $f.unreadable; $f.reason
    ```
 
    With a GUID, run step 1 again with `-DiscoveredGuid $f.guid`, which caches it and links in one
-   call. **With none, say so - not as a question.** Where `unreadable` is zero, no work item has
-   linked that repository yet, so the link cannot be made; where it is not, say how many candidates
-   could not be read, because then absence was not established. A throw means the candidates
-   disagree; report it and link nothing.
+   call. **With none, say so - not as a question.** There is not enough evidence to be sure of the
+   repository's GUID, so the link cannot be made and nothing is cached. Where `unreadable` is not
+   zero, also say how many candidates could not be read. A throw means the candidates disagree;
+   report it and link nothing.
 
 3. **Move the state.**
 

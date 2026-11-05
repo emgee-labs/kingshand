@@ -576,19 +576,29 @@ function Test-WorkItemReview {
 
 # Discovers a repository's GUID from work items that already link one of its pull requests. Each
 # candidate is a work item id and the number of a pull request in the same repository that it is
-# known to carry. A candidate counts only where exactly one linked GUID carries that number; the
-# candidates that count must all agree, and a disagreement throws rather than picking one.
+# known to carry. A tracker link names no repository, so a GUID already cached under another
+# repository is set aside first; a candidate then counts only where exactly one remaining GUID
+# carries that number. The candidates that count must all agree - a disagreement throws rather than
+# picking one - and a GUID is returned only where at least two of them, with different pull request
+# numbers, agree on it. Short of that it returns none, with a reason saying there is not enough
+# evidence to be sure, because one shared number can be another repository's pull request.
 #
-# Returns guid ($null where none was found), matched, and unreadable - the candidates that could
-# not be read at all, so "nothing has ever linked this repository" is said only when nothing failed.
+# Returns guid ($null where none was found), matched, unreadable - the candidates that could not be
+# read at all, so "nothing has ever linked this repository" is said only when nothing failed - and
+# reason, set whenever guid is $null.
 function Find-RepoGuid {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][string]$RepoKey,
         [Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Candidates
     )
 
-    $found      = [System.Collections.Generic.List[string]]::new()
+    $cache   = Read-RepoGuidCache -Path (Get-RepoGuidCachePath -Root $Root)
+    $foreign = @($cache.Keys | Where-Object { $_ -ne $RepoKey } |
+                 ForEach-Object { "$($cache[$_])".ToLowerInvariant() })
+
+    $found      = [System.Collections.Generic.List[object]]::new()
     $unreadable = 0
     foreach ($c in $Candidates) {
         $status = $null
@@ -599,19 +609,26 @@ function Find-RepoGuid {
             continue
         }
         $number = [int](Get-OptionalProperty $c 'prNumber')
-        $guids  = @($status.pullRequests | Where-Object { $_.number -eq $number } |
+        $guids  = @($status.pullRequests |
+                    Where-Object { $_.number -eq $number -and $_.guid -notin $foreign } |
                     ForEach-Object { $_.guid } | Select-Object -Unique)
-        if ($guids.Count -eq 1) { $found.Add($guids[0]) }
+        if ($guids.Count -eq 1) { $found.Add([pscustomobject]@{ guid = $guids[0]; number = $number }) }
     }
 
-    $distinct = @($found | Select-Object -Unique)
+    $distinct = @($found | ForEach-Object { $_.guid } | Select-Object -Unique)
     if ($distinct.Count -gt 1) {
         throw "Work items disagree about this repository's GUID: $($distinct -join ', ')."
     }
+    $numbers = @($found | ForEach-Object { $_.number } | Select-Object -Unique)
+    $sure    = $distinct.Count -eq 1 -and $numbers.Count -ge 2
     [pscustomobject]@{
-        guid       = if ($distinct.Count -eq 1) { $distinct[0] } else { $null }
+        guid       = if ($sure) { $distinct[0] } else { $null }
         matched    = $found.Count
         unreadable = $unreadable
+        reason     = if ($sure) { $null } else {
+            "Not enough evidence to be sure of the GUID for ${RepoKey}: $($numbers.Count) pull " +
+            'request number(s) matched, and at least two different ones must agree.'
+        }
     }
 }
 

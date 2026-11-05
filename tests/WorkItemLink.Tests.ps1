@@ -432,20 +432,72 @@ Describe 'verified means the re-read found both the link and the state' {
 }
 
 Describe 'GUID discovery reads existing links and never picks between disagreeing ones' {
-    It 'finds the GUID on a work item that links a known pull request of the repository' {
+    It 'gives the GUID where two candidates with different numbers agree on it' {
+        $h = New-Home -Name 'find-two'
+        Mock -ModuleName WorkItemLink Invoke-RestMethod {
+            New-Item-Response -Links @("vstfs:///GitHub/PullRequest/$($script:Guid)%2F7",
+                                       "vstfs:///GitHub/PullRequest/$($script:Guid)%2F8")
+        }
+        $r = Find-RepoGuid -Root $h -RepoKey 'acme/acme-api' `
+                -Candidates @(@{ ticketId = 55; prNumber = 7 }, @{ ticketId = 56; prNumber = 8 })
+        $r.guid | Should -Be $script:Guid
+        $r.matched | Should -Be 2
+        $r.reason | Should -BeNullOrEmpty
+    }
+
+    It 'gives no GUID from one candidate alone, saying there is not enough evidence' {
         $h = New-Home -Name 'find-one'
         Mock -ModuleName WorkItemLink Invoke-RestMethod {
             New-Item-Response -Links @("vstfs:///GitHub/PullRequest/$($script:Guid)%2F7")
         }
-        $r = Find-RepoGuid -Root $h -Candidates @(@{ ticketId = 55; prNumber = 7 })
-        $r.guid | Should -Be $script:Guid
+        $r = Find-RepoGuid -Root $h -RepoKey 'acme/acme-api' -Candidates @(@{ ticketId = 55; prNumber = 7 })
+        $r.guid | Should -BeNullOrEmpty
         $r.matched | Should -Be 1
+        $r.reason | Should -BeLike '*not enough evidence*'
+    }
+
+    It 'does not count two candidates with the same pull request number as two' {
+        $h = New-Home -Name 'find-samenumber'
+        Mock -ModuleName WorkItemLink Invoke-RestMethod {
+            New-Item-Response -Links @("vstfs:///GitHub/PullRequest/$($script:Guid)%2F7")
+        }
+        $r = Find-RepoGuid -Root $h -RepoKey 'acme/acme-api' `
+                -Candidates @(@{ ticketId = 55; prNumber = 7 }, @{ ticketId = 56; prNumber = 7 })
+        $r.guid | Should -BeNullOrEmpty
+        $r.reason | Should -BeLike '*not enough evidence*'
+    }
+
+    It 'drops a GUID already cached under another repository' {
+        $h = New-Home -Name 'find-foreign'
+        Set-Cache -Home_ $h -Map @{ 'acme/acme-web' = $script:Other }
+        Mock -ModuleName WorkItemLink Invoke-RestMethod {
+            New-Item-Response -Links @("vstfs:///GitHub/PullRequest/$($script:Other)%2F7",
+                                       "vstfs:///GitHub/PullRequest/$($script:Other)%2F8")
+        }
+        $r = Find-RepoGuid -Root $h -RepoKey 'acme/acme-api' `
+                -Candidates @(@{ ticketId = 55; prNumber = 7 }, @{ ticketId = 56; prNumber = 8 })
+        $r.guid | Should -BeNullOrEmpty
+        $r.matched | Should -Be 0
+        $r.reason | Should -BeLike '*not enough evidence*'
+    }
+
+    It 'finds its own GUID beside a same-numbered link cached for another repository' {
+        $h = New-Home -Name 'find-beside-foreign'
+        Set-Cache -Home_ $h -Map @{ 'acme/acme-web' = $script:Other }
+        Mock -ModuleName WorkItemLink Invoke-RestMethod {
+            New-Item-Response -Links @("vstfs:///GitHub/PullRequest/$($script:Other)%2F7",
+                                       "vstfs:///GitHub/PullRequest/$($script:Guid)%2F7",
+                                       "vstfs:///GitHub/PullRequest/$($script:Guid)%2F8")
+        }
+        $r = Find-RepoGuid -Root $h -RepoKey 'acme/acme-api' `
+                -Candidates @(@{ ticketId = 55; prNumber = 7 }, @{ ticketId = 56; prNumber = 8 })
+        $r.guid | Should -Be $script:Guid
     }
 
     It 'returns no GUID and counts nothing unreadable when nothing links the repository' {
         $h = New-Home -Name 'find-none'
         Mock -ModuleName WorkItemLink Invoke-RestMethod { New-Item-Response }
-        $r = Find-RepoGuid -Root $h -Candidates @(@{ ticketId = 55; prNumber = 7 })
+        $r = Find-RepoGuid -Root $h -RepoKey 'acme/acme-api' -Candidates @(@{ ticketId = 55; prNumber = 7 })
         $r.guid | Should -BeNullOrEmpty
         $r.unreadable | Should -Be 0
     }
@@ -453,7 +505,7 @@ Describe 'GUID discovery reads existing links and never picks between disagreein
     It 'counts a candidate it could not read, so absence is not claimed over a failure' {
         $h = New-Home -Name 'find-unreadable'
         Mock -ModuleName WorkItemLink Invoke-RestMethod { throw 'boom' }
-        $r = Find-RepoGuid -Root $h -Candidates @(@{ ticketId = 55; prNumber = 7 })
+        $r = Find-RepoGuid -Root $h -RepoKey 'acme/acme-api' -Candidates @(@{ ticketId = 55; prNumber = 7 })
         $r.guid | Should -BeNullOrEmpty
         $r.unreadable | Should -Be 1
     }
@@ -467,8 +519,8 @@ Describe 'GUID discovery reads existing links and never picks between disagreein
                 New-Item-Response -Links @("vstfs:///GitHub/PullRequest/$($script:Other)%2F8")
             }
         }
-        { Find-RepoGuid -Root $h -Candidates @(@{ ticketId = 55; prNumber = 7 },
-                                               @{ ticketId = 56; prNumber = 8 }) } |
+        { Find-RepoGuid -Root $h -RepoKey 'acme/acme-api' `
+                -Candidates @(@{ ticketId = 55; prNumber = 7 }, @{ ticketId = 56; prNumber = 8 }) } |
             Should -Throw -ExpectedMessage '*disagree*'
     }
 }
