@@ -402,6 +402,24 @@ Describe 'verified means the re-read found both the link and the state' {
             Should -BeFalse
     }
 
+    It 'with no pull request named, counts any linked pull request, even one never cached' {
+        $h = New-Home -Name 'verify-any'
+        Mock -ModuleName WorkItemLink Invoke-RestMethod {
+            New-Item-Response -State 'In Review' -Links @("vstfs:///GitHub/PullRequest/$($script:Other)%2F7")
+        }
+        $v = Test-WorkItemReview -Root $h -TicketId 101
+        $v.linked | Should -BeTrue
+        $v.verified | Should -BeTrue
+    }
+
+    It 'with no pull request named, fails when the item links none' {
+        $h = New-Home -Name 'verify-none'
+        Mock -ModuleName WorkItemLink Invoke-RestMethod { New-Item-Response -State 'In Review' }
+        $v = Test-WorkItemReview -Root $h -TicketId 101
+        $v.linked | Should -BeFalse
+        $v.verified | Should -BeFalse
+    }
+
     It 'does not count a link with the same number in another repository' {
         $h = New-Home -Name 'verify-otherrepo'
         Set-Cache -Home_ $h -Map @{ 'acme/acme-api' = $script:Guid }

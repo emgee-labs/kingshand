@@ -540,21 +540,27 @@ function Set-WorkItemInReview {
     [pscustomobject]@{ outcome = 'move-sent'; from = $status.state; reason = $plan.reason }
 }
 
-# The re-check that is the only meaning of "verified": re-read the item and confirm both that this
-# exact pull request is linked and that the state is the target or one already past it.
+# The re-check that is the only meaning of "verified": re-read the item and confirm both that the
+# pull request is linked and that the state is the target or one already past it. With a pull
+# request URL, that exact pull request must be linked; without one - the item already linked a pull
+# request nobody named - any pull request link counts.
 function Test-WorkItemReview {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Root,
         [Parameter(Mandatory)][int]$TicketId,
-        [Parameter(Mandatory)][string]$PullRequestUrl
+        [string]$PullRequestUrl = ''
     )
 
-    $pr     = ConvertFrom-PullRequestUrl -Url $PullRequestUrl
     $config = Get-WorkItemConfig -Root $Root
-    $guid   = Get-RepoGuid -Root $Root -RepoKey $pr.key
     $status = Get-WorkItemStatus -Root $Root -TicketId $TicketId
-    $linked  = Test-HasPullRequest -Status $status -Guid $guid -Number $pr.number
+    if ($PullRequestUrl) {
+        $pr     = ConvertFrom-PullRequestUrl -Url $PullRequestUrl
+        $guid   = Get-RepoGuid -Root $Root -RepoKey $pr.key
+        $linked = Test-HasPullRequest -Status $status -Guid $guid -Number $pr.number
+    } else {
+        $linked = @($status.pullRequests).Count -gt 0
+    }
     $stateOk = $status.state -in $config.alreadyDone
 
     [pscustomobject]@{
