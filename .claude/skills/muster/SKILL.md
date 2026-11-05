@@ -70,7 +70,7 @@ $ado = if (Test-Path $adoPath) { Get-Content $adoPath -Raw | ConvertFrom-Json } 
 $ado.organization, $ado.project
 ```
 
-The file holds exactly two keys:
+The file holds these two keys, and one optional `review` block that only `writ` reads and owns:
 
 ```json
 {
@@ -2402,6 +2402,10 @@ tasks-axi update "<id>" --pr "<full https:// URL>"
 
 Leave the item open at `ready`. Nothing has landed yet, and an item closed here would report a
 merge the user has not made.
+
+**Where this work came in as a work item, load `writ` now and make its offer**
+[rule:writ/offer-after-pr] - the pull request is confirmed on the remote, so this is the first
+point it can be linked. Teardown at Step 8b does not wait on the answer.
 
 ### Merging it, where Step 7 said you may
 

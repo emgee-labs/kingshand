@@ -65,7 +65,7 @@ reads.
   much gets written rather than what you get asked before anything ships.
 - **Your preferences stay yours.** `instructions.md` is read every session and never written by the
   tool - enforced by the permission layer, not just asked for in prose.
-- **Your other projects are untouched.** All twenty skills live in this repository's own
+- **Your other projects are untouched.** All twenty-one skills live in this repository's own
   `.claude\skills\`. Nothing is written into `~\.claude\`, so a session anywhere else on the machine
   behaves exactly as it did before.
 
@@ -271,7 +271,7 @@ astray - neither of which a detached background session allows.
 
 ## Built-in skills
 
-Twenty, all project-local. Fourteen you invoke; six the Hand loads for itself.
+Twenty-one, all project-local. Fourteen you invoke; seven the Hand loads for itself.
 
 | Skill | What it is for |
 |---|---|
@@ -295,6 +295,7 @@ Twenty, all project-local. Fourteen you invoke; six the Hand loads for itself.
 | `petition` | Deciding an ask-user finding from the review gate, including in your stead while you are away |
 | `statute` | Changing kingshand's own tracked material |
 | `witness` | Exercising a front-end change in a real browser, and recording what was seen |
+| `writ` | After a pull request, offering to move its work item to in review and attach the pull request as a link |
 
 ## Permissions, and what you are agreeing to
 
@@ -344,8 +345,8 @@ dependencies.json       the exact version of each dependency this release was ve
 bin\                    dispatch, worker state, registry, snapshot, digest, herdr, workspace prep,
                         version, self-update, browser verification, the away journal, the usage
                         window, a gate run's state and the wait on it, night's watch's guards,
-                        the dependency pins
-.claude\skills\         twenty project-local skills. They load only in this directory
+                        the dependency pins, the work item link after a pull request
+.claude\skills\         twenty-one project-local skills. They load only in this directory
 tests\                  the Pester suite
 tools\herdr\            herdr at its pinned version, SHA-256 verified by the installer - gitignored,
                         and deliberately not on PATH
