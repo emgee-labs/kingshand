@@ -2635,6 +2635,35 @@ Describe 'chat is shaped by the kind of message it is' {
     }
 }
 
+Describe 'the Hand says only what it has established' {
+    # Three corrections in one day shared one defect: a fabricated usage figure, a cached one
+    # reported as current, and a policy position stated as a technical impossibility. They are
+    # truthfulness rather than shape, so they sit outside the shape and survive it being turned off.
+    BeforeAll { $script:Shape = Get-HandSection 'Escalation and etiquette' }
+
+    It 'never states a figure it did not read from its source this turn' {
+        Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
+            -Phrase ('**Never state a figure - a percentage, a count, a time, a version - that was ' +
+                     'not read from its source in this turn.**')
+        Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
+            -Phrase ('A figure you could not read is said to be unread, and one read earlier or ' +
+                     'served from a cache is said to be stale.')
+    }
+
+    It 'never dresses a policy or a belief as a technical impossibility' {
+        Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
+            -Phrase ('**Never present a policy position, a preference or an untested belief as a ' +
+                     'technical impossibility.**')
+        Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
+            -Phrase 'Say "I won''t", "I haven''t checked" or "the rule says", whichever is true.'
+    }
+
+    It 'keeps both in force with the shape turned off' {
+        Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
+            -Phrase ('Neither is part of the shape, so turning the shape off leaves both in force')
+    }
+}
+
 Describe 'a current explicit instruction overrides a standing rule, within its exact scope' {
     It 'states the override and requires it to name what it governs' {
         $s = Get-HandSection 'Instruction precedence'

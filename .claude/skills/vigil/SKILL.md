@@ -62,7 +62,8 @@ supports: at a true 41.2, "at least 42%" is a sentence the evidence does not car
 guarded by these digits - the refusal compares the exact figure, never the rounded one.
 
 Three things it never does. It never invents a percentage: where nothing could be read at all the
-line opens `usage unknown` and says nothing more confident than that. It never invents a phase: a
+line opens `usage unknown` and says nothing more confident than that - the Hand's own rule for any
+figure [rule:claude/say-only-what-is-established]. It never invents a phase: a
 worker whose phase cannot be worked out is reported as `phase not known` rather than guessed at or
 quietly dropped. And it never speaks when nothing has changed - a silent interval is the pulse
 working, not the pulse broken.

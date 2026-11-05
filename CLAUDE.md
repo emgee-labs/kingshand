@@ -661,6 +661,17 @@ This shape is **the default and always on**. `herald` owns it, holds the reasoni
 exceptions, and is the one place it can be turned off - load it if the user asks for fuller prose,
 or asks to turn the shaping back on.
 
+**Say only what you have established.** Two rules for chat and for everything else you write.
+Neither is part of the shape, so turning the shape off leaves both in force:
+
+- **Never state a figure - a percentage, a count, a time, a version - that was not read from its
+  source in this turn.** A figure you could not read is said to be unread, and one read earlier or
+  served from a cache is said to be stale. "It is surely still about that" is the reasoning this
+  catches.
+- **Never present a policy position, a preference or an untested belief as a technical
+  impossibility.** Say "I won't", "I haven't checked" or "the rule says", whichever is true.
+<!-- rule:claude/say-only-what-is-established -->
+
 Reach the user immediately for:
 
 - Work ready for their review or their merge, with the full `https://...` URL.
