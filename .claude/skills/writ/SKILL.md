@@ -1,6 +1,6 @@
 ---
 name: writ
-description: Reference procedure for the work item behind a pull request - offering to move it to its in-review state and attach the pull request as a link, never a comment. The Hand loads it at muster's close-out once a pull request for work that came in as a work item is confirmed on the remote, and whenever the King asks to link a pull request to a work item, move one to in review, or update a ticket after a pull request - e.g. "update ticket 1234", "link the PR to the ticket", "move it to in review". One question first; a no changes nothing.
+description: Reference procedure for the work item behind a pull request - offering to move it to its in-review state and attach the pull request as a link, never a comment. The Hand loads it at muster's close-out once a pull request for work that came in as a work item is confirmed on the remote, after a fief session's pull request is confirmed the same way, and whenever the King asks to link a pull request to a work item, move one to in review, or update a ticket after a pull request - e.g. "update ticket 1234", "link the PR to the ticket", "move it to in review". One question first; a no changes nothing.
 version: 1.0.0
 ---
 
@@ -21,7 +21,9 @@ cache write, and nothing may start: **every write goes through that module.**
 **At `muster` Step 8a, once the pull request is confirmed on the remote, for work that came in as a
 work item.** That is the worker's record: `kind` is `ticket` and `ticket` is a work item number,
 digits and nothing else. The pull request has to exist before it can be linked, so this is the
-first point the offer can be made, and teardown does not wait on the answer.
+first point the offer can be made, and teardown does not wait on the answer. **A `fief` session's
+pull request is the same moment**, once it is confirmed on the remote, and the same test runs on
+each item its branch carries - `fief`'s `## Delivery` makes that offer.
 
 **Work that came in as `adhoc` gets no offer**, and that is what keeps it off projects with no work
 item behind their pull requests - the intake already recorded which kind of work this is, so no
