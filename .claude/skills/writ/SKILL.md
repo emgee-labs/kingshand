@@ -151,7 +151,8 @@ Work these in order. Each one's outcome decides whether the next runs.
 Asked directly with no pull request in hand, first read whether the item already links one -
 `(Get-WorkItemStatus -Root $env:KINGSHAND_HOME -TicketId <id>).pullRequests` - and if it does, skip
 the link and go to the state move. Its re-read in step 4 then leaves out `-PullRequestUrl`, so it
-confirms that a pull request is linked rather than which one - there is no URL to name. Otherwise search under the owner of the project's own remote:
+confirms that a pull request is linked rather than which one - there is no URL to name. Otherwise
+search under the owner of the project's own remote:
 
 ```powershell
 gh search prs --owner "<owner>" "<id>" --json repository,number,title,state,url --limit 10
