@@ -11381,6 +11381,23 @@ Describe 'writ offers once, writes nothing without a yes, and never comments' {
             -Phrase 'Teardown at Step 8b does not wait on the answer.'
     }
 
+    It 'is hooked into fief''s pull request step, once per ticket item on the branch' {
+        $fiefMd = Join-Path $script:Root '.claude\skills\fief\SKILL.md'
+        $fief   = Get-DocText $fiefMd
+        Assert-Phrase -Text $fief -Where 'fief''s Delivery' `
+            -Phrase ('**Once it is confirmed on the remote, load `writ` and make its offer once per ' +
+                     'item on the branch that passes writ''s test** - kind `ticket`, id all digits')
+        # The normaliser drops citations, so the one naming writ's rule is read from the raw text.
+        Assert-Phrase -Text ((Get-Content -Path $fiefMd -Raw) -replace '\s+', ' ') -Where 'fief''s Delivery' `
+            -Phrase 'passes writ''s test** [rule:writ/offer-after-pr] - kind `ticket`'
+        Assert-Phrase -Text $fief -Where 'fief''s Delivery' `
+            -Phrase '**One question can list every such item, and each still needs his own yes.**'
+        Assert-Phrase -Text $fief -Where 'fief''s Delivery' `
+            -Phrase 'A branch whose items are all `adhoc` gets no offer at all.'
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '**A `fief` session''s pull request is the same moment**'
+    }
+
     It 'says the config file carries an optional review block that writ owns' {
         Assert-Phrase -Text (Get-MusterStep 'Step 1 ') -Where 'muster Step 1' `
             -Phrase 'The file holds these two keys, and one optional `review` block that only `writ` reads and owns:'
