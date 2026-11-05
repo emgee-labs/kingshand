@@ -1954,14 +1954,10 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
   skill opens the brief:
 
   ```powershell
-  $token = 'PARLEY DISPATCH - NO REVIEW GATE RAN.'
-  $files = "$env:KINGSHAND_HOME\data\<id>\brief.md", "$env:KINGSHAND_HOME\data\<id>\report.md"
-
-  foreach ($f in $files) {
-      if (-not (Test-Path -LiteralPath $f)) { "UNREADABLE $f - not there"; continue }
-      try   { $hits = @(Select-String -SimpleMatch $token -LiteralPath $f -ErrorAction Stop) }
-      catch { "UNREADABLE $f - $($_.Exception.Message)"; continue }
-      if ($hits.Count -gt 0) { "MARKER $f" } else { "CLEAN $f" }
+  Import-Module "$env:KINGSHAND_HOME\bin\NightsWatch.psm1"
+  foreach ($kind in 'brief', 'report') {
+      $f = "$env:KINGSHAND_HOME\data\<id>\$kind.md"
+      "$(Test-WatchParleyMarker -Path $f -Kind $kind) $f"
   }
   ```
 
@@ -1969,19 +1965,24 @@ These floors hold regardless of posture and `+yolo` never relaxes them:
   **`UNREADABLE` refuses it too** - a file that is missing or that could not be opened has not been
   checked, so it says nothing about the marker and must never be read as the marker being absent.
   Say which path it was and say that the marker could not be checked, rather than reporting a run
-  as unmarked, and the merge waits until both files have actually been read. That is why the loop
-  tests each path before matching: a bare `Select-String` over two paths writes its error to stderr
-  and returns nothing for a missing one, so no-hit and could-not-read arrive as the same empty
-  output - and this floor only ever fired on a hit. It is the same direction `$proj.merge` takes on
-  a registry it cannot read and the same one **Empty evidence is never clean evidence** takes
-  below.
+  as unmarked, and the merge waits until both files have actually been read. That is why the
+  reader tests each path before matching: a bare `Select-String` over two paths writes its error to
+  stderr and returns nothing for a missing one, so no-hit and could-not-read arrive as the same
+  empty output - and this floor only ever fired on a hit. It is the same direction `$proj.merge`
+  takes on a registry it cannot read and the same one **Empty evidence is never clean evidence**
+  takes below.
 
   **`brief.md` is the copy that does not depend on the worker**: the Hand wrote it before any
   worker existed and nothing the worker does can change it, so **this floor survives a restart and
   does not depend on knowing how the work was dispatched.** `report.md` is corroboration, and Step
   6 has already read it. **Match that exact line and nothing else** - not a sentence that means the
   same thing - because an ordinary gateless brief mentions having no review gate in passing all the
-  time, and a floor firing on those would refuse merges nobody restricted. **Say why rather than
+  time, and a floor firing on those would refuse merges nobody restricted. **Match it only where
+  parley writes it: a line that opens with the token, bare or as a `-` bullet, under the brief's
+  `## Requirements` or the report's `## No review gate`.** Any task that discusses parley quotes the
+  token in prose, and a floor matching it anywhere refused those runs exactly as it refuses an
+  ungated one. Narrowing where it looks narrows nothing it refuses: every parley brief carries the
+  line in that position. **Say why rather than
   only refusing**: this run had no review gate, so nothing has established it is safe to merge, and
   that is what goes to the user. **It blocks the forge merge only**: landing on a branch and
   opening a pull request are unaffected.

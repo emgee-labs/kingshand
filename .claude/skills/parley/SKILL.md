@@ -188,7 +188,10 @@ Where one is needed:
   **Do not reword or respell that first line.** `muster` Step 7's floor
   [rule:muster/parley-merge-floor] matches
   `PARLEY DISPATCH - NO REVIEW GATE RAN.` literally, so a paraphrase disarms the floor silently,
-  and it must be spelled identically in both shapes.
+  and it must be spelled identically in both shapes. **Do not move it either: the token opens a
+  line, bare or after `- `, inside the brief's `## Requirements` or the report's
+  `## No review gate`, and nowhere else counts.** The floor looks only there, so the same words
+  quoted in prose - which any task about parley does - refuse nothing.
 
   **The gap that remains, named rather than papered over.** A worker that does not reproduce the
   line leaves the report silent about it, which is why the brief's copy is the one the floor can
@@ -289,7 +292,8 @@ is supposed to honour - so each one is answered rather than assumed.
 - The no-merge rule on a parley dispatch is enforced by `muster` Step 7's floor
   [rule:muster/parley-merge-floor], which matches the
   line `PARLEY DISPATCH - NO REVIEW GATE RAN.` in the brief or in the worker's `report.md` -
-  **either one is enough** - and refuses the merge wherever it finds it. **The marker is durable
+  **either one is enough** - and refuses the merge wherever it finds it in the position this skill
+  writes it. **The marker is durable
   and the memory of the mode is not**, so that floor holds through a restart, and the brief's copy
   holds even where the worker never wrote its own. It bites only where a gate was actually given
   up, because that is the only place the marker is written.
