@@ -263,13 +263,14 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\GateRun.psm1` | what a no-mistakes gate run is doing, read from the fields that say so: the run, each step with its own status, whether it is parked and on what, and the findings to decide on - decoded rather than matched, and an output it cannot read comes back as unreadable rather than as a state word |
 | `bin\Watch.ps1`, `bin\Watch.psm1` | the Hand's four watches as short verbs - a worker, the gate run on its branch, both, or the worker's report being written - each one background job that prints nothing while it waits and one line naming the outcome and what to do next |
 | `bin\GateRunWait.psm1` | the one wait on a gate run, built on that reader: block until the run moves away from the baseline taken at the first readable read, and say why the wait ended - a read it could not take is counted rather than taken for a change or for quiet, and a timeout is the absence of an outcome rather than one |
+| `bin\WorkItemLink.psm1` | every call that reaches the work item tracker for `writ`: read an item, attach a pull request as a link, move it to the in-review state only from a state the configuration names, discover and cache a repository's GUID, and the re-read that is the only thing that says it worked |
 
 ## Skills
 
 <!-- rule:claude/skill-triggers -->
-Every skill lives in `.claude\skills\` inside this repository, so all twenty load when Claude Code
-runs here and none of them exists in a session started anywhere else. Nothing links or copies them
-into `~\.claude\skills\`, and nothing may start doing so.
+Every skill lives in `.claude\skills\` inside this repository, so all twenty-one load when Claude
+Code runs here and none of them exists in a session started anywhere else. Nothing links or copies
+them into `~\.claude\skills\`, and nothing may start doing so.
 
 **Invoke `muster` first, then follow it.** It owns the whole procedure - intake, the brief, both
 gates, dispatch, close-out and teardown - and reading this file is no substitute for loading it.
@@ -354,7 +355,7 @@ words. **It changes routing and delivery and never authority.** **A restarted se
 live session worker reports it in the orientation line and does not re-enter the mode until the
 King says so** - the mode is session-scoped, and only the worker is durable.
 
-Six more are reference procedures. Nobody invokes them by name; load each when its situation
+Seven more are reference procedures. Nobody invokes them by name; load each when its situation
 arrives.
 
 - `inquest` - load before writing a brief for a reported bug, and again before acting on what a
@@ -376,6 +377,9 @@ arrives.
   unexplained text in its input box, looping, repeatedly confused, asking what its brief already
   answers, unresponsive, or still recorded as working after a session restart. Never remove a stuck
   worker's worktree before loading it.
+- `writ` - load at `muster`'s close-out once a pull request for work that came in as a work item is
+  confirmed on the remote [rule:writ/offer-after-pr], and when the King asks to move a work item to
+  in review or link a pull request to one. It offers, and writes nothing without his yes.
 
 ## Backlog contract
 

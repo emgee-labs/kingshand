@@ -6138,7 +6138,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
 
     It 'every skill directory lives under .claude\skills\' {
         $skills = @(Get-ChildItem (Join-Path $script:Root '.claude\skills') -Directory)
-        $skills.Count | Should -Be 20 -Because 'nineteen skills plus setup, all project-local'
+        $skills.Count | Should -Be 21 -Because 'twenty skills plus setup, all project-local'
         @($skills.Name) | Should -Contain 'herald' -Because 'output shape has an owner the user can turn on'
         foreach ($s in $skills) {
             Test-Path -LiteralPath (Join-Path $s.FullName 'SKILL.md') |
@@ -7763,7 +7763,7 @@ Describe 'the installation has a version, and one command moves it to a release'
 
     It 'counts every skill that now loads' {
         Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'CLAUDE.md Skills' `
-            -Phrase 'so all twenty load when Claude Code runs here'
+            -Phrase 'so all twenty-one load when Claude Code runs here'
     }
 
     It 'gives the version and the update their own owners in the tooling table' {
@@ -8238,7 +8238,7 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
         Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
             -Phrase '`witness` - load before writing a `## Browser checks` section into a brief'
         Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
-            -Phrase 'Six more are reference procedures'
+            -Phrase 'Seven more are reference procedures'
     }
 
     # A skill nothing delivers is a skill nobody follows, and naming one delivers nothing: skills
@@ -11319,5 +11319,101 @@ Describe 'the README badge and the banner name all three platforms' {
         $svg = Get-Content -Path (Join-Path $script:Root 'assets\banner.svg') -Raw
         $svg.Contains('Windows, macOS, Linux - PowerShell 7') |
             Should -BeTrue -Because 'the banner states the platforms kingshand runs on'
+    }
+}
+
+
+# ---------------------------------------------------------------------------------------------
+# writ: after a pull request, offer to move its work item to in-review and link the pull request.
+#
+# Every rule here guards a write to the work item tracker that cannot be taken back, and each was
+# settled before kingshand took it on. bin\WorkItemLink.psm1 enforces the executable half and
+# tests\WorkItemLink.Tests.ps1 tests it through the module; these pin the prose that tells the Hand
+# when to ask and what never to do.
+# ---------------------------------------------------------------------------------------------
+Describe 'writ offers once, writes nothing without a yes, and never comments' {
+    BeforeAll {
+        $script:WritMd   = Join-Path $script:Root '.claude\skills\writ\SKILL.md'
+        $script:WritText = Get-DocText $script:WritMd
+    }
+
+    It 'has frontmatter that parses, with the situation in the description' {
+        $fm = Get-Frontmatter $script:WritMd
+        $fm['name']    | Should -Be 'writ' -Because 'the frontmatter name must match the skill directory'
+        $fm['version'] | Should -Be '1.0.0'
+        $fm['description'].Contains('once a pull request for work that came in as a work item is confirmed on the remote') |
+            Should -BeTrue -Because 'a reference skill is reached by recognising its situation, not by name'
+    }
+
+    It 'is named inline as a reference procedure with its own load trigger' {
+        Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'the CLAUDE.md Skills section' `
+            -Phrase ('`writ` - load at `muster`''s close-out once a pull request for work that came ' +
+                     'in as a work item is confirmed on the remote')
+        Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'the CLAUDE.md Skills section' `
+            -Phrase 'It offers, and writes nothing without his yes.'
+    }
+
+    It 'is hooked into muster''s close-out after the pull request is confirmed' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
+            -Phrase '**Where this work came in as a work item, load `writ` now and make its offer**'
+        Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
+            -Phrase 'Teardown at Step 8b does not wait on the answer.'
+    }
+
+    It 'says the config file carries an optional review block that writ owns' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 1 ') -Where 'muster Step 1' `
+            -Phrase 'The file holds these two keys, and one optional `review` block that only `writ` reads and owns:'
+    }
+
+    It 'fires only for work that came in as a work item, and never guesses the id' {
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '`kind` is `ticket` and `ticket` is a work item number, digits and nothing else.'
+        Assert-Phrase -Text $script:WritText -Where 'writ' -Phrase '**Work that came in as `adhoc` gets no offer**'
+        Assert-Phrase -Text $script:WritText -Where 'writ' -Phrase '**Never take the id from a branch name or a slug.**'
+        Assert-Phrase -Text $script:WritText -Where 'writ' -Phrase '**The Hand loads it; a worker never does**'
+    }
+
+    It 'asks one question on every posture, and a no changes nothing' {
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '**One question, with the item id and the pull request in it**'
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '**A no is a complete answer and changes nothing**'
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '**It is asked on every posture, `+yolo` included.**'
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '**While regency or night''s watch is in force it waits for his return**'
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '**Where either fails, say so in one line - what is missing - and make no offer.**'
+    }
+
+    It 'finds a GUID without asking, and the grant reaches nothing adjacent' {
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '**Find the repository''s GUID - without asking.**'
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase 'it is not a write to a work item, a state move or a comment.'
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '**With none, say so - not as a question.**'
+    }
+
+    It 'keeps every settled never' {
+        foreach ($phrase in @(
+            '**Never proceed for a type the configuration does not name.**'
+            '**Never add a comment.** Results are reported in chat only.'
+            '**Never move a state backward or re-apply one.**'
+            '**Never link more than one pull request silently.**'
+            '**Never guess the work item id from a branch name.** Ask.'
+            '**Never report success without the re-read confirming both the link and the state.**'
+            '**Never hand-construct the request body or the cache write.**'
+            '**This re-read is what verified means, and nothing before it is.**'
+            '**More than one found is listed and put to him**'
+            '**every write goes through that module.**'
+        )) {
+            Assert-Phrase -Text $script:WritText -Where 'writ' -Phrase $phrase
+        }
+    }
+
+    It 'gives the module its own row in the tooling table' {
+        Assert-Phrase -Text (Get-HandSection 'Tooling') -Where 'the CLAUDE.md tooling table' `
+            -Phrase '| `bin\WorkItemLink.psm1` | every call that reaches the work item tracker for `writ`'
     }
 }
