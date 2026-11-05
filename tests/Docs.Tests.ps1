@@ -410,7 +410,7 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
         # The read has to be instructed here, because nothing earlier in muster opens a brief.
         Assert-Phrase -Text $step -Where 'the landing gate floors' `
             -Phrase '**Read both before deciding a merge**, because nothing earlier in this skill opens the brief'
-        $step.Contains('"$env:KINGSHAND_HOME\data\<id>\brief.md", "$env:KINGSHAND_HOME\data\<id>\report.md"') |
+        $step.Contains('foreach ($kind in ''brief'', ''report'')') |
             Should -BeTrue -Because 'the floor names both files it reads, so the read is runnable'
         # THE FLOOR'S EVIDENCE IS TWO FILES AND IT USED TO STATE NO MEANING FOR ONE IT COULD NOT
         # READ. Select-String writes its error to stderr per missing path and returns nothing for
@@ -431,17 +431,23 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
                      'actually been read.')
         # The command itself has to distinguish the three answers, or the prose is describing a
         # read the reader cannot perform.
+        # The three answers and the position are the reader's, and NightsWatch.Tests.ps1 drives
+        # them; the block has to call that reader, once per file, with which file it is.
         $fence = @(Get-CodeFence $script:MusterMd |
-                   Where-Object { $_.Contains('PARLEY DISPATCH - NO REVIEW GATE RAN.') })
+                   Where-Object { $_.Contains('Test-WatchParleyMarker') })
         $fence.Count | Should -Be 1 -Because 'one runnable block reads the marker'
-        $fence[0].Contains('if (-not (Test-Path -LiteralPath $f))') |
-            Should -BeTrue -Because 'each path is tested before it is matched'
-        foreach ($answer in @('UNREADABLE', 'MARKER', 'CLEAN')) {
-            $fence[0].Contains($answer) |
-                Should -BeTrue -Because "the read must report $answer as its own answer"
-        }
+        $fence[0].Contains('Test-WatchParleyMarker -Path $f -Kind $kind') |
+            Should -BeTrue -Because 'each file is read in the position parley writes it in'
         $fence[0].Contains('-ErrorAction SilentlyContinue') |
             Should -BeFalse -Because 'a swallowed error is exactly how could-not-read became no-hit'
+        # Narrowed where it looks, never what it refuses. Matched anywhere, the token refused
+        # every task that quoted it while discussing parley.
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**Match it only where parley writes it: a line that opens with the token, bare ' +
+                     'or as a `-` bullet, under the brief''s `## Requirements` or the report''s ' +
+                     '`## No review gate`.**')
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase 'Narrowing where it looks narrows nothing it refuses'
         Assert-Phrase -Text $step -Where 'the landing gate floors' `
             -Phrase ('**`brief.md` is the copy that does not depend on the worker**: the Hand wrote ' +
                      'it before any worker existed and nothing the worker does can change it')
@@ -5854,6 +5860,11 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                          'matches `PARLEY DISPATCH - NO REVIEW GATE RAN.` literally, so a paraphrase ' +
                          'disarms the floor silently, and it must be spelled identically in both ' +
                          'shapes.')
+            # The floor matches by position too, so moving the line disarms it as surely.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Do not move it either: the token opens a line, bare or after `- `, inside ' +
+                         'the brief''s `## Requirements` or the report''s `## No review gate`, and ' +
+                         'nowhere else counts.**')
         }
 
         # The mechanism is one literal token crossing a skill boundary: parley writes it, Step 7
@@ -5870,6 +5881,16 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             # worker, and parley's own account of what Step 7 matches.
             ([regex]::Matches($script:Parley, [regex]::Escape($token))).Count |
                 Should -BeGreaterOrEqual 2 -Because 'the marker block and the Step 7 cross-reference both carry it'
+            # The block parley hands the Hand, written where parley says to write it, is what the
+            # floor's reader finds. A respelling or a reshaped block that the reader misses fails here.
+            $block = @(Get-CodeFence $script:ParleyPath | Where-Object { $_.Contains($token) })
+            $block.Count | Should -Be 1 -Because 'parley carries one marker block'
+            $lines = @($block[0] -split "`r?`n" | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() })
+            Import-Module (Join-Path $script:Root 'bin\NightsWatch.psm1')
+            $p = Join-Path $TestDrive 'parley-brief.md'
+            Set-Content -LiteralPath $p -Value (@('# T-1', '', '## Requirements') + $lines[0])
+            Test-WatchParleyMarker -Path $p -Kind 'brief' |
+                Should -Be 'MARKER' -Because 'the line parley writes is the line the floor reads'
         }
 
         # Criterion 5: the refusal is stated in full in Step 7 and parley carries the reason plus a
@@ -6006,7 +6027,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                 -Phrase ('The no-merge rule on a parley dispatch is enforced by `muster` Step 7''s ' +
                          'floor, which matches the line `PARLEY DISPATCH - NO REVIEW GATE RAN.` in ' +
                          'the brief or in the worker''s `report.md` - **either one is enough** - and ' +
-                         'refuses the merge wherever it finds it.')
+                         'refuses the merge wherever it finds it in the position this skill writes it.')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase ('It bites only where a gate was actually given up, because that is the only ' +
                          'place the marker is written.')

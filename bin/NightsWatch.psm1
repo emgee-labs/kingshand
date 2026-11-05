@@ -47,6 +47,10 @@ $script:WakeRereadForMinutes = 30
 
 # The line `muster` Step 7's floor matches, spelled exactly as parley writes it.
 $script:ParleyMarker = 'PARLEY DISPATCH - NO REVIEW GATE RAN.'
+# Where parley writes it, and the only place it is looked for: under this heading, at the start of
+# a line, bare or as a `-` bullet. A quotation in prose, in backticks, indented or under any other
+# heading is not the marker, so a task that only talks about parley is not refused for it.
+$script:ParleyMarkerHeading = @{ brief = '## Requirements'; report = '## No review gate' }
 # The limit dialog Claude Code draws when a window is exhausted. Matched to dismiss it with Escape.
 $script:LimitDialogText = 'Stop and wait for limit to reset'
 
@@ -195,12 +199,32 @@ function Invoke-WatchGh {
     [pscustomobject]@{ ok = ($code -eq 0); text = $out; error = if ($code -ne 0) { "gh exited $code." } else { '' } }
 }
 
-# Whether the parley marker is in a file: CLEAN, MARKER, or UNREADABLE. Only CLEAN clears the floor.
+# Whether the parley marker is in a file, in the position parley writes it: CLEAN, MARKER, or
+# UNREADABLE. Only CLEAN clears the floor. `muster` Step 7 and night's watch both ask this.
+#
+# The scan is closed rather than a Markdown reader: a line is a heading only if it opens with `## `,
+# and the marker only if a line under the file's own heading opens with the token, bare or after
+# `- `, compared ordinally. A fenced `## ` line can move the section; a quotation laid out exactly
+# like the marker under that heading is read as the marker - the refusing direction.
 function Test-WatchParleyMarker {
-    param([Parameter(Mandatory)][string]$Path)
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        # Which file this is, which says which heading the marker sits under.
+        [Parameter(Mandatory)][ValidateSet('brief', 'report')][string]$Kind
+    )
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return 'UNREADABLE' }
-    try { $text = [System.IO.File]::ReadAllText($Path) } catch { return 'UNREADABLE' }
-    if ($text.Contains($script:ParleyMarker)) { 'MARKER' } else { 'CLEAN' }
+    try { $lines = [System.IO.File]::ReadAllLines($Path) } catch { return 'UNREADABLE' }
+    $heading = $script:ParleyMarkerHeading[$Kind]
+    $ordinal = [System.StringComparison]::Ordinal
+    $section = ''
+    foreach ($line in $lines) {
+        if ($line.StartsWith('## ', $ordinal)) { $section = $line.TrimEnd(); continue }
+        if ($section -ne $heading) { continue }
+        if ($line.StartsWith($script:ParleyMarker, $ordinal) -or
+            $line.StartsWith("- $script:ParleyMarker", $ordinal)) { return 'MARKER' }
+    }
+    'CLEAN'
 }
 
 # One check off a pull request's rollup: 'green', 'pending', 'red', or 'unreadable'. GitHub reports
@@ -277,8 +301,9 @@ function Get-WatchMergeVerdict {
         $reasons.Add('The review gate did not complete every step through pr with a clean attribution scan.')
     }
     if ($HoldOpen) { $reasons.Add('The worker is parked on a decision that is still open, so it is not delivered.') }
-    foreach ($f in @($BriefPath, $ReportPath)) {
-        $m = Test-WatchParleyMarker -Path $f
+    foreach ($pair in @(@($BriefPath, 'brief'), @($ReportPath, 'report'))) {
+        $f = $pair[0]
+        $m = Test-WatchParleyMarker -Path $f -Kind $pair[1]
         if ($m -eq 'MARKER') { $reasons.Add("$f carries the parley marker: no review gate ran, so nothing established this is safe to merge.") }
         if ($m -eq 'UNREADABLE') { $reasons.Add("$f could not be read, so the parley marker could not be checked.") }
     }
@@ -728,7 +753,7 @@ function Write-WatchRecordOnce {
 }
 
 Export-ModuleMember -Function New-WatchOptions, Test-WatchDispatchSlot, Get-WatchReadyItems,
-                              Select-WatchPool, Get-WatchMergeVerdict, Invoke-WatchMerge,
+                              Select-WatchPool, Test-WatchParleyMarker, Get-WatchMergeVerdict, Invoke-WatchMerge,
                               Read-WatchUsage, Get-WatchProjectedPercent,
                               Get-WatchUsageStep, Get-WatchWakeTime, Wait-WatchReset,
                               Test-WatchWindowRolled, Get-WatchWakeStep, Save-WatchGateRescue, Get-WatchResumeChoice,
