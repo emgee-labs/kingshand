@@ -5479,17 +5479,18 @@ Describe 'the skills are project-local and nothing reaches into the user profile
 
         # The three rules the King set on 2026-10-22 about where the number comes from and when it
         # is read. Usage.Tests.ps1 drives each one through the code; these pin the sentences.
-        It 'says the probe answers first and quota-axi is a gated fallback' {
-            $script:Vigil | Should -Match ('\*\*A one-turn headless probe first, `quota-axi` only when ' +
-                                           'the probe cannot answer\*\*')
-            $script:Vigil | Should -Match ('asked at most once every fifteen minutes across every\s+' +
-                                           'process on the machine')
+        # The second source was removed on 2026-11-15, so the skill names the probe as the only one
+        # and no longer names the tool that used to stand behind it.
+        It 'says the probe is the only source and nothing else is asked when it cannot answer' {
+            $script:Vigil | Should -Match ('\*\*A one-turn headless probe is the only source, and when ' +
+                                           'it cannot answer nothing else is\s+asked\*\*')
+            $script:Vigil | Should -Not -Match 'quota-axi'
         }
 
         It 'says nothing reads a window from 90 percent until it resets but the confirming read' {
             $script:Vigil | Should -Match ('\*\*From 90 percent nothing reads that window\s+again until ' +
                                            'it resets, apart from the one confirming read after it\*\*')
-            $script:Vigil | Should -Match 'says `held` in place of `stale`'
+            $script:Vigil | Should -Match 'at least 91% used \(held, session, personal\)'
         }
 
         It 'says a held window is at the limit whatever threshold a caller passes' {
@@ -5527,11 +5528,11 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Vigil | Should -Match '\*\*A\s+floor names only the window it bounds\*\*'
         }
 
-        # THE FAILURE THAT PUT A FOUR-TIMES-UNDERSTATED NUMBER IN FRONT OF THE KING. A cached
-        # reading looked exactly like a current one, so the skill has to say what a floor is and
-        # that it is never a measurement.
-        It 'says a cached reading is a floor, rounded down, and never a measurement' {
-            $script:Vigil | Should -Match '\*\*A cached reading is said as a floor, never as a measurement'
+        # THE FAILURE THAT PUT A FOUR-TIMES-UNDERSTATED NUMBER IN FRONT OF THE KING. A reading from
+        # an earlier moment looked exactly like a current one, so the skill has to say what a floor
+        # is and that it is never a measurement. The hold is the one reading that carries one now.
+        It 'says a held reading is a floor, rounded down, and never a measurement' {
+            $script:Vigil | Should -Match '\*\*A held reading is said as a floor, never as a measurement'
             $script:Vigil | Should -Match 'said as "at least" and rounded down'
             $script:Vigil | Should -Match 'the refusal compares the exact figure, never the rounded one'
         }
@@ -5548,21 +5549,18 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Vigil | Should -Match 'must never make kingshand undispatchable'
         }
 
-        # THE SKILL IS THE HAND'S ONLY LOADED REFERENCE FOR EXPLAINING A REFUSAL. It said a stale
-        # reading always warns and dispatches, and that a dispatch is never blocked on an unreadable
-        # reading - so a refusal on a stale floor, which is the one that fires most on this machine,
-        # would have been relayed to the King with the opposite reason. The cases that genuinely
-        # fail open are still named as failing open; the stale floor is named apart from them.
-        It 'names the stale floor as the one unknown that still refuses' {
-            $script:Vigil | Should -Match ('\*\*A stale reading is the one unknown that can still ' +
-                                           'refuse, and it refuses on its floor rather than\s+on ' +
-                                           'its number\.\*\*')
-            $script:Vigil | Should -Match 'Where that floor alone is\s+already at or past the threshold'
+        # THE SKILL IS THE HAND'S ONLY LOADED REFERENCE FOR EXPLAINING A REFUSAL. It once said an
+        # unknown reading always warns and dispatches, and that a dispatch is never blocked on an
+        # unreadable reading - so a refusal on a floor would have been relayed to the King with the
+        # opposite reason. The cases that genuinely fail open are still named as failing open; the
+        # held window is named apart from them.
+        It 'names the held window as the one unknown that still refuses' {
+            $script:Vigil | Should -Match ('\*\*A held window is the one unknown that still refuses, and ' +
+                                           'it refuses on its floor rather than on\s+a number\.\*\*')
             $script:Vigil | Should -Match 'Only the first ever refuses\s+\*\*as a measurement\*\*'
-            $script:Vigil | Should -Match ('When the probe cannot answer, a\s+missing `quota-axi`, a ' +
-                                           'lookup that failed and an answer that would not parse all ' +
-                                           'warn and dispatch\s+anyway, and so does a fallback the ' +
-                                           'fifteen-minute gate did not allow')
+            $script:Vigil | Should -Match ('When the probe cannot answer - no\s+Claude Code to run, a ' +
+                                           'turn that did not finish in time, or an answer that would ' +
+                                           'not parse - it\s+warns and dispatches anyway')
             $script:Vigil | Should -Not -Match 'It never blocks a dispatch on an unreadable reading'
         }
 
@@ -5587,7 +5585,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         }
 
         # The last two clauses are the two lines the Hand is holding at the moment a refusal fires,
-        # and both used to state only the fail-open half. A refusal on a stale floor would then have
+        # and both used to state only the fail-open half. A refusal on a floor would then have
         # been relayed with the opposite reason - the same failure already fixed inside the skill
         # body, one level up. The body owns the reasoning; these two only have to name both halves.
         It 'is reachable from CLAUDE.md by a stated condition, the way herald is' {
@@ -5599,12 +5597,20 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                 -Phrase 'Load it only to change that'
             Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
                 -Phrase ('the dispatch refusal near the limit, which fails open on a reading that ' +
-                         'could not be taken - a cached floor already at or past the threshold is ' +
-                         'the one thing that still refuses with no current reading behind it')
+                         'could not be taken - a window held at its limit is the one thing that ' +
+                         'still refuses with no current reading behind it')
             $description = (Get-Frontmatter (Join-Path $script:Root '.claude\skills\vigil\SKILL.md'))['description']
             Assert-Phrase -Text $description -Where "vigil's frontmatter" `
                 -Phrase ('why a usage reading that could not be taken never blocks one, and why a ' +
-                         'cached floor already at or past the threshold still does')
+                         'window held at its limit still does')
+        }
+
+        # muster carries the same two halves where the Hand reads the dispatch refusals, and points
+        # at vigil for the reason rather than restating it.
+        It 'names the held window as the one exception in muster''s dispatch refusals' {
+            $muster = Get-Content -Path (Join-Path $script:Root '.claude\skills\muster\SKILL.md') -Raw
+            $muster | Should -Match ('The one exception is a window held at its\s+limit, which ' +
+                                     'refuses with no current reading behind it - `vigil` owns why')
         }
 
         It 'gives the usage reader its own owner in the tooling table' {
@@ -5625,10 +5631,10 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         # it for debris - or takes the pulse's rule above for a rule about the whole module.
         It 'names the usage reader''s gate file and its one writer, among what the Hand owns' {
             Assert-Phrase -Text (Get-HandSection 'What you own') -Where 'CLAUDE.md' `
-                -Phrase ('`state\usage-gate.json` - the usage reader''s record across processes: when ' +
-                         'quota-axi was last asked, the hold on a window read at 90 percent, and the ' +
-                         'last few readings. Written only by `bin\Usage.psm1`, which refuses any file ' +
-                         'there that is not its own record.')
+                -Phrase ('`state\usage-gate.json` - the usage reader''s record across processes: the ' +
+                         'hold on a window read at 90 percent, and the last few readings. Written ' +
+                         'only by `bin\Usage.psm1`, which refuses any file there that is not its own ' +
+                         'record.')
         }
     }
 
@@ -10931,7 +10937,7 @@ Describe 'night''s watch is regency plus queue-working, and merges only under +w
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
             -Phrase 'The reset is days away or unknown, so record it and stop the watch rather than sleeping.'
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
-            -Phrase '**A stale reading is read again every five minutes for up to thirty**'
+            -Phrase '**A reading that is not current is read again every five minutes for up to thirty**'
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
             -Phrase '`restart-unconfirmed` restarts the workers anyway and records its `detail` in the away journal'
     }

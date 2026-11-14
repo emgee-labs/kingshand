@@ -1,15 +1,14 @@
 #Requires -Version 7.0
 Set-StrictMode -Version Latest
 
-# bin\Usage.psm1 is exercised here against a mocked probe and a mocked quota-axi. Nothing below
-# reaches the network, needs a subscription or spends usage, and the one file the reader writes -
-# its gate file - is pointed at a fresh path under the test drive for every case.
+# bin\Usage.psm1 is exercised here against a mocked probe. Nothing below reaches the network, needs a
+# subscription or spends usage, and the one file the reader writes - its gate file - is pointed at a
+# fresh path under the test drive for every case.
 #
-# `Invoke-UsageProbe` and `Invoke-QuotaAxi` are the module's two boundaries to the outside world -
-# every lookup goes through one of them - so mocking them is what makes the whole answer testable,
-# including the cases that matter most: the ones where nothing answers at all. By default the probe
-# is mocked to fail, so every case written for quota-axi still exercises quota-axi; the cases about
-# the probe say otherwise.
+# `Invoke-UsageProbe` is the module's one boundary to the outside world - every reading goes through
+# it - so mocking it is what makes the whole answer testable, including the cases that matter most:
+# the ones where nothing answers at all. By default it is mocked to fail, and each case that wants an
+# answer says what the probe printed.
 #
 # The rule most of these defend is one line: an unanswered question is `unknown` and `percent` stays
 # unset. Zero is the fabrication that costs the most here, because it reads as a wide open window
@@ -32,88 +31,6 @@ BeforeAll {
         $p
     }
 
-    # quota-axi's two reply shapes, and nothing invented: a success carrying its stdout as text, and
-    # a failure carrying its own message.
-    function New-AxiOk   { param([string]$Value = '')  [pscustomobject]@{ ok = $true;  value = $Value; error = '' } }
-    function New-AxiFail { param([string]$Error = 'quota-axi exited 1 with no output.') [pscustomobject]@{ ok = $false; value = ''; error = $Error } }
-
-    # One provider report in the shape quota-axi actually emits, built from the live tool's own
-    # output rather than from a guess. Every case below varies one thing about it.
-    function New-AxiReport {
-        param(
-            # Typed as an object rather than a double so a field the tool wrote as a word can be
-            # put through the same reader. A fixture that could only hold a number could not
-            # exercise the case where the number is not one.
-            [object]$FiveHourPercent = 4,
-            # RELATIVE, NEVER A FIXED DATE. A window only counts while its reset is still ahead, so
-            # a fixture pinned to a literal timestamp passes until that moment arrives and then
-            # fails for everyone afterwards, describing a window that has already rolled.
-            #
-            # AN EMPTY STRING OMITS THE FIELD ENTIRELY, which is the shape the tool really produces
-            # for a window it has no reset time for - not a key written as empty text.
-            [string]$FiveHourResets  = ([datetimeoffset]::UtcNow.AddHours(3).ToString('o')),
-            [switch]$WithSevenDay,
-            [object]$SevenDayPercent = 61,
-            [string]$SevenDayResets = ([datetimeoffset]::UtcNow.AddDays(4).ToString('o')),
-            [bool]$Stale = $false,
-            # What the tool says its own last attempt failed on. Absent unless a case is about it.
-            [string]$StateError = '',
-            [switch]$NoWindows,
-            # $null omits the field, which is the answer of a tool that stamps no version at all.
-            [object]$SchemaVersion = 3,
-            [string]$Provider = 'claude'
-        )
-
-        $fiveRemaining = if ($FiveHourPercent -is [string]) { $null } else { 100 - $FiveHourPercent }
-
-        # Assigned in two statements rather than out of an `if`. `$x = if ($true) { @() }` is $null,
-        # not an empty array - the expression emits nothing to the pipeline - and a fixture that
-        # wrote `"windows": null` would exercise a case no tool produces.
-        $windows = @()
-        if (-not $NoWindows) {
-            $five = @{ id = 'five_hour'; label = 'session'; kind = 'session'
-                       percentUsed = $FiveHourPercent
-                       windowSeconds = 18000; percentRemaining = $fiveRemaining }
-            if ($FiveHourResets) { $five['resetsAt'] = $FiveHourResets }
-            $windows = @(
-                $five,
-                # The spend cap sitting at 100 is real on this machine and it must NOT decide the
-                # answer: taking the worst window would refuse every dispatch.
-                @{ id = 'extra_usage'; label = 'extra usage'; kind = 'credits'
-                   percentUsed = 100; spentUsd = 50.04; limitUsd = 50; percentRemaining = 0 }
-            )
-            if ($WithSevenDay) {
-                $seven = @{ id = 'seven_day'; label = 'weekly'; kind = 'rolling'
-                            percentUsed = $SevenDayPercent; windowSeconds = 604800 }
-                if ($SevenDayResets) { $seven['resetsAt'] = $SevenDayResets }
-                $windows += $seven
-            }
-        }
-
-        $state = @{ status = if ($Stale) { 'stale' } else { 'fresh' }; stale = $Stale }
-        if ($StateError) { $state['error'] = $StateError }
-
-        $report = @{
-            generatedAt = '2026-09-05T17:40:31.826Z'
-            providers   = @(@{
-                provider = $Provider; label = 'Claude'; source = 'oauth'; plan = 'team'
-                windows  = $windows
-                state    = $state
-            })
-        }
-        if ($null -ne $SchemaVersion) { $report['schemaVersion'] = $SchemaVersion }
-        $report | ConvertTo-Json -Depth 12
-    }
-
-    # One Claude provider and nothing else, so a test about the shape of the report can write only
-    # the part it is about. Every field the reader looks for is one the tool is allowed to leave
-    # out, which is the whole reason these cases have to be told apart.
-    function New-AxiProviderJson {
-        param([string]$Body, [string]$Schema = '"schemaVersion": 3, ')
-        '{ ' + $Schema + '"providers": [ { "provider": "claude", ' +
-        '"state": { "stale": false }' + $(if ($Body) { ", $Body" } else { '' }) + ' } ] }'
-    }
-
     # A fleet row in the shape Get-CrewStatus.ps1 emits. Only the fields the pulse reads are set,
     # because a fixture carrying fields nothing looks at proves nothing about either.
     function New-FleetRow {
@@ -133,27 +50,43 @@ BeforeAll {
 
     # The probe's stdout in the shape measured on this machine: an init line, the event, a result.
     # Fractions, not percentages - 0.08 is eight percent - and epoch seconds for the resets.
+    #
+    # A reset is RELATIVE TO NOW, NEVER A FIXED DATE: a window only counts while its reset is still
+    # ahead, so a fixture pinned to a literal timestamp passes until that moment arrives and then
+    # fails for everyone afterwards. A reset passed as $null leaves the field out, and anything else
+    # is written as given, so a case can hand the reader a reset time that is not a number.
     function New-ProbeOutput {
         param(
             [object]$FiveHour = 0.08,
             [object]$SevenDay = 0.33,
-            [long]$FiveHourResets = ([datetimeoffset]::UtcNow.AddHours(3).ToUnixTimeSeconds()),
-            [long]$SevenDayResets = ([datetimeoffset]::UtcNow.AddDays(4).ToUnixTimeSeconds()),
+            [object]$FiveHourResets = ([datetimeoffset]::UtcNow.AddHours(3).ToUnixTimeSeconds()),
+            [object]$SevenDayResets = ([datetimeoffset]::UtcNow.AddDays(4).ToUnixTimeSeconds()),
+            [switch]$NoSevenDay,
+            # The spend cap at 100 percent with no reset, which is real on this machine and must
+            # never decide the answer: taking the worst window would refuse every dispatch.
+            [switch]$WithSpendCap,
             [switch]$NoEvent,
             [switch]$NoUnified,
             [switch]$NoAccountWindows
         )
         $lines = @('{"type":"system","subtype":"init","tools":[],"mcp_servers":[]}')
         if (-not $NoEvent) {
-            $info = [ordered]@{ status = 'allowed'; resetsAt = $FiveHourResets; rateLimitType = 'five_hour' }
+            $info = [ordered]@{ status = 'allowed'; rateLimitType = 'five_hour' }
             if (-not $NoUnified) {
                 $unified = [ordered]@{}
                 if ($NoAccountWindows) {
-                    $unified['some_new_window'] = @{ utilization = 0.5; resetsAt = $FiveHourResets }
+                    $unified['some_new_window'] = @{ utilization = 0.5 }
                 } else {
-                    $unified['five_hour'] = @{ utilization = $FiveHour; resetsAt = $FiveHourResets }
-                    $unified['seven_day'] = @{ utilization = $SevenDay; resetsAt = $SevenDayResets }
+                    $five = [ordered]@{ utilization = $FiveHour }
+                    if ($null -ne $FiveHourResets) { $five['resetsAt'] = $FiveHourResets }
+                    $unified['five_hour'] = $five
+                    if (-not $NoSevenDay) {
+                        $seven = [ordered]@{ utilization = $SevenDay }
+                        if ($null -ne $SevenDayResets) { $seven['resetsAt'] = $SevenDayResets }
+                        $unified['seven_day'] = $seven
+                    }
                 }
+                if ($WithSpendCap) { $unified['extra_usage'] = @{ utilization = 1.0 } }
                 $info['unifiedWindows'] = $unified
             }
             $lines += (@{ type = 'rate_limit_event'; rate_limit_info = $info } | ConvertTo-Json -Depth 8 -Compress)
@@ -161,17 +94,16 @@ BeforeAll {
         $lines += '{"type":"result","subtype":"success","result":"ok"}'
         $lines -join "`n"
     }
-    function New-ProbeOk   { param([string]$Value, [int]$ExitCode = 0) [pscustomobject]@{ ok = $true; value = $Value; exitCode = $ExitCode; error = '' } }
+    function New-ProbeOk   { param([string]$Value, [int]$ExitCode = 0, [string]$Error = '') [pscustomobject]@{ ok = $true; value = $Value; exitCode = $ExitCode; error = $Error } }
     function New-ProbeFail { param([string]$Error = 'the usage probe did not answer within 45 seconds and was stopped') [pscustomobject]@{ ok = $false; value = ''; exitCode = $null; error = $Error } }
 
-    # A gate file of a case's own, so one case's hold or stamp is never another's.
+    # A gate file of a case's own, so one case's hold or history is never another's.
     function New-GatePath { Join-Path (New-TempFixtureDir -Prefix 'usage-gate-') 'state\usage-gate.json' }
 
-    # EVERY CASE STARTS WITH A PROBE THAT FAILS AND A GATE FILE NOBODY ELSE HAS SEEN. A case written
-    # for quota-axi then exercises quota-axi exactly as it did before the probe existed, nothing
-    # reaches the real Claude Code, and nothing writes into the installation's own state\. The
-    # default path is fresh on every call, so the fifteen-minute gate never stands between two
-    # cases; a case about the gate or the hold passes -StatePath and keeps one file throughout.
+    # EVERY CASE STARTS WITH A PROBE THAT FAILS AND A GATE FILE NOBODY ELSE HAS SEEN. Nothing reaches
+    # the real Claude Code, and nothing writes into the installation's own state\. The default path
+    # is fresh on every call, so a hold one case set never stands in front of the next; a case about
+    # the hold or the climb passes -StatePath and keeps one file throughout.
     Mock -ModuleName Usage Get-UsageStatePath { New-GatePath }
     Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeFail 'the usage probe is not run in this test' }
 }
@@ -187,13 +119,14 @@ AfterAll {
 
 Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
 
-    Context 'when quota-axi reports the account' {
+    Context 'when the probe reports the account' {
         It 'reads the percentage from the account window nearest its limit' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 4) }
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.04 -NoSevenDay) }
 
             $r = Get-UsageWindow
             $r.status  | Should -Be 'has-usage'
             $r.signal  | Should -Be 'driving-window'
+            $r.source  | Should -Be 'probe'
             $r.percent | Should -Be 4
             $r.window  | Should -Be 'five_hour'
         }
@@ -203,7 +136,9 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
         # across the whole list and the answer is 100 for ever, which blocks every dispatch
         # permanently - the hard block this guard is written never to perform.
         It 'never lets a hundred-percent window with no reset time decide the answer' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 4) }
+            Mock -ModuleName Usage Invoke-UsageProbe {
+                New-ProbeOk (New-ProbeOutput -FiveHour 0.04 -NoSevenDay -WithSpendCap)
+            }
 
             $r = Get-UsageWindow
             $r.percent | Should -Be 4 -Because 'the spend cap in the fixture sits at 100 with no reset'
@@ -212,7 +147,7 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
         }
 
         It 'carries the reset time and says it in words a person can read' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 4) }
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.04 -NoSevenDay) }
 
             $r = Get-UsageWindow
             $r.resetsAt | Should -Not -BeNullOrEmpty
@@ -224,9 +159,7 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
         # inside a five-hour window while burning the week, and the weekly window resets in days
         # rather than hours, so tripping that one costs far more.
         It 'is driven by the week when the week is nearer its limit than the session' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 12 -WithSevenDay)
-            }
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.12 -SevenDay 0.61) }
 
             $r = Get-UsageWindow
             $r.status  | Should -Be 'has-usage'
@@ -237,9 +170,7 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
         }
 
         It 'is driven by the session when the session is nearer its limit than the week' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 77 -WithSevenDay)
-            }
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.77 -SevenDay 0.61) }
 
             $r = Get-UsageWindow
             $r.percent | Should -Be 77
@@ -250,9 +181,9 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
         # percentage is about a window that is over rather than the one running now. It is the one
         # thing still discarded, and even this one is discarded out loud.
         It 'ignores a window whose reset time has already passed, and says it did' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 95 -WithSevenDay `
-                                         -FiveHourResets ([datetimeoffset]::UtcNow.AddHours(-1).ToString('o')))
+            Mock -ModuleName Usage Invoke-UsageProbe {
+                New-ProbeOk (New-ProbeOutput -FiveHour 0.95 -SevenDay 0.61 `
+                                             -FiveHourResets ([datetimeoffset]::UtcNow.AddHours(-1).ToUnixTimeSeconds()))
             }
 
             $r = Get-UsageWindow
@@ -268,9 +199,8 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
         # dispatched into a window that was nearly spent. The percentage is what bounds the
         # dispatch and it was read perfectly well; only the claim about when it clears was lost.
         It 'keeps an account window that reports a percentage with no reset time' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 95 -FiveHourResets '' `
-                                         -WithSevenDay -SevenDayPercent 30)
+            Mock -ModuleName Usage Invoke-UsageProbe {
+                New-ProbeOk (New-ProbeOutput -FiveHour 0.95 -FiveHourResets $null -SevenDay 0.30)
             }
 
             $r = Get-UsageWindow
@@ -285,9 +215,8 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
         # weekly window at 95 percent with no reset must not disappear behind a comfortable 10
         # percent from the session.
         It 'is still driven by the week when the week has no reset time and is nearer its limit' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 10 -WithSevenDay `
-                                         -SevenDayPercent 95 -SevenDayResets '')
+            Mock -ModuleName Usage Invoke-UsageProbe {
+                New-ProbeOk (New-ProbeOutput -FiveHour 0.10 -SevenDay 0.95 -SevenDayResets $null)
             }
 
             $r = Get-UsageWindow
@@ -298,9 +227,9 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
 
         # An unreadable reset time is the same fact as an absent one: the number stands and only
         # the time is lost.
-        It 'keeps the percentage when the reset time is there and cannot be parsed' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 4 -FiveHourResets 'whenever')
+        It 'keeps the percentage when the reset time is there and cannot be read' {
+            Mock -ModuleName Usage Invoke-UsageProbe {
+                New-ProbeOk (New-ProbeOutput -FiveHour 0.04 -FiveHourResets 'whenever' -NoSevenDay)
             }
 
             $r = Get-UsageWindow
@@ -311,401 +240,156 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
             $r.detail   | Should -Not -BeLike '*resets at*'
         }
 
-        # A spend cap at 100 percent with no reset is STILL excluded, and by the id filter rather
-        # than by the reset rule - which is what keeps the rule above from reintroducing the
-        # permanent block. The session or weekly window is the one that really bounds a worker, so
-        # that one at 100 with no reset does count.
-        It 'still ignores the spend cap once a missing reset no longer disqualifies a window' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 4) }
-
-            $r = Get-UsageWindow
-            $r.percent | Should -Be 4
-            $r.window  | Should -Be 'five_hour'
-        }
-
         It 'reports unknown when every account window has already reset' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 4 `
-                                         -FiveHourResets ([datetimeoffset]::UtcNow.AddHours(-1).ToString('o')))
+            Mock -ModuleName Usage Invoke-UsageProbe {
+                New-ProbeOk (New-ProbeOutput -FiveHour 0.04 -NoSevenDay `
+                                             -FiveHourResets ([datetimeoffset]::UtcNow.AddHours(-1).ToUnixTimeSeconds()))
             }
 
             $r = Get-UsageWindow
-            $r.status  | Should -Be 'unknown'
-            $r.signal  | Should -Be 'no-applicable-window'
-            $r.percent | Should -BeNullOrEmpty
-            $r.detail  | Should -BeLike '*session window was left out*'
+            $r.status       | Should -Be 'unknown'
+            $r.signal       | Should -Be 'no-applicable-window'
+            $r.percent      | Should -BeNullOrEmpty
+            $r.floorPercent | Should -BeNullOrEmpty
+            $r.detail       | Should -BeLike '*session window was left out*'
         }
 
-        It 'records the schema version the tool stamped, and never refuses on it' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 4 -SchemaVersion 99)
-            }
+        It 'turns a fraction into a percentage and an epoch into a reset time' {
+            $reset = [datetimeoffset]::UtcNow.AddHours(2)
+            $p = ConvertFrom-UsageProbe -Value (New-ProbeOutput -FiveHour 0.5 -FiveHourResets $reset.ToUnixTimeSeconds())
+            $p.ok | Should -BeTrue
+            $five = @($p.windows | Where-Object { $_.id -eq 'five_hour' })[0]
+            $five.percentUsed | Should -Be 50
+            ([datetimeoffset]::Parse($five.resetsAt) - $reset).TotalSeconds | Should -BeLessThan 1
+        }
 
+        It 'pairs the reading with the active account' {
+            Mock -ModuleName Usage Get-ActiveAccountName { 'personal' }
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput) }
+            (Get-UsageWindow).account | Should -Be 'personal'
+        }
+
+        # The fully-spent case has never been seen, and a turn refused at the limit may still exit
+        # non-zero after printing the event. What it printed is read; nothing is assumed from the code.
+        It 'reads the event from a probe that exited non-zero after printing it' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 1.0 -SevenDay 0.4) -ExitCode 1 }
             $r = Get-UsageWindow
-            $r.status        | Should -Be 'has-usage' -Because 'an unfamiliar version must not take the reader out'
-            $r.schemaVersion | Should -Be '99'
+            $r.status  | Should -Be 'has-usage'
+            $r.percent | Should -Be 100
+        }
+
+        # The fields a caller used to read off the fallback tool's answer are still there, and empty,
+        # so a caller that reads them finds the field rather than an error.
+        It 'still carries every field a caller reads, with nothing stamped where the probe stamps nothing' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput) }
+            $r = Get-UsageWindow
+            foreach ($f in @('status', 'signal', 'percent', 'floorPercent', 'stale', 'detail', 'resetsAt',
+                             'window', 'windows', 'account', 'generatedAt', 'schemaVersion', 'source',
+                             'previous', 'takenAt')) {
+                $r.PSObject.Properties.Name | Should -Contain $f
+            }
+            $r.generatedAt   | Should -Be ''
+            $r.schemaVersion | Should -Be ''
+            $r.stale         | Should -BeFalse
         }
     }
 
-    Context 'when nothing answers - one case per failure path, with the failure forced' {
-        It 'reports unknown with no percentage when quota-axi is not installed' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiFail 'quota-axi was not found.' }
-
-            $r = Get-UsageWindow
-            $r.status  | Should -Be 'unknown'
-            $r.signal  | Should -Be 'lookup-failed'
-            $r.percent | Should -BeNullOrEmpty
-            $r.detail  | Should -BeLike '*quota-axi was not found*' -Because 'the reader must see which failure it was'
-        }
-
-        It 'reports unknown when the answer is not the JSON it reads' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk 'quota-axi: something went wrong' }
-
-            $r = Get-UsageWindow
-            $r.status  | Should -Be 'unknown'
-            $r.signal  | Should -Be 'unreadable-answer'
-            $r.percent | Should -BeNullOrEmpty
-        }
-
-        It 'reports unknown when the answer says nothing about this account' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -Provider 'codex') }
-
-            $r = Get-UsageWindow
-            $r.status  | Should -Be 'unknown'
-            $r.signal  | Should -Be 'no-provider'
-            $r.percent | Should -BeNullOrEmpty
-        }
-
-        # A stale reading describes an earlier moment. Presenting it as current is the exact
-        # fabrication that would wave through a dispatch near the limit: an old low percentage.
-        It 'refuses a reading the tool itself calls stale, rather than passing it off as current' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 4 -Stale $true)
+    # THE PROBE IS THE ONLY SOURCE, so each of these is the whole answer: `unknown`, the signal
+    # `probe-failed`, no percentage and no floor, and the detail saying what the probe said.
+    Context 'when the probe cannot answer - one case per failure path, with the failure forced' {
+        BeforeAll {
+            function Assert-ProbeFailed {
+                param($Reading, [string]$Says)
+                $Reading.status       | Should -Be 'unknown'
+                $Reading.signal       | Should -Be 'probe-failed'
+                $Reading.percent      | Should -BeNullOrEmpty -Because 'a fabricated 0 reads as a wide open window'
+                $Reading.floorPercent | Should -BeNullOrEmpty
+                $Reading.source       | Should -Be ''
+                $Reading.detail       | Should -BeLike 'How much of the usage window is spent could not be established: *'
+                $Reading.detail       | Should -BeLike "*$Says*"
             }
-
-            $r = Get-UsageWindow
-            $r.status  | Should -Be 'unknown'
-            $r.signal  | Should -Be 'stale-reading'
-            $r.percent | Should -BeNullOrEmpty
         }
 
-        # THE MEASURED FAILURE THIS WHOLE BRANCH EXISTS FOR. The tool answered 10 percent from a
-        # cache taken before four workers ran for ninety minutes; the true figure was 42. Its live
-        # fetch had been rate limited, and the reading looked exactly like a current one.
-        It 'keeps the cached number as a floor rather than as the answer' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 10 -Stale $true)
+        It 'reports unknown when the probe printed no rate_limit_event' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -NoEvent) }
+            Assert-ProbeFailed (Get-UsageWindow) 'no rate_limit_event'
+        }
+
+        It 'reports unknown when the event carries no unifiedWindows, and names its status' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -NoUnified) }
+            Assert-ProbeFailed (Get-UsageWindow) 'no unifiedWindows (its status was allowed)'
+        }
+
+        # An empty answer is the one that switches every guard off quietly, so the probe never
+        # gives it: a renamed window is a failed probe, not an account with nothing to report.
+        It 'reports unknown rather than settling on no windows when neither account window is there' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -NoAccountWindows) }
+            $r = Get-UsageWindow
+            $r.status | Should -Not -Be 'no-usage'
+            Assert-ProbeFailed $r 'neither the session nor the weekly window'
+        }
+
+        It 'reports unknown, never reading zero, when a utilization is not a number' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 'lots') }
+            Assert-ProbeFailed (Get-UsageWindow) 'not a fraction this can read'
+        }
+
+        It 'reports unknown when a utilization is negative' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -SevenDay -0.2) }
+            Assert-ProbeFailed (Get-UsageWindow) 'weekly window that is not a fraction this can read'
+        }
+
+        It 'never reads a true as one percent spent' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour $true) }
+            Assert-ProbeFailed (Get-UsageWindow) 'not a fraction this can read'
+        }
+
+        It 'reports unknown when the probe timed out' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeFail }
+            Assert-ProbeFailed (Get-UsageWindow) 'did not answer within 45 seconds'
+        }
+
+        It 'reports unknown, naming what it said, when the probe exited non-zero with no event' {
+            Mock -ModuleName Usage Invoke-UsageProbe {
+                New-ProbeOk (New-ProbeOutput -NoEvent) -ExitCode 1 -Error 'not logged in'
             }
-
-            $r = Get-UsageWindow
-            $r.status       | Should -Be 'unknown' -Because 'a stale reading is never a number'
-            $r.percent      | Should -BeNullOrEmpty
-            $r.floorPercent | Should -Be 10
-            $r.stale        | Should -BeTrue
-            $r.detail       | Should -BeLike '*At least 10 percent*'
-            $r.detail       | Should -BeLike '*floor rather than a reading*'
+            Assert-ProbeFailed (Get-UsageWindow) 'exited 1 saying: not logged in'
         }
 
-        # A FLOOR IS SHOWN ROUNDED DOWN, WHICH IS WHAT KEEPS "AT LEAST" TRUE. At a real 89.2 the
-        # sentence "at least 90 percent is spent" asserts a percentage point the reading never
-        # measured. Nothing is guarded by these digits: the dispatch refusal compares the raw
-        # floorPercent against the threshold, so understating the shown figure cannot let work
-        # through - Dispatch-Worker.Tests.ps1 pins that comparison from the other end.
-        It 'rounds a floor down, never up, so "at least" claims only what was measured' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 89.2 -Stale $true)
-            }
+        It 'reports unknown when Claude Code is not there to run' {
+            Mock -ModuleName Usage Get-UsageProbeCommandPath { $null }
+            $p = & $script:RealInvokeUsageProbe
+            $p.ok    | Should -BeFalse
+            $p.error | Should -BeLike '*Claude Code was not found*'
 
-            $r = Get-UsageWindow
-            $r.detail       | Should -BeLike '*At least 89 percent*'
-            $r.detail       | Should -Not -BeLike '*At least 90 percent*'
-            $r.floorPercent | Should -Be 89.2 -Because 'the exact figure is what the refusal compares'
-        }
-
-        # The refusal this detail is pasted into ends by telling the user to wait for the window,
-        # and a floor refusal is the one that fires near the limit - from quota-axi's cache, or
-        # from the hold at 90 percent. A refusal that does not say when the window clears leaves
-        # out the one thing wanted next.
-        It 'says when the window resets on a stale floor, not just on a measured reading' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 95 -Stale $true)
-            }
-
-            (Get-UsageWindow).detail | Should -BeLike '*It resets at *'
-        }
-
-        It 'surfaces when the tool generated the answer, so a cached one is visibly cached' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 10 -Stale $true)
-            }
-
-            $r = Get-UsageWindow
-            $r.generatedAt | Should -Not -BeNullOrEmpty
-            $r.detail      | Should -BeLike '*generated at*'
-        }
-
-        # A failed refresh is a normal condition here - the quota endpoint rate limits by design -
-        # so the reason travels with the reading rather than being escalated as an error.
-        It 'carries the reason the tool could not refresh' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 10 -Stale $true `
-                                         -StateError 'Claude quota endpoint rate limited')
-            }
-
-            (Get-UsageWindow).detail | Should -BeLike '*rate limited*'
-        }
-
-        # A stale reading with no applicable window gives no floor either, and must not invent one.
-        # The window here has genuinely rolled, which is the one thing still discarded.
-        It 'gives no floor when the stale answer has no applicable window' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 10 -Stale $true `
-                                         -FiveHourResets ([datetimeoffset]::UtcNow.AddHours(-1).ToString('o')))
-            }
-
-            $r = Get-UsageWindow
-            $r.status       | Should -Be 'unknown'
-            $r.floorPercent | Should -BeNullOrEmpty
-        }
-
-        # The floor is the only guard there is while the fallback answers from its cache, so a
-        # missing reset time must not take it away as well - that would leave the dispatch with
-        # nothing at all, from a reading that carried a perfectly good number.
-        It 'still gives a floor when a stale window reports a percentage with no reset time' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 95 -Stale $true -FiveHourResets '')
-            }
-
-            $r = Get-UsageWindow
-            $r.status       | Should -Be 'unknown'
-            $r.floorPercent | Should -Be 95
-            $r.detail       | Should -BeLike '*At least 95 percent*'
-            $r.detail       | Should -BeLike '*no reset time this could read*'
-        }
-
-        It 'reports unknown when windows are there and no percentage can be read from any of them' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                @{ providers = @(@{ provider = 'claude'
-                                    windows  = @(@{ id = 'five_hour' })
-                                    state    = @{ stale = $false } }) } |
-                    ConvertTo-Json -Depth 8 | ForEach-Object { New-AxiOk $_ }
-            }
-
-            $r = Get-UsageWindow
-            $r.status  | Should -Be 'unknown'
-            $r.signal  | Should -Be 'no-percentage' -Because 'the window applies; it is the number that is missing'
-            $r.percent | Should -BeNullOrEmpty
-            $r.detail  | Should -BeLike '*session window reported a used percentage this could not read*'
-        }
-
-        # The third answer, and the one that must not be collapsed into either of the others. An
-        # account that genuinely reports no windows is a settled fact about this machine, not a
-        # lookup that failed - and the dispatch refusal treats the two differently.
-        It 'settles on no-usage when the account reports no windows at all' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -NoWindows) }
-
-            $r = Get-UsageWindow
-            $r.status  | Should -Be 'no-usage'
-            $r.signal  | Should -Be 'no-windows'
-            $r.percent | Should -BeNullOrEmpty
-        }
-
-        # `@($null)` is an array of one, so a field written as `null` used to arrive looking like a
-        # window that exists and then failed every test of what was in it - which fell through to
-        # the wrong answer rather than to an answer at all.
-        It 'reads a null window list as none rather than as one phantom window' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiProviderJson '"windows": null') }
-
-            $r = Get-UsageWindow
-            $r.status  | Should -Be 'unknown'
-            $r.percent | Should -BeNullOrEmpty
+            $script:Hint = $p.error
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeFail $script:Hint }
+            Assert-ProbeFailed (Get-UsageWindow) 'Claude Code was not found'
         }
 
         It 'never reports zero percent as a stand-in for not knowing' {
             foreach ($reply in @(
-                { New-AxiFail },
-                { New-AxiOk 'not json' },
-                { New-AxiOk (New-AxiReport -Stale $true) },
-                { New-AxiOk (New-AxiReport -NoWindows) }
+                { New-ProbeFail },
+                { New-ProbeOk 'not json' },
+                { New-ProbeOk '' },
+                { New-ProbeOk (New-ProbeOutput -NoEvent) },
+                { New-ProbeOk (New-ProbeOutput -NoAccountWindows) }
             )) {
-                Mock -ModuleName Usage Invoke-QuotaAxi $reply
+                Mock -ModuleName Usage Invoke-UsageProbe $reply
                 $r = Get-UsageWindow
                 $r.status  | Should -Not -Be 'has-usage'
+                $r.status  | Should -Not -Be 'no-usage'
                 $r.percent | Should -BeNullOrEmpty -Because 'a fabricated 0 reads as a wide open window'
             }
         }
-    }
 
-    Context 'what the tool said about windows, told apart from what it did not say' {
-        # THREE FACTS THAT USED TO COLLAPSE INTO ONE, and only one of them is settled. `no-usage` is
-        # the single answer that neither refuses a dispatch nor warns on one, so reading "the tool
-        # never mentioned windows" as "there are none here" switches the guard off on every dispatch
-        # from then on and tells nobody. A field the tool renamed is exactly how that would arrive.
-
-        It 'settles on no-usage only where the tool affirmatively lists none' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiProviderJson '"windows": []') }
-
-            $r = Get-UsageWindow
-            $r.status | Should -Be 'no-usage'
-            $r.signal | Should -Be 'no-windows'
-        }
-
-        # THE SAME RULE ONE LEVEL DOWN, AND THE RENAME IT EXISTS FOR. A tool that lists windows and
-        # calls the session one something else has not said there are none - it has said something
-        # this cannot read. Settling on no-usage there is the single answer that neither refuses nor
-        # warns, so every dispatch from then on would go out unguarded with nothing reaching
-        # anybody, which is the failure the whole feature was written to prevent. This tool's window
-        # ordering has already changed once, so the rename is not hypothetical.
-        It 'reports unknown when a populated window list holds no id this recognises' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiProviderJson ('"windows": [ { "id": "session", ' +
-                                                '"percentUsed": 95, ' +
-                                                '"resetsAt": "2099-01-01T00:00:00Z" } ]'))
-            }
-
-            $r = Get-UsageWindow
-            $r.status  | Should -Be 'unknown' -Because 'a rename must not read as a settled fact'
-            $r.signal  | Should -Be 'no-account-windows'
-            $r.percent | Should -BeNullOrEmpty
-            $r.detail  | Should -BeLike '*It reported session instead*'
-        }
-
-        # Naming what it saw is what lets a person tell a rename from an account that really does
-        # carry only a spend cap, so the ids ride along rather than the answer being bare.
-        It 'names every window id it did see when it recognises none of them' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiProviderJson ('"windows": [ { "id": "extra_usage", ' +
-                                                '"percentUsed": 100 }, ' +
-                                                '{ "id": "opus_weekly", "percentUsed": 12 } ]'))
-            }
-
-            (Get-UsageWindow).detail | Should -BeLike '*extra_usage, opus_weekly*'
-        }
-
-        It 'reports unknown when the windows field is not in the answer at all' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiProviderJson '') }
-
-            $r = Get-UsageWindow
-            $r.status  | Should -Be 'unknown'
-            $r.signal  | Should -Be 'no-windows-field'
-            $r.percent | Should -BeNullOrEmpty
-        }
-
-        It 'reports unknown when the windows field is there and says nothing' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiProviderJson '"windows": null') }
-
-            $r = Get-UsageWindow
-            $r.status  | Should -Be 'unknown'
-            $r.signal  | Should -Be 'windows-not-reported'
-            $r.percent | Should -BeNullOrEmpty
-        }
-
-        # The consequence, in the words the King reads. `usage unknown` is the one that says the
-        # question could not be settled; `usage not reported here` is a fact about the machine, and
-        # a reader shown it for a renamed field would never look again.
-        It 'says the usage is unknown rather than that this machine reports none' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiProviderJson '') }
-            Mock -ModuleName Usage Get-UsageFleet { @(New-FleetRow -Ticket 'kh') }
-            InModuleScope Usage { $script:LastSpoken = $null }
-
-            Get-UsagePulse | Should -Be 'usage unknown - 1 running: kh working'
-        }
-    }
-
-    Context 'the schema the answer was stamped with' {
-        # Recorded so a later reader can see which format produced an answer this could not use,
-        # and never compared against a version this was written for: a compatible bump must not
-        # take the reader out on a machine where it worked the day before.
-
-        It 'carries the version the tool stamped on its answer' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -SchemaVersion 3) }
-            (Get-UsageWindow).schemaVersion | Should -Be '3'
-        }
-
-        It 'reads an answer stamped with a version it has never seen rather than refusing it' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -SchemaVersion 99)
-            }
-
-            $r = Get-UsageWindow
-            $r.status        | Should -Be 'has-usage'
-            $r.percent       | Should -Be 4
-            $r.schemaVersion | Should -Be '99'
-        }
-
-        It 'names the version in the detail of an answer that is not a percentage' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiProviderJson '' -Schema '"schemaVersion": 7, ')
-            }
-
-            $r = Get-UsageWindow
-            $r.schemaVersion | Should -Be '7'
-            $r.detail        | Should -BeLike '*schema version 7*'
-        }
-
-        It 'says the answer carried no version rather than inventing one' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiProviderJson '"windows": []' -Schema '')
-            }
-
-            $r = Get-UsageWindow
-            $r.status        | Should -Be 'no-usage'
-            $r.schemaVersion | Should -Be ''
-            $r.detail        | Should -BeLike '*no schema version*'
-        }
-    }
-
-    Context 'when the answer is malformed - the guard fails open and never throws' {
-        # THE FAILURE THESE PIN. Dispatch-Worker.ps1 calls Get-UsageWindow as the first check of a
-        # dispatch, under $ErrorActionPreference = 'Stop'. An exception out of the reader therefore
-        # does not degrade to a warning - it stops the dispatch outright, which turns a guard
-        # written to fail OPEN into the hard block the design rules out. A reading nobody could
-        # take must come back as `unknown`, whatever it was that could not be read.
-
-        # The word goes on the field the reader actually consumes - the window's own percentUsed -
-        # so this reproduces the failure its name claims. The other account window still answers,
-        # which is the tolerance being demonstrated, and the one that could not be read is named
-        # rather than quietly skipped.
-        It 'reads a percentage the tool wrote as a word as no percentage, not as an error' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 'plenty' -WithSevenDay)
-            }
-
-            { Get-UsageWindow } | Should -Not -Throw
-
-            $r = Get-UsageWindow
-            $r.status  | Should -Be 'has-usage' -Because 'the weekly window still answered'
-            $r.signal  | Should -Be 'driving-window'
-            $r.percent | Should -Be 61
-            $r.window  | Should -Be 'seven_day'
-            $r.detail  | Should -BeLike '*session window reported a used percentage this could not read*'
-        }
-
-        It 'settles on unknown when no window carries a percentage that is a number' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 'lots')
-            }
-
-            $r = Get-UsageWindow
-            $r.status  | Should -Be 'unknown'
-            $r.signal  | Should -Be 'no-percentage'
-            $r.percent | Should -BeNullOrEmpty
-        }
-
-        It 'never reads a true as one percent spent' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent $true)
-            }
-
-            $r = Get-UsageWindow
-            $r.status  | Should -Be 'unknown'
-            $r.percent | Should -BeNullOrEmpty
-        }
-
-        # The catch-all, tested by making the one boundary itself fail in a way nothing below
-        # anticipates. Whatever breaks in there, the dispatch gets an answer rather than a throw.
+        # THE CATCH-ALL. Dispatch-Worker.ps1 calls Get-UsageWindow as the first check of a dispatch,
+        # under $ErrorActionPreference = 'Stop', so an exception out of the reader would not degrade
+        # to a warning - it would stop the dispatch outright, turning a guard written to fail OPEN
+        # into the hard block the design rules out. Tested by making the boundary itself fail in a
+        # way nothing below anticipates.
         It 'answers unknown rather than throwing when the boundary itself fails unexpectedly' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { throw 'the temp directory is gone' }
+            Mock -ModuleName Usage Invoke-UsageProbe { throw 'the temp directory is gone' }
 
             { Get-UsageWindow } | Should -Not -Throw
 
@@ -716,180 +400,122 @@ Describe 'Get-UsageWindow answers, or says plainly that it cannot' {
             $r.window  | Should -Be ''
             $r.detail  | Should -BeLike '*the temp directory is gone*'
         }
-    }
-}
 
-Describe 'The probe answers first, and quota-axi only when it cannot' {
-    BeforeEach {
-        Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 4) }
-    }
-
-    It 'reads both windows from the probe and never asks quota-axi' {
-        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.08 -SevenDay 0.33) }
-
-        $r = Get-UsageWindow
-        $r.status  | Should -Be 'has-usage'
-        $r.signal  | Should -Be 'driving-window'
-        $r.source  | Should -Be 'probe'
-        $r.percent | Should -Be 33 -Because 'the week is the one nearer its limit'
-        $r.window  | Should -Be 'seven_day'
-        $r.detail  | Should -BeLike '*session window at 8 percent*'
-        Should -Invoke -ModuleName Usage Invoke-QuotaAxi -Times 0 -Exactly
-    }
-
-    It 'turns a fraction into a percentage and an epoch into a reset time' {
-        $reset = [datetimeoffset]::UtcNow.AddHours(2)
-        $p = ConvertFrom-UsageProbe -Value (New-ProbeOutput -FiveHour 0.5 -FiveHourResets $reset.ToUnixTimeSeconds())
-        $p.ok | Should -BeTrue
-        $five = @($p.windows | Where-Object { $_.id -eq 'five_hour' })[0]
-        $five.percentUsed | Should -Be 50
-        ([datetimeoffset]::Parse($five.resetsAt) - $reset).TotalSeconds | Should -BeLessThan 1
-    }
-
-    It 'pairs the probe reading with the active account, the same as quota-axi' {
-        Mock -ModuleName Usage Get-ActiveAccountName { 'personal' }
-        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput) }
-        (Get-UsageWindow).account | Should -Be 'personal'
-    }
-
-    # The fully-spent case has never been seen, and a turn refused at the limit may still exit
-    # non-zero after printing the event. What it printed is read; nothing is assumed from the code.
-    It 'reads the event from a probe that exited non-zero after printing it' {
-        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 1.0 -SevenDay 0.4) -ExitCode 1 }
-        $r = Get-UsageWindow
-        $r.status  | Should -Be 'has-usage'
-        $r.percent | Should -Be 100
-    }
-
-    Context 'when the probe cannot answer - one case per failure path, with the failure forced' {
-        It 'falls back to quota-axi once when the probe printed no rate_limit_event' {
+        # The consequence, in the words the King reads: the pulse says the usage is unknown.
+        It 'says the usage is unknown in the pulse rather than any number' {
             Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -NoEvent) }
-            $r = Get-UsageWindow
-            $r.source  | Should -Be 'quota-axi'
-            $r.percent | Should -Be 4
-            $r.detail  | Should -BeLike '*no rate_limit_event*'
-            Should -Invoke -ModuleName Usage Invoke-QuotaAxi -Times 1 -Exactly
-        }
+            Mock -ModuleName Usage Get-UsageFleet { @(New-FleetRow -Ticket 'kh') }
+            InModuleScope Usage { $script:LastSpoken = $null }
 
-        It 'falls back when the event carries no unifiedWindows' {
-            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -NoUnified) }
-            $r = Get-UsageWindow
-            $r.source | Should -Be 'quota-axi'
-            $r.detail | Should -BeLike '*no unifiedWindows (its status was allowed)*'
-        }
-
-        # An empty answer is the one that switches every guard off quietly, so the probe never
-        # gives it: a renamed window is a failed probe, not an account with nothing to report.
-        It 'falls back rather than settling on no windows when neither account window is there' {
-            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -NoAccountWindows) }
-            $r = Get-UsageWindow
-            $r.status | Should -Not -Be 'no-usage'
-            $r.source | Should -Be 'quota-axi'
-            $r.detail | Should -BeLike '*neither the session nor the weekly window*'
-        }
-
-        It 'falls back, never reading zero, when a utilization is not a number' {
-            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 'lots') }
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiFail }
-            $r = Get-UsageWindow
-            $r.status  | Should -Be 'unknown'
-            $r.percent | Should -BeNullOrEmpty
-            $r.detail  | Should -BeLike '*not a fraction this can read*'
-        }
-
-        It 'falls back when a utilization is negative' {
-            (ConvertFrom-UsageProbe -Value (New-ProbeOutput -FiveHour -0.2)).ok | Should -BeFalse
-        }
-
-        It 'falls back when the probe timed out' {
-            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeFail }
-            $r = Get-UsageWindow
-            $r.source | Should -Be 'quota-axi'
-            $r.detail | Should -BeLike '*did not answer within 45 seconds*'
-        }
-
-        It 'falls back when Claude Code is not there to run' {
-            Mock -ModuleName Usage Get-UsageProbeCommandPath { $null }
-            $p = & $script:RealInvokeUsageProbe
-            $p.ok    | Should -BeFalse
-            $p.error | Should -BeLike '*Claude Code was not found*'
-        }
-
-        # U4.2: both fail, and the answer is the existing unknown - never a number.
-        It 'reports unknown with no figure at all when the probe and quota-axi both fail' {
-            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -NoEvent) }
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiFail 'quota-axi was not found.' }
-            $r = Get-UsageWindow
-            $r.status       | Should -Be 'unknown'
-            $r.signal       | Should -Be 'lookup-failed'
-            $r.percent      | Should -BeNullOrEmpty
-            $r.floorPercent | Should -BeNullOrEmpty
-            $r.detail       | Should -BeLike '*quota-axi was not found*'
-            $r.detail       | Should -BeLike '*usage probe was tried first*'
-        }
-
-        # U4.3: a stale fallback stays the floor it always was.
-        It 'keeps a stale fallback as a floor' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 41 -Stale $true) }
-            $r = Get-UsageWindow
-            $r.signal       | Should -Be 'stale-reading'
-            $r.percent      | Should -BeNullOrEmpty
-            $r.floorPercent | Should -Be 41
-            $r.source       | Should -Be 'quota-axi'
-        }
-
-        # U4.1 and U4.2: the gate refuses, and the answer is unknown rather than a number.
-        It 'reports unknown without asking quota-axi when the fifteen-minute gate refuses' {
-            $path = New-GatePath
-            (Request-UsageFallbackSlot -Path $path).allowed | Should -BeTrue
-
-            $r = Get-UsageWindow -StatePath $path
-            $r.status  | Should -Be 'unknown'
-            $r.signal  | Should -Be 'fallback-gated'
-            $r.percent | Should -BeNullOrEmpty
-            $r.detail  | Should -BeLike '*at most once every 15 minutes*'
-            Should -Invoke -ModuleName Usage Invoke-QuotaAxi -Times 0 -Exactly
+            Get-UsagePulse | Should -Be 'usage unknown - 1 running: kh working'
         }
     }
 }
 
-Describe 'quota-axi is asked at most once every fifteen minutes, across every process' {
-    It 'refuses a second ask inside fifteen minutes and allows one after' {
+# THE FALLBACK TOOL WAS REMOVED ON 2026-11-15. A user's gate file may still carry what it wrote -
+# the stamp of when it was last asked, and history entries it answered - and that file is theirs:
+# it is read, its old fields ignored, and nothing is migrated or deleted.
+Describe 'The gate file an earlier version wrote' {
+    BeforeAll {
+        function New-OldGateFile {
+            param([string]$Path, [object]$Hold = $null, [object[]]$History = @())
+            New-Item -ItemType Directory -Force -Path (Split-Path $Path -Parent) | Out-Null
+            [ordered]@{
+                owner           = 'kingshand-usage-gate'
+                fallbackAskedAt = [datetimeoffset]::UtcNow.AddMinutes(-3).ToString('o')
+                hold            = $Hold
+                history         = @($History)
+            } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $Path -Encoding utf8
+        }
+    }
+    # The fixtures below are written for no account, so the reader is told it has none.
+    BeforeEach { Mock -ModuleName Usage Get-ActiveAccountName { '' } }
+
+    It 'reads a record still carrying the old fields without failing, and probes as normal' {
         $path  = New-GatePath
-        $start = [datetimeoffset]::UtcNow
-        $script:Clock = $start
-        Mock -ModuleName Usage Get-UsageNow { $script:Clock }
+        $script:Reset = [datetimeoffset]::UtcNow.AddHours(3)
+        $reset = $script:Reset
+        New-OldGateFile -Path $path -History @(
+            @{ account = ''; window = 'five_hour'; percent = 41; resetsAt = $reset.ToString('o')
+               takenAt = [datetimeoffset]::UtcNow.AddMinutes(-20).ToString('o'); source = 'quota-axi' }
+        )
+        Mock -ModuleName Usage Invoke-UsageProbe {
+            New-ProbeOk (New-ProbeOutput -FiveHour 0.45 -SevenDay 0.1 -FiveHourResets $script:Reset.ToUnixTimeSeconds())
+        }
 
-        (Request-UsageFallbackSlot -Path $path).allowed | Should -BeTrue
-        $script:Clock = $start.AddMinutes(14.9)
-        $second = Request-UsageFallbackSlot -Path $path
-        $second.allowed | Should -BeFalse
-        $second.reason  | Should -BeLike '*asked again from*'
-        $script:Clock = $start.AddMinutes(15)
-        (Request-UsageFallbackSlot -Path $path).allowed | Should -BeTrue
+        $r = Get-UsageWindow -StatePath $path
+        $r.status  | Should -Be 'has-usage'
+        $r.source  | Should -Be 'probe'
+        $r.percent | Should -Be 45
+        $r.previous.percent | Should -Be 41 -Because 'an old reading of the same window is still a baseline'
+        Should -Invoke -ModuleName Usage Invoke-UsageProbe -Times 1 -Exactly
+
+        $after = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+        $after.owner | Should -Be 'kingshand-usage-gate'
+        $after.PSObject.Properties.Name | Should -Contain 'fallbackAskedAt' -Because 'the old field is left alone, not migrated'
+        @($after.history).Count | Should -Be 2
     }
 
-    # THE POINT OF THE FILE. The pulse, night's watch and a dispatch are separate processes, and a
-    # timer in memory would gate only the one holding it. A second process sees this one's claim.
-    It 'refuses an ask from another process after this one claimed the slot' {
+    It 'still honours a hold an earlier version recorded' {
         $path = New-GatePath
-        (Request-UsageFallbackSlot -Path $path).allowed | Should -BeTrue
+        New-OldGateFile -Path $path -Hold @{
+            account = ''; window = 'five_hour'; percent = 93
+            resetsAt = [datetimeoffset]::UtcNow.AddHours(1).ToString('o')
+            takenAt  = [datetimeoffset]::UtcNow.AddMinutes(-5).ToString('o'); source = 'quota-axi'
+        }
+
+        $r = Get-UsageWindow -StatePath $path
+        $r.signal       | Should -Be 'held-at-limit'
+        $r.floorPercent | Should -Be 93
+        Should -Invoke -ModuleName Usage Invoke-UsageProbe -Times 0 -Exactly
+    }
+
+    It 'probes as normal when the old record holds nothing it reads' {
+        $path = New-GatePath
+        New-OldGateFile -Path $path
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.2 -SevenDay 0.1) }
+
+        (Get-UsageWindow -StatePath $path).percent | Should -Be 20
+    }
+}
+
+Describe 'The gate file is changed under a lock, and only when it is this reader''s own' {
+    # THE POINT OF THE FILE. The pulse, night's watch and a dispatch are separate processes, and a
+    # hold kept in memory would hold only the one keeping it. A second process sees this one's hold.
+    It 'shows a hold this process recorded to another process' {
+        $path = New-GatePath
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.92 -SevenDay 0.4) }
+        (Get-UsageWindow -StatePath $path).percent | Should -Be 92
 
         $module = (Resolve-Path "$PSScriptRoot\..\bin\Usage.psm1").Path
         $script = "Import-Module '$($module.Replace("'", "''"))'; " +
-                  "(Request-UsageFallbackSlot -Path '$($path.Replace("'", "''"))').allowed"
+                  "`$env:KINGSHAND_USAGE_PROBE_COMMAND = 'no-such-probe-binary'; " +
+                  "(Get-UsageWindow -StatePath '$($path.Replace("'", "''"))').signal"
         $other = & pwsh -NoProfile -NonInteractive -Command $script
-        "$other".Trim() | Should -Be 'False'
+        "$other".Trim() | Should -Be 'held-at-limit'
     }
 
-    It 'refuses rather than allows when the gate file is locked by another process' {
+    It 'refuses rather than waits for ever when the gate file is locked by another process' {
         $path = New-GatePath
         $null = Update-UsageGateState -Path $path
         $held = [System.IO.File]::Open("$path.lock", 'Open', 'ReadWrite', 'None')
         try {
-            $r = Request-UsageFallbackSlot -Path $path
-            $r.allowed | Should -BeFalse
-            $r.reason  | Should -BeLike '*stayed locked*'
+            $r = Update-UsageGateState -Path $path -Change { param($s) $s['hold'] = $null }
+            $r.ok      | Should -BeFalse
+            $r.problem | Should -BeLike '*stayed locked*'
+        } finally { $held.Dispose() }
+    }
+
+    # A locked gate file costs the hold and the baseline, never the reading.
+    It 'still answers from the probe when the gate file cannot be used' {
+        $path = New-GatePath
+        $null = Update-UsageGateState -Path $path
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.3 -SevenDay 0.1) }
+        $held = [System.IO.File]::Open("$path.lock", 'Open', 'ReadWrite', 'None')
+        try {
+            $r = Get-UsageWindow -StatePath $path
+            $r.status  | Should -Be 'has-usage'
+            $r.percent | Should -Be 30
         } finally { $held.Dispose() }
     }
 
@@ -899,20 +525,20 @@ Describe 'quota-axi is asked at most once every fifteen minutes, across every pr
     It 'replaces the record whole, leaving no temp file after a write or a refused write' {
         $path = New-GatePath
         $dir  = Split-Path $path -Parent
-        (Update-UsageGateState -Path $path -Change { param($s) $s['fallbackAskedAt'] = 'a' }).ok | Should -BeTrue
-        (Update-UsageGateState -Path $path -Change { param($s) $s['fallbackAskedAt'] = 'b' }).ok | Should -BeTrue
-        (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json).fallbackAskedAt | Should -Be 'b'
+        (Update-UsageGateState -Path $path -Change { param($s) $s['hold'] = @{ percent = 1 } }).ok | Should -BeTrue
+        (Update-UsageGateState -Path $path -Change { param($s) $s['hold'] = @{ percent = 2 } }).ok | Should -BeTrue
+        (Get-Content -LiteralPath $path -Raw | ConvertFrom-Json).hold.percent | Should -Be 2
         @(Get-ChildItem -LiteralPath $dir -Filter '*.tmp').Count | Should -Be 0
 
         # A rename that fails - here because a directory sits where the record goes - takes its
         # temp file with it.
         $blocked = Join-Path (New-TempFixtureDir) 'usage-gate.json'
         New-Item -ItemType Directory -Path $blocked | Out-Null
-        (Update-UsageGateState -Path $blocked -Change { param($s) $s['fallbackAskedAt'] = 'a' }).ok | Should -BeFalse
+        (Update-UsageGateState -Path $blocked -Change { param($s) $s['hold'] = @{ percent = 1 } }).ok | Should -BeFalse
         @(Get-ChildItem -LiteralPath (Split-Path $blocked -Parent) -Filter '*.tmp').Count | Should -Be 0
 
         '{ "workers": {} }' | Set-Content -LiteralPath $path -Encoding utf8
-        (Update-UsageGateState -Path $path -Change { param($s) $s['fallbackAskedAt'] = 'c' }).ok | Should -BeFalse
+        (Update-UsageGateState -Path $path -Change { param($s) $s['hold'] = @{ percent = 3 } }).ok | Should -BeFalse
         @(Get-ChildItem -LiteralPath $dir -Filter '*.tmp').Count | Should -Be 0
     }
 
@@ -923,11 +549,10 @@ Describe 'quota-axi is asked at most once every fifteen minutes, across every pr
         '{ "workers": {} }' | Set-Content -LiteralPath $crew -Encoding utf8
         $before = Get-Content -LiteralPath $crew -Raw
 
-        $u = Update-UsageGateState -Path $crew -Change { param($s) $s['fallbackAskedAt'] = 'x' }
+        $u = Update-UsageGateState -Path $crew -Change { param($s) $s['hold'] = @{ percent = 1 } }
         $u.ok      | Should -BeFalse
         $u.problem | Should -BeLike '*has to be named usage-gate.json*'
         Get-Content -LiteralPath $crew -Raw | Should -Be $before
-        (Request-UsageFallbackSlot -Path $crew).allowed | Should -BeFalse
     }
 
     It 'refuses a file at the gate path that is not its own record, and leaves it untouched' {
@@ -936,17 +561,20 @@ Describe 'quota-axi is asked at most once every fifteen minutes, across every pr
         '{ "workers": { "T-1": {} } }' | Set-Content -LiteralPath $path -Encoding utf8
         $before = Get-Content -LiteralPath $path -Raw
 
-        $r = Request-UsageFallbackSlot -Path $path
-        $r.allowed | Should -BeFalse
-        $r.reason  | Should -BeLike "*not this reader's own record*"
+        $u = Update-UsageGateState -Path $path -Change { param($s) $s['hold'] = @{ percent = 1 } }
+        $u.ok      | Should -BeFalse
+        $u.problem | Should -BeLike "*not this reader's own record*"
         Get-Content -LiteralPath $path -Raw | Should -Be $before
+
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.95 -SevenDay 0.1) }
+        (Get-UsageWindow -StatePath $path).percent | Should -Be 95 -Because 'the reading still stands'
+        Get-Content -LiteralPath $path -Raw | Should -Be $before -Because 'nor does a reading write over it'
     }
 }
 
 Describe 'nothing reads a window from 90 percent until it resets, but the one confirming read' {
     It 'holds a window read at 90 or more, answering from the hold as a floor without probing' {
         $path = New-GatePath
-        Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiFail }
         Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.92 -SevenDay 0.4) }
         (Get-UsageWindow -StatePath $path).percent | Should -Be 92
 
@@ -959,7 +587,6 @@ Describe 'nothing reads a window from 90 percent until it resets, but the one co
         $held.window       | Should -Be 'five_hour'
         $held.resetsAt     | Should -Not -BeNullOrEmpty
         Should -Invoke -ModuleName Usage Invoke-UsageProbe -Times 1 -Exactly
-        Should -Invoke -ModuleName Usage Invoke-QuotaAxi -Times 0 -Exactly
     }
 
     It 'takes the confirming read once the reset has passed, and clears the hold when it rolled' {
@@ -1193,22 +820,6 @@ Describe 'A number that is not one is no number, and never a percentage' {
 
 Describe 'A list comes back as a list, at every size' {
     # Statute's collection-return rule: the list itself on assignment, never $null or a bare item.
-    It 'returns <n> JSON list entries as a list on assignment' -TestCases @(
-        @{ n = 0 }, @{ n = 1 }, @{ n = 3 }
-    ) {
-        $json = '{ "providers": [' + ((1..3 | Select-Object -First $n |
-                    ForEach-Object { "{ ""provider"": ""p$_"" }" }) -join ',') + '] }'
-        $list = ConvertTo-JsonList ($json | ConvertFrom-Json).providers
-        $list -is [System.Collections.Generic.List[object]] | Should -BeTrue
-        $list.Count | Should -Be $n
-    }
-
-    It 'returns a JSON null as an empty list, never one item' {
-        $list = ConvertTo-JsonList $null
-        $list -is [System.Collections.Generic.List[object]] | Should -BeTrue
-        $list.Count | Should -Be 0
-    }
-
     It 'returns <n> recognised account windows as a list on assignment' -TestCases @(
         @{ n = 0 }, @{ n = 1 }, @{ n = 2 }
     ) {
@@ -1289,8 +900,10 @@ Describe 'A timestamp carries its offset, and is never read as local' {
     # it tests as the calendar moves.
     It 'carries the day into the detail a refusal quotes' {
         $days = (Get-Date).Date.AddDays(6).AddHours(10)
-        Mock -ModuleName Usage Invoke-QuotaAxi {
-            New-AxiOk (New-AxiReport -FiveHourResets (([datetimeoffset]$days).ToString('o')))
+        $script:Days = $days
+        Mock -ModuleName Usage Invoke-UsageProbe {
+            New-ProbeOk (New-ProbeOutput -FiveHour 0.04 -NoSevenDay `
+                                         -FiveHourResets ([datetimeoffset]$script:Days).ToUnixTimeSeconds())
         }
 
         $r = Get-UsageWindow
@@ -1361,78 +974,12 @@ Describe 'Which account the reading belongs to' {
 
     It 'never reads anything out of a credential file' {
         New-AccountsHome -Active 'personal' | Out-Null
-        Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 4) }
+        Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput) }
 
         $r = Get-UsageWindow
         $r.account | Should -Be 'personal'
         ($r | ConvertTo-Json -Depth 6) | Should -Not -BeLike '*SECRET-TOKEN-MARKER*'
         ($r | ConvertTo-Json -Depth 6) | Should -Not -BeLike '*SECRET-REFRESH-MARKER*'
-    }
-}
-
-Describe 'The launchable quota-axi, and why a .ps1 is never it' {
-    BeforeAll { $script:SavedPath = $env:PATH }
-    AfterAll  { $env:PATH = $script:SavedPath }
-
-    # npm installs a .ps1 alongside the .cmd, and a native launch of a .ps1 dies with
-    # "%1 is not a valid Win32 application" - the same failure Paths.psm1 records for Claude Code.
-    # Windows only: elsewhere a `.cmd` is not a program at all, and npm installs no such pair.
-    It 'prefers a launchable wrapper over the PowerShell script npm installs beside it' -Skip:(-not $IsWindows) {
-        $dir = New-TempFixtureDir -Prefix 'quota-shim-'
-        Set-Content -Path (Join-Path $dir 'quota-axi.ps1') -Value 'exit 0' -Encoding ascii
-        Set-Content -Path (Join-Path $dir 'quota-axi.cmd') -Value '@echo off' -Encoding ascii
-        $env:PATH = $dir + [IO.Path]::PathSeparator + $script:SavedPath
-
-        $p = Get-QuotaAxiCommandPath
-        $p | Should -BeLike '*quota-axi.cmd'
-        $p | Should -Not -BeLike '*.ps1'
-    }
-
-    It 'reports nothing rather than a script it cannot start' {
-        $dir = New-TempFixtureDir -Prefix 'quota-shim-'
-        Set-Content -Path (Join-Path $dir 'quota-axi.ps1') -Value 'exit 0' -Encoding ascii
-        $env:PATH = $dir
-
-        Get-QuotaAxiCommandPath | Should -BeNullOrEmpty
-    }
-
-    It 'names the install command when it is missing, rather than failing silently' {
-        $env:PATH = New-TempFixtureDir -Prefix 'quota-empty-'
-        $r = Invoke-QuotaAxi -Arguments @('--json')
-        $r.ok    | Should -BeFalse
-        $r.error | Should -BeLike '*npm install -g quota-axi*'
-    }
-
-    # This function promises it never throws, and the whole fail-open guard rests on that promise.
-    # The scratch files it redirects the tool's output into were created above the try, so a temp
-    # directory that is not there took the promise with it - and the exception surfaced inside a
-    # dispatch running under ErrorActionPreference Stop.
-    It 'reports a temp directory it cannot use rather than throwing out of the boundary' {
-        $shim = New-TempFixtureDir -Prefix 'quota-shim-'
-        Import-Module (Join-Path $PSScriptRoot 'TestExecutable.psm1') -Force
-        $null = New-TestExecutable -Path (Join-Path $shim 'quota-axi') -Cmd @() -Sh @()
-        $gone = Join-Path (New-TempFixtureDir -Prefix 'quota-notemp-') 'no-such-directory'
-
-        # TMP and TEMP are what Windows reads for the temp directory; macOS and Linux read TMPDIR.
-        $savedTmp    = $env:TMP
-        $savedTemp   = $env:TEMP
-        $savedTmpDir = $env:TMPDIR
-        try {
-            $env:PATH   = $shim + [IO.Path]::PathSeparator + $script:SavedPath
-            $env:TMP    = $gone
-            $env:TEMP   = $gone
-            $env:TMPDIR = $gone
-
-            $r = $null
-            { $script:NoTempResult = Invoke-QuotaAxi -Arguments @('--json') } | Should -Not -Throw
-            $r = $script:NoTempResult
-            $r.ok    | Should -BeFalse
-            $r.error | Should -BeLike '*quota-axi could not be run*'
-        } finally {
-            $env:TMP    = $savedTmp
-            $env:TEMP   = $savedTemp
-            $env:TMPDIR = $savedTmpDir
-        }
     }
 }
 
@@ -1747,8 +1294,8 @@ Describe 'The pulse is one line, and it says nothing when nothing has changed' {
 }
 
 # A WEEKLY 5 READ AGAINST A SESSION 3 LOOKED LIKE A WRONG NUMBER, because the line named only the
-# driving window. Every case here goes through the real reader - the probe or quota-axi mocked at
-# its boundary and nothing above it - so the windows the line shows are the ones the reading saw.
+# driving window. Every case here goes through the real reader - the probe mocked at its boundary
+# and nothing above it - so the windows the line shows are the ones the reading saw.
 Describe 'The pulse shows both account windows on one line' {
     BeforeEach {
         Mock -ModuleName Usage Get-ActiveAccountName { 'office' }
@@ -1778,53 +1325,51 @@ Describe 'The pulse shows both account windows on one line' {
         Get-UsagePulse | Should -Be '5% session and week (office) - 1 running: kh working'
     }
 
-    # The quota-axi fallback is where a window can go missing or arrive as something that is not a
-    # number - the probe refuses either outright. Its report also carries the spend cap at 100,
-    # which is not an account window and must never reach the line.
+    # A window can go missing, or roll, while the other one reads - and the probe also reports the
+    # spend cap at 100, which is not an account window and must never reach the line.
     Context 'when one window cannot be read' {
-        BeforeEach {
-            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeFail }
-        }
-
-        It 'says a week the tool did not report is unreadable rather than leaving it out' {
-            Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiOk (New-AxiReport -FiveHourPercent 3) }
+        It 'says a week the probe did not report is unreadable rather than leaving it out' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.03 -NoSevenDay -WithSpendCap) }
             $line = Get-UsagePulse
             $line | Should -Be '3% session / week unreadable (office) - 1 running: kh working'
             $line | Should -Not -BeLike '*100*' -Because 'the spend cap is not an account window'
             $line | Should -Not -BeLike '*extra*'
         }
 
-        It 'says a week whose figure is not a number is unreadable' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 3 -WithSevenDay -SevenDayPercent 'lots')
-            }
-            Get-UsagePulse | Should -Be '3% session / week unreadable (office) - 1 running: kh working'
-        }
-
-        It 'says a session whose figure is not a number is unreadable, still first' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 'lots' -WithSevenDay -SevenDayPercent 5)
-            }
-            Get-UsagePulse | Should -Be 'session unreadable / 5% week (office) - 1 running: kh working'
-        }
-
         It 'says a week that has already rolled is unreadable rather than showing its old figure' {
-            Mock -ModuleName Usage Invoke-QuotaAxi {
-                New-AxiOk (New-AxiReport -FiveHourPercent 3 -WithSevenDay -SevenDayPercent 80 `
-                               -SevenDayResets ([datetimeoffset]::UtcNow.AddHours(-1).ToString('o')))
+            Mock -ModuleName Usage Invoke-UsageProbe {
+                New-ProbeOk (New-ProbeOutput -FiveHour 0.03 -SevenDay 0.80 `
+                               -SevenDayResets ([datetimeoffset]::UtcNow.AddHours(-1).ToUnixTimeSeconds()))
             }
             $line = Get-UsagePulse
             $line | Should -Be '3% session / week unreadable (office) - 1 running: kh working'
             $line | Should -Not -BeLike '*80*'
         }
+
+        # The probe refuses a whole event where either figure is not a number, so a reading with one
+        # window unreadable and the other read arrives only from a caller - and the line still says
+        # which one, in its place.
+        It 'says a session whose figure is not a number is unreadable, still first' {
+            $reading = [pscustomobject]@{
+                status = 'has-usage'; signal = 'driving-window'; percent = 5; window = 'seven_day'
+                account = 'office'
+                windows = @([pscustomobject]@{ id = 'five_hour'; percent = $null },
+                            [pscustomobject]@{ id = 'seven_day'; percent = 5 })
+            }
+            Format-UsagePulse -Reading $reading -Live @(New-FleetRow -Ticket 'kh') |
+                Should -Be 'session unreadable / 5% week (office) - 1 running: kh working'
+        }
+
+        It 'says usage unknown when one figure is not a number, because the probe refuses the event' {
+            Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeOk (New-ProbeOutput -FiveHour 0.03 -SevenDay 'lots') }
+            Get-UsagePulse | Should -Be 'usage unknown - 1 running: kh working'
+        }
     }
 
     It 'says usage unknown, unchanged, when neither window can be read' {
         Mock -ModuleName Usage Invoke-UsageProbe { New-ProbeFail }
-        Mock -ModuleName Usage Invoke-QuotaAxi { New-AxiFail }
         Get-UsagePulse | Should -Be 'usage unknown - 1 running: kh working'
     }
-
     # The longer prefix does not change the tail rule: it summarises by count, after three names,
     # whatever the width - so the widest prefix still gives one line ending in the count.
     It 'stays on one line with the widest prefix and summarises the tail as a count' {
@@ -2041,7 +1586,7 @@ Describe 'The pulse on a timer' {
     }
 
     # A GUARD THAT ONLY REFUSED NEGATIVES LET THE WORST CASE THROUGH. No interval and no end is a
-    # busy loop that starts quota-axi, reads the fleet and rewrites the record as fast as the
+    # busy loop that starts a probe, reads the fleet and rewrites the record as fast as the
     # machine allows, for the life of the session - and it does it in silence, because after the
     # first tick nothing has changed and silence is what a working pulse looks like. A session that
     # asked for a constant pulse would have got exactly this. It has to refuse instead of spinning,

@@ -5,8 +5,8 @@
 // failure outright: TOON quotes strings with its own backslash escape set rather than CSV's
 // doubled quote, and a review finding's `description` is free text a reviewer wrote, so the input
 // set never closes. `bin\GateRun.psm1` therefore runs this and reads only the JSON that comes
-// back - the same boundary `bin\Usage.psm1` keeps to `quota-axi`'s JSON and `bin\Ci.psm1` keeps
-// to `gh`.
+// back - the same boundary `bin\Usage.psm1` keeps to the usage probe's JSON and `bin\Ci.psm1`
+// keeps to `gh`.
 //
 // Strict decoding is the default and is left on deliberately. It enforces the declared row and
 // item counts, rejects tab indentation, and rejects an invalid escape - so a truncated or

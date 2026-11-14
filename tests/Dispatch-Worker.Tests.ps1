@@ -795,19 +795,6 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             'exit 0'
         )
 
-        # quota-axi is shimmed on PATH beside herdr, for the same reason and with the same effect:
-        # the usage refusal is the first thing dispatch checks now, so every case below has to have
-        # an answer waiting for it. It types one canned report and never logs a call, because the
-        # call log is what the herdr assertions count.
-        $null = New-TestExecutable -Path (Join-Path $script:ShimDir 'quota-axi') -Cmd @(
-            'if exist "%KINGSHAND_TEST_HERDR_DIR%\quota-axi.fail" exit /b 1',
-            'type "%KINGSHAND_TEST_HERDR_DIR%\quota-axi.json"',
-            'exit /b 0'
-        ) -Sh @(
-            'if [ -f "$KINGSHAND_TEST_HERDR_DIR/quota-axi.fail" ]; then exit 1; fi',
-            'cat "$KINGSHAND_TEST_HERDR_DIR/quota-axi.json"'
-        )
-
         # The usage probe is a stand-in too, named through the one variable Usage.psm1 reads for it,
         # because this script re-imports that module with -Force and no mock survives that - without
         # it every dispatch below would spend real usage. It types a canned stream-json reply, or
@@ -832,50 +819,27 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
         $env:KINGSHAND_HOME = $script:UsageHome
 
         # How much of the window this dispatch will believe is spent. A percentage is what the probe
-        # answers; -Broken makes the probe and quota-axi both fail, which is the unknown the refusal
-        # must fail open on. -Stale and -NoWindows are quota-axi's answers, so the probe fails first
-        # for those and the fallback gives them. The gate file is removed every time, so a hold or a
-        # fallback stamp one case left behind never decides the next.
+        # answers; -Broken makes it exit with nothing, which is the unknown the refusal must fail
+        # open on. The gate file is removed every time, so a hold one case left behind never decides
+        # the next. The reply carries the spend cap at 100 percent with no reset at all, because that
+        # is what this machine really reports and it must never refuse a dispatch.
         function Set-UsageReply {
-            param([double]$Percent = 5, [switch]$Broken, [switch]$NoWindows, [switch]$Stale)
+            param([double]$Percent = 5, [switch]$Broken)
 
             $gate = Join-Path $script:UsageHome 'state\usage-gate.json'
             if (Test-Path -LiteralPath $gate) { Remove-Item -LiteralPath $gate -Force }
 
             $probeFail = Join-Path $script:ShimDir 'probe.fail'
-            if ($Broken -or $Stale -or $NoWindows) { Set-Content -Path $probeFail -Value 'x' -Encoding ascii }
+            if ($Broken) { Set-Content -Path $probeFail -Value 'x' -Encoding ascii }
             elseif (Test-Path -LiteralPath $probeFail) { Remove-Item -LiteralPath $probeFail -Force }
             $reset = [datetimeoffset]::UtcNow.AddHours(3).ToUnixTimeSeconds()
             $reply = @{ type = 'rate_limit_event'; rate_limit_info = @{ status = 'allowed'
                         unifiedWindows = @{ five_hour = @{ utilization = $Percent / 100; resetsAt = $reset }
                                             seven_day = @{ utilization = 0.01
-                                                           resetsAt = $reset + 86400 } } } }
+                                                           resetsAt = $reset + 86400 }
+                                            extra_usage = @{ utilization = 1.0 } } } }
             ($reply | ConvertTo-Json -Depth 8 -Compress) |
                 Set-Content -Path (Join-Path $script:ShimDir 'probe.txt') -Encoding utf8
-
-            $fail = Join-Path $script:ShimDir 'quota-axi.fail'
-            if ($Broken) { Set-Content -Path $fail -Value 'x' -Encoding ascii }
-            elseif (Test-Path -LiteralPath $fail) { Remove-Item -LiteralPath $fail -Force }
-
-            $windows = @()
-            if (-not $NoWindows) {
-                # A reset relative to now, never a fixed timestamp: a window only counts while its
-                # reset is still ahead, so a literal one turns every case here into a time bomb.
-                # The spend cap rides along at 100 percent with no reset at all, because that is
-                # what this machine really reports and it must never refuse a dispatch.
-                $windows = @(
-                    @{ id = 'five_hour'; kind = 'session'; percentUsed = $Percent
-                       resetsAt = ([datetimeoffset]::UtcNow.AddHours(3).ToString('o')) },
-                    @{ id = 'extra_usage'; kind = 'credits'; percentUsed = 100 }
-                )
-            }
-            @{ schemaVersion = 3
-               generatedAt = ([datetimeoffset]::UtcNow.ToString('o'))
-               providers = @(@{ provider = 'claude'; windows = $windows
-                                state = @{ status = if ($Stale) { 'stale' } else { 'fresh' }
-                                           stale = [bool]$Stale } }) } |
-                ConvertTo-Json -Depth 12 |
-                Set-Content -Path (Join-Path $script:ShimDir 'quota-axi.json') -Encoding utf8
         }
 
         # Test-HerdrServer matches on this shape, so a running server needs no real one.
@@ -2125,86 +2089,20 @@ Describe 'Dispatch-Worker - the worktree it creates and the id it chooses' {
             (Invoke-Dispatch -Fixture $f -Name 'T-4108').id | Should -Be 'T-4108'
         }
 
-        # A stale reading is never a number, so it cannot refuse as a measurement - but the cached
-        # figure is a floor, consumption never falls inside a window, and a floor already past the
-        # threshold means the real figure is too.
-        It 'refuses on a stale floor that is already past the threshold' {
+        # THE COMPARISON IS RAW AND THE FIGURE SHOWN IS ROUNDED DOWN, and a held window is where the
+        # two would part company if either moved. A reading of 90.4 is past the threshold as an
+        # exact number, so it refuses and holds the window; the refusal on the hold then says "at
+        # least 90 percent", because that is all that was measured, and claiming 91 would assert a
+        # point nobody read.
+        It 'refuses on a held window while saying only the percentage that was measured' {
             Set-AgentStartState
-            Set-UsageReply -Percent 95 -Stale
-            $f = New-DispatchFixture 'usage-floor-over'
+            Set-UsageReply -Percent 90.4
+            $f = New-DispatchFixture 'usage-held-exact'
+            { Invoke-Dispatch -Fixture $f -Name 'T-4111' } | Should -Throw '*refused from 90 percent*'
 
-            $err = { Invoke-Dispatch -Fixture $f -Name 'T-4109' } | Should -Throw -PassThru
-            "$($err.Exception.Message)" | Should -BeLike '*At least 95 percent*'
-            "$($err.Exception.Message)" | Should -BeLike '*floor from a cached reading*'
-            Test-Path -LiteralPath (Join-Path $f.Repo '.claude\worktrees\T-4109') | Should -BeFalse
-        }
-
-        # THE COMPARISON IS RAW AND THE FIGURE SHOWN IS ROUNDED DOWN, and this case is where the
-        # two would part company if either moved. A floor of 90.4 is past the threshold as an exact
-        # number, so it refuses; the message says "at least 90 percent" because that is all the
-        # cached reading measured, and claiming 91 would assert a point nobody read. Round the
-        # comparison instead and this dispatch would go out; round the message up and it would
-        # overstate the evidence.
-        It 'refuses on the exact floor while saying only the percentage that was measured' {
-            Set-AgentStartState
-            Set-UsageReply -Percent 90.4 -Stale
-            $f = New-DispatchFixture 'usage-floor-exact'
-
-            $err = { Invoke-Dispatch -Fixture $f -Name 'T-4111' } | Should -Throw -PassThru
-            "$($err.Exception.Message)" | Should -BeLike '*At least 90 percent*'
-            "$($err.Exception.Message)" | Should -Not -BeLike '*At least 91 percent*'
-        }
-
-        # The other side of that boundary. 89.6 shows as 89 and must still dispatch, because the
-        # exact figure is under the threshold - a comparison that rounded the floor up first would
-        # refuse this one.
-        It 'dispatches on a floor under the threshold that would refuse if it were rounded up' {
-            Set-AgentStartState
-            Set-UsageReply -Percent 89.6 -Stale
-            $f = New-DispatchFixture 'usage-floor-near'
-
-            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4112' `
-                -BriefPath $f.BriefPath -DataPath $f.DataPath -WarningAction SilentlyContinue
-            $r.id | Should -Be 'T-4112'
-        }
-
-        # A refusal that does not say when the window clears leaves out the one thing wanted next,
-        # and on this machine the floor refusal is the one that fires most.
-        It 'tells the user when the window resets on a floor refusal' {
-            Set-AgentStartState
-            Set-UsageReply -Percent 95 -Stale
-            $f = New-DispatchFixture 'usage-floor-reset'
-
-            $err = { Invoke-Dispatch -Fixture $f -Name 'T-4113' } | Should -Throw -PassThru
-            "$($err.Exception.Message)" | Should -BeLike '*It resets at *'
-        }
-
-        It 'dispatches on a stale floor below the threshold, and says the reading was not current' {
-            Set-AgentStartState
-            Set-UsageReply -Percent 20 -Stale
-            $f = New-DispatchFixture 'usage-floor-under'
-
-            $warnings = @()
-            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4110' `
-                -BriefPath $f.BriefPath -DataPath $f.DataPath -WarningVariable warnings
-            $r.id | Should -Be 'T-4110'
-            @($warnings | Where-Object { "$_" -like '*without a current usage reading*' }).Count |
-                Should -BeGreaterThan 0
-        }
-
-        # A settled "nothing here reports this" is a stable fact about the machine rather than
-        # something wrong with it, and a warning on every dispatch for a state nobody can act on
-        # teaches the reader to skip the next one.
-        It 'dispatches without a word when the account reports no windows at all' {
-            Set-AgentStartState
-            Set-UsageReply -NoWindows
-            $f = New-DispatchFixture 'usage-none'
-
-            $warnings = @()
-            $r = & $script:DispatchScript -RepoPath $f.Repo -Name 'T-4107' `
-                -BriefPath $f.BriefPath -DataPath $f.DataPath -WarningVariable warnings
-            $r.id | Should -Be 'T-4107'
-            @($warnings | Where-Object { "$_" -like '*usage*' }) | Should -BeNullOrEmpty
+            $err = { Invoke-Dispatch -Fixture $f -Name 'T-4112' } | Should -Throw -PassThru
+            "$($err.Exception.Message)" | Should -BeLike '*at least 90 percent*'
+            "$($err.Exception.Message)" | Should -Not -BeLike '*at least 91 percent*'
         }
     }
 

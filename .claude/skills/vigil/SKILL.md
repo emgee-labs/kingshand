@@ -1,6 +1,6 @@
 ---
 name: vigil
-description: Owns the usage pulse, and it is on by default - one line saying how much of the usage window is spent and what each live worker is doing, printed only when something has changed. Load this only to change that: when the user asks what the pulse is, asks to turn it off or back on for this session, asks for a different cadence, asks why they have heard nothing, or invokes /vigil. Also holds why a dispatch is refused near the limit, why a usage reading that could not be taken never blocks one, and why a cached floor already at or past the threshold still does.
+description: Owns the usage pulse, and it is on by default - one line saying how much of the usage window is spent and what each live worker is doing, printed only when something has changed. Load this only to change that: when the user asks what the pulse is, asks to turn it off or back on for this session, asks for a different cadence, asks why they have heard nothing, or invokes /vigil. Also holds why a dispatch is refused near the limit, why a usage reading that could not be taken never blocks one, and why a window held at its limit still does.
 ---
 
 # Vigil
@@ -46,20 +46,19 @@ whichever account is active at the time, so a switch changes which pool it is ab
 otherwise visible. Two readings either side of a switch are never compared - the pulse speaks again
 instead, because silence would say they were one quota sitting still.
 
-**A cached reading is said as a floor, never as a measurement:**
+**A held reading is said as a floor, never as a measurement:**
 
 ```
-at least 41% used (stale, session, personal) - 1 running: kh-usage-watch working
+at least 91% used (held, session, personal) - 1 running: kh-usage-watch working
 ```
 
-That is the shape when the probe could not answer and quota-axi answered from its own cache. **A
-floor names only the window it bounds**, because it is a lower bound on that one window alone. A
-window already read at or past 90 percent says `held` in place of `stale`: the reader is not
-reading it again until it resets, and the figure is the last one it read. Consumption never falls
-inside a window, so either figure is a lower bound - true, but not current. It is
-said as "at least" and rounded down, because rounding a lower bound up claims more than the reading
-supports: at a true 41.2, "at least 42%" is a sentence the evidence does not carry. Nothing is
-guarded by these digits - the refusal compares the exact figure, never the rounded one.
+That is the shape of a window already read at or past 90 percent: the reader is not reading it
+again until it resets, and the figure is the last one it read. **A
+floor names only the window it bounds**, because it is a lower bound on that one window alone.
+Consumption never falls inside a window, so the figure is a lower bound - true, but not current.
+It is said as "at least" and rounded down, because rounding a lower bound up claims more than the
+reading supports: at a true 91.2, "at least 92%" is a sentence the evidence does not carry.
+Nothing is guarded by these digits - the refusal compares the exact figure, never the rounded one.
 
 Three things it never does. It never invents a percentage: where nothing could be read at all the
 line opens `usage unknown` and says nothing more confident than that - the Hand's own rule for any
@@ -74,11 +73,10 @@ spending it, and the first dispatch takes its own fresh reading before it starts
 
 ## Where the number comes from
 
-**A one-turn headless probe first, `quota-axi` only when the probe cannot answer**, and that
-fallback is asked at most once every fifteen minutes across every process on the machine, because
-its endpoint refuses after a handful of requests. **From 90 percent nothing reads that window
+**A one-turn headless probe is the only source, and when it cannot answer nothing else is
+asked** - the reading is `usage unknown`. **From 90 percent nothing reads that window
 again until it resets, apart from the one confirming read after it** - the last tenth keeps the
-watch alive across the gap. `bin\Usage.psm1` owns the order, the gate and the hold, and
+watch alive across the gap. `bin\Usage.psm1` owns the probe and the hold, and
 `docs\2026-09-05-usage-window-watch.md` records what a probe costs.
 
 **Relay it as it comes.** It is already written in the King's nouns, so it needs no translating, no
@@ -157,34 +155,32 @@ a worker started into the last few percent of a window dies mid-run and leaves t
 and that refusing before anything is created costs a message where refusing later costs a worktree,
 a branch and a session.
 
-**It fails open on a reading nobody could take, deliberately.** When the probe cannot answer, a
-missing `quota-axi`, a lookup that failed and an answer that would not parse all warn and dispatch
-anyway, and so does a fallback the fifteen-minute gate did not allow. This is the same call the
-prompt-box guards already made for an unreadable screen: a blind guard that blocks everything costs
-more than one that lets work through and says it could not see. A reader that breaks
-must never make kingshand undispatchable.
+**It fails open on a reading nobody could take, deliberately.** When the probe cannot answer - no
+Claude Code to run, a turn that did not finish in time, or an answer that would not parse - it
+warns and dispatches anyway. This is the same call the prompt-box guards already made for an
+unreadable screen: a blind guard that blocks everything costs more than one that lets work through
+and says it could not see. A reader that breaks must never make kingshand undispatchable.
 
 So there are three answers and not two, and the third is the point: a percentage that was read, a
 settled "nothing here reports this", and a lookup that did not settle. Only the first ever refuses
 **as a measurement**.
 
-**A stale reading is the one unknown that can still refuse, and it refuses on its floor rather than
-on its number.** The cached figure is never passed off as current - that is the failure that put 10
-percent in front of the King when the truth was 42 - so it never becomes a percentage. But
-consumption never falls inside a window, so it is a true lower bound. Where that floor alone is
-already at or past the threshold, the real figure is too, and the dispatch is refused with a message
-that says plainly it refused on a floor and when the window clears. Below the threshold it warns and
-goes ahead like every other unknown. **A held window is at the limit whatever the threshold**: from
+**A held window is the one unknown that still refuses, and it refuses on its floor rather than on
+a number.** The held figure is never passed off as current - a figure from an earlier moment
+presented as a measurement is the failure that once put 10 percent in front of the King when the
+truth was 42 - so it never becomes a percentage. But consumption never falls inside a window, so it
+is a true lower bound, and the dispatch is refused with a message that says plainly it refused on
+the hold and when the window clears. **A held window is at the limit whatever the threshold**: from
 90 percent the reader does not read it again until it resets, so a dispatch is refused on the hold
 even where `-UsageThresholdPercent` is set above the figure it was held at, and night's watch
 pauses on it at any `-ThresholdPercent`.
 
 ## What it never does
 
-- **It never blocks a dispatch because the reader broke.** A missing tool, a lookup that failed and
-  an answer that would not parse all warn and go ahead. The one refusal without a current reading is
-  a stale floor already at or past the threshold, which is a lower bound on the real figure rather
-  than a guess at it. See above.
+- **It never blocks a dispatch because the reader broke.** A probe that could not run, did not
+  finish or answered with something that would not parse warns and goes ahead. The one refusal
+  without a current reading is a window held at its limit, which is a lower bound on the real figure
+  rather than a guess at it. See above.
 - **It never switches accounts and never reads a credential.** It reads the active account's *name*,
   from one file holding one word, because a percentage with no pool attached cannot be placed.
   Nothing here opens a credential file or calls the account-switch script, and no code path may be

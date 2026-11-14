@@ -150,11 +150,11 @@ it again before its reset, so the step pauses on the hold even where `-Threshold
   5. **After it wakes**, decide each reading with
      `Get-WatchWakeStep -Reading (Read-WatchUsage -Confirming) -Options $opts -WokeAt <when it woke>`
      - the read is taken with every worker paused, because confirming the reset is why it woke.
-     **A stale reading is read again every five minutes for up to thirty**: `reread` waits
-     `nextReadMinutes` and reads once more; `pause` re-arms the timer from that reading's reset
-     time, as step 4; `stop-weekly` stops the watch; `restart-unconfirmed` restarts the workers
-     anyway and records its `detail` in the away journal. On `restart` or `restart-unconfirmed`,
-     for each paused worker: `Clear-WatchLimitDialog` - it dismisses the limit dialog with Escape and
+     **A reading that is not current is read again every five minutes for up to thirty**:
+     `reread` waits `nextReadMinutes` and reads once more; `pause` re-arms the timer from that
+     reading's reset time, as step 4; `stop-weekly` stops the watch; `restart-unconfirmed`
+     restarts the workers anyway and records its `detail` in the away journal. On `restart` or
+     `restart-unconfirmed`, for each paused worker: `Clear-WatchLimitDialog` - it dismisses the limit dialog with Escape and
      nothing else - restart it in its existing worktree with `New-HerdrPane` and
      `Start-HerdrAgent`, and send `New-WatchRestartPrompt`, which refuses to be built without
      where the commits are, resume or fresh from `Get-WatchResumeChoice`, every standing direction

@@ -71,9 +71,9 @@ Import-Module (Join-Path $PSScriptRoot 'Paths.psm1')
 # So the format is decoded by the reference implementation and nothing here reads TOON at all.
 # `bin\assets\toon\` holds @toon-format/toon vendored verbatim with its MIT licence, and
 # `decode.mjs` beside it turns one document into JSON. Everything below reads only that JSON, which
-# is the same boundary Usage.psm1 keeps to `quota-axi`'s JSON and Ci.psm1 keeps to `gh`. Node is
-# already a hard prerequisite of this installation - install.ps1 installs it for `lavish-axi` and
-# `tasks-axi` - so this adds a file, not a class of dependency.
+# is the same boundary Usage.psm1 keeps to the usage probe's JSON and Ci.psm1 keeps to `gh`.
+# Node is already a hard prerequisite of this installation - install.ps1 installs it for
+# `lavish-axi` and `tasks-axi` - so this adds a file, not a class of dependency.
 #
 # The decoder runs in strict mode, which is its own default and is left on deliberately: it
 # enforces the row and item counts each table declares, so a truncated capture raises an error
@@ -333,7 +333,7 @@ function ConvertFrom-ToonText {
 
 # The one boundary between this module and the gate binary, so every answer below can be exercised
 # without a daemon, a repository or a run - the same reason Invoke-GhApi is one function in Ci.psm1
-# and Invoke-QuotaAxi is one function in Usage.psm1.
+# and Invoke-UsageProbe is one function in Usage.psm1.
 #
 # .ok         whether the binary ran at all
 # .value      its stdout
@@ -343,7 +343,8 @@ function ConvertFrom-ToonText {
 #
 # A NON-ZERO EXIT IS NOT A FAILURE HERE, and getting that wrong would throw away the answer. The
 # tool exits 1 for a run it could not find and prints a perfectly readable `error:` document saying
-# so, and it exits 1 on a failed or cancelled outcome while printing the whole run. Only the binary
+# so, and it has exited 1 on a failed or cancelled outcome while printing the whole run - 1.106.1 was
+# seen exiting 0 on a cancelled one, so the code there is not even stable. Only the binary
 # being absent, unlaunchable or wedged is a failure of the read; what it said is for the caller to
 # decide on.
 #
@@ -1046,9 +1047,10 @@ function Get-GateRunState {
         return $failed
     }
 
-    # The exit code is recorded and never decides. The tool exits 1 both for a run it could not
-    # find, printing a readable `error:` document, and for a run that ended failed or cancelled,
-    # printing the whole thing - so refusing on it would throw away the state it was asked for.
+    # The exit code is recorded and never decides. The tool exits 1 for a run it could not find,
+    # printing a readable `error:` document, and has exited 1 for a run that ended failed or
+    # cancelled, printing the whole thing - so refusing on it would throw away the state it was
+    # asked for.
     $state = ConvertFrom-GateRunOutput -Text $r.value -ExitCode $r.exitCode
 
     # stderr carries the tool's progress and its own update notice, never state. It is worth saying

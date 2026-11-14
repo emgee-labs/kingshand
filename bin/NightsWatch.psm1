@@ -40,8 +40,8 @@ $script:DefaultMarginMinutes = 5
 # The longest sleep a five-hour window can ever need. Anything longer is the weekly window, which
 # is days away: the watch stops rather than sleeping across it.
 $script:MaxSleepHours = 6
-# After the wake, a stale reading is read again every five minutes for up to thirty, and then the
-# workers are restarted anyway - the King's word, 2026-10-22.
+# After the wake, a reading that is not current is read again every five minutes for up to thirty,
+# and then the workers are restarted anyway - the King's word, 2026-10-22.
 $script:WakeRereadMinutes    = 5
 $script:WakeRereadForMinutes = 30
 
@@ -547,8 +547,8 @@ function Test-WatchWindowRolled {
 }
 
 # What to do with each reading after the timer wakes. The probe answers most reads, but where it
-# cannot, the fallback may answer stale or be gated, and a reading that is not current is not a
-# reason to leave the workers stopped all night.
+# cannot, the reading is unknown, and a reading that is not current is not a reason to leave the
+# workers stopped all night.
 #
 # .action  restart              the window rolled: restart the paused workers
 #          pause | stop-weekly  a current reading is still at the limit: re-arm the timer from its
