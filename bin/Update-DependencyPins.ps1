@@ -34,6 +34,11 @@
   state\. It is written whole to a temp file beside it and renamed over it, so a killed run never
   leaves half a record.
 
+  Once the record is written, `-Record` also closes every open backlog item of kind
+  `dependency-check` in the backlog under Root, with `tasks-axi done`: the check has run, so what
+  was filed for it is answered. A backlog that cannot be read, or an item that will not close, is a
+  warning naming why, and the record stands.
+
   `-Due` reads that record and nothing else - no report, no network - and returns one object:
 
     state    not-due | due | never | unreadable
@@ -47,7 +52,8 @@
 .PARAMETER Root
   The kingshand checkout whose dependencies.json is read. Defaults to this installation.
 .PARAMETER Record
-  This run is the weekly check: record the date once the report has completed.
+  This run is the weekly check: record the date once the report has completed, then close the
+  backlog items filed for it.
 .PARAMETER Due
   Say whether the weekly check is due, from the record alone.
 .PARAMETER RecordPath
@@ -175,6 +181,61 @@ try {
     $temp = $null
 } finally {
     if ($temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+}
+
+# The check has run, so every backlog item filed for it is answered - closed here rather than left to
+# someone remembering to, because one left open once silenced the digest's reminder for 16 days.
+# Asked of tasks-axi by kind, decoded by the TOON decoder, and closed by id with its own `done`. A
+# backlog that cannot be read or an item that will not close is a warning naming why; the record
+# stands, because the check did run.
+function Close-FiledCheck {
+    if (-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) { throw 'tasks-axi is not on PATH.' }
+    Import-Module (Join-Path $PSScriptRoot 'GateRun.psm1') -Force -ErrorAction Stop
+    $ids = [System.Collections.Generic.List[string]]::new()
+    $previous = Get-Location
+    try {
+        Set-Location -LiteralPath $Root
+        foreach ($state in 'queued', 'in_flight') {
+            $global:LASTEXITCODE = 0
+            $text = (& tasks-axi list --kind dependency-check --state $state 2>&1 | Out-String)
+            if ($LASTEXITCODE -ne 0) { throw "tasks-axi list exited $LASTEXITCODE." }
+            $decoded = ConvertFrom-ToonText -Text $text
+            if (-not $decoded.ok) { throw $decoded.error }
+            $doc = $decoded.value | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+            $n = 0
+            if ($doc -isnot [System.Collections.IDictionary] -or -not $doc.Contains('count') -or
+                -not [int]::TryParse("$($doc['count'])", [ref]$n)) {
+                throw 'its answer carried no count.'
+            }
+            if ($n -eq 0) { continue }
+            $list = $null
+            if ($doc.Contains('tasks')) { $list = $doc['tasks'] }
+            if ($list -isnot [System.Collections.IList] -or $list.Count -ne $n) {
+                throw "its answer counted $n open items but did not list them."
+            }
+            foreach ($item in $list) {
+                if ($item -isnot [System.Collections.IDictionary] -or -not "$($item['id'])") {
+                    throw 'its answer listed an item with no id.'
+                }
+                $ids.Add("$($item['id'])")
+            }
+        }
+        $failed = [System.Collections.Generic.List[string]]::new()
+        foreach ($id in $ids) {
+            $global:LASTEXITCODE = 0
+            $null = & tasks-axi done $id --note 'Closed by the weekly dependency check run that recorded it.' 2>&1
+            if ($LASTEXITCODE -ne 0) { $failed.Add("$id (tasks-axi done exited $LASTEXITCODE)") }
+        }
+        if ($failed.Count) { throw ('these stayed open: ' + ($failed -join ', ') + '.') }
+    } finally {
+        Set-Location -LiteralPath $previous
+    }
+}
+try {
+    Close-FiledCheck
+} catch {
+    Write-Warning ("The check is recorded, but its filed backlog items could not be closed - " +
+                   "$($_.Exception.Message) Close any open dependency-check item with tasks-axi done.")
 }
 
 return , $rows

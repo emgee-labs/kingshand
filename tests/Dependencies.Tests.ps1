@@ -520,4 +520,42 @@ Describe 'the weekly check''s record' {
         { & $script:PinsScript -Record -Root $root -RecordPath $other } | Should -Throw '*dependency-check.json*'
         Test-Path $other | Should -BeFalse
     }
+
+    # Whether an item is open is tasks-axi's answer, so these build a real backlog in the root with
+    # the tool itself rather than faking one.
+    It 'closes every open item filed for the check once -Record has run, and nothing else' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
+        $root = New-PinRoot -Json '{}'
+        Set-RecordAge $root 10
+        Push-Location $root
+        try {
+            $null = tasks-axi add dep-check-2026-w01 'Weekly dependency check' --kind dependency-check 2>&1
+            $null = tasks-axi add dep-check-2026-w02 'Weekly dependency check' --kind dependency-check 2>&1
+            $null = tasks-axi hold dep-check-2026-w02 --reason 'next week' --until 2099-01-01 --kind future 2>&1
+            $null = tasks-axi add dep-check-2026-w03 'Weekly dependency check' --kind dependency-check --start 2>&1
+            $null = tasks-axi add other-work 'Something else' --kind captain 2>&1
+        } finally { Pop-Location }
+
+        $null = & $script:PinsScript -Record -Root $root -WarningVariable warned
+        @($warned).Count | Should -Be 0
+
+        Push-Location $root
+        try {
+            foreach ($id in 'dep-check-2026-w01', 'dep-check-2026-w02', 'dep-check-2026-w03') {
+                (tasks-axi show $id | Out-String) | Should -Match 'state: done'
+            }
+            (tasks-axi show other-work | Out-String) | Should -Match 'state: queued'
+        } finally { Pop-Location }
+    }
+
+    It 'keeps the record and warns, naming why, when the filed items cannot be closed' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
+        $root = New-PinRoot -Json '{}'
+        Set-RecordAge $root 10
+        Set-Content -LiteralPath (Join-Path $root '.tasks.toml') -Value 'backend = "nonsense"' -Encoding utf8
+
+        $null = & $script:PinsScript -Record -Root $root -WarningVariable warned -WarningAction SilentlyContinue
+
+        (& $script:PinsScript -Due -Root $root).state | Should -Be 'not-due' -Because 'the check did run'
+        @($warned).Count | Should -Be 1
+        "$($warned[0])" | Should -BeLike '*could not be closed - tasks-axi list exited 1.*'
+    }
 }
