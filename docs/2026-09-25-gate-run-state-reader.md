@@ -57,6 +57,9 @@ it for them, so this adds a file rather than a class of dependency. It is vendor
 installed because it is a single file with no dependencies of its own, and a reader that stops
 working when a global package is missing is a reader nobody can rely on.
 
+*2026-11-15: quota-axi was removed; `bin\Usage.psm1` now keeps the same boundary to the JSON its
+headless usage probe prints.*
+
 Strict decoding is the decoder's own default and is left on deliberately: it enforces the row and
 item counts each table declares, so a truncated capture raises an error instead of arriving as a
 short table that looks complete.

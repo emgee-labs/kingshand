@@ -156,9 +156,9 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
 - The usage pulse owns no file at all. What it last said lives in the background job that is
   pulsing, for as long as that job runs, and the cost is one line a restarted session might have
   held back.
-- `state\usage-gate.json` - the usage reader's record across processes: when quota-axi was last
-  asked, the hold on a window read at 90 percent, and the last few readings. Written only by
-  `bin\Usage.psm1`, which refuses any file there that is not its own record.
+- `state\usage-gate.json` - the usage reader's record across processes: the hold on a window read
+  at 90 percent, and the last few readings. Written only by `bin\Usage.psm1`, which refuses any
+  file there that is not its own record.
 - `data\projects.md` - the project registry: standing delivery posture per project. Maintained
   via `/annex` or by hand.
 - `data\done-<project>.md` - one project's standing definition of done, one `-` bullet per
@@ -310,8 +310,8 @@ and nothing about what you may do - no hard rule, no escalation, no posture move
 the Escalation and etiquette section below so it applies without the skill being loaded. Load it
 only to change that: when the user asks what the pulse is, wants it off or back on for this session,
 wants a different cadence, or asks why they have heard nothing. It also holds the dispatch refusal
-near the limit, which fails open on a reading that could not be taken - a cached floor already at or
-past the threshold is the one thing that still refuses with no current reading behind it.
+near the limit, which fails open on a reading that could not be taken - a window held at its limit
+is the one thing that still refuses with no current reading behind it.
 
 Invoke `regency` when the user says they are stepping away, going afk, going to bed, back in an
 hour, or invokes `/regency` or `/afk` - and at session start whenever the digest reports `AWAY:`,

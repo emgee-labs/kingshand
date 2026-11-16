@@ -18,8 +18,8 @@
 
     1. Get-UsageWindow, before every other check, because it is the one that costs nothing to fail.
        A worker started into the last few percent of a usage window dies mid-run and leaves the
-       work half done. It fails OPEN: only a percentage actually read refuses, and a reading that
-       could not be taken warns and dispatches.
+       work half done. It fails OPEN: only a percentage actually read, or a window held at its
+       limit, refuses, and a reading that could not be taken warns and dispatches.
     2. Resolve-BaseRef, BEFORE anything is spawned - or, where this dispatch was handed a -Base,
        that value instead, checked earlier still. Either way it refuses rather than inventing a
        ref, and a refusal after a worker exists would leave one running with nothing recorded.
@@ -256,7 +256,7 @@
   The usage refusal is the one exception to that shape, and it is about a number rather than a path.
   bin\Usage.psm1 owns where the number comes from and what its three answers mean; the only thing
   decided here is the threshold, that a reading which could not be taken never blocks a dispatch,
-  and that a cached floor already at or past the threshold is the one exception to that.
+  and that a window held at its limit is the one exception to that.
 
   The two -Base refusals belong to no part of this gate and are not counted among the paths above.
   They are about the ref this dispatch was handed rather than a file it was told to stage, and the
@@ -389,20 +389,18 @@ if (-not (Get-HerdrCommandPath)) { throw (Get-HerdrCommandHint) }
 # IT FAILS OPEN, DELIBERATELY. A reading that could not be taken is a warning and a dispatch, never
 # a block. The prompt-box guards already made this call for an unreadable screen and the reasoning
 # transfers unchanged: a blind guard that blocks everything costs more than one that lets work
-# through and says it could not see. So a probe and a quota-axi that both failed, a fallback the
-# fifteen-minute gate did not allow and an answer that would not parse all dispatch.
+# through and says it could not see. So a probe that could not answer - no Claude Code, a timeout,
+# output that would not parse - dispatches.
 #
-# A FLOOR STILL REFUSES. Two readings carry one: quota-axi answering from its own stale cache, and a
-# window already read at or past 90 percent, which Usage.psm1 holds without reading again until it
-# resets - `unknown` either way, with the earlier number carried alongside as a lower bound.
-# Consumption never falls inside a window, so a floor at or past the threshold means the real figure
-# is too, and refusing on it is sound where refusing on an earlier number as though it were current
-# would not be. Nothing here treats the floor as the answer: the message says plainly that it is a
-# floor.
+# A HELD WINDOW STILL REFUSES. A window already read at or past 90 percent is held by Usage.psm1
+# without being read again until it resets, so its reading is `unknown` with the earlier number
+# carried alongside as a floor. Consumption never falls inside a window, so that floor is a true
+# lower bound, and nothing here treats it as the answer: the message says plainly that it is held.
 #
 # A settled "nothing here reports this" says nothing at all. That is a stable fact about the
 # machine rather than something wrong with it, and a warning on every dispatch for a state nobody
-# can act on teaches the reader to skip the next one.
+# can act on teaches the reader to skip the next one. The probe never gives that answer today, so
+# this is the reader's contract being honoured rather than a case that arises.
 $usage = Get-UsageWindow
 $measured = if ($usage.status -eq 'has-usage') { ConvertTo-UsageNumber $usage.percent } else { $null }
 $floor    = ConvertTo-UsageNumber $usage.floorPercent
@@ -415,30 +413,17 @@ if ($null -ne $measured -and $measured -ge $UsageThresholdPercent) {
 }
 # A HELD WINDOW REFUSES WHATEVER THE THRESHOLD. Usage.psm1 stops reading a window once it reaches
 # 90 percent, so a held floor of 91 never climbs past a -UsageThresholdPercent of 95 or 99, and a
-# dispatch compared against it would go out into a window that may already be spent.
+# dispatch compared against it would go out into a window that may already be spent. The figure is
+# rounded DOWN in the message because it is a lower bound and "at least" has to stay true.
 if ("$($usage.signal)" -eq 'held-at-limit' -and $null -ne $floor) {
     throw ("The usage window is held from 90 percent until its reset, at least " +
            "$([int][Math]::Floor($floor)) percent spent, and nothing reads it again before then, " +
            "so worker $Name was not dispatched whatever -UsageThresholdPercent says." +
            "$(Format-UsageResetTime -IsoTime "$($usage.resetsAt)") Nothing was created.")
 }
-# COMPARED RAW AND EXACT, which is where every bit of this guard's safety lives - the double the
-# reader took, against the threshold, with no rounding in between. The figure in the message is
-# rounded DOWN instead, because it is a lower bound and "at least" has to stay true: at a real 90.4
-# the sentence "at least 90 percent" is what the evidence supports and "at least 91" is not. The
-# digits shown move nothing, and the two can never contradict each other because flooring a number
-# already at or past the threshold leaves it at or past the threshold.
-if ($null -eq $measured -and $null -ne $floor -and $floor -ge $UsageThresholdPercent) {
-    throw ("At least $([int][Math]::Floor($floor)) percent of the usage window is spent - that is " +
-           "a floor from a cached reading rather than a current measurement, and it is already at " +
-           "or past the $UsageThresholdPercent percent refusal, so the real figure is too and " +
-           "worker $Name was not dispatched. $($usage.detail) Nothing was created.")
-}
 if ($usage.status -eq 'unknown') {
-    $what = if ($null -ne $floor) {
-        "the floor it could give is below the $UsageThresholdPercent percent refusal"
-    } else { 'it could give no figure at all' }
-    Write-Warning ("This dispatch went ahead without a current usage reading, because $what. " +
+    Write-Warning ("This dispatch went ahead without a current usage reading, because it could " +
+                   "give no figure at all. " +
                    "$($usage.detail) Failing open is deliberate - a reading nobody can take must " +
                    "not make kingshand undispatchable - but nothing here will now stop a worker " +
                    "being started into a window that is nearly spent.")

@@ -1139,9 +1139,9 @@ too, and the dispatcher's header lists them.
 
 **The usage one is the only refusal here that can be absent rather than raised.** Every one of the
 other twelve is about something this dispatch knows exactly - a path it was handed, or the base ref
-it was told to use; that one is about a number a separate tool reports, and a reading that could
-not be taken warns and dispatches rather than blocking. The one exception is a cached floor already
-at or past the threshold, which refuses with no current reading behind it - `vigil` owns why
+it was told to use; that one is about a number a headless probe reports, and a reading that could
+not be taken warns and dispatches rather than blocking. The one exception is a window held at its
+limit, which refuses with no current reading behind it - `vigil` owns why
 [rule:vigil/refusal-near-limit], and
 relaying whichever of the two you get is the whole of what it asks of you.
 
