@@ -225,7 +225,8 @@ the file turns it off. The refresh:
 1. Run `bin\Update-DependencyPins.ps1 -Record`. It lists each pin, the latest published version,
    and whether moving to it crosses a breaking line, and records that the weekly check ran - **a
    run without `-Record` is a look and does not reset the clock** the session-start digest reads.
-   If the check was filed as a backlog item, close that item with `tasks-axi done`.
+   **Recording the run also closes every open backlog item filed for the check**, so none is left
+   to silence the digest; if it warns that one would not close, close it with `tasks-axi done`.
 2. For each move that is not breaking, bump the pin in `dependencies.json` on a branch - for herdr,
    the version, the protocol and every platform's SHA-256, copied from `https://herdr.dev/latest.json`.
 3. Run the whole suite, and for herdr the live checks against a separate test server that

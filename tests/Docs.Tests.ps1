@@ -11024,7 +11024,7 @@ Describe 'the dependency pins are a contract with one owner' {
         Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
             -Phrase '**a run without `-Record` is a look and does not reset the clock**'
         Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
-            -Phrase 'If the check was filed as a backlog item, close that item with `tasks-axi done`.'
+            -Phrase '**Recording the run also closes every open backlog item filed for the check**'
         Assert-Phrase -Text $script:StatutePins -Where 'the statute skill' `
             -Phrase 'Ship only what passes, in that week''s release.'
     }
@@ -11056,6 +11056,13 @@ Describe 'a due dependency check is asked about, never run or filed unasked' {
         Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
             -Phrase ('**file it** adds the one backlog item the line names, with ' +
                      '`--kind dependency-check`, so it waits in the queue.')
+    }
+
+    It 'counts a filed item only while it is still waiting' {
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase 'The digest prints nothing while an item of that kind is open and still waiting'
+        Assert-Phrase -Text $script:DepStart -Where 'CLAUDE.md Session start' `
+            -Phrase '**an item whose postponement date has passed no longer counts**'
     }
 
     It 'forbids running or filing it without his answer' {

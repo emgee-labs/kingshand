@@ -1752,6 +1752,50 @@ Describe 'the digest says when the weekly dependency check is due' {
         (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') | Should -BeTrue
     }
 
+    # An item postponed to a date and left open after that date once silenced this line for 16 days.
+    It 'asks again when a filed item''s postponement has lapsed and it is still open' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
+        $f = New-Fixture 'dep-filed-lapsed' -Maintainer
+        Set-CheckAge $f 12
+        Push-Location $f.Root
+        try {
+            $null = tasks-axi add dep-check-2026-w01 'Weekly dependency check' --kind dependency-check 2>&1
+            $null = tasks-axi hold dep-check-2026-w01 --reason 'next week' --until 2020-01-01 --kind future 2>&1
+        } finally { Pop-Location }
+        $text = Get-Digest $f
+        $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check last ran 12 days ago'
+        $text.Contains('Whether it is already filed could not be read') | Should -BeFalse
+    }
+
+    It 'stays quiet while a filed item is still <name>' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) -ForEach @(
+        @{ name = 'postponed to a later date'; hold = @('--until', '2099-01-01', '--kind', 'future') }
+        @{ name = 'held with no date';         hold = @('--kind', 'captain') }
+    ) {
+        $f = New-Fixture "dep-filed-held-$($hold[-1])" -Maintainer
+        Set-CheckAge $f 12
+        Push-Location $f.Root
+        try {
+            $null = tasks-axi add dep-check-2026-w01 'Weekly dependency check' --kind dependency-check 2>&1
+            $null = tasks-axi hold dep-check-2026-w01 --reason 'waiting' @hold 2>&1
+        } finally { Pop-Location }
+        (Get-Digest $f).Contains('DEPENDENCY_CHECK_DUE') |
+            Should -BeFalse -Because 'an item still waiting means the King has already answered'
+    }
+
+    It 'asks, and says why, when the backlog does not say <name>' -ForEach @(
+        @{ name = 'whether an open item is held'
+           toon = @('count: 1', 'tasks[1]{id,state}:', '  dep-check-2026-w01,queued')
+           why  = 'its answer did not say whether each open item is held.' }
+        @{ name = 'which items it counted'
+           toon = @('count: 2', 'tasks[1]{id,state,held,hold_until}:', '  dep-check-2026-w01,queued,no,"-"')
+           why  = 'its answer counted 2 open items but did not list them.' }
+    ) {
+        $f = New-Fixture "dep-filed-unread-$($toon[0].Split(' ')[1])" -Maintainer
+        Set-CheckAge $f 12
+        $text = Get-Digest $f -QueueToon $toon
+        $text | Should -Match 'DEPENDENCY_CHECK_DUE: the weekly dependency check last ran 12 days ago'
+        $text.Contains("Whether it is already filed could not be read - $why") | Should -BeTrue
+    }
+
     It 'asks, and says so, when whether it is filed could not be read' -Skip:(-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) {
         $f = New-Fixture 'dep-queue-broken' -Maintainer
         Set-CheckAge $f 12

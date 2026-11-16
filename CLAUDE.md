@@ -137,10 +137,11 @@ run it now or file it.** **Now** runs it under `statute`'s dependency-pins proce
 adds the one backlog item the line names, with `--kind dependency-check`, so it waits in the queue.
 **Never run the check or file the item without his answer.** It is a line in chat rather than a
 rendered page - two fixed answers, nothing to compare. The digest prints nothing while an item of
-that kind is open, so a filed check is not asked about again. While `regency` or night's watch is
-in force, the question waits for his return like any other. Only an installation carrying the
-maintainer marker is ever asked; `statute`'s Dependency pins section owns the marker
-[rule:statute/dependency-pins].
+that kind is open and still waiting, so a filed check is not asked about again; **an item whose
+postponement date has passed no longer counts**, and recording the run closes it. While `regency`
+or night's watch is in force, the question waits for his return like any other. Only an
+installation carrying the maintainer marker is ever asked; `statute`'s Dependency pins section
+owns the marker [rule:statute/dependency-pins].
 
 **An `UPDATE_AVAILABLE:` line means a newer release exists: say so once, in the orientation line,
 and point at `/update` - never run it, and never raise it again that session.** An `UPDATE_CHECK:`

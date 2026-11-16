@@ -878,8 +878,8 @@ if (-not $script:Queue.ok) {
 #     Nothing schedules the check, so a machine that was off misses nothing: the
 #     next session that starts after seven days says so. Update-DependencyPins.ps1
 #     owns the record and what due means; this section asks it, and asks the
-#     backlog whether the check is already filed, and is silent when either says
-#     there is nothing to ask. CLAUDE.md's `## Session start` owns the question the
+#     backlog whether the check is already filed and still waiting, and is silent
+#     when either says there is nothing to ask. CLAUDE.md's `## Session start` owns the question the
 #     Hand puts to the King.
 #
 #     A record that cannot be read is said as unreadable and asked about as due,
@@ -908,20 +908,29 @@ if ($script:Maintainer -and -not $script:NotSetUp) { try {
         $id   = 'dep-check-{0}-w{1:00}' -f $year, $week
 
         # Filed is asked of tasks-axi by kind, and decoded by the TOON decoder that already reads its
-        # output elsewhere - `count` is a number the tool states, never something matched out of a
-        # line. Queued covers a held item too; tasks-axi lists a hold under its queued state.
+        # output elsewhere - `count` and each item's fields are values the tool states, never
+        # something matched out of a line. Queued covers a held item too; tasks-axi lists a hold
+        # under its queued state.
+        #
+        # Only an item still waiting counts as filed. An item whose date-gated hold has lapsed -
+        # tasks-axi says `held` no while it still carries the `hold_until` date - was a postponement
+        # that has run out, so it no longer answers for this week: left open after the check ran,
+        # one silenced the reminder for 16 days. An item never held, held with no date, or still
+        # held is waiting, and still counts. Update-DependencyPins.ps1 -Record closes every open
+        # item when the check runs, so this is the guard for an item that outlives its date anyway.
         $filed = $null
         $why   = ''
         try {
             if (-not (Get-Command tasks-axi -ErrorAction SilentlyContinue)) { throw 'tasks-axi is not on PATH.' }
             Import-Module (Join-Path $PSScriptRoot 'GateRun.psm1') -Force -ErrorAction Stop
-            $open = 0
+            $waiting = 0
             foreach ($state in 'queued', 'in_flight') {
                 $previous = Get-Location
                 try {
                     Set-Location -LiteralPath $QueueRoot
                     $global:LASTEXITCODE = 0
-                    $text = (& tasks-axi list --kind dependency-check --state $state 2>&1 | Out-String)
+                    $text = (& tasks-axi list --kind dependency-check --state $state `
+                                 --fields 'held,hold_until' 2>&1 | Out-String)
                     $code = $LASTEXITCODE
                 } finally {
                     Set-Location -LiteralPath $previous
@@ -935,9 +944,28 @@ if ($script:Maintainer -and -not $script:NotSetUp) { try {
                     -not [int]::TryParse("$($doc['count'])", [ref]$n)) {
                     throw 'its answer carried no count.'
                 }
-                $open += $n
+                if ($n -eq 0) { continue }
+                $rows = $null
+                if ($doc.Contains('tasks')) { $rows = $doc['tasks'] }
+                if ($rows -isnot [System.Collections.IList] -or $rows.Count -ne $n) {
+                    throw "its answer counted $n open items but did not list them."
+                }
+                foreach ($row in $rows) {
+                    if ($row -isnot [System.Collections.IDictionary] -or -not $row.Contains('held') -or
+                        -not $row.Contains('hold_until') -or "$($row['held'])" -notin 'yes', 'no') {
+                        throw 'its answer did not say whether each open item is held.'
+                    }
+                    # tasks-axi writes no date as `-`, which is not a date and so never lapses.
+                    $until  = [datetime]::MinValue
+                    $dated  = $row['hold_until'] -is [datetime] -or
+                              [datetime]::TryParseExact("$($row['hold_until'])", 'yyyy-MM-dd',
+                                  [cultureinfo]::InvariantCulture,
+                                  [System.Globalization.DateTimeStyles]::None, [ref]$until)
+                    $lapsed = "$($row['held'])" -eq 'no' -and $dated
+                    if (-not $lapsed) { $waiting++ }
+                }
             }
-            $filed = $open -gt 0
+            $filed = $waiting -gt 0
         } catch {
             $why = Format-Fault $_.Exception.Message
         }
