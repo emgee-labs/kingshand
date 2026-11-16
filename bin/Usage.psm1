@@ -837,9 +837,10 @@ function Resolve-UsageWindows {
 }
 
 # One reading from the headless probe, the only source there is. Anything short of a percentage
-# comes back `unknown` with the signal `probe-failed` and what went wrong as its detail - never a
-# number, and never `no-usage`, because the probe has never been seen to say there is nothing to
-# report.
+# comes back `unknown` with a named signal and what went wrong as its detail - `probe-failed` where
+# the probe could not answer, or Resolve-UsageWindows' own signal where it answered and that could
+# not settle - never a number, and never `no-usage`, because the probe has never been seen to say
+# there is nothing to report.
 function Read-UsageFromProbe {
     [CmdletBinding()]
     param(
@@ -1023,8 +1024,9 @@ function Save-UsageReading {
 #   1. The hold: a window already read at or past 90 percent is not read again until it resets,
 #      and answers `unknown`, `held-at-limit`, with the held figure as a floor.
 #   2. The probe: one headless turn, answering only with a percentage.
-#   3. A probe that cannot answer: `unknown`, `probe-failed`, no percentage and no floor, saying
-#      what the probe said - never a number. Nothing else is asked.
+#   3. A probe that falls short of a percentage: `unknown`, no percentage and no floor, saying what
+#      the probe said - `probe-failed` where it could not answer, or Resolve-UsageWindows' own
+#      signal where it answered and that could not settle. Never a number, and nothing else is asked.
 function Get-UsageWindow {
     [CmdletBinding()]
     param(
