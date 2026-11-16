@@ -214,18 +214,47 @@ Describe 'a merge happens only under every floor' {
         (Get-Verdict -Mode 'no-mistakes' -Gate 'complete').allowed   | Should -BeTrue
     }
 
-    It 'refuses a run carrying the parley marker in its brief' {
+    # The two shapes parley writes, laid out as they are written on disk.
+    It 'refuses a run whose <file> carries the parley marker where parley writes it' -ForEach @(
+        @{ file = 'brief';  lines = @('# T-1001', '', '## Requirements', '- R1. Do the thing.',
+                                     '- PARLEY DISPATCH - NO REVIEW GATE RAN. Nothing has established that this run is safe to',
+                                     '  merge.', '', '## Done means', '- Committed.') }
+        @{ file = 'report'; lines = @('# report', '', '## No review gate', '',
+                                     'PARLEY DISPATCH - NO REVIEW GATE RAN. Nothing has established that this run is safe to merge,',
+                                     'so it must not be merged on the forge.') }
+    ) {
         Set-PrReply (New-PrJson -Checks @((New-GreenRun)))
         $f = New-CleanFiles
-        Add-Content -LiteralPath $f.Brief -Value '- PARLEY DISPATCH - NO REVIEW GATE RAN. Nothing has established this.'
-        ((Get-Verdict -Files $f).reasons -join ' ') | Should -BeLike '*parley marker*'
+        $path = if ($file -eq 'brief') { $f.Brief } else { $f.Report }
+        Set-Content -LiteralPath $path -Value $lines
+        $v = Get-Verdict -Files $f
+        $v.allowed | Should -BeFalse
+        ($v.reasons -join ' ') | Should -BeLike "*$file.md carries the parley marker*"
     }
 
-    It 'refuses when the report cannot be read, because the marker was not checked' {
+    # A gated task that talks about parley quotes the token. It ran the full gate, so the floor
+    # has nothing to refuse.
+    It 'merges a gated run whose brief and report only quote the marker in prose' {
         Set-PrReply (New-PrJson -Checks @((New-GreenRun)))
         $f = New-CleanFiles
-        Remove-Item -LiteralPath $f.Report
-        ((Get-Verdict -Files $f).reasons -join ' ') | Should -BeLike '*could not be read*marker*'
+        Set-Content -LiteralPath $f.Brief -Value @(
+            '# T-1001', '', '## Requirements',
+            '- The floor matches `PARLEY DISPATCH - NO REVIEW GATE RAN.` anywhere today; narrow it.')
+        Set-Content -LiteralPath $f.Report -Value @(
+            '# report', '', '## What changed',
+            'PARLEY DISPATCH - NO REVIEW GATE RAN. is now matched only where parley writes it.')
+        (Get-Verdict -Mode 'no-mistakes' -Gate 'complete' -Files $f).allowed | Should -BeTrue
+    }
+
+    It 'refuses when the <file> cannot be read, because the marker was not checked' -ForEach @(
+        @{ file = 'brief' }, @{ file = 'report' }
+    ) {
+        Set-PrReply (New-PrJson -Checks @((New-GreenRun)))
+        $f = New-CleanFiles
+        Remove-Item -LiteralPath $(if ($file -eq 'brief') { $f.Brief } else { $f.Report })
+        $v = Get-Verdict -Files $f
+        $v.allowed | Should -BeFalse
+        ($v.reasons -join ' ') | Should -BeLike "*$file.md could not be read*marker*"
     }
 
     It 'refuses a worker parked on a decision that is still open' {
@@ -265,6 +294,75 @@ Describe 'a merge happens only under every floor' {
         $v = Get-Verdict
         Mock -ModuleName NightsWatch Invoke-WatchGh { throw 'must not be called' }
         { Invoke-WatchMerge -Verdict $v -Strategy 'merge' } | Should -Throw '*may not merge*'
+    }
+}
+
+# The reader muster Step 7 runs before any forge merge, and the one the watch's verdict calls. It
+# looks for the marker only where parley writes it, so a quotation is never read as the marker.
+Describe 'the parley marker is read only where parley writes it' {
+    BeforeAll {
+        $script:Token = 'PARLEY DISPATCH - NO REVIEW GATE RAN.'
+        function Get-Marker {
+            param([string[]]$Lines, [string]$Kind)
+            $p = Join-Path (New-CaseDir) "$Kind.md"
+            Set-Content -LiteralPath $p -Value $Lines
+            Test-WatchParleyMarker -Path $p -Kind $Kind
+        }
+    }
+
+    It 'finds the <kind> marker opening a line <how> under its own heading' -ForEach @(
+        @{ kind = 'brief';  heading = '## Requirements';   prefix = '- '; how = 'as a bullet' }
+        @{ kind = 'brief';  heading = '## Requirements';   prefix = '';   how = 'bare' }
+        @{ kind = 'report'; heading = '## No review gate'; prefix = '';   how = 'bare' }
+        @{ kind = 'report'; heading = '## No review gate'; prefix = '- '; how = 'as a bullet' }
+    ) {
+        Get-Marker -Kind $kind -Lines @('# x', '', $heading, '- other line', '', "$prefix$($script:Token) Nothing more.") |
+            Should -Be 'MARKER'
+    }
+
+    It 'still finds it with only the token on the line' {
+        Get-Marker -Kind 'brief' -Lines @('## Requirements', "- $($script:Token)") | Should -Be 'MARKER'
+    }
+
+    It 'reads <case> as CLEAN' -ForEach @(
+        @{ case = 'a quotation in backticks under the right heading'
+           kind = 'brief'; lines = @('## Requirements', "- The floor matches ``PARLEY DISPATCH - NO REVIEW GATE RAN.`` anywhere.") }
+        @{ case = 'the token mid-line under the right heading'
+           kind = 'report'; lines = @('## No review gate', "This report carries PARLEY DISPATCH - NO REVIEW GATE RAN. as a quote.") }
+        @{ case = 'the token indented, as in a code block or a continuation'
+           kind = 'brief'; lines = @('## Requirements', "    - PARLEY DISPATCH - NO REVIEW GATE RAN. Nothing.") }
+        @{ case = 'the token opening a line under another heading'
+           kind = 'report'; lines = @('## What changed', "PARLEY DISPATCH - NO REVIEW GATE RAN. is matched by position now.") }
+        @{ case = 'the brief''s heading in a report'
+           kind = 'report'; lines = @('## Requirements', "- PARLEY DISPATCH - NO REVIEW GATE RAN.") }
+        @{ case = 'the report''s heading in a brief'
+           kind = 'brief'; lines = @('## No review gate', "PARLEY DISPATCH - NO REVIEW GATE RAN.") }
+        @{ case = 'the token before any heading'
+           kind = 'brief'; lines = @("- PARLEY DISPATCH - NO REVIEW GATE RAN.", '## Requirements', '- R1.') }
+        @{ case = 'the token after its section has ended'
+           kind = 'brief'; lines = @('## Requirements', '- R1.', '## Done means', "- PARLEY DISPATCH - NO REVIEW GATE RAN.") }
+        @{ case = 'a respelled token'
+           kind = 'brief'; lines = @('## Requirements', '- Parley dispatch - no review gate ran.') }
+    ) {
+        Get-Marker -Kind $kind -Lines $lines | Should -Be 'CLEAN'
+    }
+
+    It 'reads a missing file as UNREADABLE, never as CLEAN' {
+        Test-WatchParleyMarker -Path (Join-Path (New-CaseDir) 'brief.md') -Kind 'brief' | Should -Be 'UNREADABLE'
+    }
+
+    It 'reads a directory where the file should be as UNREADABLE' {
+        $d = Join-Path (New-CaseDir) 'report.md'
+        New-Item -ItemType Directory -Path $d | Out-Null
+        Test-WatchParleyMarker -Path $d -Kind 'report' | Should -Be 'UNREADABLE'
+    }
+
+    It 'reads a file it cannot open as UNREADABLE' -Skip:(-not $IsWindows) {
+        $p = Join-Path (New-CaseDir) 'brief.md'
+        Set-Content -LiteralPath $p -Value @('## Requirements', "- $($script:Token)")
+        $lock = [System.IO.File]::Open($p, 'Open', 'ReadWrite', 'None')
+        try { Test-WatchParleyMarker -Path $p -Kind 'brief' | Should -Be 'UNREADABLE' }
+        finally { $lock.Dispose() }
     }
 }
 

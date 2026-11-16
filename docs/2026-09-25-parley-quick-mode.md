@@ -66,6 +66,9 @@ refusal holds through a restart with nobody remembering how the work was dispatc
 The line is matched literally rather than by meaning, because an ordinary gateless brief mentions
 having no review gate in passing and a floor firing on those would refuse merges nobody
 restricted.
+Added 2026-11-05: it is matched only in the position parley writes it - opening a line inside the
+brief's `## Requirements` or the report's `## No review gate`. Matched anywhere, it refused every
+task that quoted the token while discussing parley, including the one that introduced it.
 
 ## What was rejected
 

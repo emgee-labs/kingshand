@@ -6,6 +6,10 @@ way to it, and the decisions that shape what was built.
 
 ## Where the number comes from
 
+**Updated 2026-11-15: quota-axi was removed, and the probe is the only source.** A probe that
+cannot answer reads as unknown and nothing else is asked; what follows about quota-axi, its
+fifteen-minute gate and its stale floor records how the reader worked before that date.
+
 **Updated 2026-10-22: a headless probe first, `quota-axi` second.** The section below on the probe
 supersedes what this note first said, that no command reports usage.
 

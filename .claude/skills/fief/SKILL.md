@@ -179,7 +179,11 @@ prompt the worker for nothing. Its delivery is the report, as muster's Step 7 sa
   branch, and the gate's own push follows. **The gate runs once, on the whole branch, never per
   fix**, because no fix prompt carries the gate line. On any other mode, prompt the push itself.
 - **Pull request** - its title names every id the same way, and its description calls out each
-  item of kind `adhoc` as a change with no ticket.
+  item of kind `adhoc` as a change with no ticket. **Once it is confirmed on the remote, load
+  `writ` and make its offer once per item on the branch that passes writ's test**
+  [rule:writ/offer-after-pr] - kind `ticket`, id all digits, each read with `Get-CrewItems`.
+  **One question can list every such item, and each still needs his own yes.** A branch whose
+  items are all `adhoc` gets no offer at all.
 
 The landing gate in Step 7 [rule:muster/landing-gate] shows the whole branch against the recorded
 base. That base is resolved

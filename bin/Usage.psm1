@@ -8,19 +8,18 @@ Set-StrictMode -Version Latest
 # that answers or says plainly it cannot, a refusal that stops a new dispatch near the limit
 # (Dispatch-Worker.ps1 owns that), and a pulse line that speaks only when something has changed.
 #
-# WHERE THE NUMBER COMES FROM, IN ORDER. First a one-turn headless Claude Code probe: an ordinary
+# WHERE THE NUMBER COMES FROM: one source, a one-turn headless Claude Code probe - an ordinary
 # inference call whose stream-json output carries a `rate_limit_event` with both windows' live
-# utilization and reset time, so the usage endpoint's own rate limit never touches it. Second, only
-# when the probe cannot answer, `quota-axi`, a separate tool that asks that rate-limited endpoint
-# and is therefore asked at most once every fifteen minutes across every process on the machine.
-# Nothing in this file opens a credential file, a transcript or a terminal - it runs those two tools
-# and parses their JSON, which is the same boundary Ci.psm1 keeps to `gh`. That keeps standing
-# criterion 12 honoured, because the only formats read here are JSON documents the tools emit, one
-# per line in the probe's case, and it keeps this change clear of the account-switch machinery,
-# which reads credentials and is none of this module's business.
+# utilization and reset time, so the usage endpoint's own rate limit never touches it. When the
+# probe cannot answer, nothing else is asked: the reading is `unknown`, saying why. Nothing in this
+# file opens a credential file, a transcript or a terminal - it runs that one binary and parses its
+# JSON, which is the same boundary Ci.psm1 keeps to `gh`. That keeps standing criterion 12
+# honoured, because the only formats read here are JSON documents the tool emits, one per line, and
+# it keeps this module clear of the account-switch machinery, which reads credentials and is none
+# of this module's business.
 #
 # docs\2026-09-05-usage-window-watch.md records the candidates that were tried, the probe's measured
-# cost, and why the fallback is gated.
+# cost, and when the probe became the only source.
 #
 # KINGSHAND_USAGE_PROBE_COMMAND IS A TEST SEAM AND NOTHING ELSE. It names a stand-in for the Claude
 # Code binary the probe launches. Dispatch-Worker.ps1 re-imports this module with -Force, which
@@ -30,10 +29,11 @@ Set-StrictMode -Version Latest
 #
 # THREE ANSWERS, AND THE THIRD IS THE POINT - the shape Ci.psm1 already uses on this repo.
 # `has-usage` and `no-usage` are answers; `unknown` is the refusal to guess when the question could
-# not be settled - no `quota-axi`, a tool that would not run, output that is not the JSON this
-# expects, or a reading the tool itself marks stale. A percentage is NEVER invented to fill the
-# gap. Zero is the most dangerous fabrication available here: it reads as a wide open window and
-# would wave through the dispatch this module exists to refuse.
+# not be settled - no Claude Code to run, a probe that would not answer in time, output that is not
+# the JSON this expects, or a window already held at its limit. The probe never answers `no-usage`,
+# so that status is one a caller handles and this reader does not give. A percentage is NEVER
+# invented to fill the gap. Zero is the most dangerous fabrication available here: it reads as a
+# wide open window and would wave through the dispatch this module exists to refuse.
 #
 # NOTHING HERE READS instructions.md. The King turns the pulse off by writing a line in that file,
 # and the Hand honours it by reading its own instructions - which are injected in full at session
@@ -55,13 +55,11 @@ $script:CloseReadIntervalMinutes = 2
 $script:CloseFromPercent         = 85
 $script:HoldFromPercent          = 90
 
-# How long a `quota-axi` call may take before it is given up on. It reaches the network, so a
-# dispatch that waited on it indefinitely would be a dispatch a hung tool could stop - which is the
-# fail-closed outcome R-006 rules out. A timeout reads as `unknown`, which fails open.
-$script:DefaultTimeoutSeconds = 20
-
 # How long the probe may take. Measured at about five seconds on this machine; the rest is headroom
-# for a slow start, and a probe still running at the end is killed and reads as a failed probe.
+# for a slow start, and a probe still running at the end is killed and reads as a failed probe. It
+# reaches the network, so a dispatch that waited on it indefinitely would be a dispatch a hung tool
+# could stop - which is the fail-closed outcome R-006 rules out. A timeout reads as `unknown`, which
+# fails open.
 $script:DefaultProbeTimeoutSeconds = 45
 
 # The probe's whole command line, from this module and never from a caller. Each flag is checked
@@ -99,12 +97,9 @@ $script:ProbeArguments = @(
     'ok'
 )
 
-# THE FALLBACK GATE. quota-axi asks an endpoint that answers about five requests and then refuses for
-# minutes, and the pulse, night's watch and every dispatch are separate processes - so a timer held
-# in memory would gate only the process holding it. The gate is a stamp in one file under state\,
-# claimed under an exclusive lock before the tool is started, so of any number of processes only one
-# can pass in a window. Update-UsageGateState owns the lock and the ownership check.
-$script:FallbackGateMinutes = 15
+# THE GATE FILE. The pulse, night's watch and every dispatch are separate processes, so the hold at
+# 90 percent and the readings a climb is measured from live in one file under state\, read and
+# changed under an exclusive lock. Update-UsageGateState owns the lock and the ownership check.
 $script:GateFileName        = 'usage-gate.json'
 $script:GateOwner           = 'kingshand-usage-gate'
 $script:GateLockTimeoutMs   = 3000
@@ -176,108 +171,7 @@ function Test-JsonField {
     $Object.PSObject.Properties.Name -contains $Name
 }
 
-# A JSON field that should be a list, as a list - with $null meaning EMPTY rather than one item.
-#
-# `@($null)` is an array of one, so a field the tool wrote as `null` would arrive looking like a
-# window that exists and then fail every test of what is in it. Ci.psm1 records the same trap at its
-# own trigger lookup. Tested against $null before it is wrapped, in one place, so no caller has to
-# remember.
-function ConvertTo-JsonList {
-    [CmdletBinding()]
-    param($Value)
-
-    # Returned whole under statute's collection-return rule: a bare empty list would come back as
-    # $null and the caller's `.Count` would fail on nothing at all.
-    $out = [System.Collections.Generic.List[object]]::new()
-    if ($null -eq $Value) { return , $out }
-    foreach ($v in @($Value)) { $out.Add($v) }
-    return , $out
-}
-
-# The launchable `quota-axi`, or $null.
-#
-# npm installs a `.ps1` and an extensionless shim beside the `.cmd`. Which of them can be launched
-# on which system is Resolve-LaunchableCommand's rule in Paths.psm1: on Windows only `.exe` or
-# `.cmd`, `.exe` first; on macOS and Linux the shim itself.
-function Get-QuotaAxiCommandPath {
-    [CmdletBinding()]
-    param()
-
-    Resolve-LaunchableCommand -Name 'quota-axi'
-}
-
-# One message, so every caller tells the user the same actionable thing.
-function Get-QuotaAxiHint {
-    [CmdletBinding()]
-    param()
-
-    'quota-axi was not found. Install it with: npm install -g quota-axi - it is what reports how ' +
-    'much of the current usage window is spent. Without it kingshand still dispatches; it just ' +
-    'cannot tell you how close to the limit you are.'
-}
-
-# The one boundary between this module and the outside world, so every answer below can be
-# exercised without a network, a token or a subscription - the same reason Invoke-GhApi is one
-# function in Ci.psm1.
-#
-# It never throws. A missing tool, a non-zero exit, a hang and a crash all arrive as ok = $false
-# carrying the tool's own message, because the caller's job is to say which one happened.
-#
-# NO FLAG THAT CAN PROMPT IS EVER PASSED. `quota-axi` has one - it opens a keychain dialog - and a
-# dispatch that stopped on a dialog nobody is sitting in front of is the worst outcome available
-# here. The arguments come from this module and never from a caller's input.
-function Invoke-QuotaAxi {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string[]]$Arguments,
-        [int]$TimeoutSeconds = $script:DefaultTimeoutSeconds
-    )
-
-    $exe = Get-QuotaAxiCommandPath
-    if (-not $exe) {
-        return [pscustomobject]@{ ok = $false; value = ''; error = (Get-QuotaAxiHint) }
-    }
-
-    # Created inside the try, not beside it. A temp directory that is full, read-only or missing
-    # makes GetTempFileName throw, and a line above the try is a line outside the promise this
-    # function makes - the exception would reach Get-UsageWindow and through it the dispatch.
-    $out = $null
-    $err = $null
-    try {
-        $out = [System.IO.Path]::GetTempFileName()
-        $err = [System.IO.Path]::GetTempFileName()
-        $p = Start-Process -FilePath $exe -ArgumentList $Arguments -NoNewWindow -PassThru `
-                           -RedirectStandardOutput $out -RedirectStandardError $err
-        if (-not $p.WaitForExit($TimeoutSeconds * 1000)) {
-            try { $p.Kill($true) } catch { }
-            return [pscustomobject]@{
-                ok    = $false
-                value = ''
-                error = "quota-axi did not answer within $TimeoutSeconds seconds and was stopped."
-            }
-        }
-        $code = $p.ExitCode
-        $text = (Get-Content -LiteralPath $out -Raw -ErrorAction SilentlyContinue)
-        $errs = (Get-Content -LiteralPath $err -Raw -ErrorAction SilentlyContinue)
-        if ($code -ne 0) {
-            $one = (("$errs $text") -replace '\s+', ' ').Trim()
-            if (-not $one) { $one = "quota-axi exited $code with no output." }
-            return [pscustomobject]@{ ok = $false; value = ''; error = $one }
-        }
-        [pscustomobject]@{ ok = $true; value = "$text"; error = '' }
-    } catch {
-        [pscustomobject]@{
-            ok = $false; value = ''
-            error = "quota-axi could not be run: $($_.Exception.Message)"
-        }
-    } finally {
-        foreach ($f in @($out, $err)) {
-            if ($f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
-        }
-    }
-}
-
-# Now, as the one clock every gate and hold decision is taken against, so a test can move it.
+# Now, as the one clock every hold and climb decision is taken against, so a test can move it.
 function Get-UsageNow {
     [CmdletBinding()]
     param()
@@ -300,11 +194,11 @@ function Get-UsageProbeCommandPath {
     Get-ClaudeCommandPath
 }
 
-# The probe's boundary with the outside world, beside Invoke-QuotaAxi and kept to the same promise:
-# it never throws, and a missing binary, a hang and a crash all arrive as ok = $false carrying what
-# happened. A run that exited non-zero still hands back what it printed, because the event this
-# reads can arrive on a turn that then failed - the fully-spent case is exactly that shape, and
-# ConvertFrom-UsageProbe is what decides whether the output answers.
+# The probe's boundary with the outside world, the one place this module starts a process, and its
+# promise is that it never throws: a missing binary, a hang and a crash all arrive as ok = $false
+# carrying what happened. A run that exited non-zero still hands back what it printed, because the
+# event this reads can arrive on a turn that then failed - the fully-spent case is exactly that
+# shape, and ConvertFrom-UsageProbe is what decides whether the output answers.
 #
 # THE ARGUMENTS ARE PASSED AS A LIST, NEVER AS ONE STRING. Two of them are empty, and an empty
 # argument survives only when the framework quotes each element itself. Standard input is closed at
@@ -364,7 +258,7 @@ function Invoke-UsageProbe {
     }
 }
 
-# The probe's output as the same window list quota-axi's report carries, or the reason it is not.
+# The probe's output as a list of account windows, or the reason it is not one.
 #
 # .ok       whether a rate_limit_event carrying at least one account window was found
 # .windows  @{ id; percentUsed; resetsAt } per window, the shape Get-AccountUsageWindows reads
@@ -376,10 +270,10 @@ function Invoke-UsageProbe {
 #
 # FAILS CLOSED ON ANYTHING IT DOES NOT RECOGNISE, and never towards zero. What the event carries once
 # a window is fully spent has never been seen, so every departure from the measured shape is a
-# failed probe that hands the question to the fallback: no event, no `unifiedWindows`, neither
+# failed probe, and a failed probe is an `unknown` reading: no event, no `unifiedWindows`, neither
 # account window inside it, a utilization that is not a number or is negative. An empty window list
-# is a failure here rather than the settled "no windows" quota-axi can say, because this tool has
-# never been seen to say it - and that answer is the one that switches every guard off quietly.
+# is a failure here rather than a settled "no windows", because this tool has never been seen to
+# say it - and that answer is the one that switches every guard off quietly.
 # Utilization arrives as a fraction - 0.08 is eight percent - and is turned into a percentage.
 function ConvertFrom-UsageProbe {
     [CmdletBinding()]
@@ -446,9 +340,9 @@ function Get-UsageStatePath {
 }
 
 # Reads and changes the gate file under an exclusive lock, so two processes can never both read the
-# same state and both act on it. This is the mechanism that holds the fifteen-minute fallback gate
-# and the hold at 90 percent across separate processes; a sentence asking callers to take turns
-# would hold nothing, because each caller is inside its own read when it matters.
+# same state and both act on it. This is the mechanism that holds the hold at 90 percent and the
+# climb history across separate processes; a sentence asking callers to take turns would hold
+# nothing, because each caller is inside its own read when it matters.
 #
 # .ok       whether the file was read and, where -Change altered it, written
 # .state    the record after the change, as a hashtable
@@ -461,10 +355,10 @@ function Get-UsageStatePath {
 #
 # IT CAN NEVER LEAVE A HALF-WRITTEN FILE. A process killed mid-write - the pulse's job stopped at a
 # session restart - would otherwise leave partial JSON that the owner check refuses on every later
-# call, and the gate and the hold would stop working for good. So the new record is written whole
-# to a temp file beside it and renamed over it. Windows will not rename over a file held open, so
-# the exclusive lock is held on a sibling `.lock` file rather than on the record itself, and the
-# rename happens while that lock is still held.
+# call, and the hold and the climb baseline would stop working for good. So the new record is
+# written whole to a temp file beside it and renamed over it. Windows will not rename over a file
+# held open, so the exclusive lock is held on a sibling `.lock` file rather than on the record
+# itself, and the rename happens while that lock is still held.
 #
 # It never throws. A lock that cannot be had in three seconds, a directory that cannot be made and a
 # file that is not ours all come back as ok = $false, and every caller decides what that costs it.
@@ -518,8 +412,10 @@ function Update-UsageGateState {
         } else {
             $state = @{ owner = $script:GateOwner }
         }
-        if (-not $state.Contains('fallbackAskedAt')) { $state['fallbackAskedAt'] = '' }
-        if (-not $state.Contains('hold'))            { $state['hold'] = $null }
+        # Only these two keys are read. A record an earlier version wrote can carry others - the stamp
+        # of the fallback tool this reader used to ask until 2026-11-15 - and those are carried along
+        # untouched and never read, so an existing file keeps working with nothing to migrate.
+        if (-not $state.Contains('hold')) { $state['hold'] = $null }
         if (-not $state.Contains('history') -or $null -eq $state['history']) { $state['history'] = @() }
         $state['history'] = @($state['history'])
 
@@ -540,54 +436,6 @@ function Update-UsageGateState {
         if ($temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
         if ($lock) { $lock.Dispose() }
     }
-}
-
-# Whether quota-axi may be asked now, and if so the claim that it is being asked - taken in one
-# locked step, so the check and the stamp cannot be split by another process between them.
-#
-# .allowed  whether this caller may start quota-axi
-# .reason   why not, as a sentence
-#
-# A gate file that cannot be used refuses rather than allows. The fifteen minutes cannot be honoured
-# without the stamp, and an extra read is exactly what keeps the endpoint refusing; the probe was
-# already tried, so what a refusal costs is an unknown reading, which fails open.
-function Request-UsageFallbackSlot {
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Path)
-
-    # What the change found, carried out of the block in a box because the block runs in the
-    # gate function's scope rather than this one.
-    $box = @{ now = (Get-UsageNow); last = $null }
-    $u = Update-UsageGateState -Path $Path -Change {
-        param($s)
-        # Through ConvertTo-UsageResetTime, never "$(...)": the JSON reader hands an ISO time back
-        # as a date, and a date turned into text takes this machine's culture and stops parsing.
-        $stamp = [datetimeoffset]::MinValue
-        $was   = ConvertTo-UsageResetTime $s['fallbackAskedAt']
-        if ($was -and [datetimeoffset]::TryParse($was, [ref]$stamp) -and
-            $stamp -le $box.now -and ($box.now - $stamp).TotalMinutes -lt $script:FallbackGateMinutes) {
-            $box.last = $stamp
-            return
-        }
-        $s['fallbackAskedAt'] = $box.now.ToString('o')
-    }
-    if (-not $u.ok) {
-        return [pscustomobject]@{
-            allowed = $false
-            reason  = "the fifteen-minute gate on it could not be checked: $($u.problem)."
-        }
-    }
-    $last = $box.last
-    if ($null -ne $last) {
-        $next = $last.AddMinutes($script:FallbackGateMinutes).ToString('o')
-        return [pscustomobject]@{
-            allowed = $false
-            reason  = ("it is asked at most once every $script:FallbackGateMinutes minutes across every " +
-                       "process here, it was last asked at $($last.ToString('o')), and it may be asked " +
-                       "again from $next.")
-        }
-    }
-    [pscustomobject]@{ allowed = $true; reason = '' }
 }
 
 # How many minutes until the next reading - the King's cadence, the one place it is decided. A
@@ -717,10 +565,11 @@ function Format-UsageWindowShortName {
 
 # WHICH ACCOUNT THIS PERCENTAGE BELONGS TO, AND WHY IT HAS TO BE SAID OUT LOUD.
 #
-# `quota-axi` reads the live credential file, and on this machine that file is swapped between two
-# accounts by a script of the King's own. So the percentage is always about whichever account is
-# active at that moment, and a switch changes which pool it describes with nothing visible to show
-# it. Two readings either side of a switch are about different quotas and must never be compared.
+# The probe runs as whichever account Claude Code's live credential file holds, and on this machine
+# that file is swapped between two accounts by a script of the King's own. So the percentage is
+# always about whichever account is active at that moment, and a switch changes which pool it
+# describes with nothing visible to show it. Two readings either side of a switch are about
+# different quotas and must never be compared.
 #
 # THE NAME ONLY. This opens one file that holds one word. It never reads, logs or stores anything
 # from a credential file, and nothing here may start: the deliverable stops at knowing which account
@@ -853,8 +702,12 @@ function Select-DrivingUsageWindow {
         Sort-Object -Property percent -Descending) | Select-Object -First 1
 }
 
-# One reading's fields before anything has been read into them. Both sources fill the same shape, so
-# a caller never has to know which one answered in order to read the answer.
+# One reading's fields before anything has been read into them, so a caller reads every answer -
+# a measurement, a hold, a failure - from the same shape.
+#
+# `generatedAt` and `schemaVersion` were stamped by the fallback tool this reader asked until
+# 2026-11-15. The probe stamps neither, so both stay '' - kept so a caller that reads them finds the
+# field rather than an error.
 function New-UsageReading {
     [CmdletBinding()]
     param([string]$Account = '', [string]$TakenAt = '')
@@ -893,9 +746,8 @@ function Complete-UsageReading {
     [pscustomobject]$Reading
 }
 
-# From a list of windows to an answer: the part of a reading both sources share. -Source names where
-# the windows came from at the start of a sentence. -Stale and -StateError are what the source said
-# about its own freshness, which only quota-axi ever says; -Schema is the note on its schema version.
+# From a list of windows to an answer. -Source names where the windows came from at the start of a
+# sentence.
 #
 # WHICH WINDOW, AND WHY IT IS THE WORST OF ONLY SOME OF THEM. An account reports several windows and
 # they do not all bound the same thing. The session and weekly windows both bound every dispatch, so
@@ -911,13 +763,8 @@ function Resolve-UsageWindows {
     param(
         [Parameter(Mandatory)][System.Collections.IDictionary]$Reading,
         [Parameter(Mandatory)][AllowEmptyCollection()][array]$Windows,
-        [Parameter(Mandatory)][string]$Source,
-        [bool]$Stale = $false,
-        [string]$StateError = '',
-        [string]$Schema = ''
+        [Parameter(Mandatory)][string]$Source
     )
-
-    $Reading.stale = $Stale
 
     # The account's own windows, looked up BY ID and never by position, each annotated with what
     # could be read off it. Get-AccountUsageWindows owns which windows those are and what makes
@@ -928,10 +775,8 @@ function Resolve-UsageWindows {
     # tool saying something this cannot read, and the difference decides whether every dispatch
     # from now on is guarded. `no-usage` is the one answer that neither refuses nor warns, so
     # settling on it here would switch the guard off permanently and tell nobody - which is
-    # exactly what a renamed window id would produce, and this tool's window ordering has
-    # already changed once. Only the literal empty list is the tool affirmatively saying there
-    # are none; this is `unknown`, which warns and still dispatches, so the reader stays
-    # fail-open while saying plainly what it saw.
+    # exactly what a renamed window id would produce. This is `unknown`, which warns and still
+    # dispatches, so the reader stays fail-open while saying plainly what it saw.
     #
     # The ids it did report are named, because the whole point is that a person can tell a
     # rename from an account that really has only a spend cap.
@@ -944,8 +789,7 @@ function Resolve-UsageWindows {
         return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'no-account-windows' -Detail (
             "$Source reported usage windows for the Claude account and not one of them is " +
             'the session or weekly window this reads, so how much of the window is spent was ' +
-            'not established - a renamed window id arrives looking exactly like this.' +
-            $listed + $Schema)
+            'not established - a renamed window id arrives looking exactly like this.' + $listed)
     }
 
     # Every account window present, with the percentage this reading can stand behind for each -
@@ -964,54 +808,20 @@ function Resolve-UsageWindows {
         return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'no-applicable-window' -Detail (
             "$Source reported the Claude account's windows and every one of them has " +
             'already reset, so none of them describes a window that is currently running and ' +
-            'how much is spent is not known.' + $notes + $Schema)
+            'how much is spent is not known.' + $notes)
     }
 
     $driving = Select-DrivingUsageWindow -Applicable $applicable
     if (-not $driving) {
         return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'no-percentage' -Detail (
             "$Source reported the Claude account's windows and a used percentage could not " +
-            'be read from any of them, so the usage window is not known.' + $notes + $Schema)
+            'be read from any of them, so the usage window is not known.' + $notes)
     }
 
     $Reading.window   = $driving.id
     $Reading.resetsAt = $driving.resetsAt
     $named = Format-UsageWindowName -Id $driving.id
     $when  = Format-UsageResetTime -IsoTime $driving.resetsAt
-
-    # A STALE READING IS AN UNKNOWN, NEVER A NUMBER - and this is the failure that put a figure
-    # of 10 percent in front of the King when the true one was 42. The tool's live fetch had
-    # been rate limited and it answered from a cache taken before four workers ran for ninety
-    # minutes. Reporting that as current is precisely the "stale value presented as current"
-    # this module refuses, so `percent` stays unset and the status is `unknown`.
-    #
-    # THE NUMBER IS STILL A FLOOR, AND THE FLOOR IS WORTH KEEPING. Consumption never falls
-    # inside a window, so a cached 10 percent means at least 10 percent is spent. It is carried
-    # as `floorPercent` - a lower bound the dispatch refusal may still act on - and nothing ever
-    # presents it as the answer.
-    #
-    # COMPARED RAW, SHOWN ROUNDED DOWN, and the two are not in tension. The guard's safety is
-    # carried entirely by the comparison, which the dispatch refusal makes against the exact
-    # double and never against the digits. What is shown is a different job: "at least" is a
-    # claim about the evidence, and at a true 89.2 the sentence "at least 90 percent is spent"
-    # asserts more than the reading supports. Rounding a lower bound DOWN is what keeps "at
-    # least" true, so every rendering of a floor - here, the dispatch refusal and the pulse -
-    # floors it, and no rendering ever overstates what was actually measured.
-    #
-    # The reset time rides along on this one as well as on a measured reading. This sentence is
-    # pasted straight into the refusal the user acts on, and "when does it clear" is the one
-    # thing wanted next after being told the dispatch was refused.
-    if ($Stale) {
-        $Reading.floorPercent = $driving.percent
-        $because = if ($StateError) { " Its own last attempt failed: $StateError." } else { '' }
-        $age = if ($Reading.generatedAt) { " The cached answer was generated at $($Reading.generatedAt)." }
-               else { '' }
-        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'stale-reading' -Detail (
-            "$Source reports its own Claude reading as stale, so it describes an earlier " +
-            'moment rather than this one and no current percentage can be given. At least ' +
-            "$([Math]::Floor($driving.percent)) percent of $named is spent, which is a floor " +
-            "rather than a reading." + $when + $notes + $because + $age + $Schema)
-    }
 
     $others = @($applicable | Where-Object { $_.id -ne $driving.id -and $null -ne $_.percent })
     $beside = if ($others.Count -gt 0) {
@@ -1026,9 +836,11 @@ function Resolve-UsageWindows {
         "$([Math]::Round($driving.percent, 1)) percent of $named is spent." + $when + $beside + $notes)
 }
 
-# One reading from the headless probe. Anything short of a percentage comes back `unknown` with what
-# went wrong as its detail, and Get-UsageWindow hands the question to the fallback - this never
-# answers `no-usage`, because the probe has never been seen to say there is nothing to report.
+# One reading from the headless probe, the only source there is. Anything short of a percentage
+# comes back `unknown` with a named signal and what went wrong as its detail - `probe-failed` where
+# the probe could not answer, or Resolve-UsageWindows' own signal where it answered and that could
+# not settle - never a number, and never `no-usage`, because the probe has never been seen to say
+# there is nothing to report.
 function Read-UsageFromProbe {
     [CmdletBinding()]
     param(
@@ -1036,99 +848,22 @@ function Read-UsageFromProbe {
         [int]$TimeoutSeconds = $script:DefaultProbeTimeoutSeconds
     )
 
+    $lead = 'How much of the usage window is spent could not be established: '
     $r = Invoke-UsageProbe -TimeoutSeconds $TimeoutSeconds
     if (-not $r.ok) {
-        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'probe-failed' -Detail $r.error
+        # Invoke-UsageProbe's own message already names the probe or Claude Code as its subject.
+        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'probe-failed' -Detail (
+            $lead + "$("$($r.error)".Trim().TrimEnd('.')).")
     }
     $parsed = ConvertFrom-UsageProbe -Value $r.value
     if (-not $parsed.ok) {
         $why = $parsed.problem
         if ($null -ne $r.exitCode -and $r.exitCode -ne 0) { $why += ", and it exited $($r.exitCode)" }
-        if ($r.error) { $why += " saying: $($r.error)" }
-        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'probe-failed' -Detail $why
+        if ($r.error) { $why += " saying: $("$($r.error)".TrimEnd('.'))" }
+        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'probe-failed' -Detail (
+            $lead + "the usage probe ran and $why.")
     }
     Resolve-UsageWindows -Reading $Reading -Windows $parsed.windows -Source 'The usage probe'
-}
-
-# One reading from quota-axi, the fallback, read exactly as it always has been.
-function Read-UsageFromQuotaAxi {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][System.Collections.IDictionary]$Reading,
-        [int]$TimeoutSeconds = $script:DefaultTimeoutSeconds
-    )
-
-    $r = Invoke-QuotaAxi -Arguments @('--provider', 'claude', '--json') -TimeoutSeconds $TimeoutSeconds
-    if (-not $r.ok) {
-        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'lookup-failed' -Detail (
-            "How much of the usage window is spent could not be established: $($r.error)")
-    }
-
-    $json = $null
-    try { $json = $r.value | ConvertFrom-Json } catch {
-        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'unreadable-answer' -Detail (
-            'quota-axi answered with something that is not the JSON report this reads ' +
-            "($($_.Exception.Message)), so the usage window is not known.")
-    }
-
-    # THE SCHEMA VERSION IS RECORDED AND NEVER REFUSED ON. It is what tells a later reader whether
-    # an answer this could not make sense of came from a format that has moved on, so it is carried
-    # on the reading and named in the detail of every answer that is not a percentage. Refusing an
-    # unfamiliar version would be the opposite mistake: a compatible bump would take the reader out
-    # on a machine where it was working the day before, and this guard fails open by design.
-    $Reading.schemaVersion = "$(Get-JsonField $json 'schemaVersion')".Trim()
-    # When the tool generated this answer, carried on every reading so a cached one is visibly
-    # cached rather than presented as a measurement taken now.
-    $Reading.generatedAt = ConvertTo-UsageResetTime (Get-JsonField $json 'generatedAt')
-    $schema = if ($Reading.schemaVersion) {
-        " The answer was stamped schema version $($Reading.schemaVersion)."
-    } else {
-        ' The answer carried no schema version.'
-    }
-
-    $providers = ConvertTo-JsonList (Get-JsonField $json 'providers')
-    $claude = @($providers | Where-Object { (Get-JsonField $_ 'provider') -eq 'claude' }) |
-              Select-Object -First 1
-    if (-not $claude) {
-        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'no-provider' -Detail (
-            'quota-axi answered without reporting on the Claude account, so how much of the ' +
-            'usage window is spent was not established.' + $schema)
-    }
-
-    # Read here and acted on by the resolver, once the windows have been parsed - because a stale
-    # reading still yields a floor, and the floor comes out of those same windows.
-    $state = Get-JsonField $claude 'state'
-    $stale = ($true -eq (Get-JsonField $state 'stale'))
-
-    # THREE FACTS, NOT ONE, AND ONLY ONE OF THEM SWITCHES THE GUARD OFF QUIETLY. An empty list
-    # is the tool saying there are no windows here, which is a settled fact about this machine
-    # and rightly draws no warning on a dispatch. A field the tool never wrote, and one it wrote
-    # as null, are the tool not answering - and a renamed field would otherwise read as that
-    # settled fact, leaving every dispatch unguarded with nothing said to anybody. Not knowing
-    # is `unknown`, which is the one answer of the three that warns.
-    $windowsValue = Get-JsonField $claude 'windows'
-    if (-not (Test-JsonField $claude 'windows')) {
-        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'no-windows-field' -Detail (
-            'quota-axi answered about the Claude account without saying anything about usage ' +
-            'windows at all, so how much of the window is spent was not established - the ' +
-            'field this reads them from was not there.' + $schema)
-    }
-    if ($null -eq $windowsValue) {
-        return Complete-UsageReading -Reading $Reading -Status 'unknown' -Signal 'windows-not-reported' -Detail (
-            'quota-axi reported the Claude account with its usage windows left empty rather ' +
-            'than listed, so it did not say what they are and how much of the window is ' +
-            'spent is not known.' + $schema)
-    }
-
-    $windows = ConvertTo-JsonList $windowsValue
-    if ($windows.Count -eq 0) {
-        return Complete-UsageReading -Reading $Reading -Status 'no-usage' -Signal 'no-windows' -Detail (
-            'quota-axi reports the Claude account with no usage windows at all, so there is ' +
-            'no window percentage to watch on this machine.' + $schema)
-    }
-
-    Resolve-UsageWindows -Reading $Reading -Windows $windows -Source 'quota-axi' -Stale $stale `
-        -StateError "$(Get-JsonField $state 'error')".Trim() -Schema $schema
 }
 
 # THE HOLD AT 90 PERCENT. Once a reading puts the driving window at or past 90 percent, nothing reads
@@ -1138,6 +873,17 @@ function Read-UsageFromQuotaAxi {
 # window: the dispatch refusal and the watch's pause both act on it exactly as they act on any floor.
 # The first read after the reset is the confirming one, and Save-UsageReading clears or renews the
 # hold from what it finds.
+#
+# A HELD READING IS AN UNKNOWN, NEVER A NUMBER. It describes an earlier moment, so `percent` stays
+# unset and the figure is carried as `floorPercent` - a lower bound the dispatch refusal may act on,
+# and that nothing ever presents as the answer.
+#
+# COMPARED RAW, SHOWN ROUNDED DOWN, and the two are not in tension. The guard's safety is carried
+# entirely by the comparison, which the dispatch refusal makes against the exact double and never
+# against the digits. What is shown is a different job: "at least" is a claim about the evidence,
+# and at a true 89.2 the sentence "at least 90 percent is spent" asserts more than the reading
+# supports. Rounding a lower bound DOWN is what keeps "at least" true, so every rendering of a
+# floor - here, the dispatch refusal and the pulse - floors it.
 #
 # Scoped to the account it was taken on, because the reading follows whichever account is active
 # and another account's pool is not held. A gate file that cannot be read holds nothing: what that
@@ -1256,9 +1002,9 @@ function Save-UsageReading {
 # .status        has-usage | no-usage | unknown
 # .signal        what settled it
 # .percent       the percentage used, or $null - NEVER 0 as a stand-in for "not known", and set
-#                ONLY on a current reading. A stale or held one leaves it unset and fills floorPercent.
-# .floorPercent  a lower bound from a cached or held reading, or $null. Never an answer.
-# .stale         whether the reading describes an earlier moment - quota-axi's own cache, or the hold
+#                ONLY on a current reading. A held one leaves it unset and fills floorPercent.
+# .floorPercent  a lower bound from a held reading, or $null. Never an answer.
+# .stale         whether the reading describes an earlier moment, which only the hold does
 # .detail        one line naming the evidence, written to be read to a person
 # .resetsAt      when the driving window resets, ISO, or '' where that could not be read
 # .window        which window the percentage came from, or ''
@@ -1266,25 +1012,24 @@ function Save-UsageReading {
 #                could not be read or has rolled - or $null where no window list was read. Shown
 #                by the pulse and never acted on; .percent is the only figure anything acts on.
 # .account       which account the reading belongs to, or '' where that could not be read
-# .generatedAt   when quota-axi generated the answer, ISO, or ''
-# .schemaVersion the schema quota-axi stamped its answer with, as it wrote it, or ''
-# .source        which source answered: probe | quota-axi | hold - the hold being no source asked at
-#                all - or '' where none did
+# .generatedAt   always '' - New-UsageReading owns why the field is kept
+# .schemaVersion always '' - likewise
+# .source        which source answered: probe | hold - the hold being no source asked at all - or ''
+#                where none did
 # .previous      the earlier reading of this same window a climb is measured from, or $null -
 #                Save-UsageReading owns which reading that is
 # .takenAt       when this reading was taken, ISO
 #
 # THE ORDER, AND WHAT EACH STEP COSTS WHEN IT FAILS.
-#   1. The hold: a window already read at or past 90 percent is not read again until it resets.
+#   1. The hold: a window already read at or past 90 percent is not read again until it resets,
+#      and answers `unknown`, `held-at-limit`, with the held figure as a floor.
 #   2. The probe: one headless turn, answering only with a percentage.
-#   3. quota-axi, once, and only where the fifteen-minute gate across every process allows it.
-#   4. Neither: `unknown` with no percentage, saying what each step said - never a number.
-# A stale quota-axi reading stays the floor it always was. Signals added by this order are
-# `held-at-limit` and `fallback-gated`; every other signal is the one its source always gave.
+#   3. A probe that falls short of a percentage: `unknown`, no percentage and no floor, saying what
+#      the probe said - `probe-failed` where it could not answer, or Resolve-UsageWindows' own
+#      signal where it answered and that could not settle. Never a number, and nothing else is asked.
 function Get-UsageWindow {
     [CmdletBinding()]
     param(
-        [int]$TimeoutSeconds      = $script:DefaultTimeoutSeconds,
         [int]$ProbeTimeoutSeconds = $script:DefaultProbeTimeoutSeconds,
         # Empty is every caller but a test: the gate file under this installation's state\.
         [string]$StatePath        = ''
@@ -1312,24 +1057,7 @@ function Get-UsageWindow {
             $probe.source = 'probe'
             return Save-UsageReading -Reading $probe -StatePath $StatePath -Now $now
         }
-        $why = "$($probe.detail)".Trim().TrimEnd('.')
-
-        $slot = Request-UsageFallbackSlot -Path $StatePath
-        if (-not $slot.allowed) {
-            return Complete-UsageReading -Reading (New-UsageReading -Account $account -TakenAt $taken) `
-                -Status 'unknown' -Signal 'fallback-gated' -Detail (
-                    'How much of the usage window is spent could not be established: the usage probe ' +
-                    "did not answer ($why), and quota-axi was not asked because $($slot.reason)")
-        }
-
-        $answer = Read-UsageFromQuotaAxi -Reading (New-UsageReading -Account $account -TakenAt $taken) `
-                      -TimeoutSeconds $TimeoutSeconds
-        $answer.source = 'quota-axi'
-        $answer.detail = "$($answer.detail) The usage probe was tried first and did not answer: $why."
-        if ($answer.status -eq 'has-usage') {
-            return Save-UsageReading -Reading $answer -StatePath $StatePath -Now $now
-        }
-        $answer
+        $probe
     } catch {
         # A fresh reading rather than one carried out of the failure. A field set on the way to a
         # throw is a half-finished answer, and a percentage carried out of a reading that failed is
@@ -1622,7 +1350,7 @@ function Watch-UsagePulse {
 
     # NO INTERVAL AND NO END IS A BUSY LOOP, and this is the one shape of it. The sleep is skipped
     # for an interval of zero, which is right for a bounded run - a test asking for two ticks back
-    # to back should not wait - and catastrophic for an unbounded one: every pass starts quota-axi
+    # to back should not wait - and catastrophic for an unbounded one: every pass starts a probe
     # and reads the fleet through herdr, as fast as the machine allows, for the life of the session.
     # It is silent while it does it, because after the first tick nothing has changed and the
     # pulse's normal answer is nothing at all, which the King is taught to read as a pulse that is
@@ -1656,8 +1384,7 @@ function Watch-UsagePulse {
     }
 }
 
-Export-ModuleMember -Function Get-QuotaAxiCommandPath, Get-QuotaAxiHint, Invoke-QuotaAxi,
-                              ConvertTo-JsonList, Test-JsonField, ConvertTo-UsageNumber,
+Export-ModuleMember -Function Test-JsonField, ConvertTo-UsageNumber,
                               ConvertTo-UsageResetTime, Format-UsageResetTime,
                               Format-UsageWindowName, Format-UsageWindowShortName,
                               Get-ActiveAccountName, Get-AccountUsageWindows,
@@ -1666,5 +1393,5 @@ Export-ModuleMember -Function Get-QuotaAxiCommandPath, Get-QuotaAxiHint, Invoke-
                               Get-WorkerPhrase, Get-WorkerLabel, Format-UsagePulse,
                               Get-UsagePulse, Watch-UsagePulse,
                               Get-UsageProbeCommandPath, Invoke-UsageProbe, ConvertFrom-UsageProbe,
-                              Get-UsageStatePath, Update-UsageGateState, Request-UsageFallbackSlot,
+                              Get-UsageStatePath, Update-UsageGateState,
                               Get-UsageReadIntervalMinutes, Get-UsageActedPercent

@@ -156,9 +156,9 @@ asked for; `survey` is a curated answer to "what needs me" that only the user ev
 - The usage pulse owns no file at all. What it last said lives in the background job that is
   pulsing, for as long as that job runs, and the cost is one line a restarted session might have
   held back.
-- `state\usage-gate.json` - the usage reader's record across processes: when quota-axi was last
-  asked, the hold on a window read at 90 percent, and the last few readings. Written only by
-  `bin\Usage.psm1`, which refuses any file there that is not its own record.
+- `state\usage-gate.json` - the usage reader's record across processes: the hold on a window read
+  at 90 percent, and the last few readings. Written only by `bin\Usage.psm1`, which refuses any
+  file there that is not its own record.
 - `data\projects.md` - the project registry: standing delivery posture per project. Maintained
   via `/annex` or by hand.
 - `data\done-<project>.md` - one project's standing definition of done, one `-` bullet per
@@ -263,13 +263,14 @@ rather than trusting a list; a list here goes stale and has twice.
 | `bin\GateRun.psm1` | what a no-mistakes gate run is doing, read from the fields that say so: the run, each step with its own status, whether it is parked and on what, and the findings to decide on - decoded rather than matched, and an output it cannot read comes back as unreadable rather than as a state word |
 | `bin\Watch.ps1`, `bin\Watch.psm1` | the Hand's four watches as short verbs - a worker, the gate run on its branch, both, or the worker's report being written - each one background job that prints nothing while it waits and one line naming the outcome and what to do next |
 | `bin\GateRunWait.psm1` | the one wait on a gate run, built on that reader: block until the run moves away from the baseline taken at the first readable read, and say why the wait ended - a read it could not take is counted rather than taken for a change or for quiet, and a timeout is the absence of an outcome rather than one |
+| `bin\WorkItemLink.psm1` | every call that reaches the work item tracker for `writ`: read an item, attach a pull request as a link, move it to the in-review state only from a state the configuration names, discover and cache a repository's GUID, and the re-read that is the only thing that says it worked |
 
 ## Skills
 
 <!-- rule:claude/skill-triggers -->
-Every skill lives in `.claude\skills\` inside this repository, so all twenty load when Claude Code
-runs here and none of them exists in a session started anywhere else. Nothing links or copies them
-into `~\.claude\skills\`, and nothing may start doing so.
+Every skill lives in `.claude\skills\` inside this repository, so all twenty-one load when Claude
+Code runs here and none of them exists in a session started anywhere else. Nothing links or copies
+them into `~\.claude\skills\`, and nothing may start doing so.
 
 **Invoke `muster` first, then follow it.** It owns the whole procedure - intake, the brief, both
 gates, dispatch, close-out and teardown - and reading this file is no substitute for loading it.
@@ -309,8 +310,8 @@ and nothing about what you may do - no hard rule, no escalation, no posture move
 the Escalation and etiquette section below so it applies without the skill being loaded. Load it
 only to change that: when the user asks what the pulse is, wants it off or back on for this session,
 wants a different cadence, or asks why they have heard nothing. It also holds the dispatch refusal
-near the limit, which fails open on a reading that could not be taken - a cached floor already at or
-past the threshold is the one thing that still refuses with no current reading behind it.
+near the limit, which fails open on a reading that could not be taken - a window held at its limit
+is the one thing that still refuses with no current reading behind it.
 
 Invoke `regency` when the user says they are stepping away, going afk, going to bed, back in an
 hour, or invokes `/regency` or `/afk` - and at session start whenever the digest reports `AWAY:`,
@@ -354,7 +355,7 @@ words. **It changes routing and delivery and never authority.** **A restarted se
 live session worker reports it in the orientation line and does not re-enter the mode until the
 King says so** - the mode is session-scoped, and only the worker is durable.
 
-Six more are reference procedures. Nobody invokes them by name; load each when its situation
+Seven more are reference procedures. Nobody invokes them by name; load each when its situation
 arrives.
 
 - `inquest` - load before writing a brief for a reported bug, and again before acting on what a
@@ -376,6 +377,9 @@ arrives.
   unexplained text in its input box, looping, repeatedly confused, asking what its brief already
   answers, unresponsive, or still recorded as working after a session restart. Never remove a stuck
   worker's worktree before loading it.
+- `writ` - load at `muster`'s close-out once a pull request for work that came in as a work item is
+  confirmed on the remote [rule:writ/offer-after-pr], and when the King asks to move a work item to
+  in review or link a pull request to one. It offers, and writes nothing without his yes.
 
 ## Backlog contract
 
@@ -660,6 +664,17 @@ Two things that follow, and both have been got wrong:
 This shape is **the default and always on**. `herald` owns it, holds the reasoning and the
 exceptions, and is the one place it can be turned off - load it if the user asks for fuller prose,
 or asks to turn the shaping back on.
+
+**Say only what you have established.** Two rules for chat and for everything else you write.
+Neither is part of the shape, so turning the shape off leaves both in force:
+
+- **Never state a figure - a percentage, a count, a time, a version - that was not read from its
+  source in this turn.** A figure you could not read is said to be unread, and one read earlier or
+  served from a cache is said to be stale. "It is surely still about that" is the reasoning this
+  catches.
+- **Never present a policy position, a preference or an untested belief as a technical
+  impossibility.** Say "I won't", "I haven't checked" or "the rule says", whichever is true.
+<!-- rule:claude/say-only-what-is-established -->
 
 Reach the user immediately for:
 

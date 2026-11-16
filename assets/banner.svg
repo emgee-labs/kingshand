@@ -64,5 +64,5 @@
   <text x="404" y="196" font-family="Georgia, 'Times New Roman', serif" font-size="27" fill="#c8a24f" letter-spacing="0.5">You rule. It executes.</text>
   <rect x="404" y="216" width="86" height="2" fill="#c8a24f" opacity="0.55"/>
   <text x="404" y="252" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="18" fill="#98a1b0">One Claude Code session. A worktree and a worker for every task.</text>
-  <text x="404" y="278" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" fill="#6d7684">Windows - PowerShell 7</text>
+  <text x="404" y="278" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="15" fill="#6d7684">Windows, macOS, Linux - PowerShell 7</text>
 </svg>

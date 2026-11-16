@@ -80,7 +80,7 @@ Describe 'the tracked manifest' {
 
     It 'pins every dependency the release depends on, and Claude Code by minimum only' {
         $pins = Read-DependencyPins -Path (Join-Path $script:RepoRoot 'dependencies.json')
-        @($pins.name) | Should -Be @('herdr', 'no-mistakes', 'lavish-axi', 'tasks-axi', 'quota-axi', 'claude-code')
+        @($pins.name) | Should -Be @('herdr', 'no-mistakes', 'lavish-axi', 'tasks-axi', 'claude-code')
         $c = @($pins | Where-Object name -eq 'claude-code')[0]
         $c.minimum | Should -Not -BeNullOrEmpty
         $c.version | Should -BeNullOrEmpty -Because 'it updates itself, so only a floor is pinned'

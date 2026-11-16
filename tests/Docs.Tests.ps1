@@ -410,7 +410,7 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
         # The read has to be instructed here, because nothing earlier in muster opens a brief.
         Assert-Phrase -Text $step -Where 'the landing gate floors' `
             -Phrase '**Read both before deciding a merge**, because nothing earlier in this skill opens the brief'
-        $step.Contains('"$env:KINGSHAND_HOME\data\<id>\brief.md", "$env:KINGSHAND_HOME\data\<id>\report.md"') |
+        $step.Contains('foreach ($kind in ''brief'', ''report'')') |
             Should -BeTrue -Because 'the floor names both files it reads, so the read is runnable'
         # THE FLOOR'S EVIDENCE IS TWO FILES AND IT USED TO STATE NO MEANING FOR ONE IT COULD NOT
         # READ. Select-String writes its error to stderr per missing path and returns nothing for
@@ -431,17 +431,23 @@ Describe 'merging on the forge is a per-repository permission, off unless declar
                      'actually been read.')
         # The command itself has to distinguish the three answers, or the prose is describing a
         # read the reader cannot perform.
+        # The three answers and the position are the reader's, and NightsWatch.Tests.ps1 drives
+        # them; the block has to call that reader, once per file, with which file it is.
         $fence = @(Get-CodeFence $script:MusterMd |
-                   Where-Object { $_.Contains('PARLEY DISPATCH - NO REVIEW GATE RAN.') })
+                   Where-Object { $_.Contains('Test-WatchParleyMarker') })
         $fence.Count | Should -Be 1 -Because 'one runnable block reads the marker'
-        $fence[0].Contains('if (-not (Test-Path -LiteralPath $f))') |
-            Should -BeTrue -Because 'each path is tested before it is matched'
-        foreach ($answer in @('UNREADABLE', 'MARKER', 'CLEAN')) {
-            $fence[0].Contains($answer) |
-                Should -BeTrue -Because "the read must report $answer as its own answer"
-        }
+        $fence[0].Contains('Test-WatchParleyMarker -Path $f -Kind $kind') |
+            Should -BeTrue -Because 'each file is read in the position parley writes it in'
         $fence[0].Contains('-ErrorAction SilentlyContinue') |
             Should -BeFalse -Because 'a swallowed error is exactly how could-not-read became no-hit'
+        # Narrowed where it looks, never what it refuses. Matched anywhere, the token refused
+        # every task that quoted it while discussing parley.
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase ('**Match it only where parley writes it: a line that opens with the token, bare ' +
+                     'or as a `-` bullet, under the brief''s `## Requirements` or the report''s ' +
+                     '`## No review gate`.**')
+        Assert-Phrase -Text $step -Where 'the landing gate floors' `
+            -Phrase 'Narrowing where it looks narrows nothing it refuses'
         Assert-Phrase -Text $step -Where 'the landing gate floors' `
             -Phrase ('**`brief.md` is the copy that does not depend on the worker**: the Hand wrote ' +
                      'it before any worker existed and nothing the worker does can change it')
@@ -2632,6 +2638,35 @@ Describe 'chat is shaped by the kind of message it is' {
         Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
             -Phrase ('A skill that owns its own chat contract, such as `survey`, keeps that ' +
                      'contract.')
+    }
+}
+
+Describe 'the Hand says only what it has established' {
+    # Three corrections in one day shared one defect: a fabricated usage figure, a cached one
+    # reported as current, and a policy position stated as a technical impossibility. They are
+    # truthfulness rather than shape, so they sit outside the shape and survive it being turned off.
+    BeforeAll { $script:Shape = Get-HandSection 'Escalation and etiquette' }
+
+    It 'never states a figure it did not read from its source this turn' {
+        Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
+            -Phrase ('**Never state a figure - a percentage, a count, a time, a version - that was ' +
+                     'not read from its source in this turn.**')
+        Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
+            -Phrase ('A figure you could not read is said to be unread, and one read earlier or ' +
+                     'served from a cache is said to be stale.')
+    }
+
+    It 'never dresses a policy or a belief as a technical impossibility' {
+        Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
+            -Phrase ('**Never present a policy position, a preference or an untested belief as a ' +
+                     'technical impossibility.**')
+        Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
+            -Phrase 'Say "I won''t", "I haven''t checked" or "the rule says", whichever is true.'
+    }
+
+    It 'keeps both in force with the shape turned off' {
+        Assert-Phrase -Text $script:Shape -Where 'CLAUDE.md escalation' `
+            -Phrase ('Neither is part of the shape, so turning the shape off leaves both in force')
     }
 }
 
@@ -5444,17 +5479,18 @@ Describe 'the skills are project-local and nothing reaches into the user profile
 
         # The three rules the King set on 2026-10-22 about where the number comes from and when it
         # is read. Usage.Tests.ps1 drives each one through the code; these pin the sentences.
-        It 'says the probe answers first and quota-axi is a gated fallback' {
-            $script:Vigil | Should -Match ('\*\*A one-turn headless probe first, `quota-axi` only when ' +
-                                           'the probe cannot answer\*\*')
-            $script:Vigil | Should -Match ('asked at most once every fifteen minutes across every\s+' +
-                                           'process on the machine')
+        # The second source was removed on 2026-11-15, so the skill names the probe as the only one
+        # and no longer names the tool that used to stand behind it.
+        It 'says the probe is the only source and nothing else is asked when it cannot answer' {
+            $script:Vigil | Should -Match ('\*\*A one-turn headless probe is the only source, and when ' +
+                                           'it cannot answer nothing else is\s+asked\*\*')
+            $script:Vigil | Should -Not -Match 'quota-axi'
         }
 
         It 'says nothing reads a window from 90 percent until it resets but the confirming read' {
             $script:Vigil | Should -Match ('\*\*From 90 percent nothing reads that window\s+again until ' +
                                            'it resets, apart from the one confirming read after it\*\*')
-            $script:Vigil | Should -Match 'says `held` in place of `stale`'
+            $script:Vigil | Should -Match 'at least 91% used \(held, session, personal\)'
         }
 
         It 'says a held window is at the limit whatever threshold a caller passes' {
@@ -5492,11 +5528,11 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Vigil | Should -Match '\*\*A\s+floor names only the window it bounds\*\*'
         }
 
-        # THE FAILURE THAT PUT A FOUR-TIMES-UNDERSTATED NUMBER IN FRONT OF THE KING. A cached
-        # reading looked exactly like a current one, so the skill has to say what a floor is and
-        # that it is never a measurement.
-        It 'says a cached reading is a floor, rounded down, and never a measurement' {
-            $script:Vigil | Should -Match '\*\*A cached reading is said as a floor, never as a measurement'
+        # THE FAILURE THAT PUT A FOUR-TIMES-UNDERSTATED NUMBER IN FRONT OF THE KING. A reading from
+        # an earlier moment looked exactly like a current one, so the skill has to say what a floor
+        # is and that it is never a measurement. The hold is the one reading that carries one now.
+        It 'says a held reading is a floor, rounded down, and never a measurement' {
+            $script:Vigil | Should -Match '\*\*A held reading is said as a floor, never as a measurement'
             $script:Vigil | Should -Match 'said as "at least" and rounded down'
             $script:Vigil | Should -Match 'the refusal compares the exact figure, never the rounded one'
         }
@@ -5513,21 +5549,18 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             $script:Vigil | Should -Match 'must never make kingshand undispatchable'
         }
 
-        # THE SKILL IS THE HAND'S ONLY LOADED REFERENCE FOR EXPLAINING A REFUSAL. It said a stale
-        # reading always warns and dispatches, and that a dispatch is never blocked on an unreadable
-        # reading - so a refusal on a stale floor, which is the one that fires most on this machine,
-        # would have been relayed to the King with the opposite reason. The cases that genuinely
-        # fail open are still named as failing open; the stale floor is named apart from them.
-        It 'names the stale floor as the one unknown that still refuses' {
-            $script:Vigil | Should -Match ('\*\*A stale reading is the one unknown that can still ' +
-                                           'refuse, and it refuses on its floor rather than\s+on ' +
-                                           'its number\.\*\*')
-            $script:Vigil | Should -Match 'Where that floor alone is\s+already at or past the threshold'
+        # THE SKILL IS THE HAND'S ONLY LOADED REFERENCE FOR EXPLAINING A REFUSAL. It once said an
+        # unknown reading always warns and dispatches, and that a dispatch is never blocked on an
+        # unreadable reading - so a refusal on a floor would have been relayed to the King with the
+        # opposite reason. The cases that genuinely fail open are still named as failing open; the
+        # held window is named apart from them.
+        It 'names the held window as the one unknown that still refuses' {
+            $script:Vigil | Should -Match ('\*\*A held window is the one unknown that still refuses, and ' +
+                                           'it refuses on its floor rather than on\s+a number\.\*\*')
             $script:Vigil | Should -Match 'Only the first ever refuses\s+\*\*as a measurement\*\*'
-            $script:Vigil | Should -Match ('When the probe cannot answer, a\s+missing `quota-axi`, a ' +
-                                           'lookup that failed and an answer that would not parse all ' +
-                                           'warn and dispatch\s+anyway, and so does a fallback the ' +
-                                           'fifteen-minute gate did not allow')
+            $script:Vigil | Should -Match ('When the probe cannot answer - no\s+Claude Code to run, a ' +
+                                           'turn that did not finish in time, or an answer that would ' +
+                                           'not parse - it\s+warns and dispatches anyway')
             $script:Vigil | Should -Not -Match 'It never blocks a dispatch on an unreadable reading'
         }
 
@@ -5552,7 +5585,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         }
 
         # The last two clauses are the two lines the Hand is holding at the moment a refusal fires,
-        # and both used to state only the fail-open half. A refusal on a stale floor would then have
+        # and both used to state only the fail-open half. A refusal on a floor would then have
         # been relayed with the opposite reason - the same failure already fixed inside the skill
         # body, one level up. The body owns the reasoning; these two only have to name both halves.
         It 'is reachable from CLAUDE.md by a stated condition, the way herald is' {
@@ -5564,12 +5597,20 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                 -Phrase 'Load it only to change that'
             Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
                 -Phrase ('the dispatch refusal near the limit, which fails open on a reading that ' +
-                         'could not be taken - a cached floor already at or past the threshold is ' +
-                         'the one thing that still refuses with no current reading behind it')
+                         'could not be taken - a window held at its limit is the one thing that ' +
+                         'still refuses with no current reading behind it')
             $description = (Get-Frontmatter (Join-Path $script:Root '.claude\skills\vigil\SKILL.md'))['description']
             Assert-Phrase -Text $description -Where "vigil's frontmatter" `
                 -Phrase ('why a usage reading that could not be taken never blocks one, and why a ' +
-                         'cached floor already at or past the threshold still does')
+                         'window held at its limit still does')
+        }
+
+        # muster carries the same two halves where the Hand reads the dispatch refusals, and points
+        # at vigil for the reason rather than restating it.
+        It 'names the held window as the one exception in muster''s dispatch refusals' {
+            $muster = Get-Content -Path (Join-Path $script:Root '.claude\skills\muster\SKILL.md') -Raw
+            $muster | Should -Match ('The one exception is a window held at its\s+limit, which ' +
+                                     'refuses with no current reading behind it - `vigil` owns why')
         }
 
         It 'gives the usage reader its own owner in the tooling table' {
@@ -5590,10 +5631,10 @@ Describe 'the skills are project-local and nothing reaches into the user profile
         # it for debris - or takes the pulse's rule above for a rule about the whole module.
         It 'names the usage reader''s gate file and its one writer, among what the Hand owns' {
             Assert-Phrase -Text (Get-HandSection 'What you own') -Where 'CLAUDE.md' `
-                -Phrase ('`state\usage-gate.json` - the usage reader''s record across processes: when ' +
-                         'quota-axi was last asked, the hold on a window read at 90 percent, and the ' +
-                         'last few readings. Written only by `bin\Usage.psm1`, which refuses any file ' +
-                         'there that is not its own record.')
+                -Phrase ('`state\usage-gate.json` - the usage reader''s record across processes: the ' +
+                         'hold on a window read at 90 percent, and the last few readings. Written ' +
+                         'only by `bin\Usage.psm1`, which refuses any file there that is not its own ' +
+                         'record.')
         }
     }
 
@@ -5825,6 +5866,11 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                          'matches `PARLEY DISPATCH - NO REVIEW GATE RAN.` literally, so a paraphrase ' +
                          'disarms the floor silently, and it must be spelled identically in both ' +
                          'shapes.')
+            # The floor matches by position too, so moving the line disarms it as surely.
+            Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
+                -Phrase ('**Do not move it either: the token opens a line, bare or after `- `, inside ' +
+                         'the brief''s `## Requirements` or the report''s `## No review gate`, and ' +
+                         'nowhere else counts.**')
         }
 
         # The mechanism is one literal token crossing a skill boundary: parley writes it, Step 7
@@ -5841,6 +5887,16 @@ Describe 'the skills are project-local and nothing reaches into the user profile
             # worker, and parley's own account of what Step 7 matches.
             ([regex]::Matches($script:Parley, [regex]::Escape($token))).Count |
                 Should -BeGreaterOrEqual 2 -Because 'the marker block and the Step 7 cross-reference both carry it'
+            # The block parley hands the Hand, written where parley says to write it, is what the
+            # floor's reader finds. A respelling or a reshaped block that the reader misses fails here.
+            $block = @(Get-CodeFence $script:ParleyPath | Where-Object { $_.Contains($token) })
+            $block.Count | Should -Be 1 -Because 'parley carries one marker block'
+            $lines = @($block[0] -split "`r?`n" | Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() })
+            Import-Module (Join-Path $script:Root 'bin\NightsWatch.psm1')
+            $p = Join-Path $TestDrive 'parley-brief.md'
+            Set-Content -LiteralPath $p -Value (@('# T-1', '', '## Requirements') + $lines[0])
+            Test-WatchParleyMarker -Path $p -Kind 'brief' |
+                Should -Be 'MARKER' -Because 'the line parley writes is the line the floor reads'
         }
 
         # Criterion 5: the refusal is stated in full in Step 7 and parley carries the reason plus a
@@ -5977,7 +6033,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
                 -Phrase ('The no-merge rule on a parley dispatch is enforced by `muster` Step 7''s ' +
                          'floor, which matches the line `PARLEY DISPATCH - NO REVIEW GATE RAN.` in ' +
                          'the brief or in the worker''s `report.md` - **either one is enough** - and ' +
-                         'refuses the merge wherever it finds it.')
+                         'refuses the merge wherever it finds it in the position this skill writes it.')
             Assert-Phrase -Text $script:Parley -Where 'the parley skill' `
                 -Phrase ('It bites only where a gate was actually given up, because that is the only ' +
                          'place the marker is written.')
@@ -6109,7 +6165,7 @@ Describe 'the skills are project-local and nothing reaches into the user profile
 
     It 'every skill directory lives under .claude\skills\' {
         $skills = @(Get-ChildItem (Join-Path $script:Root '.claude\skills') -Directory)
-        $skills.Count | Should -Be 20 -Because 'nineteen skills plus setup, all project-local'
+        $skills.Count | Should -Be 21 -Because 'twenty skills plus setup, all project-local'
         @($skills.Name) | Should -Contain 'herald' -Because 'output shape has an owner the user can turn on'
         foreach ($s in $skills) {
             Test-Path -LiteralPath (Join-Path $s.FullName 'SKILL.md') |
@@ -7734,7 +7790,7 @@ Describe 'the installation has a version, and one command moves it to a release'
 
     It 'counts every skill that now loads' {
         Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'CLAUDE.md Skills' `
-            -Phrase 'so all twenty load when Claude Code runs here'
+            -Phrase 'so all twenty-one load when Claude Code runs here'
     }
 
     It 'gives the version and the update their own owners in the tooling table' {
@@ -8209,7 +8265,7 @@ Describe 'witness keeps the rules that stop an unexercised change reading as a p
         Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
             -Phrase '`witness` - load before writing a `## Browser checks` section into a brief'
         Assert-Phrase -Text $skills -Where 'the CLAUDE.md Skills section' `
-            -Phrase 'Six more are reference procedures'
+            -Phrase 'Seven more are reference procedures'
     }
 
     # A skill nothing delivers is a skill nobody follows, and naming one delivers nothing: skills
@@ -10881,7 +10937,7 @@ Describe 'night''s watch is regency plus queue-working, and merges only under +w
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
             -Phrase 'The reset is days away or unknown, so record it and stop the watch rather than sleeping.'
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
-            -Phrase '**A stale reading is read again every five minutes for up to thirty**'
+            -Phrase '**A reading that is not current is read again every five minutes for up to thirty**'
         Assert-Phrase -Text $script:Nw -Where 'the nights-watch skill' `
             -Phrase '`restart-unconfirmed` restarts the workers anyway and records its `detail` in the away journal'
     }
@@ -11270,5 +11326,138 @@ Describe 'the README Tests badge carries no test count' {
         $text = [uri]::UnescapeDataString($path.Substring(0, $colour))
         @($text.ToCharArray() | Where-Object { [char]::IsDigit($_) }) |
             Should -BeNullOrEmpty -Because "a count in '$text' is the line every branch collides on"
+    }
+}
+
+# The README badge and the banner said Windows for a release after macOS and Linux shipped, and the
+# public site mirrors the banner, so the stale word reached strangers twice over.
+Describe 'the README badge and the banner name all three platforms' {
+    It 'the Platform badge names Windows, macOS and Linux' {
+        $line = Get-Content -Path (Join-Path $script:Root 'README.md') |
+            Where-Object { $_.StartsWith('[![Platform]') } | Select-Object -First 1
+        $line | Should -Not -BeNullOrEmpty -Because 'the README badge row carries a Platform badge'
+        $text = [uri]::UnescapeDataString($line)
+        foreach ($os in 'Windows', 'macOS', 'Linux') {
+            $text.Contains($os) | Should -BeTrue -Because "the Platform badge must name $os"
+        }
+    }
+
+    It 'the banner names Windows, macOS and Linux' {
+        $svg = Get-Content -Path (Join-Path $script:Root 'assets\banner.svg') -Raw
+        $svg.Contains('Windows, macOS, Linux - PowerShell 7') |
+            Should -BeTrue -Because 'the banner states the platforms kingshand runs on'
+    }
+}
+
+
+# ---------------------------------------------------------------------------------------------
+# writ: after a pull request, offer to move its work item to in-review and link the pull request.
+#
+# Every rule here guards a write to the work item tracker that cannot be taken back, and each was
+# settled before kingshand took it on. bin\WorkItemLink.psm1 enforces the executable half and
+# tests\WorkItemLink.Tests.ps1 tests it through the module; these pin the prose that tells the Hand
+# when to ask and what never to do.
+# ---------------------------------------------------------------------------------------------
+Describe 'writ offers once, writes nothing without a yes, and never comments' {
+    BeforeAll {
+        $script:WritMd   = Join-Path $script:Root '.claude\skills\writ\SKILL.md'
+        $script:WritText = Get-DocText $script:WritMd
+    }
+
+    It 'has frontmatter that parses, with the situation in the description' {
+        $fm = Get-Frontmatter $script:WritMd
+        $fm['name']    | Should -Be 'writ' -Because 'the frontmatter name must match the skill directory'
+        $fm['version'] | Should -Be '1.0.0'
+        $fm['description'].Contains('once a pull request for work that came in as a work item is confirmed on the remote') |
+            Should -BeTrue -Because 'a reference skill is reached by recognising its situation, not by name'
+    }
+
+    It 'is named inline as a reference procedure with its own load trigger' {
+        Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'the CLAUDE.md Skills section' `
+            -Phrase ('`writ` - load at `muster`''s close-out once a pull request for work that came ' +
+                     'in as a work item is confirmed on the remote')
+        Assert-Phrase -Text (Get-HandSection 'Skills') -Where 'the CLAUDE.md Skills section' `
+            -Phrase 'It offers, and writes nothing without his yes.'
+    }
+
+    It 'is hooked into muster''s close-out after the pull request is confirmed' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
+            -Phrase '**Where this work came in as a work item, load `writ` now and make its offer**'
+        Assert-Phrase -Text (Get-MusterStep 'Step 8a') -Where 'muster Step 8a' `
+            -Phrase 'Teardown at Step 8b does not wait on the answer.'
+    }
+
+    It 'is hooked into fief''s pull request step, once per ticket item on the branch' {
+        $fiefMd = Join-Path $script:Root '.claude\skills\fief\SKILL.md'
+        $fief   = Get-DocText $fiefMd
+        Assert-Phrase -Text $fief -Where 'fief''s Delivery' `
+            -Phrase ('**Once it is confirmed on the remote, load `writ` and make its offer once per ' +
+                     'item on the branch that passes writ''s test** - kind `ticket`, id all digits')
+        # The normaliser drops citations, so the one naming writ's rule is read from the raw text.
+        Assert-Phrase -Text ((Get-Content -Path $fiefMd -Raw) -replace '\s+', ' ') -Where 'fief''s Delivery' `
+            -Phrase 'passes writ''s test** [rule:writ/offer-after-pr] - kind `ticket`'
+        Assert-Phrase -Text $fief -Where 'fief''s Delivery' `
+            -Phrase '**One question can list every such item, and each still needs his own yes.**'
+        Assert-Phrase -Text $fief -Where 'fief''s Delivery' `
+            -Phrase 'A branch whose items are all `adhoc` gets no offer at all.'
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '**A `fief` session''s pull request is the same moment**'
+    }
+
+    It 'says the config file carries an optional review block that writ owns' {
+        Assert-Phrase -Text (Get-MusterStep 'Step 1 ') -Where 'muster Step 1' `
+            -Phrase 'The file holds these two keys, and one optional `review` block that only `writ` reads and owns:'
+    }
+
+    It 'fires only for work that came in as a work item, and never guesses the id' {
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '`kind` is `ticket` and `ticket` is a work item number, digits and nothing else.'
+        Assert-Phrase -Text $script:WritText -Where 'writ' -Phrase '**Work that came in as `adhoc` gets no offer**'
+        Assert-Phrase -Text $script:WritText -Where 'writ' -Phrase '**Never take the id from a branch name or a slug.**'
+        Assert-Phrase -Text $script:WritText -Where 'writ' -Phrase '**The Hand loads it; a worker never does**'
+    }
+
+    It 'asks one question on every posture, and a no changes nothing' {
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '**One question, with the item id and the pull request in it**'
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '**A no is a complete answer and changes nothing**'
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '**It is asked on every posture, `+yolo` included.**'
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '**While regency or night''s watch is in force it waits for his return**'
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '**Where either fails, say so in one line - what is missing - and make no offer.**'
+    }
+
+    It 'finds a GUID without asking, and the grant reaches nothing adjacent' {
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '**Find the repository''s GUID - without asking.**'
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase 'it is not a write to a work item, a state move or a comment.'
+        Assert-Phrase -Text $script:WritText -Where 'writ' `
+            -Phrase '**With none, say so - not as a question.**'
+    }
+
+    It 'keeps every settled never' {
+        foreach ($phrase in @(
+            '**Never proceed for a type the configuration does not name.**'
+            '**Never add a comment.** Results are reported in chat only.'
+            '**Never move a state backward or re-apply one.**'
+            '**Never link more than one pull request silently.**'
+            '**Never guess the work item id from a branch name.** Ask.'
+            '**Never report success without the re-read confirming both the link and the state.**'
+            '**Never hand-construct the request body or the cache write.**'
+            '**This re-read is what verified means, and nothing before it is.**'
+            '**More than one found is listed and put to him**'
+            '**every write goes through that module.**'
+        )) {
+            Assert-Phrase -Text $script:WritText -Where 'writ' -Phrase $phrase
+        }
+    }
+
+    It 'gives the module its own row in the tooling table' {
+        Assert-Phrase -Text (Get-HandSection 'Tooling') -Where 'the CLAUDE.md tooling table' `
+            -Phrase '| `bin\WorkItemLink.psm1` | every call that reaches the work item tracker for `writ`'
     }
 }

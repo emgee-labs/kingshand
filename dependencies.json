@@ -14,26 +14,21 @@
   "no-mistakes": {
     "source": "github",
     "repository": "kunchenguid/no-mistakes",
-    "version": "1.84.0"
+    "version": "1.106.1"
   },
   "lavish-axi": {
     "source": "npm",
     "package": "lavish-axi",
-    "version": "0.1.95"
+    "version": "0.1.97"
   },
   "tasks-axi": {
     "source": "npm",
     "package": "tasks-axi",
     "version": "0.2.6"
   },
-  "quota-axi": {
-    "source": "npm",
-    "package": "quota-axi",
-    "version": "0.1.28"
-  },
   "claude-code": {
     "source": "npm",
     "package": "@anthropic-ai/claude-code",
-    "minimum": "2.1.312"
+    "minimum": "2.1.325"
   }
 }
